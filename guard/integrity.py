@@ -120,7 +120,7 @@ class FileIntegrityMonitor:
         """Saves current state as the trusted baseline manifest."""
         current_hashes = self.scan_directory()
         payload = {
-            "version": "1.2.0",
+            "version": "1.2.1",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "target_dir": str(self.target_dir),
             "file_count": len(current_hashes),
