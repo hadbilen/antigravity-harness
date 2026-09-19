@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/config")
 SKILL_DIR = os.path.join(CONFIG_DIR, "skills", "upstream-auditor")
+CUSTOM_SKILLS_DIR = os.path.join(CONFIG_DIR, "skills")
 STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
 BUILTIN_DIR = os.path.expanduser("~/.gemini/antigravity/builtin/skills")
 PBTXT_FILE = os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt")
@@ -29,6 +30,29 @@ def normalize_model_name(name: str) -> str:
     if not name:
         return ""
     return re.sub(r'[\s\-_\(\)]+', '', name).lower()
+
+def check_skill_namespace_collisions():
+    """Detects any naming conflicts between builtin Google skills and local custom skills."""
+    if not os.path.isdir(BUILTIN_DIR) or not os.path.isdir(CUSTOM_SKILLS_DIR):
+        return []
+    try:
+        builtin_names = {d for d in os.listdir(BUILTIN_DIR) if os.path.isdir(os.path.join(BUILTIN_DIR, d))}
+        custom_names = {
+            d for d in os.listdir(CUSTOM_SKILLS_DIR)
+            if os.path.isdir(os.path.join(CUSTOM_SKILLS_DIR, d)) or os.path.islink(os.path.join(CUSTOM_SKILLS_DIR, d))
+        }
+        return sorted(builtin_names.intersection(custom_names))
+    except Exception:
+        return []
+
+def get_builtin_skills_list():
+    """Returns sorted list of current builtin skill directory names."""
+    if not os.path.isdir(BUILTIN_DIR):
+        return []
+    try:
+        return sorted([d for d in os.listdir(BUILTIN_DIR) if os.path.isdir(os.path.join(BUILTIN_DIR, d))])
+    except Exception:
+        return []
 
 def compute_builtin_hash():
     if not os.path.isdir(BUILTIN_DIR):
@@ -137,9 +161,27 @@ def main():
 
     changed_reasons = []
 
+    # 0. Check skill namespace collisions / shadowing
+    collisions = check_skill_namespace_collisions()
+    if collisions:
+        changed_reasons.append(f"Namespace collision / shadowing detected: {', '.join(collisions)}")
+
     # 1. Check builtin skills delta
     if recorded_hash and current_builtin_hash and current_builtin_hash != recorded_hash:
-        changed_reasons.append("Delta detected in Antigravity builtin environment (builtin/skills)")
+        current_builtins = get_builtin_skills_list()
+        recorded_builtins = state.get("recorded_builtin_skills", [])
+        if recorded_builtins:
+            added = sorted(set(current_builtins) - set(recorded_builtins))
+            removed = sorted(set(recorded_builtins) - set(current_builtins))
+            details = []
+            if added: details.append(f"added: {', '.join(added)}")
+            if removed: details.append(f"removed: {', '.join(removed)}")
+            if details:
+                changed_reasons.append(f"Delta in builtin skills ({'; '.join(details)})")
+            else:
+                changed_reasons.append("Delta detected in Antigravity builtin environment (builtin/skills)")
+        else:
+            changed_reasons.append("Delta detected in Antigravity builtin environment (builtin/skills)")
 
     # 2. Check model delta (via payload or pbtxt)
     norm_payload = normalize_model_name(payload_model)

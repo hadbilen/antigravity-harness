@@ -38,6 +38,7 @@ link_or_copy() {
 # Core constitution and design contracts
 link_or_copy "${SCRIPT_DIR}/GEMINI.md" "${TARGET_DIR}/GEMINI.md"
 link_or_copy "${SCRIPT_DIR}/DESIGN.md" "${TARGET_DIR}/DESIGN.md"
+link_or_copy "${SCRIPT_DIR}/MISTAKES.md" "${TARGET_DIR}/MISTAKES.md"
 link_or_copy "${SCRIPT_DIR}/hooks.json" "${TARGET_DIR}/hooks.json"
 
 # Autonomous subagents directory

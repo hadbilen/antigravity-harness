@@ -3,6 +3,13 @@
   "last_model_slug": "gemini-3.8-flash-high",
   "last_pbtxt_model": "MODEL_PLACEHOLDER_M318",
   "builtin_skills_hash": "cddf6b0d4c512d7eb122cb3de3b8db922c67ce72ffe9d69fdd2e6bd63ed1905c",
+  "recorded_builtin_skills": [
+    "agy-customizations",
+    "antigravity_guide",
+    "generative_ui",
+    "migrate-workflows",
+    "permissioned-github"
+  ],
   "last_audit_timestamp": "2026-09-19T01:50:00+03:00",
   "last_skills_audit_timestamp": "2026-09-19T01:50:00+03:00",
   "skills_audit_interval_hours": 72,
