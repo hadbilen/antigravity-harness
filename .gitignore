@@ -6,6 +6,7 @@ backup_*
 staging/
 scratch/
 tasks.md
+HANDOFF.md
 
 # Environment and secrets
 .env
