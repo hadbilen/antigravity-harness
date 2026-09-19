@@ -259,7 +259,9 @@ class AntigravityGuardApp:
 
         ttk.Label(header_card, text="Tracked Ecosystem & Model Drift", style="Header.TLabel").pack(anchor="w")
         model_info = self.upstream_bridge.get_model_drift_status()
-        ttk.Label(header_card, text=f"Active Antigravity Model: {model_info['active_model']} | Monitored: {model_info['tracked_ecosystems']} ecosystems", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+        active_model = model_info.get("active_model", "Unknown")
+        tracked_count = model_info.get("tracked_ecosystems", str(len(self.upstream_bridge.load_state().get("tracked_repositories", {}))))
+        ttk.Label(header_card, text=f"Active Antigravity Model: {active_model} | Monitored: {tracked_count} ecosystems", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
 
         ttk.Button(header_card, text="Check Repositories Now", style="Primary.TButton", command=self.check_upstream_async).pack(anchor="w")
 

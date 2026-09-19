@@ -135,9 +135,12 @@ class UpstreamAuditorBridge:
     def get_model_drift_status(self) -> Dict[str, str]:
         """Detects active model environment status."""
         active_model = os.environ.get("ANTIGRAVITY_MODEL", "Gemini 3.8 Flash (High)")
+        state = self.load_state()
+        tracked_count = len(state.get("tracked_repositories", {}))
         return {
             "active_model": active_model,
             "architecture": "Google DeepMind Multimodal Foundation Engine",
             "tier_support": "Tier 1 (Fast Path), Tier 2 (Harness/ADR), Tier 3 (Auditor Enforced)",
             "context_saturation_guard": "Enforced at 25 turns",
+            "tracked_ecosystems": str(tracked_count),
         }
