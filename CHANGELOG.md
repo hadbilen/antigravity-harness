@@ -2,6 +2,16 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.2.7] - 2026-09-20
+### Fixed & Hardened
+- **Decoupled Control Plane & Policy Workspace (`install.py`, `install.sh`):** Separated standalone control plane binary (`agy-guard`) from config/policy workspace installation. Installers download or link compiled binary to `~/.local/bin/agy-guard` without altering underlying policy configuration unless `--full` is specified.
+- **Top-Level Regex Dependency Fix (`porter.py`):** Added top-level `import re` required by `clean_name = re.sub(...)` in `cmd_import()`, resolving `NameError` during CLI rule and skill import.
+- **Upstream Auditor State Resolution (`guard/upstream.py`):** Synchronized state file resolution with `upstream_watcher.py`, prioritizing `UPSTREAM_STATE_FILE` and `$XDG_STATE_HOME/antigravity-harness/upstream_state.json` with fallback to legacy path, ensuring seamless watchdog status queries under lock.
+- **Atomic Re-Lock Verification (`guard/porter_bridge.py`):** Captured return value of `self.os_adapter.lock()` during post-ingest relock; marks operation as failed if relock fails, eliminating unshielded exposure states.
+- **Strict FIM Baseline Trust (`guard/integrity.py`):** Prevented automatic trust and silent baseline creation when `.guard_integrity.json` is missing; returns `is_intact=False` with `BASELINE MISSING` diagnostic.
+- **Microsecond Precision Snapshot Identifiers (`guard/snapshot.py`):** Switched snapshot ID and emergency rollback timestamps to `%Y%m%d_%H%M%S_%f`, eliminating collisions during rapid consecutive snapshot creation.
+- **Lossless Dynamic Canonical Manifest (`porter/manifest.py`, `.harness/manifest.json`):** Dynamic loader binding for `UniversalManifest` version alignment.
+
 ## [1.2.6] - 2026-09-20
 ### Added & Hardened
 - **Pre-Session Boot Sentinel (`guard/startup.py`, `guard/cli.py`, `guard/gui.py`):** Cross-platform early-boot protection. On Linux, registers `systemd --user` unit (`agy-guard-boot.service`) running with `Before=graphical-session.target xdg-desktop-autostart.target` to lock and verify the environment before any desktop AI IDEs or models start. On macOS, configures a `launchd` LaunchAgent (`com.antigravity.guard.plist`). On Windows, registers a Task Scheduler task (`schtasks /SC ONLOGON /RL HIGHEST`). Added CLI commands `agy-guard startup enable|disable|status` and headless `agy-guard boot-check`, plus GUI settings toggle.

@@ -71,7 +71,7 @@ class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def safe_fetch_url(
     url: str,
-    user_agent: str = "Antigravity-Porter/1.2.6",
+    user_agent: str = "Antigravity-Porter/1.2.7",
     timeout: float = 10.0,
     max_bytes: int = 10_000_000,
 ) -> str:

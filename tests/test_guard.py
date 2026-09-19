@@ -377,9 +377,9 @@ class TestV126HardeningAndStartup(unittest.TestCase):
         import guard
         import porter
         from porter.models import UniversalManifest
-        self.assertEqual(guard.__version__, "1.2.6")
-        self.assertEqual(porter.__version__, "1.2.6")
-        self.assertEqual(UniversalManifest.version, "1.2.6")
+        self.assertEqual(guard.__version__, "1.2.7")
+        self.assertEqual(porter.__version__, "1.2.7")
+        self.assertEqual(UniversalManifest.version, "1.2.7")
 
     def test_agent_classification_routing(self):
         bridge = PorterBridge(target_dir=self.test_dir)
@@ -568,7 +568,7 @@ class TestV126Bugfixes(unittest.TestCase):
         from porter.manifest import ManifestEngine
         engine = ManifestEngine()
         manifest = engine.build_manifest()
-        self.assertEqual(manifest.version, "1.2.6")
+        self.assertEqual(manifest.version, "1.2.7")
 
     def test_rapid_snapshot_same_second_no_collision(self):
         engine = SnapshotEngine(target_dir=self.test_dir)
