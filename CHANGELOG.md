@@ -44,12 +44,13 @@ All notable changes to Antigravity Harness are documented in this file and detai
 - **`research` Subagent:** Isolated read-only subagent for heavy documentation and external API schema ingestion without parent context pollution.
 
 ## [1.0.4] - 2026-09-19
+*(Consolidates internal intermediate development cycles v1.0.2 and v1.0.3 into a unified release)*
 ### Added & Hardened
 - **Universal Cross-Platform Installers:** Zero-dependency `install.py` supporting Windows, Linux, macOS, and FreeBSD with NTFS junction and copy fallbacks, alongside strict POSIX `install.sh`.
 - **Popper's Falsification Gate (Rule 8):** Added deterministic baseline checks and edge verification requirement before concluding null-action or task completion.
-- **Out-of-Band Meta-Diagnosis (Rule 13):** Added circuit breaker escalation dispatching isolated diagnostic subagents (`Model: 'pro'`) upon repeating execution failures or oscillation.
-- **Session Boundary & Handoff Protocol:** Standardized `HANDOFF.template.md` at project root for Tier 2/3 task continuity and context saturation freezes (>25 turns).
-- **Subagent Hardening:** Protected hook timeouts, eliminated shell hanging issues, and harmonized cross-platform telemetry.
+- **Out-of-Band Meta-Diagnosis & Circuit Breaker (Rule 13):** Added oscillation detector, fix-pass blast cap (~10%), and escalation dispatching isolated diagnostic subagents (`Model: 'pro'`) upon repeating failures.
+- **Session Boundary & Handoff Protocol (Rule 8):** Standardized `HANDOFF.template.md` at project root for Tier 2/3 task continuity and context saturation freezes (>25 turns).
+- **Subagent & Runtime Hardening:** Protected hook timeouts (15s), parallelized `upstream_watcher.py` with ThreadPoolExecutor, aligned `build-error-resolver` with read-only architecture, and harmonized cross-platform telemetry.
 
 ## [1.0.1] - 2026-09-19
 ### Changed & Hardened
