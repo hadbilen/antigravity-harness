@@ -111,9 +111,9 @@ class OSProtectionAdapter:
         elif self.system == "windows":
             try:
                 username = os.environ.get("USERNAME", "Everyone")
-                # Deny Write (W) and Delete (D)
+                # Deny Write and Delete rights specifically while preserving Read/Traversal
                 subprocess.run(
-                    ["icacls", str(lock_path), "/deny", f"{username}:(OI)(CI)(W,D)"],
+                    ["icacls", str(lock_path), "/deny", f"{username}:(OI)(CI)(WD,AD,DE,DC)"],
                     check=False,
                     capture_output=True,
                 )
@@ -180,7 +180,7 @@ class OSProtectionAdapter:
             try:
                 username = os.environ.get("USERNAME", "Everyone")
                 subprocess.run(
-                    ["icacls", str(unlock_path), "/remove:d", username],
+                    ["icacls", str(unlock_path), "/remove:d", username, "/t", "/c", "/q"],
                     check=False,
                     capture_output=True,
                 )

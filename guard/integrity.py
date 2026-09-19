@@ -137,20 +137,19 @@ class FileIntegrityMonitor:
 
     def save_baseline(self) -> Tuple[int, str]:
         """Saves current state as the trusted baseline manifest."""
-        current_hashes = self.scan_directory()
-        payload = {
-            "version": "1.2.3",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "target_dir": str(self.target_dir),
-            "file_count": len(current_hashes),
-            "files": current_hashes,
-        }
-
         was_locked = self.os_adapter.is_locked()
         if was_locked:
             self.os_adapter.unlock()
 
         try:
+            current_hashes = self.scan_directory()
+            payload = {
+                "version": "1.2.3",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "target_dir": str(self.target_dir),
+                "file_count": len(current_hashes),
+                "files": current_hashes,
+            }
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
