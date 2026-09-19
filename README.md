@@ -1,25 +1,26 @@
 # Antigravity Harness
 
-> **A deterministic engineering harness, behavioral constitution, and autonomous subagent ecosystem for Google Antigravity.**
+> **A deterministic engineering harness, behavioral constitution, and universal ecosystem bridge for AI coding agents.**
 
-Antigravity Harness bridges the gap between raw LLM intelligence and deterministic software engineering. While underlying models provide raw reasoning power, this harness enforces the execution discipline, verification gates, context hygiene, and behavioral invariants required for reliable, production-grade autonomous development.
+Antigravity Harness bridges the gap between raw LLM intelligence and deterministic software engineering. While underlying models provide raw reasoning power, this harness enforces the execution discipline, verification gates, context hygiene, behavioral invariants, and cross-platform portability required for reliable, production-grade autonomous development across Google Antigravity, Claude Code, Cursor, Windsurf, Aider, Hermes, and open-source models.
 
 ---
 
 ## The Problem: Why This Exists
 
-Agentic coding tools frequently stumble into three failure modes:
+Agentic coding tools frequently stumble into four failure modes:
 
 1. **The Sycophancy Trap:** Agents reflexively agree with user premises, gloss over architectural flaws, and bury actionable diagnosis under polite conversational filler.
 2. **Test Weakening (Goodhart's Curse):** When encountering a failing test, agents often edit the assertion, skip the test (`skip`), or mock the contract just to get a green exit code.
 3. **AI-Slop Explosion:** Generating generic purple SaaS templates, unverified placeholder metrics ("10,000+ happy users"), and ignoring accessibility (WCAG AA) standards.
-4. **Context Bloat & Analysis Paralysis:** Reading megabytes of raw log files into conversation history, causing severe context rot and hallucinated solutions.
+4. **Context Bloat & Analysis Paralysis:** Reading megabytes of raw log files into conversation history, causing severe context rot, looping regressions, and hallucinated solutions.
+5. **Ecosystem Fragmentation & Information Decay:** Rules written for one tool (Cursor, Claude, Antigravity) cannot be shared without manual rewriting, and multi-hop migrations (A -> B -> C) suffer from the "Telephone Game" effect, diluting engineering rigor.
 
-**Antigravity Harness** eliminates these behaviors through computational gates, an immutable test invariant, and independent auditor subagents.
+**Antigravity Harness** eliminates these behaviors through computational gates, an immutable test invariant, independent auditor subagents, and a bidirectional lossless transpiler.
 
 ---
 
-## The Four Pillars
+## The Five Pillars
 
 ```
                      ┌───────────────────────────────────────────────┐
@@ -27,28 +28,26 @@ Agentic coding tools frequently stumble into three failure modes:
                      │  - Proportional Gate Escalation (Tier 1/2/3)  │
                      │  - The Immutable Test Invariant (No Weaken)   │
                      │  - Think in Code (Zero Context Bloat)         │
+                     │  - External Rule Ingestion Invariant (Rule 16)│
                      └───────────────────────┬───────────────────────┘
                                              │
-               ┌─────────────────────────────┼─────────────────────────────┐
-               ▼                             ▼                             ▼
-┌─────────────────────────────┐┌───────────────────────────┐┌─────────────────────────────┐
-│    Autonomous Subagents     ││   Modular Skill System    ││   Baseline Design Contract  │
-│ - silent-failure-hunter     ││ - harness & unlazy (Gates)││ - Zero purple-gradient slop │
-│ - security-boundary-verifier││ - deep-grill (Interview)  ││ - Strict WCAG AA contrast   │
-│ - specification-gap-auditor ││ - procoder & chisle       ││ - ENERGY/RHYTHM/MOTION dials│
-│ - consistency-auditor       ││ - antislop (6 UI modules) ││ - 5 mandatory UI states     │
-│ - build-error-resolver      ││ - upstream-auditor (72h)  ││ - Mobile horizontal lock    │
-└─────────────────────────────┘└───────────────────────────┘└─────────────────────────────┘
+      ┌────────────────────────┬─────────────┴────────────┬────────────────────────┐
+      ▼                        ▼                          ▼                        ▼
+┌──────────────┐      ┌─────────────────┐       ┌──────────────────┐     ┌──────────────────┐
+│  Autonomous  │      │  Modular Skill  │       │ Baseline Design  │     │ Universal Bridge │
+│  Subagents   │      │     System      │       │     Contract     │     │   & Porter CLI   │
+│ (6 Auditors) │      │   (20 Skills)   │       │  (Antislop UI)   │     │ (Lossless Trans) │
+└──────────────┘      └─────────────────┘       └──────────────────┘     └──────────────────┘
 ```
 
 ### 1. The Engineering Constitution (`GEMINI.md`)
 - **Proportional Gate Escalation:** Eliminates over-engineering. Tier 1 (<20 lines) bypasses planning artifacts. Tier 2 (3–8 files) triggers Blast Radius Mapping and Call-Graph Reachability checks. Tier 3 (>8 files or auth/schema changes) mandates the full harness pipeline.
 - **The Immutable Test Invariant:** An agent is strictly prohibited from altering test assertions or skipping tests to pass a gate. Tests must target contract boundaries (*seams*), not private implementation details. Source code must fix the test—never the reverse.
-- **Think in Code Context Hygiene:** The agent must never dump whole files or massive logs into the context window. It parses and filters state using targeted shell pipelines (`grep`, `jq`, `awk`).
+- **Think in Code Context Hygiene:** The agent must never dump whole files or massive logs into the context window. It parses and filters state using targeted shell pipelines (`grep`, `jq`, `awk`), scripts bulk inspections, and isolates streams.
 - **Circuit Breaker & Out-of-Band Meta-Diagnosis:** Caps fix passes to ~10% blast radius, halts editing loops upon detecting oscillation, and dispatches an isolated clean-context diagnostic subagent instead of engaging in token-wasting in-band argumentation.
-- **Verification Gap & Falsification Gate:** Enforces explicit declaration of unverified boundaries upon delivery and actively guards against premature closure by verifying no discriminating falsification checks were left unexecuted.
+- **Verification Gap & Falsification Gate (Popper's Invariant):** Enforces explicit declaration of unverified boundaries upon delivery and actively guards against premature closure by verifying no discriminating falsification checks were left unexecuted.
 - **Session Boundary & Handoff Continuity (`HANDOFF.md`):** Mandates fresh chat sessions following major deliveries, generating a standardized `HANDOFF.md` summary to prevent attention degradation without losing architectural context.
-- **Failure Logging (`MISTAKES.md`):** Every defect is logged with Root Cause, Impact, and Preventive Invariant. Patterns recurring 3 times are promoted to permanent constitutional rules.
+- **External Rule Ingestion Invariant (`Rule 16`):** Prohibits blind mutation of external rules; mandatorily enforces read-only Pre-Flight Suitability inspection.
 
 ### 2. Independent Auditor Subagents (`/agents`)
 The primary model cannot grade its own work. Specialized read-only subagents evaluate risk boundaries prior to delivery:
@@ -57,6 +56,7 @@ The primary model cannot grade its own work. Specialized read-only subagents eva
 * **`specification-gap-auditor`:** Identifies unhandled edge cases, omissions in requirements, and vague adjectives (*"fast"*, *"scalable"*).
 * **`consistency-auditor`:** Detects axiomatic contradictions, circular dependencies, and broken cross-references across multi-volume specifications.
 * **`build-error-resolver`:** Proactively isolates TypeScript and compiler breaks with minimal, non-architectural diffs.
+* **`research`:** Ingests large external documentation (>50 KB) and explores broad codebases in an isolated sandbox, returning distilled decision matrices without polluting the primary context window.
 
 ### 3. Baseline Design Contract (`DESIGN.md`)
 A purpose-built visual contract for software interfaces:
@@ -66,8 +66,10 @@ A purpose-built visual contract for software interfaces:
 * **5 Mandatory Component States:** Every data component must handle `Default`, `Loading`, `Empty`, `Error`, and `Success` explicitly.
 
 ### 4. Modular Skill Ecosystem (`/skills`)
-18 modular skills providing specialized execution modes:
+20 modular capability packages providing specialized execution modes:
 * **`harness`:** Enforces computational verification gates (typecheck, lint, test, reachability).
+* **`porter`:** Universal ecosystem adapter, suitability analyzer, and transpiler.
+* **`vibecoder`:** Product-first, vibe-oriented rapid prototyping with zero-friction HTML delivery.
 * **`unlazy`:** Deep completion engine for massive 10+ file refactors using Depth Trees and ledger-based verification.
 * **`deep-grill`:** Socratic trade-off interviewer that rigorously probes edge cases before code is written.
 * **`chisle`:** Ultra-terse, zero-fluff development mode that optimizes for maximum signal per token.
@@ -75,6 +77,17 @@ A purpose-built visual contract for software interfaces:
 * **`antislop` (Suite of 6):** Filters out AI aesthetic slop across UI, code comments, copywriting, ergonomics, and mobile layout.
 * **`diagnosing-bugs`:** Systematic seven-phase root-cause analysis preventing speculative code edits.
 * **`upstream-auditor`:** Background watchdog that tracks model updates, Antigravity runtime changes, and community skill commits every 72 hours.
+* **`database-migrations`:** Safe, zero-downtime database migration patterns and rollbacks.
+* **`security-review`:** OWASP and authorization boundary security review.
+* **`architecture-decision-records`:** Structured ADR recording and maintenance.
+* **`silk-design`:** Physics-based kinetic UI formulas for marketing heroes (MOTION 3 only).
+* **`audit`:** Self-calibrating structural, consistency, and boundary audit engine.
+
+### 5. Universal Ecosystem Bridge & Transpiler (`porter.py` & `.harness/`)
+The bridge enables seamless two-way portability between Antigravity and any external AI coding environment:
+* **Pre-Flight Suitability & Adaptability Gate:** Analyzes incoming rules for constitutional alignment, sycophancy, AI-slop, and ecosystem redundancy before touching a single file.
+* **Lossless Canonical Manifest (`.harness/manifest.json`):** Machine-readable single source of truth preserving all 20 skills, 6 subagents, and constitution rules across multi-hop migrations (A -> B -> C) with zero information decay.
+* **Target Emitters:** Generates native configurations for Claude Code (`CLAUDE.md` + `.claude/commands/`), Cursor (`.cursor/rules/*.mdc`), Universal Open Standard (`AGENTS.md`), Aider (`CONVENTIONS.md` + `.aider.conf.yml`), and generic environments (Hermes, Cline, etc.).
 
 ---
 
@@ -89,13 +102,23 @@ antigravity-harness/
 ├── install.sh                         # POSIX Unix installer (Linux, macOS, FreeBSD)
 ├── LICENSE                            # MIT License
 ├── README.md                          # Complete documentation & architecture guide
-├── agents/                            # 5 independent auditor subagent specifications
+├── porter.py                          # Universal Bidirectional Bridge & CLI Transpiler
+├── .harness/
+│   └── manifest.json                  # Lossless machine-readable canonical manifest
+├── porter/                            # Core transpiler and analyzer modules
+│   ├── analyzer.py                    # Pre-flight suitability and adaptability analyzer
+│   ├── sanitizer.py                   # Constitutional de-slop & invariant filter
+│   ├── manifest.py                    # Canonical manifest compiler
+│   ├── parsers/                       # Format auto-detection (MDC, flat, generic)
+│   └── emitters/                      # Native generators (Claude, Cursor, Universal, Aider)
+├── agents/                            # 6 autonomous subagent specifications
 │   ├── build-error-resolver.md
 │   ├── consistency-auditor.md
+│   ├── research.md
 │   ├── security-boundary-verifier.md
 │   ├── silent-failure-hunter.md
 │   └── specification-gap-auditor.md
-├── skills/                            # 18 modular capability packages
+├── skills/                            # 20 modular capability packages
 │   ├── antislop/                      # Core anti-slop design filter
 │   ├── antislop-code/                 # Code comment hygiene
 │   ├── antislop-copywriting/          # Anti-hype copy rules
@@ -109,14 +132,65 @@ antigravity-harness/
 │   ├── deep-grill/                    # Socratic architecture interviewer
 │   ├── diagnosing-bugs/               # 7-phase root-cause debugging
 │   ├── harness/                       # Computational verification pipeline
+│   ├── porter/                        # Ecosystem adapter and suitability engine
 │   ├── procoder/                      # Senior dev backlog & sprint chain
 │   ├── security-review/               # OWASP & boundary security checklist
 │   ├── silk-design/                   # Kinetic motion toolkit (MOTION 3 only)
 │   ├── unlazy/                        # Tier-3 depth tree execution engine
-│   └── upstream-auditor/              # 72h model & skill sync watchdog
+│   ├── upstream-auditor/              # 72h model & skill sync watchdog
+│   └── vibecoder/                     # Product-first rapid prototyping engine
 └── templates/
     ├── HANDOFF.template.md            # Standardized cross-session handoff protocol
     └── config.example.json            # Sanitized user configuration template
+```
+
+---
+
+## Universal Bridge CLI (`porter.py`) Usage
+
+`porter.py` requires zero external dependencies and runs natively on Python 3.8+:
+
+### 1. Pre-Flight Inspection (Read-Only)
+Analyze any external rule, prompt, or URL before adding it to your setup:
+```bash
+python porter.py inspect path/to/external-rule.mdc
+python porter.py inspect https://raw.githubusercontent.com/.../conventions.md
+python porter.py inspect path/to/rules.md --json
+```
+
+### 2. Sanitized Ingestion (Import)
+Import and clean an external rule into a native harness skill or subagent:
+```bash
+# Import as a modular skill
+python porter.py import path/to/tailwind-rules.mdc --as-skill tailwind-v4
+
+# Preview without writing files
+python porter.py import path/to/rules.md --as-skill test-skill --dry-run
+```
+
+### 3. Outward Transpilation (Export)
+Generate native configuration files for your target coding assistant or IDE:
+```bash
+# Export for Claude Code (CLAUDE.md + .claude/commands/)
+python porter.py export --target claude --out ./
+
+# Export for Cursor (.cursor/rules/*.mdc)
+python porter.py export --target cursor --out ./
+
+# Export for Universal Open Standard (AGENTS.md)
+python porter.py export --target universal --out ./
+
+# Export for Aider (CONVENTIONS.md + .aider.conf.yml)
+python porter.py export --target aider --out ./
+
+# Export all targets simultaneously
+python porter.py export --target all --out ./export/
+```
+
+### 4. Canonical Manifest Generation
+Compile the lossless machine-readable manifest:
+```bash
+python porter.py manifest
 ```
 
 ---
@@ -126,7 +200,7 @@ antigravity-harness/
 Clone the repository to your local machine:
 
 ```bash
-git clone https://github.com/<your-username>/antigravity-harness.git ~/.gemini/antigravity-harness
+git clone https://github.com/hadbilen/antigravity-harness.git ~/.gemini/antigravity-harness
 cd ~/.gemini/antigravity-harness
 ```
 
@@ -150,14 +224,6 @@ python install.py
 # Unix / macOS / FreeBSD
 python3 install.py
 ```
-
-### Option 3: Manual Configuration
-
-If you prefer to link components manually:
-1. Link `GEMINI.md` and `DESIGN.md` into `~/.gemini/config/`.
-2. Copy or symlink `agents/*.md` into `~/.gemini/config/agents/`.
-3. Copy or symlink `skills/*` into `~/.gemini/config/skills/`.
-4. Copy `hooks.json` to `~/.gemini/config/hooks.json`.
 
 ---
 

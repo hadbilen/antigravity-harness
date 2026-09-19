@@ -118,6 +118,8 @@ Do not dump the full conversation transcript to subagents. Pass only:
 2. **Build Error Specialist (`build-error-resolver`):** Resolves compiler/type errors with minimal diffs without modifying core architecture.
 3. **Silent Failure Hunter (`silent-failure-hunter`):** Flags swallowed exceptions (`catch {}`), missing logs, and dangerous fallback returns.
 4. **Security Boundary Verifier (`security-boundary-verifier`):** Audits authorization boundaries, injection risks, and race conditions (TOCTOU) using negative test cases.
+5. **Specification Gap & Consistency Auditors (`specification-gap-auditor`, `consistency-auditor`):** Evaluates specifications, architectures, and rules for omissions, axiomatic contradictions, and logical cycles.
+6. **Research & Heavy Ingestion Specialist (`research`):** Ingests large external documentation (>50 KB) and explores broad codebases in an isolated sandbox, returning distilled contracts to the primary session.
 
 ---
 

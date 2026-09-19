@@ -79,13 +79,24 @@ def main() -> int:
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Core constitution, design contracts, mistakes, hooks
-    core_files = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", "hooks.json"]
+    # 1. Core constitution, design contracts, mistakes, hooks, and porter CLI
+    core_files = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", "hooks.json", "porter.py"]
     for file_name in core_files:
         src = script_dir / file_name
         if src.is_file():
             status = make_symlink_or_copy(src, target_dir / file_name, backup_dir)
             print(status)
+
+    # 1.1 Porter engine package & canonical manifest
+    porter_src_dir = script_dir / "porter"
+    if porter_src_dir.is_dir():
+        status = make_symlink_or_copy(porter_src_dir, target_dir / "porter", backup_dir)
+        print(status)
+
+    harness_src_dir = script_dir / ".harness"
+    if harness_src_dir.is_dir():
+        status = make_symlink_or_copy(harness_src_dir, target_dir / ".harness", backup_dir)
+        print(status)
 
     # 2. Autonomous subagents
     agents_src_dir = script_dir / "agents"

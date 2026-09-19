@@ -1,0 +1,26 @@
+# Task Checklist: Porter Ecosystem Bridge & v1.1.0 Release
+
+- [x] Phase 1: Core Porter Engine Development
+  - [x] Create persistent task checklist (`tasks.md`)
+  - [x] Implement `porter/models.py` (data structures)
+  - [x] Implement `porter/sanitizer.py` (constitutional de-slop & invariant filter)
+  - [x] Implement `porter/analyzer.py` (pre-flight suitability & adaptability analyzer)
+  - [x] Implement `porter/manifest.py` (lossless universal canonical manifest)
+  - [x] Implement parsers (`porter/parsers/`: `generic_parser.py`, `mdc_parser.py`, `flat_parser.py`)
+  - [x] Implement emitters (`porter/emitters/`: `claude.py`, `cursor.py`, `universal.py`, `aider.py`, `generic.py`)
+  - [x] Implement `porter/__init__.py` and root CLI `porter.py`
+- [x] Phase 2: Antigravity Skill & Harness Invariants
+  - [x] Create `skills/porter/SKILL.md` (natural language routing, pre-flight gate, interactive prompt)
+  - [x] Update `GEMINI.md` with External Rule Ingestion Invariant (Rule 16)
+  - [x] Update `install.py` & `install.sh` to symlink/copy porter into active environments
+  - [x] Update `README.md` for v1.1.0 architecture & usage guide
+- [x] Phase 3: Verification & Local Testing
+  - [x] Test CLI commands (`inspect`, `import`, `export --target all`, `manifest`)
+  - [x] Verify installer execution (`install.py` and `install.sh`)
+  - [x] Verify active configuration update (`~/.gemini/config/`)
+- [/] Phase 4: Remote Push & GitHub v1.1.0 Release
+  - [ ] Review git status & commit all changes with conventional commit
+  - [ ] Push `origin main`
+  - [ ] Create annotated git tag `v1.1.0` & push tag
+  - [ ] Publish rich GitHub release with pre-v1.0.4 style comprehensive release notes
+  - [ ] Generate `walkthrough.md`

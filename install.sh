@@ -37,11 +37,14 @@ link_or_copy() {
   echo "[LINKED] $(basename "$dest") -> $src"
 }
 
-# Core constitution and design contracts
+# Core constitution, design contracts, and porter CLI
 link_or_copy "${SCRIPT_DIR}/GEMINI.md" "${TARGET_DIR}/GEMINI.md"
 link_or_copy "${SCRIPT_DIR}/DESIGN.md" "${TARGET_DIR}/DESIGN.md"
 link_or_copy "${SCRIPT_DIR}/MISTAKES.md" "${TARGET_DIR}/MISTAKES.md"
 link_or_copy "${SCRIPT_DIR}/hooks.json" "${TARGET_DIR}/hooks.json"
+link_or_copy "${SCRIPT_DIR}/porter.py" "${TARGET_DIR}/porter.py"
+[ -d "${SCRIPT_DIR}/porter" ] && link_or_copy "${SCRIPT_DIR}/porter" "${TARGET_DIR}/porter"
+[ -d "${SCRIPT_DIR}/.harness" ] && link_or_copy "${SCRIPT_DIR}/.harness" "${TARGET_DIR}/.harness"
 
 # Autonomous subagents directory
 mkdir -p "${TARGET_DIR}/agents"
