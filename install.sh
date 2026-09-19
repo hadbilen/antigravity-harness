@@ -1,12 +1,14 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #
-# install.sh — Antigravity Harness Installer
+# install.sh — Antigravity Harness Unix Installer
+# POSIX-compliant installer for Linux, macOS, FreeBSD, and OpenBSD base systems.
 # Symlinks or installs the harness, constitution, subagents, and skills into ~/.gemini/config/
 #
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve script directory in POSIX /bin/sh (without bashisms)
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 TARGET_DIR="${HOME}/.gemini/config"
 BACKUP_DIR="${TARGET_DIR}/backup_$(date +%Y%m%d_%H%M%S)"
 
@@ -17,7 +19,7 @@ echo "========================================================"
 mkdir -p "$TARGET_DIR"
 
 backup_if_needed() {
-  local target="$1"
+  target="$1"
   if [ -e "$target" ] && [ ! -L "$target" ]; then
     mkdir -p "$BACKUP_DIR"
     echo "[BACKUP] Moving existing $(basename "$target") -> $BACKUP_DIR/"
@@ -26,8 +28,8 @@ backup_if_needed() {
 }
 
 link_or_copy() {
-  local src="$1"
-  local dest="$2"
+  src="$1"
+  dest="$2"
 
   backup_if_needed "$dest"
   rm -f "$dest"
@@ -61,7 +63,7 @@ if [ ! -f "${TARGET_DIR}/config.json" ]; then
   echo "[CREATED] Initialized ~/.gemini/config/config.json from template."
 fi
 
-# Ensure watcher scripts are executable
+# Ensure watcher scripts are executable on POSIX systems
 if [ -f "${TARGET_DIR}/skills/upstream-auditor/scripts/upstream_watcher.py" ]; then
   chmod +x "${TARGET_DIR}/skills/upstream-auditor/scripts/upstream_watcher.py"
 fi

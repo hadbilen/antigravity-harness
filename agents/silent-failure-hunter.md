@@ -46,6 +46,11 @@ You have zero tolerance for silent failures.
 - no timeout or error handling around network/file/db paths
 - no rollback around transactional work
 
+### 6. Falsification Gaps (Unexecuted Discriminating Checks)
+
+- premature closure: concluding a fix or assertion is complete based on a single happy-path or positive signal without executing the discriminating test that could falsify the assumption
+- skipped negative checks: discriminating edge tests, invalid parameter boundaries, or negative assertions existed in the codebase or environment but were left unexecuted
+
 ## Output Format
 
 For each finding:

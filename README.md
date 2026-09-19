@@ -45,7 +45,9 @@ Agentic coding tools frequently stumble into three failure modes:
 - **Proportional Gate Escalation:** Eliminates over-engineering. Tier 1 (<20 lines) bypasses planning artifacts. Tier 2 (3–8 files) triggers Blast Radius Mapping and Call-Graph Reachability checks. Tier 3 (>8 files or auth/schema changes) mandates the full harness pipeline.
 - **The Immutable Test Invariant:** An agent is strictly prohibited from altering test assertions or skipping tests to pass a gate. Tests must target contract boundaries (*seams*), not private implementation details. Source code must fix the test—never the reverse.
 - **Think in Code Context Hygiene:** The agent must never dump whole files or massive logs into the context window. It parses and filters state using targeted shell pipelines (`grep`, `jq`, `awk`).
-- **Circuit Breaker & Oscillation Guard:** Caps fix passes to ~10% blast radius and halts editing loops when code oscillations (state A <-> B) or repeating errors are detected.
+- **Circuit Breaker & Out-of-Band Meta-Diagnosis:** Caps fix passes to ~10% blast radius, halts editing loops upon detecting oscillation, and dispatches an isolated clean-context diagnostic subagent instead of engaging in token-wasting in-band argumentation.
+- **Verification Gap & Falsification Gate:** Enforces explicit declaration of unverified boundaries upon delivery and actively guards against premature closure by verifying no discriminating falsification checks were left unexecuted.
+- **Session Boundary & Handoff Continuity (`HANDOFF.md`):** Mandates fresh chat sessions following major deliveries, generating a standardized `HANDOFF.md` summary to prevent attention degradation without losing architectural context.
 - **Failure Logging (`MISTAKES.md`):** Every defect is logged with Root Cause, Impact, and Preventive Invariant. Patterns recurring 3 times are promoted to permanent constitutional rules.
 
 ### 2. Independent Auditor Subagents (`/agents`)
@@ -83,7 +85,8 @@ antigravity-harness/
 ├── GEMINI.md                          # The Global Engineering & Behavioral Constitution
 ├── DESIGN.md                          # Global Baseline Design Contract
 ├── hooks.json                         # Pre-invocation lifecycle hooks
-├── install.sh                         # Automated symlink installer
+├── install.py                         # Universal cross-platform installer (Windows, Linux, macOS, BSD)
+├── install.sh                         # POSIX Unix installer (Linux, macOS, FreeBSD)
 ├── LICENSE                            # MIT License
 ├── README.md                          # Complete documentation & architecture guide
 ├── agents/                            # 5 independent auditor subagent specifications
@@ -112,6 +115,7 @@ antigravity-harness/
 │   ├── unlazy/                        # Tier-3 depth tree execution engine
 │   └── upstream-auditor/              # 72h model & skill sync watchdog
 └── templates/
+    ├── HANDOFF.template.md            # Standardized cross-session handoff protocol
     └── config.example.json            # Sanitized user configuration template
 ```
 
@@ -119,20 +123,37 @@ antigravity-harness/
 
 ## Quickstart & Installation
 
-### Option 1: Automated Symlink Installer (Recommended)
-
-Clone the repository and run the installation script. This symlinks the constitution, design system, subagents, and skills directly into your local `~/.gemini/config/` without overwriting existing files (existing assets are safely backed up):
+Clone the repository to your local machine:
 
 ```bash
 git clone https://github.com/<your-username>/antigravity-harness.git ~/.gemini/antigravity-harness
 cd ~/.gemini/antigravity-harness
+```
+
+### Option 1: Unix Fast Path (Linux, macOS, FreeBSD)
+
+Runs natively via the POSIX `/bin/sh` shell with zero external dependencies, creating clean symlinks in `~/.gemini/config/` (existing files are safely backed up):
+
+```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-### Option 2: Manual Installation
+### Option 2: Windows & Universal Engine (Python)
 
-If you prefer to configure components manually:
+Uses the Python standard library (zero third-party dependencies). On Windows, it handles NTFS symlinks with automatic fallback to directory junctions (`mklink /J`) or copies if Developer Mode permissions are absent:
+
+```bash
+# Windows (PowerShell or Command Prompt)
+python install.py
+
+# Unix / macOS / FreeBSD
+python3 install.py
+```
+
+### Option 3: Manual Configuration
+
+If you prefer to link components manually:
 1. Link `GEMINI.md` and `DESIGN.md` into `~/.gemini/config/`.
 2. Copy or symlink `agents/*.md` into `~/.gemini/config/agents/`.
 3. Copy or symlink `skills/*` into `~/.gemini/config/skills/`.
