@@ -77,6 +77,17 @@ class TestFileIntegrityMonitor(unittest.TestCase):
         self.assertFalse(report.is_intact)
         self.assertIn("skills/demo/SKILL.md", report.deleted)
 
+    def test_save_baseline_while_locked(self):
+        adapter = OSProtectionAdapter(target_dir=self.test_dir)
+        adapter.lock()
+        self.assertTrue(adapter.is_locked())
+        try:
+            count, path = self.monitor.save_baseline()
+            self.assertEqual(count, 2)
+            self.assertTrue(adapter.is_locked())
+        finally:
+            adapter.unlock()
+
 
 class TestSnapshotEngine(unittest.TestCase):
     def setUp(self):
@@ -85,6 +96,10 @@ class TestSnapshotEngine(unittest.TestCase):
         (self.test_dir / "config.json").write_text('{"state": "original"}', encoding="utf-8")
 
     def tearDown(self):
+        try:
+            OSProtectionAdapter(target_dir=self.test_dir).unlock()
+        except Exception:
+            pass
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_create_and_restore_snapshot(self):
@@ -112,6 +127,27 @@ class TestSnapshotEngine(unittest.TestCase):
         pruned = self.engine.prune_snapshots(keep=2)
         self.assertEqual(pruned, 2)
         self.assertEqual(len(self.engine.list_snapshots()), 2)
+
+    def test_snapshot_lifecycle_while_locked(self):
+        adapter = OSProtectionAdapter(target_dir=self.test_dir)
+        adapter.lock()
+        self.assertTrue(adapter.is_locked())
+        try:
+            snap_id, snap_path = self.engine.create_snapshot(label="locked_test")
+            self.assertTrue(adapter.is_locked())
+            self.assertTrue(snap_path.is_dir())
+
+            # Mutate state by briefly unlocking then relocking to test restore while locked
+            adapter.unlock()
+            (self.test_dir / "config.json").write_text('{"state": "mutated_locked"}', encoding="utf-8")
+            adapter.lock()
+
+            success, msg = self.engine.restore_snapshot(snap_id)
+            self.assertTrue(success)
+            self.assertTrue(adapter.is_locked())
+            self.assertEqual((self.test_dir / "config.json").read_text(encoding="utf-8"), '{"state": "original"}')
+        finally:
+            adapter.unlock()
 
 
 class TestOSProtectionAdapter(unittest.TestCase):

@@ -333,9 +333,7 @@ class AntigravityGuardApp:
         item = self.tree_snaps.item(selected[0])
         snap_id = item["values"][0]
         if messagebox.askyesno("Confirm Rollback", f"Restore environment to snapshot '{snap_id}'? Current state will be backed up."):
-            self.adapter.unlock()
             success, msg = self.snapshot_engine.restore_snapshot(snap_id)
-            self.adapter.lock()
             messagebox.showinfo("Rollback Result", msg)
             self.refresh_status()
 

@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from guard.os_adapter import OSProtectionAdapter
+
 
 @dataclass
 class IntegrityReport:
@@ -59,7 +61,12 @@ class FileIntegrityMonitor:
         ".DS_Store",
     }
 
-    def __init__(self, target_dir: Optional[Path] = None, state_file: Optional[Path] = None):
+    def __init__(
+        self,
+        target_dir: Optional[Path] = None,
+        state_file: Optional[Path] = None,
+        os_adapter: Optional[OSProtectionAdapter] = None,
+    ):
         if target_dir is None:
             config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
             self.target_dir = Path(config_env).resolve() if config_env else Path.home() / ".gemini" / "config"
@@ -67,6 +74,7 @@ class FileIntegrityMonitor:
             self.target_dir = Path(target_dir).resolve()
 
         self.state_file = state_file or (self.target_dir / ".guard_integrity.json")
+        self.os_adapter = os_adapter or OSProtectionAdapter(self.target_dir)
 
     def _hash_file(self, path: Path) -> str:
         """Calculates SHA-256 checksum of a file."""
@@ -118,10 +126,20 @@ class FileIntegrityMonitor:
             "file_count": len(current_hashes),
             "files": current_hashes,
         }
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.state_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+
+        was_locked = self.os_adapter.is_locked()
+        if was_locked:
+            self.os_adapter.unlock()
+
+        try:
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.state_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        finally:
+            if was_locked:
+                self.os_adapter.lock()
+
         return len(current_hashes), self.state_file.as_posix()
 
     def verify(self) -> IntegrityReport:
