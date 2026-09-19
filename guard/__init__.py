@@ -14,7 +14,10 @@ from guard.integrity import FileIntegrityMonitor
 from guard.snapshot import SnapshotEngine
 from guard.porter_bridge import PorterBridge
 from guard.upstream import UpstreamAuditorBridge
-from guard.tray import create_tray_adapter
+def create_tray_adapter(*args, **kwargs):
+    from guard.tray import create_tray_adapter as _cta
+    return _cta(*args, **kwargs)
+
 
 __all__ = [
     "__version__",
