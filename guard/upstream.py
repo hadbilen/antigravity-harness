@@ -35,8 +35,8 @@ class UpstreamAuditorBridge:
         if state_file_env:
             self.state_file = Path(state_file_env).resolve()
         else:
-            candidate_state = default_state_dir / "upstream_state.json"
-            legacy_state = self.target_dir / "skills" / "upstream-auditor" / "upstream_state.json"
+            candidate_state = (default_state_dir / "upstream_state.json").resolve()
+            legacy_state = (self.target_dir / "skills" / "upstream-auditor" / "upstream_state.json").resolve()
             if candidate_state.is_file():
                 self.state_file = candidate_state
             elif legacy_state.is_file():

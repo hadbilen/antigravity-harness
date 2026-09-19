@@ -522,16 +522,16 @@ class TestV126Bugfixes(unittest.TestCase):
             os.environ["XDG_STATE_HOME"] = str(clean_xdg)
             legacy_dir = self.test_dir / "skills" / "upstream-auditor"
             legacy_dir.mkdir(parents=True)
-            legacy_file = legacy_dir / "upstream_state.json"
+            legacy_file = (legacy_dir / "upstream_state.json").resolve()
             legacy_file.write_text('{"tracked_repositories": {}}', encoding="utf-8")
 
             bridge_legacy = UpstreamAuditorBridge(target_dir=self.test_dir)
             self.assertEqual(bridge_legacy.state_file, legacy_file)
 
             # 3. Primary XDG state when it exists
-            primary_dir = clean_xdg / "antigravity-harness"
+            primary_dir = (clean_xdg / "antigravity-harness").resolve()
             primary_dir.mkdir(parents=True)
-            primary_file = primary_dir / "upstream_state.json"
+            primary_file = (primary_dir / "upstream_state.json").resolve()
             primary_file.write_text('{"tracked_repositories": {}}', encoding="utf-8")
 
             bridge_primary = UpstreamAuditorBridge(target_dir=self.test_dir)
