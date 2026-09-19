@@ -5,6 +5,7 @@ projects/
 backup_*
 staging/
 scratch/
+tasks.md
 
 # Environment and secrets
 .env

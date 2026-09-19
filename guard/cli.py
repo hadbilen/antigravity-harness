@@ -28,11 +28,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     report = monitor.verify()
     model_info = upstream.get_model_drift_status()
 
-    lock_symbol = "🔒 [LOCKED]" if is_locked else "🔓 [UNLOCKED / MAINTENANCE]"
+    lock_symbol = "[LOCKED]" if is_locked else "[UNLOCKED / MAINTENANCE]"
     status_color = "PROTECTED" if is_locked and report.is_intact else "ACTION REQUIRED"
 
     print("=" * 64)
-    print(f"       Antigravity Guard (agy-guard) v{__version__} — Status        ")
+    print(f"       Antigravity Guard (agy-guard) v{__version__} - Status        ")
     print("=" * 64)
     print(f"Platform       : {adapter.get_platform_name()}")
     print(f"Target Directory: {adapter.target_dir}")
@@ -168,12 +168,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     is_isolated = monitor.is_isolated
 
     print("=" * 64)
-    print(f"       Antigravity Guard (agy-guard) v{__version__} — Doctor & Health       ")
+    print(f"       Antigravity Guard (agy-guard) v{__version__} - Doctor & Health       ")
     print("=" * 64)
     print(f"Platform       : {adapter.get_platform_name()}")
     print(f"Target Directory: {adapter.target_dir}")
-    print(f"Write Shield   : {'🔒 [LOCKED / PROTECTED]' if is_locked else '🔓 [UNLOCKED / STALE EXPOSURE]'}")
-    anchor_str = f"🛡️  ISOLATED ({monitor.state_file})" if is_isolated else f"📁 LOCAL ({monitor.state_file})"
+    print(f"Write Shield   : {'[LOCKED / PROTECTED]' if is_locked else '[UNLOCKED / STALE EXPOSURE]'}")
+    anchor_str = f"[ISOLATED] ({monitor.state_file})" if is_isolated else f"[LOCAL] ({monitor.state_file})"
     print(f"Trust Anchor   : {anchor_str}")
     print(f"Integrity (FIM): {report.summary()}")
     print(f"Snapshots      : {len(snapshots)} snapshots recorded")
@@ -189,13 +189,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         diagnostics.append("Trust anchor is stored inside target directory; consider setting ANTIGRAVITY_INTEGRITY_FILE.")
 
     if not diagnostics:
-        print("✅ Environment is in optimal operational health. All invariants passing.")
+        print("[OK] Environment is in optimal operational health. All invariants passing.")
         print("=" * 64)
         return 0
 
     print("Diagnostics:")
     for d in diagnostics:
-        print(f"  ⚠️  {d}")
+        print(f"  [WARN] {d}")
 
     if getattr(args, "fix", False) or getattr(args, "recover", False):
         print("\n[Auto-Healing]")
@@ -219,7 +219,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agy-guard",
-        description=f"Antigravity Guard v{__version__} — OS-Level Governance, Write Protection, & Staging Suite",
+        description=f"Antigravity Guard v{__version__} - OS-Level Governance, Write Protection, & Staging Suite",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")

@@ -57,13 +57,27 @@ class OSProtectionAdapter:
                 pass
 
         if self.system == "windows":
-            try:
-                # Check read-only attribute on Windows
-                st = os.stat(check_path)
-                if not (st.st_mode & stat.S_IWRITE):
+            if check_path.is_file():
+                try:
+                    st = os.stat(check_path)
+                    if not (st.st_mode & stat.S_IWRITE):
+                        return True
+                except Exception:
+                    pass
+            elif check_path.is_dir():
+                # On Windows, directories do not reflect read-only status in S_IWRITE.
+                # Probe write to test if NTFS write deny or permission lock is active.
+                probe_file = check_path / ".guard_probe.tmp"
+                try:
+                    with open(probe_file, "w") as f:
+                        f.write("probe")
+                    try:
+                        probe_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    return False
+                except (PermissionError, OSError):
                     return True
-            except Exception:
-                pass
 
         # Generic POSIX / Linux check: Is owner write bit cleared?
         try:
@@ -99,7 +113,7 @@ class OSProtectionAdapter:
                 username = os.environ.get("USERNAME", "Everyone")
                 # Deny Write (W) and Delete (D)
                 subprocess.run(
-                    ["icacls", str(lock_path), "/deny", f"{username}:(W,D)"],
+                    ["icacls", str(lock_path), "/deny", f"{username}:(OI)(CI)(W,D)"],
                     check=False,
                     capture_output=True,
                 )

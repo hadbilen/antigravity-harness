@@ -32,7 +32,7 @@ class IntegrityReport:
 
     def summary(self) -> str:
         if self.is_intact:
-            return f"✅ Integrity Verified: {self.total_files} files intact. Zero drift or tampering detected."
+            return f"[OK] Integrity Verified: {self.total_files} files intact. Zero drift or tampering detected."
         parts = []
         if self.modified:
             parts.append(f"{len(self.modified)} modified")
@@ -40,7 +40,7 @@ class IntegrityReport:
             parts.append(f"{len(self.added)} unauthorized added")
         if self.deleted:
             parts.append(f"{len(self.deleted)} deleted")
-        return f"⚠️ INTEGRITY DRIFT DETECTED: {', '.join(parts)} across {self.total_files} tracked files."
+        return f"[WARN] INTEGRITY DRIFT DETECTED: {', '.join(parts)} across {self.total_files} tracked files."
 
 
 class FileIntegrityMonitor:
