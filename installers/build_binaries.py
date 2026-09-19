@@ -23,7 +23,13 @@ def main() -> int:
     build_dir = repo_root / "build"
 
     system = platform.system()
-    machine = platform.machine().lower()
+    raw_machine = platform.machine().lower()
+    if raw_machine in ("amd64", "x86_64"):
+        machine = "x86_64"
+    elif raw_machine in ("arm64", "aarch64"):
+        machine = "arm64"
+    else:
+        machine = raw_machine
 
     if system == "Linux":
         binary_name = f"agy-guard-linux-{machine}"
