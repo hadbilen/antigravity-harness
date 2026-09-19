@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -60,12 +61,24 @@ class UpstreamAuditorBridge:
         tracked = state.get("tracked_repositories", {})
         results: List[Dict[str, Any]] = []
 
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if not token:
+            try:
+                p = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=2)
+                if p.returncode == 0 and p.stdout.strip():
+                    token = p.stdout.strip()
+            except Exception:
+                pass
+
         def query_repo(name: str, info: dict) -> Dict[str, Any]:
             repo = info.get("repo", "")
             branch = info.get("branch", "main")
             local_sha = info.get("last_synced_commit", "")[:7]
             url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
-            req = urllib.request.Request(url, headers={"User-Agent": "AntigravityGuard-Watchdog/1.2"})
+            headers = {"User-Agent": "AntigravityGuard-Watchdog/1.2"}
+            if token:
+                headers["Authorization"] = f"token {token}"
+            req = urllib.request.Request(url, headers=headers)
 
             remote_sha = ""
             status = "Unknown"

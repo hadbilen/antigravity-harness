@@ -50,5 +50,15 @@
   - [x] Git commit, tag `v1.2.0`, push to `origin/main`
   - [x] Publish rich GitHub release `v1.2.0`
 
+- [x] Phase 7: Live GUI Verification & Visual Audit
+  - [x] CLI status & verify execution (`~/.local/bin/agy-guard status`, `verify`)
+  - [x] Screenshot tool environment detection & validation (KDE Plasma 6 Wayland `spectacle`)
+  - [x] Python 3.14 Tkinter thread-safety fix in `guard/gui.py` (`queue.Queue` polling)
+  - [x] Upstream Auditor GitHub API authentication in `guard/upstream.py` (`gh auth token` fallback)
+  - [x] UI WCAG AA accessibility fix (`#09090B` on `#22C55E` giving 9.22:1 contrast ratio)
+  - [x] Live automated capture of 5 GUI screens & operational states (`.png`)
+  - [x] Desktop GUI live background daemon deployment (`guard.py gui`)
+  - [x] Comprehensive trial and analytical report delivery
+
 
 

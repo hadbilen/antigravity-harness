@@ -8,6 +8,7 @@ Strictly adheres to DESIGN.md (ENERGY 2 / RHYTHM 2 / Dark Zinc Palette).
 from __future__ import annotations
 
 import os
+import queue
 import sys
 import threading
 import time
@@ -271,7 +272,7 @@ class AntigravityGuardApp:
     def refresh_status(self):
         is_locked = self.adapter.is_locked()
         if is_locked:
-            self.badge_status.config(text="🔒 PROTECTED", bg=ACCENT_GREEN, fg="#FFFFFF")
+            self.badge_status.config(text="🔒 PROTECTED", bg=ACCENT_GREEN, fg="#09090B")
             self.btn_toggle_lock.config(text="Unlock for Maintenance")
         else:
             self.badge_status.config(text="🔓 UNLOCKED", bg=ACCENT_AMBER, fg="#000000")
@@ -394,11 +395,28 @@ class AntigravityGuardApp:
                 messagebox.showerror("Ingestion Failed", msg)
 
     def check_upstream_async(self):
+        q: queue.Queue = queue.Queue()
+
         def worker():
-            results = self.upstream_bridge.check_repositories()
-            self.root.after(0, lambda: self._populate_upstream(results))
+            try:
+                results = self.upstream_bridge.check_repositories()
+                q.put(results)
+            except Exception as e:
+                q.put(e)
 
         threading.Thread(target=worker, daemon=True).start()
+
+        def poll():
+            try:
+                item = q.get_nowait()
+                if isinstance(item, Exception):
+                    messagebox.showerror("Upstream Check Error", str(item))
+                else:
+                    self._populate_upstream(item)
+            except queue.Empty:
+                self.root.after(100, poll)
+
+        self.root.after(100, poll)
 
     def _populate_upstream(self, results):
         for row in self.tree_upstream.get_children():
