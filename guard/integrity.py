@@ -73,8 +73,27 @@ class FileIntegrityMonitor:
         else:
             self.target_dir = Path(target_dir).resolve()
 
-        self.state_file = state_file or (self.target_dir / ".guard_integrity.json")
+        if state_file is not None:
+            self.state_file = Path(state_file).resolve()
+        elif "ANTIGRAVITY_INTEGRITY_FILE" in os.environ:
+            self.state_file = Path(os.environ["ANTIGRAVITY_INTEGRITY_FILE"]).resolve()
+        else:
+            isolated_candidate = Path.home() / ".gemini" / ".guard_integrity.json"
+            if isolated_candidate.exists() and not (self.target_dir / ".guard_integrity.json").exists():
+                self.state_file = isolated_candidate.resolve()
+            else:
+                self.state_file = self.target_dir / ".guard_integrity.json"
+
         self.os_adapter = os_adapter or OSProtectionAdapter(self.target_dir)
+
+    @property
+    def is_isolated(self) -> bool:
+        """Returns True if the integrity baseline is isolated outside the target directory."""
+        try:
+            self.state_file.relative_to(self.target_dir)
+            return False
+        except ValueError:
+            return True
 
     def _hash_file(self, path: Path) -> str:
         """Calculates SHA-256 checksum of a file."""
@@ -120,7 +139,7 @@ class FileIntegrityMonitor:
         """Saves current state as the trusted baseline manifest."""
         current_hashes = self.scan_directory()
         payload = {
-            "version": "1.2.2",
+            "version": "1.2.3",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "target_dir": str(self.target_dir),
             "file_count": len(current_hashes),

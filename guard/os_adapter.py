@@ -211,3 +211,13 @@ class OSProtectionAdapter:
             details.append(f"Permission restore error: {e}")
 
         return True, "Target unlocked successfully. " + "; ".join(details)
+
+    def recover_stale_lock(self, target: Optional[Path] = None) -> Tuple[bool, str]:
+        """
+        Detects if the environment was left unlocked following an abnormal process exit
+        or crash, and safely re-engages OS write protection.
+        """
+        if self.is_locked(target):
+            return True, "Target is already write-protected; zero stale unlock detected."
+        success, msg = self.lock(target)
+        return success, f"Stale unlocked state recovered: {msg}"

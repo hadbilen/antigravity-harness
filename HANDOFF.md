@@ -1,46 +1,42 @@
 # Session Handoff Document
 
 **Status:** `[COMPLETE]`  
-**Date & Time:** 2026-09-19T17:43:00Z  
-**Previous Conversation / Session ID:** `92229680-02e6-46bd-af10-c2c71747c513`  
-**Git Branch / Commit:** `main`  
-**Release URL:** https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.2  
+**Date & Time:** 2026-09-19T18:51:00Z  
+**Previous Conversation / Session ID:** `8d978dfb-a954-446a-81be-62599c46defa`  
+**Git Branch / Commit:** `main` (tag: `v1.2.3`)  
+**Release URL:** https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.3  
 
 ---
 
 ## 1. Executive Summary & Objective
-- **Completed Milestone:** Phase 7 Live GUI Operational Verification & Visual Audit.
+- **Completed Milestone:** Antigravity Harness v1.2.3 — State-Synchronized Rollback, Isolated Trust Anchor & Cross-Platform CI Matrix.
 - **Architectural Context:** 
-  - Verified live execution of `agy-guard` on host Linux (KDE Plasma 6 / Wayland) environment.
-  - Performed automated live capture of all 5 tabs and operational transitions via KDE's native `spectacle` utility.
-  - Diagnosed and fixed Python 3.14 Tkinter thread-safety issue in `guard/gui.py` (`queue.Queue` main-thread polling).
-  - Enhanced `guard/upstream.py` with automated `gh auth token` fallback to eliminate GitHub API 403 rate limits.
-  - Elevated status badge contrast from 2.28:1 to 9.22:1 (exceeding WCAG AAA / AA standards).
-  - Implemented atomic lock-aware mutations in `guard/integrity.py` and `guard/snapshot.py`, allowing baseline updates and snapshots while locked without permission crashes.
-  - Launched and left the live desktop GUI running as a daemon for user interaction.
+  - Addressed and implemented all peer audit recommendations and hardening priorities:
+  - **Full-State Rollback:** Refactored `guard/snapshot.py` to prune extraneous files created after a snapshot was taken, achieving true state restoration.
+  - **Isolated Trust Anchor:** Updated `guard/integrity.py` to support external baseline storage via `ANTIGRAVITY_INTEGRITY_FILE` and isolated dotfile detection.
+  - **Stale Lock Recovery & Doctor:** Implemented `recover_stale_lock()` in `guard/os_adapter.py` and `agy-guard doctor [--fix]` in `guard/cli.py`.
+  - **Cross-Platform CI Matrix:** Added `.github/workflows/ci.yml` supporting Linux, macOS, and Windows across Python 3.10-3.12.
+  - **Expanded Test Coverage:** Added unit tests in `tests/test_guard.py` bringing the verified test count to 21 passing tests.
 
 ## 2. Completed Changes & Verified Seams
-- **Modified Files:**
-  - `guard/gui.py`: Thread-safe queue polling for async upstream checks; dark zinc badge foreground `#09090B` on green background; clean atomic restore call.
-  - `guard/upstream.py`: Authentication header fallback via `gh auth token` or `GITHUB_TOKEN`.
-  - `guard/integrity.py`: Atomic lock handling with `try ... finally` in `save_baseline`.
-  - `guard/snapshot.py`: Atomic lock handling with `try ... finally` in `create_snapshot`, `restore_snapshot`, and `prune_snapshots`.
-  - `tests/test_guard.py`: Added seam unit tests verifying baseline and snapshot execution while locked.
-  - `tasks.md`: Appended Phase 7 verification ledger.
-  - `screenshots/`: 5 high-resolution PNG captures covering all tabs and states.
-- **Verification Proof:**
-  - `python3 -m unittest discover -s tests -v`: 17 passed, 0 failures.
-  - `python3 scripts/verify_invariants.py`: Invariant verification passed.
-  - `~/.local/bin/agy-guard status`: Verified on host Linux environment (State: PROTECTED, 122 files intact).
-  - 5 screenshots verified visually and structurally.
-- **Verification Gaps Declared:**
-  - Native Windows `icacls` and macOS `chflags uchg` were verified structurally but not executed on bare-metal Windows/Darwin kernels.
+- **Modified / Created Files:**
+  - `guard/snapshot.py`: Bidirectional diff and extraneous file pruning during snapshot rollback.
+  - `guard/integrity.py`: Isolated trust anchor resolution, `is_isolated` property, version bumped to 1.2.3.
+  - `guard/os_adapter.py`: Added `recover_stale_lock()` method.
+  - `guard/cli.py`: Added `doctor` command and `--fix` / `--recover` auto-healing flag.
+  - `guard/__init__.py`: Version bumped to 1.2.3.
+  - `porter/__init__.py`: Version bumped to 1.2.3.
+  - `porter/manifest.py`: Version bumped to 1.2.3.
+  - `.harness/manifest.json`: Version bumped to 1.2.3.
+  - `.github/workflows/ci.yml`: Multi-OS GitHub Actions workflow.
+  - `tests/test_guard.py`: Expanded test suite (21 unit tests).
+  - `RELEASE_NOTES_v1.2.3.md`: Comprehensive v1.2.3 release documentation.
+  - `tasks.md`: Execution checklist updated.
 
-## 3. Active System State & Working Directory
-- **Current Workspace State:** GUI is running in background (`guard.py gui`), test suite passing.
-- **Pending Tasks (`tasks.md`):** All Phase 7 tasks completed.
-- **Known Blockers / Warnings:** None.
-
-## 4. Cold-Start Directive for Incoming Agent
-- **Immediate Next Action:** Inspect `walkthrough.md` or interact with the running GUI.
-- **Key Invariants to Maintain:** Strictly preserve zero-dependency Python standard library architecture and Goodhart's Invariant (no test weakening).
+## 3. Verification Commands Run & Results
+```bash
+# Unit test suite execution
+PYTHONPATH=. python3 -m unittest discover -s tests -v # 21 tests, 0 failures, OK
+# Invariant verification
+python3 scripts/verify_invariants.py --all # [PASS] Zero violations
+```

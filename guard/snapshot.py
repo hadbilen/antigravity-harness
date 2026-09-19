@@ -11,7 +11,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from guard.os_adapter import OSProtectionAdapter
 
@@ -117,10 +117,51 @@ class SnapshotEngine:
             except Exception:
                 pass
 
-            # Copy files back from snapshot
-            ignored_names = {".snap_meta.json"}
+            # 1. Index all valid relative paths present in snapshot
+            ignored_names = {".guard_snapshots", ".guard_integrity.json", "__pycache__", ".git"}
+            snap_rel_paths: Set[Path] = set()
+            for root, dirs, files in os.walk(source_dir):
+                dirs[:] = [d for d in dirs if d not in ignored_names]
+                rel_root = Path(root).relative_to(source_dir)
+                for f in files:
+                    if f != ".snap_meta.json" and f not in ignored_names:
+                        rel_path = f if str(rel_root) == "." else str(rel_root / f)
+                        snap_rel_paths.add(Path(rel_path))
+                for d in dirs:
+                    rel_path = d if str(rel_root) == "." else str(rel_root / d)
+                    snap_rel_paths.add(Path(rel_path))
+
+            # 2. Prune extraneous files and directories created after snapshot
+            for root, dirs, files in os.walk(self.target_dir, topdown=False):
+                rel_root = Path(root).relative_to(self.target_dir)
+                if str(rel_root) != ".":
+                    top_ancestor = rel_root.parts[0]
+                    if top_ancestor in ignored_names or top_ancestor.startswith(".backup_"):
+                        continue
+
+                for f in files:
+                    if f in ignored_names or f.startswith(".backup_"):
+                        continue
+                    rel_file = Path(f) if str(rel_root) == "." else Path(rel_root / f)
+                    if rel_file not in snap_rel_paths:
+                        try:
+                            (self.target_dir / rel_file).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+
+                for d in dirs:
+                    if d in ignored_names or d.startswith(".backup_"):
+                        continue
+                    rel_dir = Path(d) if str(rel_root) == "." else Path(rel_root / d)
+                    if rel_dir not in snap_rel_paths:
+                        try:
+                            shutil.rmtree(self.target_dir / rel_dir, ignore_errors=True)
+                        except Exception:
+                            pass
+
+            # 3. Copy files back from snapshot
             for item in source_dir.iterdir():
-                if item.name in ignored_names:
+                if item.name in ignored_names or item.name == ".snap_meta.json":
                     continue
                 dest_item = self.target_dir / item.name
                 if item.is_dir():

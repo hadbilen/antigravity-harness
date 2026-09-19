@@ -23,7 +23,7 @@ class ManifestEngine:
     def build_manifest(self) -> UniversalManifest:
         """Inspects all local harness assets and compiles a complete lossless manifest."""
         manifest = UniversalManifest(
-            version="1.2.2",
+            version="1.2.3",
             schema_version="1.0.0",
             generated_at=datetime.utcnow().isoformat() + "Z",
             metadata={

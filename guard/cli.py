@@ -155,6 +155,62 @@ def cmd_upstream(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    adapter = OSProtectionAdapter()
+    monitor = FileIntegrityMonitor()
+    engine = SnapshotEngine()
+    upstream = UpstreamAuditorBridge()
+
+    is_locked = adapter.is_locked()
+    report = monitor.verify()
+    model_info = upstream.get_model_drift_status()
+    snapshots = engine.list_snapshots()
+    is_isolated = monitor.is_isolated
+
+    print("=" * 64)
+    print(f"       Antigravity Guard (agy-guard) v{__version__} — Doctor & Health       ")
+    print("=" * 64)
+    print(f"Platform       : {adapter.get_platform_name()}")
+    print(f"Target Directory: {adapter.target_dir}")
+    print(f"Write Shield   : {'🔒 [LOCKED / PROTECTED]' if is_locked else '🔓 [UNLOCKED / STALE EXPOSURE]'}")
+    anchor_str = f"🛡️  ISOLATED ({monitor.state_file})" if is_isolated else f"📁 LOCAL ({monitor.state_file})"
+    print(f"Trust Anchor   : {anchor_str}")
+    print(f"Integrity (FIM): {report.summary()}")
+    print(f"Snapshots      : {len(snapshots)} snapshots recorded")
+    print(f"Active Model   : {model_info['active_model']}")
+    print("-" * 64)
+
+    diagnostics = []
+    if not is_locked:
+        diagnostics.append("Environment is UNLOCKED (vulnerable to rogue process or agent modification).")
+    if not report.is_intact:
+        diagnostics.append(f"Integrity drift detected ({len(report.modified)} mod, {len(report.added)} add, {len(report.deleted)} del).")
+    if not is_isolated:
+        diagnostics.append("Trust anchor is stored inside target directory; consider setting ANTIGRAVITY_INTEGRITY_FILE.")
+
+    if not diagnostics:
+        print("✅ Environment is in optimal operational health. All invariants passing.")
+        print("=" * 64)
+        return 0
+
+    print("Diagnostics:")
+    for d in diagnostics:
+        print(f"  ⚠️  {d}")
+
+    if getattr(args, "fix", False) or getattr(args, "recover", False):
+        print("\n[Auto-Healing]")
+        if not is_locked:
+            rec_ok, rec_msg = adapter.recover_stale_lock()
+            print(f"  - OS Write Shield: {rec_msg}")
+        if not monitor.state_file.exists():
+            cnt, pth = monitor.save_baseline()
+            print(f"  - Baseline established for {cnt} files -> {pth}")
+        print("Doctor auto-healing routine completed.")
+
+    print("=" * 64)
+    return 0 if (adapter.is_locked() and monitor.verify().is_intact) else 1
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from guard.gui import launch_gui
     return launch_gui()
@@ -212,6 +268,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     # gui
     p_gui = subparsers.add_parser("gui", help="Launch Antigravity Guard desktop interface")
     p_gui.set_defaults(func=cmd_gui)
+
+    # doctor
+    p_doc = subparsers.add_parser("doctor", help="Run comprehensive environment health check & auto-heal")
+    p_doc.add_argument("--fix", "--recover", action="store_true", dest="fix", help="Automatically recover stale locks and missing baselines")
+    p_doc.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args(argv)
     if not args.command:

@@ -88,6 +88,20 @@ class TestFileIntegrityMonitor(unittest.TestCase):
         finally:
             adapter.unlock()
 
+    def test_isolated_trust_anchor(self):
+        isolated_dir = Path(tempfile.mkdtemp(prefix="test_isolated_anchor_"))
+        isolated_file = isolated_dir / "custom_anchor.json"
+        try:
+            custom_monitor = FileIntegrityMonitor(target_dir=self.test_dir, state_file=isolated_file)
+            self.assertTrue(custom_monitor.is_isolated)
+            cnt, pth = custom_monitor.save_baseline()
+            self.assertEqual(cnt, 2)
+            self.assertTrue(isolated_file.is_file())
+            rep = custom_monitor.verify()
+            self.assertTrue(rep.is_intact)
+        finally:
+            shutil.rmtree(isolated_dir, ignore_errors=True)
+
 
 class TestSnapshotEngine(unittest.TestCase):
     def setUp(self):
@@ -116,6 +130,29 @@ class TestSnapshotEngine(unittest.TestCase):
         self.assertTrue(success)
         restored_content = (self.test_dir / "config.json").read_text(encoding="utf-8")
         self.assertEqual(restored_content, '{"state": "original"}')
+        self.assertFalse((self.test_dir / "new_file.txt").exists())
+
+    def test_restore_snapshot_prunes_extraneous_files(self):
+        snap_id, _ = self.engine.create_snapshot(label="clean_state")
+
+        # Add an unauthorized file and directory after snapshot was taken
+        rogue_file = self.test_dir / "unauthorized_rule.txt"
+        rogue_file.write_text("rogue rule", encoding="utf-8")
+        rogue_dir = self.test_dir / "rogue_dir"
+        rogue_dir.mkdir()
+        (rogue_dir / "subfile.txt").write_text("rogue subfile", encoding="utf-8")
+
+        self.assertTrue(rogue_file.exists())
+        self.assertTrue(rogue_dir.exists())
+
+        # Restore snapshot
+        success, msg = self.engine.restore_snapshot(snap_id)
+        self.assertTrue(success)
+
+        # Assert full state restoration: extraneous files and dirs must be PRUNED
+        self.assertFalse(rogue_file.exists())
+        self.assertFalse(rogue_dir.exists())
+        self.assertTrue((self.test_dir / "config.json").exists())
 
     def test_list_and_prune_snapshots(self):
         for i in range(4):
@@ -174,6 +211,13 @@ class TestOSProtectionAdapter(unittest.TestCase):
         success, msg = self.adapter.unlock(self.test_dir)
         self.assertTrue(success)
         self.assertFalse(self.adapter.is_locked(self.test_dir))
+
+    def test_recover_stale_lock(self):
+        self.adapter.unlock(self.test_dir)
+        self.assertFalse(self.adapter.is_locked(self.test_dir))
+        recovered, msg = self.adapter.recover_stale_lock(self.test_dir)
+        self.assertTrue(recovered)
+        self.assertTrue(self.adapter.is_locked(self.test_dir))
 
 
 class TestPorterBridge(unittest.TestCase):
@@ -268,6 +312,11 @@ class TestCLICommands(unittest.TestCase):
 
     def test_upstream_check_cli(self):
         exit_code = cli_main(["upstream", "status"])
+        self.assertEqual(exit_code, 0)
+
+    def test_doctor_command(self):
+        cli_main(["rebaseline"])
+        exit_code = cli_main(["doctor", "--fix"])
         self.assertEqual(exit_code, 0)
 
 
