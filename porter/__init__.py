@@ -6,9 +6,10 @@ Part of Antigravity Harness. Zero external dependencies.
 from porter.analyzer import SuitabilityAnalyzer
 from porter.manifest import ManifestEngine
 from porter.models import HarnessAgent, HarnessRule, HarnessSkill, SuitabilityReport, UniversalManifest
+from porter.net import safe_fetch_url, validate_safe_url
 from porter.sanitizer import ConstitutionalSanitizer
 
-__version__ = "1.2.5"
+__version__ = "1.2.6"
 
 __all__ = [
     "SuitabilityAnalyzer",
@@ -19,4 +20,6 @@ __all__ = [
     "HarnessAgent",
     "SuitabilityReport",
     "UniversalManifest",
+    "validate_safe_url",
+    "safe_fetch_url",
 ]

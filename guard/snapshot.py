@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -95,7 +96,16 @@ class SnapshotEngine:
 
     def restore_snapshot(self, snap_id: str) -> Tuple[bool, str]:
         """Restores target directory to the specified snapshot state."""
-        source_dir = self.snapshots_dir / snap_id
+        if not snap_id or not re.match(r"^[a-zA-Z0-9_-]+$", snap_id):
+            return False, f"Invalid snapshot identifier '{snap_id}'."
+
+        snap_root = self.snapshots_dir.resolve()
+        source_dir = (self.snapshots_dir / snap_id).resolve()
+        try:
+            source_dir.relative_to(snap_root)
+        except ValueError:
+            return False, f"Invalid snapshot path traversal detected for '{snap_id}'."
+
         if not source_dir.is_dir():
             return False, f"Snapshot '{snap_id}' does not exist."
 
@@ -198,7 +208,14 @@ class SnapshotEngine:
 
     def get_snapshot_files(self, snap_id: str) -> List[str]:
         """Returns sorted relative paths of all files in the specified snapshot."""
-        snap_path = self.snapshots_dir / snap_id
+        if not snap_id or not re.match(r"^[a-zA-Z0-9_-]+$", snap_id):
+            return []
+        snap_root = self.snapshots_dir.resolve()
+        snap_path = (self.snapshots_dir / snap_id).resolve()
+        try:
+            snap_path.relative_to(snap_root)
+        except ValueError:
+            return []
         if not snap_path.is_dir():
             return []
         files = []
@@ -209,10 +226,20 @@ class SnapshotEngine:
 
     def read_snapshot_file(self, snap_id: str, rel_path: str) -> Optional[str]:
         """Reads content of a specific file in a snapshot with path traversal guard."""
+        if not snap_id or not re.match(r"^[a-zA-Z0-9_-]+$", snap_id):
+            return None
+        snap_root = self.snapshots_dir.resolve()
         snap_path = (self.snapshots_dir / snap_id).resolve()
+        try:
+            snap_path.relative_to(snap_root)
+        except ValueError:
+            return None
+
         target_file = (snap_path / rel_path).resolve()
         # Security invariant: prevent path traversal outside snapshot directory
-        if not str(target_file).startswith(str(snap_path)):
+        try:
+            target_file.relative_to(snap_path)
+        except ValueError:
             return None
         if target_file.is_file():
             try:

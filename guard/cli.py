@@ -16,6 +16,7 @@ from guard.integrity import FileIntegrityMonitor
 from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
 from guard.snapshot import SnapshotEngine
+from guard.startup import StartupManager
 from guard.upstream import UpstreamAuditorBridge
 
 
@@ -211,6 +212,39 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if (adapter.is_locked() and monitor.verify().is_intact) else 1
 
 
+def cmd_startup(args: argparse.Namespace) -> int:
+    manager = StartupManager()
+    action = getattr(args, "action", "status") or "status"
+
+    if action == "enable":
+        ok, msg = manager.enable()
+        print(f"[{'SUCCESS' if ok else 'FAILED'}] {msg}")
+        return 0 if ok else 1
+    elif action == "disable":
+        ok, msg = manager.disable()
+        print(f"[{'SUCCESS' if ok else 'FAILED'}] {msg}")
+        return 0 if ok else 1
+    else:
+        st = manager.status()
+        print("=" * 64)
+        print("   Antigravity Guard — Pre-Session Boot Sentinel Status   ")
+        print("=" * 64)
+        print(f"Platform       : {st['platform']}")
+        print(f"Mechanism      : {st['mechanism']}")
+        print(f"Service Path   : {st['target_path']}")
+        print(f"Installed      : {'YES' if st['installed'] else 'NO'}")
+        print(f"Active/Enabled : {'YES' if st['active'] else 'NO'}")
+        print("=" * 64)
+        return 0
+
+
+def cmd_boot_check(args: argparse.Namespace) -> int:
+    manager = StartupManager()
+    ok, msg = manager.execute_boot_check()
+    print(f"[BOOT-SENTINEL] {msg}")
+    return 0 if ok else 1
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from guard.gui import launch_gui
     return launch_gui()
@@ -264,6 +298,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_up = subparsers.add_parser("upstream", help="Check upstream repositories and active model")
     p_up.add_argument("action", choices=["check", "status"], default="check", nargs="?", help="Upstream action")
     p_up.set_defaults(func=cmd_upstream)
+
+    # startup
+    p_startup = subparsers.add_parser("startup", help="Manage Pre-Session Boot Sentinel startup registration")
+    p_startup.add_argument("action", choices=["enable", "disable", "status"], default="status", nargs="?", help="Startup action")
+    p_startup.set_defaults(func=cmd_startup)
+
+    # boot-check (headless oneshot)
+    p_boot = subparsers.add_parser("boot-check", help="Fast headless boot verification and lock enforcement")
+    p_boot.set_defaults(func=cmd_boot_check)
 
     # gui
     p_gui = subparsers.add_parser("gui", help="Launch Antigravity Guard desktop interface")

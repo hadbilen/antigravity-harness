@@ -6,7 +6,7 @@ Zero external dependencies: uses strictly the Python standard library.
 
 from __future__ import annotations
 
-__version__ = "1.2.5"
+__version__ = "1.2.6"
 __author__ = "Antigravity Team & Contributors"
 
 from guard.os_adapter import OSProtectionAdapter
@@ -14,6 +14,7 @@ from guard.integrity import FileIntegrityMonitor
 from guard.snapshot import SnapshotEngine
 from guard.porter_bridge import PorterBridge
 from guard.upstream import UpstreamAuditorBridge
+from guard.startup import StartupManager
 def create_tray_adapter(*args, **kwargs):
     from guard.tray import create_tray_adapter as _cta
     return _cta(*args, **kwargs)
@@ -26,5 +27,6 @@ __all__ = [
     "SnapshotEngine",
     "PorterBridge",
     "UpstreamAuditorBridge",
+    "StartupManager",
     "create_tray_adapter",
 ]

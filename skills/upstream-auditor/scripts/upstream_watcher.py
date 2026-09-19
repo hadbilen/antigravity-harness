@@ -18,7 +18,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 CONFIG_DIR = os.path.expanduser(os.environ.get("ANTIGRAVITY_CONFIG_DIR", "~/.gemini/config"))
 SKILL_DIR = os.path.join(CONFIG_DIR, "skills", "upstream-auditor")
 CUSTOM_SKILLS_DIR = os.path.join(CONFIG_DIR, "skills")
-STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
+LEGACY_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
+
+DEFAULT_STATE_DIR = os.path.expanduser(os.environ.get("XDG_STATE_HOME", "~/.local/state/antigravity-harness"))
+STATE_FILE = os.environ.get("UPSTREAM_STATE_FILE", os.path.join(DEFAULT_STATE_DIR, "upstream_state.json"))
 BUILTIN_DIR = os.path.expanduser("~/.gemini/antigravity/builtin/skills")
 PBTXT_FILE = os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt")
 
@@ -110,7 +113,7 @@ def check_tracked_skills(state: dict):
         nonlocal successful_checks
         repo = info.get("repo")
         branch = info.get("branch", "main")
-        recorded_sha = info.get("last_synced_commit", "")[:7]
+        recorded_sha = info.get("last_synced_commit", "").strip()
         url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
         req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.1"})
         try:
@@ -118,9 +121,17 @@ def check_tracked_skills(state: dict):
                 data = json.loads(resp.read().decode())
                 if data and isinstance(data, list):
                     successful_checks += 1
-                    current_sha = data[0]["sha"][:7]
-                    if recorded_sha and current_sha and recorded_sha != current_sha:
-                        return f"{name} ({recorded_sha}->{current_sha})"
+                    current_sha = data[0]["sha"].strip()
+                    is_match = False
+                    if recorded_sha and current_sha:
+                        if (
+                            recorded_sha == current_sha
+                            or current_sha.startswith(recorded_sha)
+                            or recorded_sha.startswith(current_sha)
+                        ):
+                            is_match = True
+                    if recorded_sha and current_sha and not is_match:
+                        return f"{name} ({recorded_sha[:7]}->{current_sha[:7]})"
         except Exception:
             return None
         return None
@@ -142,12 +153,15 @@ def check_tracked_skills(state: dict):
     # Record timestamp and mark whether network checks succeeded or failed
     state["last_skills_audit_timestamp"] = now.isoformat()
     state["last_audit_failed"] = (successful_checks == 0)
-    try:
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-    except Exception:
-        pass
+    for target_path in [STATE_FILE, LEGACY_STATE_FILE]:
+        try:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            with open(target_path, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            break
+        except Exception:
+            continue
 
     return changed_repos
 
@@ -163,11 +177,24 @@ def main():
     if invocation_num > 1:
         safe_exit_empty()
 
-    if not os.path.isfile(STATE_FILE):
+    # Seed state file from legacy if absent
+    if not os.path.isfile(STATE_FILE) and os.path.isfile(LEGACY_STATE_FILE):
+        try:
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            with open(LEGACY_STATE_FILE, "r", encoding="utf-8") as f:
+                seed_data = json.load(f)
+            with open(STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(seed_data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        except Exception:
+            pass
+
+    state_path = STATE_FILE if os.path.isfile(STATE_FILE) else LEGACY_STATE_FILE
+    if not os.path.isfile(state_path):
         safe_exit_empty()
 
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
+        with open(state_path, "r", encoding="utf-8") as f:
             state = json.load(f)
     except Exception:
         safe_exit_empty()

@@ -24,6 +24,7 @@ from guard.integrity import FileIntegrityMonitor
 from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
 from guard.snapshot import SnapshotEngine
+from guard.startup import StartupManager
 from guard.tray import create_tray_adapter
 from guard.upstream import UpstreamAuditorBridge
 
@@ -55,8 +56,11 @@ class AntigravityGuardApp:
         self.snapshot_engine = SnapshotEngine()
         self.porter_bridge = PorterBridge()
         self.upstream_bridge = UpstreamAuditorBridge()
+        self.startup_mgr = StartupManager(self.adapter.target_dir)
 
         self.var_minimize_to_tray = tk.BooleanVar(value=True)
+        st_info = self.startup_mgr.status()
+        self.var_early_startup = tk.BooleanVar(value=st_info.get("installed", False))
 
         # Cross-Platform System Tray Integration
         self.tray_adapter = create_tray_adapter(
@@ -300,6 +304,22 @@ class AntigravityGuardApp:
         chk_tray.pack(anchor="w", pady=(6, 2))
         ttk.Label(pref_card, text="When enabled, closing or minimizing the window keeps Antigravity Guard active in the system tray.", style="Muted.TLabel").pack(anchor="w")
 
+        # Early Boot Sentinel
+        st_info = self.startup_mgr.status()
+        chk_startup = ttk.Checkbutton(
+            pref_card,
+            text=f"Run Pre-Session Boot Sentinel on Startup [Mechanism: {st_info.get('mechanism', 'OS Boot')}]",
+            variable=self.var_early_startup,
+            command=self.toggle_early_startup,
+            style="TCheckbutton",
+        )
+        chk_startup.pack(anchor="w", pady=(8, 2))
+        ttk.Label(
+            pref_card,
+            text="When enabled, verifies FIM baseline and enforces write-lock BEFORE desktop AI IDEs or models start.",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 4))
+
         # 2. Dual-Pane Snapshot Frame
         snap_frame = ttk.Frame(self.tab_settings, style="Card.TFrame", padding=12)
         snap_frame.pack(fill="both", expand=True)
@@ -347,6 +367,22 @@ class AntigravityGuardApp:
         ttk.Button(btn_row, text="Refresh", style="Action.TButton", command=self.refresh_snapshots).pack(side="right")
 
     # --- Operational Actions ---
+    def toggle_early_startup(self):
+        if self.var_early_startup.get():
+            ok, msg = self.startup_mgr.enable()
+            if not ok:
+                self.var_early_startup.set(False)
+                messagebox.showerror("Startup Sentinel Error", msg)
+            else:
+                messagebox.showinfo("Startup Sentinel", msg)
+        else:
+            ok, msg = self.startup_mgr.disable()
+            if not ok:
+                self.var_early_startup.set(True)
+                messagebox.showerror("Startup Sentinel Error", msg)
+            else:
+                messagebox.showinfo("Startup Sentinel", msg)
+
     def refresh_status(self):
         is_locked = self.adapter.is_locked()
         if is_locked:

@@ -112,7 +112,19 @@ class FileIntegrityMonitor:
         if not self.target_dir.exists():
             return hashes
 
-        for root, dirs, files in os.walk(self.target_dir):
+        visited_dirs: Set[str] = set()
+        for root, dirs, files in os.walk(self.target_dir, followlinks=True):
+            # Guard against cyclic symlinks
+            try:
+                real_root = str(Path(root).resolve())
+                if real_root in visited_dirs:
+                    dirs[:] = []
+                    continue
+                visited_dirs.add(real_root)
+            except Exception:
+                dirs[:] = []
+                continue
+
             # Prune excluded directories
             dirs[:] = [d for d in dirs if d not in self.EXCLUDED_PATTERNS and not d.startswith(".backup_")]
             for f in files:
@@ -128,7 +140,11 @@ class FileIntegrityMonitor:
                 # Skip broken symlinks or unreadable files
                 if not file_path.is_file():
                     continue
-                rel_path = file_path.relative_to(self.target_dir).as_posix()
+                try:
+                    rel_path = file_path.relative_to(self.target_dir).as_posix()
+                except ValueError:
+                    # In case of broken resolution outside target_dir
+                    continue
                 file_hash = self._hash_file(file_path)
                 if file_hash:
                     hashes[rel_path] = file_hash
@@ -144,7 +160,7 @@ class FileIntegrityMonitor:
         try:
             current_hashes = self.scan_directory()
             payload = {
-                "version": "1.2.5",
+                "version": "1.2.6",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "target_dir": str(self.target_dir),
                 "file_count": len(current_hashes),

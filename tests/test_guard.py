@@ -366,6 +366,116 @@ class TestTrayAndSnapshotEnhancements(unittest.TestCase):
         self.assertEqual(TEXT_DISABLED, "#71717A")
 
 
+class TestV126HardeningAndStartup(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = Path(tempfile.mkdtemp(prefix="test_guard_v126_"))
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_version_alignment(self):
+        import guard
+        import porter
+        from porter.models import UniversalManifest
+        self.assertEqual(guard.__version__, "1.2.6")
+        self.assertEqual(porter.__version__, "1.2.6")
+        self.assertEqual(UniversalManifest.version, "1.2.6")
+
+    def test_agent_classification_routing(self):
+        bridge = PorterBridge(target_dir=self.test_dir)
+        agent_content = """# security-verifier
+You are an autonomous subagent and auditor responsible for inspecting security boundaries.
+Never skip tests. Always be objective.
+"""
+        src_file = self.test_dir / "sec_verifier.md"
+        src_file.write_text(agent_content, encoding="utf-8")
+
+        success, msg = bridge.stage_and_ingest(str(src_file), force=True)
+        self.assertTrue(success, f"Stage failed: {msg}")
+
+        # Invariant: Agent must be routed to agents/, never to rules/
+        expected_agent = self.test_dir / "agents" / "security-verifier.md"
+        wrong_rule = self.test_dir / "rules" / "security-verifier.md"
+
+        self.assertTrue(expected_agent.is_file(), f"Expected agent file {expected_agent} does not exist")
+        self.assertFalse(wrong_rule.exists(), f"Agent was mistakenly placed in rules/: {wrong_rule}")
+
+    def test_snapshot_path_traversal_guards(self):
+        engine = SnapshotEngine(self.test_dir)
+        snap_id, _ = engine.create_snapshot(label="safe_snap")
+
+        # 1. Traversal snap_id in restore_snapshot
+        ok, msg = engine.restore_snapshot("../../etc")
+        self.assertFalse(ok)
+        self.assertIn("Invalid snapshot", msg)
+
+        # 2. Malformed characters in snap_id
+        ok, msg = engine.restore_snapshot("snap;rm -rf /")
+        self.assertFalse(ok)
+        self.assertIn("Invalid snapshot", msg)
+
+        # 3. Traversal in get_snapshot_files
+        self.assertEqual(engine.get_snapshot_files("../../outside"), [])
+
+        # 4. Traversal in read_snapshot_file
+        self.assertIsNone(engine.read_snapshot_file(snap_id, "../../../../etc/passwd"))
+        self.assertIsNone(engine.read_snapshot_file("../../etc", "passwd"))
+
+    def test_ssrf_protection_in_porter_and_bridge(self):
+        from porter.net import validate_safe_url
+        bridge = PorterBridge(target_dir=self.test_dir)
+
+        # 1. Direct validation tests
+        with self.assertRaises(ValueError):
+            validate_safe_url("http://127.0.0.1:8080/secret")
+        with self.assertRaises(ValueError):
+            validate_safe_url("http://localhost:3000/api")
+        with self.assertRaises(ValueError):
+            validate_safe_url("http://169.254.169.254/latest/meta-data")
+
+        # 2. Bridge inspect_source SSRF rejection
+        with self.assertRaises(ValueError):
+            bridge.inspect_source("http://127.0.0.1/rogue_rule.md")
+
+    def test_symlink_fim_scan(self):
+        # Create external directory mimicking repo skills
+        external_dir = Path(tempfile.mkdtemp(prefix="ext_skills_"))
+        skill_a = external_dir / "harness"
+        skill_a.mkdir(parents=True)
+        (skill_a / "SKILL.md").write_text("# Harness Skill Content", encoding="utf-8")
+
+        # Create target config dir with symlink pointing to external_dir
+        skills_target = self.test_dir / "skills"
+        skills_target.mkdir(parents=True)
+        link_dest = skills_target / "harness"
+        try:
+            link_dest.symlink_to(skill_a, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            # If symlinks not supported, skip
+            shutil.rmtree(external_dir, ignore_errors=True)
+            return
+
+        monitor = FileIntegrityMonitor(target_dir=self.test_dir)
+        scanned = monitor.scan_directory()
+
+        # Invariant: Files inside symlinked directory must be scanned and hashed
+        self.assertIn("skills/harness/SKILL.md", scanned)
+        shutil.rmtree(external_dir, ignore_errors=True)
+
+    def test_startup_manager_lifecycle(self):
+        from guard.startup import StartupManager
+        mgr = StartupManager(target_dir=self.test_dir)
+        st = mgr.status()
+        self.assertIn("platform", st)
+        self.assertIn("mechanism", st)
+
+        # Boot check execution
+        ok, msg = mgr.execute_boot_check()
+        self.assertIn("[FIM", msg)
+        self.assertIn("[LOCK", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

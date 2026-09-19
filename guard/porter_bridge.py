@@ -70,27 +70,17 @@ class PorterBridge:
         }
 
     def inspect_source(self, source_path_or_url: str) -> Dict[str, Any]:
-        """Loads and inspects an external file path or URL."""
+        """Loads and inspects an external file path or URL with strict SSRF protection."""
         from porter.parsers.generic_parser import GenericParser
+        import urllib.parse
+        from porter.net import safe_fetch_url
 
         raw_content = ""
         source_name = "external_rule"
 
         if source_path_or_url.startswith(("http://", "https://")):
-            # Safe fetch using porter's URL validation
-            import urllib.parse
-            import urllib.request
-
             parsed = urllib.parse.urlparse(source_path_or_url)
-            if parsed.scheme not in ("http", "https"):
-                raise ValueError(f"Unsupported URL scheme '{parsed.scheme}'")
-
-            req = urllib.request.Request(
-                source_path_or_url,
-                headers={"User-Agent": f"AntigravityGuard/{PORTER_VERSION}"},
-            )
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
-                raw_content = resp.read().decode("utf-8", errors="replace")
+            raw_content = safe_fetch_url(source_path_or_url, user_agent=f"AntigravityGuard/{PORTER_VERSION}")
             source_name = Path(parsed.path).name or "remote_rule"
         else:
             p = Path(source_path_or_url).resolve()
@@ -117,6 +107,7 @@ class PorterBridge:
         5. Updates SHA-256 integrity baseline.
         6. Re-locks protected target directory.
         """
+        import re
         inspection = self.inspect_source(source_path_or_url)
         if not inspection["is_admissible"] and not force:
             return (
@@ -125,23 +116,35 @@ class PorterBridge:
                 f"Violations: {'; '.join(inspection['violations'])}",
             )
 
-        name = target_name or inspection["name"]
+        raw_name = target_name or inspection["name"]
+        clean_name = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(raw_name).name).strip("-").lower()
+        if not clean_name:
+            clean_name = "imported-rule"
+        name = clean_name
+
         target_type = inspection["target_type"]
         sanitized = inspection["sanitized_content"]
 
         # Step 2: Pre-ingestion snapshot
         snap_id, _ = self.snapshot_engine.create_snapshot(label=f"pre_ingest_{name}")
 
-        # Determine target file location
+        # Determine target file location with path traversal containment
         if target_type == "skill":
-            dest_dir = self.target_dir / "skills" / name
+            dest_dir = (self.target_dir / "skills" / name).resolve()
             dest_file = dest_dir / "SKILL.md"
-        elif target_type == "subagent":
-            dest_dir = self.target_dir / "agents"
+        elif target_type in ("subagent", "agent"):
+            dest_dir = (self.target_dir / "agents").resolve()
             dest_file = dest_dir / f"{name}.md"
         else:
-            dest_dir = self.target_dir / "rules"
+            dest_dir = (self.target_dir / "rules").resolve()
             dest_file = dest_dir / f"{name}.md"
+
+        # Traversal containment invariant
+        try:
+            dest_dir.relative_to(self.target_dir.resolve())
+            dest_file.relative_to(self.target_dir.resolve())
+        except ValueError:
+            return False, f"Invalid destination path traversal detected for '{name}'."
 
         # Step 3: Atomic Unlock
         self.os_adapter.unlock()

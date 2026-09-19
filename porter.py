@@ -31,63 +31,16 @@ from porter.emitters.cursor import CursorEmitter
 from porter.emitters.generic import GenericEmitter
 from porter.emitters.universal import UniversalEmitter
 from porter.manifest import ManifestEngine
+from porter.net import safe_fetch_url, validate_safe_url
 from porter.parsers.generic_parser import GenericParser
 from porter.sanitizer import ConstitutionalSanitizer
-
-
-def _validate_safe_url(url: str) -> None:
-    """
-    Validates that a URL does not target localhost, private subnets,
-    link-local addresses (e.g. AWS/GCP metadata 169.254.169.254), or reserved IP ranges.
-    Guarantees strict Server-Side Request Forgery (SSRF) immunity.
-    """
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed.")
-
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError(f"Invalid URL: missing hostname in '{url}'.")
-
-    # Immediate rejection of obvious loopback aliases
-    if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-        raise ValueError(f"SSRF Protection: Access to localhost ('{hostname}') is blocked.")
-
-    # Resolve all IPs for hostname and evaluate each against forbidden subnets
-    try:
-        addr_info = socket.getaddrinfo(hostname, None)
-    except socket.gaierror as e:
-        raise ValueError(f"Could not resolve hostname '{hostname}': {e}")
-
-    for family, _, _, _, sockaddr in addr_info:
-        ip_str = sockaddr[0]
-        try:
-            ip = ipaddress.ip_address(ip_str)
-        except ValueError:
-            continue
-
-        if (
-            ip.is_loopback
-            or ip.is_private
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        ):
-            raise ValueError(
-                f"SSRF Protection: Access to private, local, or internal metadata address "
-                f"'{ip_str}' ({hostname}) is strictly prohibited."
-            )
 
 
 def fetch_target_content(target: str) -> str:
     """Reads content from local filesystem path or remote HTTP(S) URL with SSRF protection."""
     if target.startswith("http://") or target.startswith("https://"):
-        _validate_safe_url(target)
-        req = urllib.request.Request(target, headers={"User-Agent": f"Antigravity-Porter/{PORTER_VERSION}"})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return response.read().decode("utf-8", errors="ignore")
-    path = Path(target)
+        return safe_fetch_url(target, user_agent=f"Antigravity-Porter/{PORTER_VERSION}")
+    path = Path(target).resolve()
     if not path.exists():
         raise FileNotFoundError(f"Target path does not exist: {target}")
     return path.read_text(encoding="utf-8", errors="ignore")
@@ -144,13 +97,23 @@ def cmd_import(args: argparse.Namespace) -> int:
         return 1
 
     target_type = "agent" if args.as_agent else "skill"
-    name = args.as_agent or args.as_skill or report.recommended_name
+    raw_name = args.as_agent or args.as_skill or report.recommended_name
+    clean_name = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(raw_name).name).strip("-").lower()
+    if not clean_name:
+        clean_name = "imported-custom"
+    name = clean_name
 
     # Build clean sanitized content
     sanitized_body = report.sanitized_content
 
     if target_type == "skill":
-        dest_dir = SCRIPT_DIR / "skills" / name
+        base_dir = (SCRIPT_DIR / "skills").resolve()
+        dest_dir = (base_dir / name).resolve()
+        try:
+            dest_dir.relative_to(base_dir)
+        except ValueError:
+            print(f"Error: Invalid skill destination path '{dest_dir}'", file=sys.stderr)
+            return 1
         dest_file = dest_dir / "SKILL.md"
         output_content = f"""---
 name: {name}
@@ -160,8 +123,14 @@ description: {report.source_target} adapted via Porter.
 {sanitized_body}
 """
     else:
-        dest_dir = SCRIPT_DIR / "agents"
-        dest_file = dest_dir / f"{name}.md"
+        base_dir = (SCRIPT_DIR / "agents").resolve()
+        dest_dir = base_dir
+        dest_file = (dest_dir / f"{name}.md").resolve()
+        try:
+            dest_file.relative_to(base_dir)
+        except ValueError:
+            print(f"Error: Invalid agent destination path '{dest_file}'", file=sys.stderr)
+            return 1
         output_content = f"""---
 name: {name}
 description: {name} autonomous agent definition adapted via Porter.

@@ -2,6 +2,16 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.2.6] - 2026-09-20
+### Added & Hardened
+- **Pre-Session Boot Sentinel (`guard/startup.py`, `guard/cli.py`, `guard/gui.py`):** Cross-platform early-boot protection. On Linux, registers `systemd --user` unit (`agy-guard-boot.service`) running with `Before=graphical-session.target xdg-desktop-autostart.target` to lock and verify the environment before any desktop AI IDEs or models start. On macOS, configures a `launchd` LaunchAgent (`com.antigravity.guard.plist`). On Windows, registers a Task Scheduler task (`schtasks /SC ONLOGON /RL HIGHEST`). Added CLI commands `agy-guard startup enable|disable|status` and headless `agy-guard boot-check`, plus GUI settings toggle.
+- **SSRF Immunity & Safe Redirects (`porter/net.py`, `guard/porter_bridge.py`, `porter.py`):** Centralized remote fetching into `porter/net.py` with `SafeRedirectHandler` preventing open-redirect SSRF bypasses to link-local/private metadata addresses. Enforced URL validation across `PorterBridge.inspect_source()`.
+- **Path Traversal Guards (`guard/snapshot.py`, `porter.py`, `guard/porter_bridge.py`):** Enforced strict regex validation (`^[a-zA-Z0-9_-]+$`) on `snap_id` and verified `relative_to` containment for snapshot restoration, reading, and file indexing. Sanitized `--as-skill` and `--as-agent` identifiers in `porter.py` and `PorterBridge`.
+- **Agent Import Routing Fix (`guard/porter_bridge.py`):** Corrected classification routing so imported persona and auditor files (`target_type in ("agent", "subagent")`) correctly target `agents/` instead of falling back to `rules/`.
+- **FIM Symlink Traversal & Cycle Detection (`guard/integrity.py`):** Enabled `followlinks=True` with visited directory tracking in `scan_directory()`, ensuring modular skills installed as symlinks are fully monitored and protected by File Integrity Monitor.
+- **Runtime State Separation (`skills/upstream-auditor/scripts/upstream_watcher.py`):** Relocated mutable `upstream_state.json` to user state directory (`~/.local/state/antigravity-harness/`), preventing write failures when `~/.gemini/config/` is locked by Guard.
+- **Repository Hygiene & Portable Hooks (`hooks.json`):** Removed machine-specific absolute path from repository `hooks.json` and aligned all version definitions to `1.2.6`.
+
 ## [1.2.5] - 2026-09-20
 ### Added & Hardened
 - **Design & Interactive State Governance (`DESIGN.md` & Rule 14):** Added explicit Interactive Component States (Default, Hover, Active/Pressed, Focus-Visible, Disabled) and prohibited bright accent retention on disabled controls; defined WCAG AA compliant disabled tokens (`#27272A` / `#A1A1AA`, 5.81:1 contrast).
