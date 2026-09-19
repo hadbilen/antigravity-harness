@@ -37,7 +37,8 @@ Language models exhibit natural optimism regarding code they produce (inferentia
 * **Inferential Trust is Prohibited:** The model's claim that "code is complete and should work" holds zero evidentiary weight.
 * **Computational Sensors are Mandatory:** Task completion is proven exclusively when deterministic terminal tools (compiler, type checker, linter, unit test suites) exit with zero errors (`exit code 0`).
 * **Strict Gate Rule:** An agent cannot complete a delivery while compiler or test errors remain active. The feedback loop continues until resolved or escalated.
-* **Immutable Test Invariant (Goodhart & Seams Protection):** Weakening test assertions, skipping checks (`skip`), commenting out assertions, or loosening validation boundaries solely to pass verification gates is strictly forbidden. When a test fails, the source code must be corrected. Modifying existing test files requires explicit user authorization.
+* **Immutable Test Invariant (Goodhart & Seams Protection):** Weakening test assertions, skipping checks (`skip`), commenting out assertions, or loosening validation boundaries solely to pass verification gates is strictly forbidden. When a test fails, the source code must be corrected. Modifying or deleting existing test assertions requires explicit user authorization.
+* **Test Mutation & Assertion Guard (Popper & Goodhart Invariant):** During bugfix, regression, and verification loops, the agent must never silently mutate or delete assertions in existing test files. Inspecting test diffs (`git diff HEAD -- ':(glob)**/tests/**' ':(glob)**/__tests__/**' ':(glob)**/spec/**' ':(glob)**/*test*' ':(glob)**/*spec*'`) is a mandatory verification step. Any unauthorized modification or assertion deletion in existing tests immediately trips the gate (`BLOCKED: Unconfirmed Test Mutation Detected`). If a contract update is legitimately requested by the user, document it in `tasks.md` under `## Authorized Test Modifications: [<file_path>: <reason>]`. Authoring new test files or appending new test cases for new features, edge cases, and TDD specifications is fully permitted.
 * **Test at Seams:** Tests target public interfaces, exported functions, and API boundaries—never internal volatile private methods. Exported pure logic functions represent contract seams and are testable. Refactoring internal implementation must leave seam tests green and unmodified.
 * **Legacy Test Transition Exception:** If a test breaks because it is tightly bound to superseded private implementation details rather than a public contract, test weakening remains prohibited. Present an explicit `[Legacy Test Transition Request]` to elevate the test to an interface seam or retire it upon user approval.
 
@@ -62,6 +63,10 @@ Upon writing or editing code, the agent sequentially executes and evaluates outp
           ▼
    4. Deterministic Unit Tests (`npm test`, `pytest`, `go test ./...`) - At contract seams
           │  (Failing tests -> blocked from exit until green)
+          ▼
+   4a. Test Integrity & Mutation Guard (`git diff HEAD -- ':(glob)**/tests/**' '**/*test*' '**/*spec*'`)
+          │  (Existing assertions modified/deleted without user consent -> BLOCKED)
+          │  (New tests added or authorized in tasks.md -> PASSED)
           ▼
    5. Silent Failures & Security (`silent-failure-hunter` and `security-boundary-verifier`)
           │  (Mandatory for Tier 3 or Security/Core exceptions; bypassed for Tier 1-2)
