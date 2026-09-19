@@ -1,6 +1,9 @@
 ---
 name: antislop-code
-description: "Code comment hygiene for AI coding agents: remove generic AI-slop comments, keep the valuable ones, never touch the code."
+description: 'Code comment hygiene for AI coding agents: remove generic AI-slop comments,
+  keep the valuable ones, never touch the code. Invoke when: refactoring code, cleaning
+  comments, reviewing PR diffs, or when user says ''clean comments'', ''comment hygiene'',
+  ''antislop-code''.'
 ---
 # antislop-code
 

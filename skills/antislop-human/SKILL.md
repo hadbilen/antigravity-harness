@@ -1,6 +1,9 @@
 ---
 name: antislop-human
-description: "Human and accessibility skill for antislop. Contrast, keyboard, focus, and states for real people. Includes the contrast checker."
+description: 'Human and accessibility skill for antislop. Contrast, keyboard, focus,
+  and states for real people. Includes the contrast checker. Invoke when: auditing
+  UI accessibility, WCAG AA compliance, color contrast, keyboard navigation, focus
+  rings, or when user says ''check contrast'', ''a11y'', ''accessibility''.'
 ---
 # antislop-human
 

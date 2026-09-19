@@ -1,6 +1,10 @@
 ---
 name: antislop
-description: "Design and copy quality filter for AI coding agents. Enforces intentionality, eliminates AI-slop visual tropes, buzzword copy, and fake UI placeholders across 38 rules, a Liveliness Toolkit, and Delivery Gate. Invoke when designing or building websites, web apps, or interfaces."
+description: 'Design and copy quality filter for AI coding agents. Enforces intentionality,
+  eliminates AI-slop visual tropes, buzzword copy, and fake UI placeholders across
+  38 rules, a Liveliness Toolkit, and Delivery Gate. Invoke when: designing, building,
+  or reviewing websites, web apps, or interfaces, or when user invokes ''/antislop'',
+  ''anti-slop'', or runs a UI delivery gate.'
 ---
 
 # antislop

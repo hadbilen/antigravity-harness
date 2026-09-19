@@ -1,6 +1,11 @@
 ---
 name: architecture-decision-records
-description: Capture architectural decisions made during development sessions as structured ADRs. Auto-detects decision moments, records context, alternatives considered, and rationale. Maintains an ADR log so future developers understand why the codebase is shaped the way it is.
+description: 'Capture architectural decisions made during development sessions as
+  structured ADRs. Auto-detects decision moments, records context, alternatives considered,
+  and rationale. Maintains an ADR log so future developers understand why the codebase
+  is shaped the way it is. Invoke when: deciding architectural patterns, database
+  selection, protocol changes, auth model shifts, or when user says ''/adr'', ''record
+  adr'', ''document decision''.'
 metadata:
   origin: ECC
 ---

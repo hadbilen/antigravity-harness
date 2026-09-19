@@ -1,6 +1,9 @@
 ---
 name: antislop-ui
-description: "UI and visual skill for antislop. Use when building or editing any interface: color, layout, components, motion. Load with the core."
+description: 'UI and visual skill for antislop. Use when building or editing any interface:
+  color, layout, components, motion. Load with the core. Invoke when: creating or
+  styling visual UI components, color palettes, spacing tokens, typography, or when
+  user says ''design UI'', ''style component'', ''ui layout''.'
 ---
 # antislop-ui
 
