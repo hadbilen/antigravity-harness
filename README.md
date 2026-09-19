@@ -182,12 +182,6 @@ antigravity-harness/
 │   └── agy-guard.ps1                  # Windows PowerShell launcher
 ├── installers/                        # System menu and desktop integration
 │   └── antigravity-guard.desktop      # Linux XDG Desktop Application entry
-├── docs/                              # Project documentation & release records
-│   ├── HANDOFF.md                     # Active session handoff document
-│   └── releases/                      # Full release notes
-│       ├── RELEASE_NOTES_v1.2.0.md    # v1.2.0 Antigravity Guard & Write Protection
-│       ├── RELEASE_NOTES_v1.2.3.md    # v1.2.3 Rollbacks, Trust Anchors & Multi-OS CI
-│       └── RELEASE_NOTES_v1.2.4.md    # v1.2.4 Windows NTFS Hardening & Root Cleanliness
 ├── guard/                             # Antigravity Guard core engine
 │   ├── os_adapter.py                  # Cross-platform write protection (Linux, macOS, Windows)
 │   ├── integrity.py                   # Cryptographic File Integrity Monitor (SHA-256)

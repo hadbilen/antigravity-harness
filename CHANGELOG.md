@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Antigravity Harness are documented in this file and detailed in release notes.
+All notable changes to Antigravity Harness are documented in this file.
 
 ## [1.2.4] - 2026-09-19
 ### Fixed & Hardened
@@ -8,8 +8,7 @@ All notable changes to Antigravity Harness are documented in this file and detai
 - **Recursive Subdirectory Unlock:** Added `/t /c /q` to Windows `icacls` unlock routines to cleanly strip inherited deny ACEs across subdirectories (`guard/os_adapter.py`).
 - **Directory Lock Detection:** Added probe file verification for directory locks on Windows (`guard/os_adapter.py`).
 - **ASCII-Safe Console Output:** Replaced Unicode status characters with standardized `[OK]` and `[WARN]` markers for CP1252 / Windows terminal resilience (`guard/cli.py`, `guard/integrity.py`).
-- **Repository Root Cleanliness:** Reorganized root directory bloat into `installers/`, `docs/`, and `docs/releases/`.
-- See detailed notes: [docs/releases/RELEASE_NOTES_v1.2.4.md](docs/releases/RELEASE_NOTES_v1.2.4.md)
+- **Repository Cleanliness:** Reorganized root directory bloat into `installers/` and consolidated release records into root `CHANGELOG.md`.
 
 ## [1.2.3] - 2026-09-19
 ### Added & Hardened
@@ -17,7 +16,6 @@ All notable changes to Antigravity Harness are documented in this file and detai
 - **Isolated Cryptographic Trust Anchor:** External baseline path support via `ANTIGRAVITY_INTEGRITY_FILE` (`guard/integrity.py`).
 - **Stale Lock Recovery & Doctor:** Automatic recovery for crash-induced unshielded states and `agy-guard doctor [--fix]` diagnostic routine (`guard/os_adapter.py`, `guard/cli.py`).
 - **Cross-Platform CI Matrix:** Automated GitHub Actions workflows for Linux, macOS, and Windows (`.github/workflows/ci.yml`).
-- See detailed notes: [docs/releases/RELEASE_NOTES_v1.2.3.md](docs/releases/RELEASE_NOTES_v1.2.3.md)
 
 ## [1.2.2] - 2026-09-19
 ### Maintenance
@@ -30,7 +28,6 @@ All notable changes to Antigravity Harness are documented in this file and detai
 ## [1.2.0] - 2026-09-19
 ### Added
 - **Antigravity Guard Suite:** Cross-platform OS write protection, cryptographic FIM, lightweight snapshots, and Desktop GUI (`guard/`).
-- See detailed notes: [docs/releases/RELEASE_NOTES_v1.2.0.md](docs/releases/RELEASE_NOTES_v1.2.0.md)
 
 ## [1.1.0] - 2026-09-19
 ### Added
