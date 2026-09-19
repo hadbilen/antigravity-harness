@@ -45,13 +45,13 @@ class UpstreamAuditorBridge:
             "last_skills_audit_timestamp": None,
             "skills_audit_interval_hours": 72,
             "tracked_repositories": {
-                "antislop": {"repo": "miqdadbadjuber/anti-slop", "branch": "main", "last_synced_commit": "e8d6cb2"},
-                "chisle": {"repo": "JayPokale/Chisle", "branch": "main", "last_synced_commit": "3ad2746"},
-                "unlazy": {"repo": "Leonxlnx/unlazy", "branch": "main", "last_synced_commit": "bfcfcb2"},
-                "procoder": {"repo": "azrtydxb/procoder", "branch": "main", "last_synced_commit": "0745543"},
-                "silk-design": {"repo": "bendrape1-byte/silk-design", "branch": "main", "last_synced_commit": "0f62261"},
-                "everything-claude-code": {"repo": "affaan-m/everything-claude-code", "branch": "main", "last_synced_commit": "3c0250d"},
-                "skills": {"repo": "mattpocock/skills", "branch": "main", "last_synced_commit": "c424a1b"},
+                "antislop": {"repo": "miqdadbadjuber/anti-slop", "branch": "main", "last_synced_commit": "7437352"},
+                "chisle": {"repo": "JayPokale/Chisle", "branch": "main", "last_synced_commit": "47b7dd7"},
+                "unlazy": {"repo": "Leonxlnx/unlazy", "branch": "main", "last_synced_commit": "1667149"},
+                "procoder": {"repo": "azrtydxb/procoder", "branch": "main", "last_synced_commit": "f8c7fca"},
+                "silk-design": {"repo": "bendrape1-byte/silk-design", "branch": "main", "last_synced_commit": "0f530f0"},
+                "everything-claude-code": {"repo": "affaan-m/everything-claude-code", "branch": "main", "last_synced_commit": "07756ce"},
+                "skills": {"repo": "mattpocock/skills", "branch": "main", "last_synced_commit": "c55ee46"},
             },
         }
 

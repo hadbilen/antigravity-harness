@@ -4,7 +4,7 @@
 **Date & Time:** 2026-09-19T17:43:00Z  
 **Previous Conversation / Session ID:** `92229680-02e6-46bd-af10-c2c71747c513`  
 **Git Branch / Commit:** `main`  
-**Release URL:** https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.1  
+**Release URL:** https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.2  
 
 ---
 

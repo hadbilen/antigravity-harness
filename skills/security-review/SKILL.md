@@ -1,6 +1,7 @@
 ---
 name: security-review
 description: "Comprehensive security review, vulnerability checklist, and verification engine. Invoke when: adding authentication, authorization checks, handling user input, secrets, API endpoints, payment logic, or when user invokes '/security-review', 'security check', 'audit security'."
+license: MIT
 metadata:
   origin: ECC
 ---

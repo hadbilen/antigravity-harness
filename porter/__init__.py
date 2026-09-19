@@ -8,7 +8,7 @@ from porter.manifest import ManifestEngine
 from porter.models import HarnessAgent, HarnessRule, HarnessSkill, SuitabilityReport, UniversalManifest
 from porter.sanitizer import ConstitutionalSanitizer
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 __all__ = [
     "SuitabilityAnalyzer",

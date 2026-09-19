@@ -31,7 +31,7 @@
     "Chisle": {
       "repo": "JayPokale/Chisle",
       "branch": "main",
-      "last_synced_commit": "07c603b",
+      "last_synced_commit": "47b7dd7",
       "target_skills": [
         "chisle"
       ]
@@ -63,7 +63,7 @@
     "everything-claude-code": {
       "repo": "affaan-m/everything-claude-code",
       "branch": "main",
-      "last_synced_commit": "8bf16cc",
+      "last_synced_commit": "07756ce",
       "target_skills": [
         "architecture-decision-records",
         "database-migrations",
