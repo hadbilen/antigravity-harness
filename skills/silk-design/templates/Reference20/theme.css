@@ -1,0 +1,181 @@
+/* Reference20 — warm personal blog */
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+@import "../../assets/masks.css";
+@import "../../assets/animations.css";
+
+:root {
+  /* palette: warm-personal (light) */
+  --background: #f5f3f0;
+  --card: #ffffff;
+  --foreground: #1a1a1a;
+  --primary-cta: #1a1a1a;
+  --primary-cta-text: #f5f3f0;
+  --secondary-cta: #f5f3f0;
+  --secondary-cta-text: #1a1a1a;
+  --accent: #4CAF50;
+  --background-accent: #ebe7e1;
+
+  /* border radius: rounded */
+  --radius: 1.5rem;
+
+  /* content width: narrow */
+  --width-content-width: clamp(30rem, 60vw, 60rem);
+
+  /* utilities */
+  --vw-1_5: 1.5vw;
+  --width-x-padding-mask-fade: 5vw;
+
+  /* layout */
+  --width-carousel-padding: calc((100vw - var(--width-content-width)) / 2 + 1px - 1rem);
+  --width-carousel-padding-controls: calc((100vw - var(--width-content-width)) / 2 + 1px);
+  --width-carousel-item-2: calc(var(--width-content-width) / 2 - var(--vw-1_5) / 2);
+  --width-carousel-item-3: calc(var(--width-content-width) / 3 - var(--vw-1_5) / 3 * 2);
+  --width-carousel-item-4: calc(var(--width-content-width) / 4 - var(--vw-1_5) / 4 * 3);
+
+  /* type scale: medium */
+  --text-2xs: clamp(0.465rem, 0.62vw, 0.62rem);
+  --text-xs: clamp(0.54rem, 0.72vw, 0.72rem);
+  --text-sm: clamp(0.615rem, 0.82vw, 0.82rem);
+  --text-base: clamp(0.69rem, 0.92vw, 0.92rem);
+  --text-lg: clamp(0.75rem, 1vw, 1rem);
+  --text-xl: clamp(0.825rem, 1.1vw, 1.1rem);
+  --text-2xl: clamp(0.975rem, 1.3vw, 1.3rem);
+  --text-3xl: clamp(1.2rem, 1.6vw, 1.6rem);
+  --text-4xl: clamp(1.5rem, 2vw, 2rem);
+  --text-5xl: clamp(2.025rem, 2.75vw, 2.75rem);
+  --text-6xl: clamp(2.475rem, 3.3vw, 3.3rem);
+  --text-7xl: clamp(3rem, 4vw, 4rem);
+  --text-8xl: clamp(3.5rem, 4.5vw, 4.5rem);
+  --text-9xl: clamp(5.25rem, 7vw, 7rem);
+}
+
+/* Smaller laptops (< 14" MacBook) */
+@media (max-width: 1440px) and (min-width: 769px) {
+  :root {
+    --width-content-width: 75vw;
+  }
+}
+
+/* type scale: medium (mobile) */
+@media (max-width: 768px) {
+  :root {
+    --text-2xs: 2.5vw;
+    --text-xs: 2.75vw;
+    --text-sm: 3vw;
+    --text-base: 3.25vw;
+    --text-lg: 3.5vw;
+    --text-xl: 4.25vw;
+    --text-2xl: 5vw;
+    --text-3xl: 6vw;
+    --text-4xl: 7vw;
+    --text-5xl: 7.5vw;
+    --text-6xl: 8.5vw;
+    --text-7xl: 10vw;
+    --text-8xl: 12vw;
+    --text-9xl: 14vw;
+    --width-content-width: 85vw;
+    --width-carousel-padding: calc((100vw - var(--width-content-width)) / 2 + 1px - 1rem);
+    --width-carousel-padding-controls: calc((100vw - var(--width-content-width)) / 2 + 1px);
+    --width-carousel-item-2: var(--width-content-width);
+    --width-carousel-item-3: var(--width-content-width);
+    --width-carousel-item-4: var(--width-content-width);
+  }
+}
+
+@theme inline {
+  /* Colors */
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-primary-cta: var(--primary-cta);
+  --color-primary-cta-text: var(--primary-cta-text);
+  --color-secondary-cta: var(--secondary-cta);
+  --color-secondary-cta-text: var(--secondary-cta-text);
+  --color-accent: var(--accent);
+  --color-background-accent: var(--background-accent);
+
+  /* Fonts */
+  --font-sans: "Inter Tight", sans-serif;
+  --font-serif: "Caveat", sans-serif;
+  --font-tight: "Inter Tight", sans-serif;
+  --font-mono: monospace;
+
+  /* Border Radius */
+  --radius: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  /* Width */
+  --width-content-width: var(--width-content-width);
+  --width-carousel-padding: var(--width-carousel-padding);
+  --width-carousel-padding-controls: var(--width-carousel-padding-controls);
+  --width-carousel-item-2: var(--width-carousel-item-2);
+  --width-carousel-item-3: var(--width-carousel-item-3);
+  --width-carousel-item-4: var(--width-carousel-item-4);
+
+  /* Typography */
+  --text-2xs: var(--text-2xs);
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-base: var(--text-base);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+  --text-2xl: var(--text-2xl);
+  --text-3xl: var(--text-3xl);
+  --text-4xl: var(--text-4xl);
+  --text-5xl: var(--text-5xl);
+  --text-6xl: var(--text-6xl);
+  --text-7xl: var(--text-7xl);
+  --text-8xl: var(--text-8xl);
+  --text-9xl: var(--text-9xl);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(26, 26, 26, 0.15) rgba(0, 0, 0, 0);
+}
+
+html {
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Inter Tight", sans-serif;
+  position: relative;
+  min-height: 100vh;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+
+.card {
+  backdrop-filter: blur(8px);
+  background: linear-gradient(to bottom right, color-mix(in srgb, var(--color-card) 95%, transparent), color-mix(in srgb, var(--color-card) 80%, transparent));
+  box-shadow: 0 1px 3px 0 color-mix(in srgb, var(--color-foreground) 6%, transparent), 0 1px 2px -1px color-mix(in srgb, var(--color-foreground) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-foreground) 8%, transparent);
+}
+
+.primary-button {
+  background: var(--color-primary-cta);
+  box-shadow: none;
+}
+
+.secondary-button {
+  background: var(--color-secondary-cta);
+  box-shadow: none;
+  border: 1px solid color-mix(in srgb, var(--color-foreground) 10%, transparent);
+}
+
+.font-serif {
+  font-family: "Caveat", sans-serif !important;
+}
+
+.font-semibold,
+.font-medium {
+  font-weight: 400 !important;
+}

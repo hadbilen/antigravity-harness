@@ -1,0 +1,24 @@
+# Personal and runtime configuration
+config.json
+projects/
+.migrated
+backup_*
+staging/
+scratch/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.token
+
+# Python & Node artifacts
+__pycache__/
+*.pyc
+*.pyo
+node_modules/
+npm-debug.log*
+
+# System artifacts
+.DS_Store
+Thumbs.db

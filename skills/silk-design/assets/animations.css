@@ -1,0 +1,214 @@
+/* keyframes: marquees, gradients, ambient motion */
+
+@keyframes pulsate {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent);
+    transform: scale(0.9);
+  }
+  50% {
+    transform: scale(1);
+  }
+  100% {
+    box-shadow: 0 0 20px 10px transparent;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes fadeInOpacity {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInTranslate {
+  from {
+    transform: translateY(0.75vh);
+  }
+  to {
+    transform: translateY(0vh);
+  }
+}
+
+@keyframes aurora {
+  from {
+    background-position: 50% 50%, 50% 50%;
+  }
+  to {
+    background-position: 350% 50%, 350% 50%;
+  }
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin-reverse {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes marquee-vertical {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes marquee-vertical-reverse {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes marquee-horizontal {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes marquee-horizontal-reverse {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes orbit {
+  from {
+    transform: rotate(var(--initial-position, 0deg)) translateX(var(--translate-position, 120px))
+      rotate(calc(-1 * var(--initial-position, 0deg)));
+  }
+  to {
+    transform: rotate(calc(var(--initial-position, 0deg) + 360deg))
+      translateX(var(--translate-position, 120px))
+      rotate(calc(-1 * (var(--initial-position, 0deg) + 360deg)));
+  }
+}
+
+@keyframes map-dot-pulse {
+  0%,
+  100% {
+    transform: scale(0.4);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 1;
+  }
+}
+
+@keyframes progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Animation classes */
+
+.animate-pulsate {
+  animation: pulsate 1.5s infinite;
+}
+
+.animation-container {
+  animation: fadeInOpacity 0.8s ease-in-out forwards, fadeInTranslate 0.6s forwards;
+}
+
+.animation-container-fade {
+  animation: fadeInOpacity 0.8s ease-in-out forwards;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 15s linear infinite;
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 10s linear infinite;
+}
+
+.animate-marquee-vertical {
+  animation: marquee-vertical 40s linear infinite;
+}
+
+.animate-marquee-vertical-reverse {
+  animation: marquee-vertical-reverse 40s linear infinite;
+}
+
+.animate-marquee-horizontal {
+  animation: marquee-horizontal 15s linear infinite;
+}
+
+.animate-marquee-horizontal-reverse {
+  animation: marquee-horizontal-reverse 15s linear infinite;
+}
+
+.animate-progress {
+  animation: progress linear forwards;
+}
+
+/* Ray background animations */
+@keyframes ray-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: var(--ray-opacity); }
+}
+
+@keyframes rotated-ray-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: var(--ray-opacity); }
+}
+
+/* Floating gradient background animations */
+@keyframes floating-move-in-circle {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(180deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes floating-move-vertical {
+  0% { transform: translateY(-50%); }
+  50% { transform: translateY(50%); }
+  100% { transform: translateY(-50%); }
+}
+
+@keyframes floating-move-horizontal {
+  0% { transform: translateX(-50%) translateY(-10%); }
+  50% { transform: translateX(50%) translateY(10%); }
+  100% { transform: translateX(-50%) translateY(-10%); }
+}
+
+/* Cell wave background animation */
+@keyframes cell-wave-pulse {
+  0%, 100% { opacity: 0; }
+  11% { opacity: 0.05; }
+  22% { opacity: 0.15; }
+  33% { opacity: 0.25; }
+  44% { opacity: 0.5; }
+  55% { opacity: 0.25; }
+  66% { opacity: 0.15; }
+  77% { opacity: 0.05; }
+  88% { opacity: 0; }
+}

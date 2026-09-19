@@ -1,0 +1,18 @@
+{
+  "userSettings": {
+    "conversationWidth": "CONVERSATION_WIDTH_DEFAULT",
+    "globalPermissionGrants": {
+      "allow": [
+        "command(git status)",
+        "command(git diff)",
+        "command(git log)",
+        "command(npm test)",
+        "command(pytest)",
+        "command(cargo test)",
+        "command(go test ./...)",
+        "read_url(github.com)",
+        "read_url(raw.githubusercontent.com)"
+      ]
+    }
+  }
+}

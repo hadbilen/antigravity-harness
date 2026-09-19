@@ -1,0 +1,65 @@
+/* mask-fade utilities */
+
+.mask-fade-x {
+  mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+}
+
+.mask-fade-x-medium {
+  mask-image: linear-gradient(to right, transparent 0%, black 20%, black 80%, transparent 100%);
+}
+
+.mask-padding-x {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black var(--width-x-padding-mask-fade),
+    black calc(100% - var(--width-x-padding-mask-fade)),
+    transparent 100%
+  );
+}
+
+.mask-fade-bottom {
+  mask-image: linear-gradient(to bottom, black 0%, black 50%, transparent 100%);
+}
+
+.mask-fade-y {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black var(--vw-1_5),
+    black calc(100% - var(--vw-1_5)),
+    transparent 100%
+  );
+}
+
+.mask-fade-y-medium {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 20%,
+    black 80%,
+    transparent 100%
+  );
+}
+
+.mask-fade-bottom-large {
+  mask-image: linear-gradient(to bottom, black 0%, black 50%, transparent 75%, transparent 100%);
+}
+
+.mask-fade-bottom-long {
+  mask-image: linear-gradient(to bottom, black 0%, black 5%, transparent 100%);
+}
+
+.mask-fade-top-long {
+  mask-image: linear-gradient(to top, black 0%, black 5%, transparent 100%);
+}
+
+.mask-fade-xy {
+  mask-image: linear-gradient(to right, transparent 0%, black 20%, black 80%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
+  mask-composite: intersect;
+}
+
+.mask-fade-top-overlay {
+  mask-image: linear-gradient(to bottom, transparent, black 60%);
+}

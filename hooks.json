@@ -1,0 +1,11 @@
+{
+  "upstream-watchdog": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ~/.gemini/config/skills/upstream-auditor/scripts/upstream_watcher.py",
+        "timeout": 5
+      }
+    ]
+  }
+}

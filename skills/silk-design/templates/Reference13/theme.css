@@ -1,0 +1,182 @@
+/* SaaS - Dark Purple */
+@import "tailwindcss";
+@import "../../assets/masks.css";
+@import "../../assets/animations.css";
+
+:root {
+  /* palette: light purple (dark) */
+  --background: #050012;
+  --card: #040121;
+  --foreground: #f0e6ff;
+  --primary-cta: #c89bff;
+  --primary-cta-text: #050012;
+  --secondary-cta: #1d123b;
+  --secondary-cta-text: #f0e6ff;
+  --accent: #684f7b;
+  --background-accent: #65417c;
+
+  /* border radius: soft */
+  --radius: 1.5rem;
+
+  /* content width: medium */
+  --width-content-width: clamp(40rem, 72.5vw, 100rem);
+
+  /* utilities */
+  --vw-1_5: 1.5vw;
+  --width-x-padding-mask-fade: 5vw;
+
+  /* layout */
+  --width-carousel-padding: calc((100vw - var(--width-content-width)) / 2 + 1px - 1rem);
+  --width-carousel-padding-controls: calc((100vw - var(--width-content-width)) / 2 + 1px);
+  --width-carousel-item-2: calc(var(--width-content-width) / 2 - var(--vw-1_5) / 2);
+  --width-carousel-item-3: calc(var(--width-content-width) / 3 - var(--vw-1_5) / 3 * 2);
+  --width-carousel-item-4: calc(var(--width-content-width) / 4 - var(--vw-1_5) / 4 * 3);
+
+  /* type scale: medium */
+  --text-2xs: clamp(0.465rem, 0.62vw, 0.62rem);
+  --text-xs: clamp(0.54rem, 0.72vw, 0.72rem);
+  --text-sm: clamp(0.615rem, 0.82vw, 0.82rem);
+  --text-base: clamp(0.69rem, 0.92vw, 0.92rem);
+  --text-lg: clamp(0.75rem, 1vw, 1rem);
+  --text-xl: clamp(0.825rem, 1.1vw, 1.1rem);
+  --text-2xl: clamp(0.975rem, 1.3vw, 1.3rem);
+  --text-3xl: clamp(1.2rem, 1.6vw, 1.6rem);
+  --text-4xl: clamp(1.5rem, 2vw, 2rem);
+  --text-5xl: clamp(2.025rem, 2.75vw, 2.75rem);
+  --text-6xl: clamp(2.475rem, 3.3vw, 3.3rem);
+  --text-7xl: clamp(3rem, 4vw, 4rem);
+  --text-8xl: clamp(3.5rem, 4.5vw, 4.5rem);
+  --text-9xl: clamp(5.25rem, 7vw, 7rem);
+}
+
+/* Smaller laptops (< 14" MacBook) */
+@media (max-width: 1440px) and (min-width: 769px) {
+  :root {
+    --width-content-width: 87.5vw;
+  }
+}
+
+/* type scale: medium (mobile) */
+@media (max-width: 768px) {
+  :root {
+    --text-2xs: 2.5vw;
+    --text-xs: 2.75vw;
+    --text-sm: 3vw;
+    --text-base: 3.25vw;
+    --text-lg: 3.5vw;
+    --text-xl: 4.25vw;
+    --text-2xl: 5vw;
+    --text-3xl: 6vw;
+    --text-4xl: 7vw;
+    --text-5xl: 7.5vw;
+    --text-6xl: 8.5vw;
+    --text-7xl: 10vw;
+    --text-8xl: 12vw;
+    --text-9xl: 14vw;
+    --width-content-width: 80vw;
+    --width-carousel-padding: calc((100vw - var(--width-content-width)) / 2 + 1px - 1rem);
+    --width-carousel-padding-controls: calc((100vw - var(--width-content-width)) / 2 + 1px);
+    --width-carousel-item-2: var(--width-content-width);
+    --width-carousel-item-3: var(--width-content-width);
+    --width-carousel-item-4: var(--width-content-width);
+  }
+}
+
+@theme inline {
+  /* Colors */
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-primary-cta: var(--primary-cta);
+  --color-primary-cta-text: var(--primary-cta-text);
+  --color-secondary-cta: var(--secondary-cta);
+  --color-secondary-cta-text: var(--secondary-cta-text);
+  --color-accent: var(--accent);
+  --color-background-accent: var(--background-accent);
+
+  /* Fonts */
+  --font-sans: "Inter", sans-serif;
+  --font-tight: "Inter Tight", sans-serif;
+  --font-mono: monospace;
+
+  /* Border Radius */
+  --radius: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  /* Width */
+  --width-content-width: var(--width-content-width);
+  --width-carousel-padding: var(--width-carousel-padding);
+  --width-carousel-padding-controls: var(--width-carousel-padding-controls);
+  --width-carousel-item-2: var(--width-carousel-item-2);
+  --width-carousel-item-3: var(--width-carousel-item-3);
+  --width-carousel-item-4: var(--width-carousel-item-4);
+
+  /* Typography */
+  --text-2xs: var(--text-2xs);
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-base: var(--text-base);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+  --text-2xl: var(--text-2xl);
+  --text-3xl: var(--text-3xl);
+  --text-4xl: var(--text-4xl);
+  --text-5xl: var(--text-5xl);
+  --text-6xl: var(--text-6xl);
+  --text-7xl: var(--text-7xl);
+  --text-8xl: var(--text-8xl);
+  --text-9xl: var(--text-9xl);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 155, 255, 0.3) rgba(255, 255, 255, 0);
+}
+
+html {
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", sans-serif;
+  position: relative;
+  min-height: 100vh;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Inter", sans-serif;
+}
+
+/* card skin */
+.card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-card) 100%, var(--color-accent) 5%) -35%, var(--color-card) 65%);
+  box-shadow: 0px 0px 10px 4px color-mix(in srgb, var(--color-accent) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+/* primary button: radial-glow */
+.primary-button {
+  background: var(--color-primary-cta);
+  box-shadow: color-mix(in srgb, var(--color-background) 20%, transparent) 0px 3px 1px 0px inset, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 0.839802px 0.503881px -0.3125px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 1.99048px 1.19429px -0.625px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 3.63084px 2.1785px -0.9375px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 6.03627px 3.62176px -1.25px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 9.74808px 5.84885px -1.5625px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 15.9566px 9.57398px -1.875px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 27.4762px 16.4857px -2.1875px, color-mix(in srgb, var(--color-primary-cta) 13%, transparent) 0px 50px 30px -2.5px;
+}
+
+/* secondary button: glass */
+.secondary-button {
+  backdrop-filter: blur(8px);
+  background: linear-gradient(to bottom right, color-mix(in srgb, var(--color-secondary-cta) 80%, transparent), var(--color-secondary-cta));
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  border: 1px solid var(--color-secondary-cta);
+}

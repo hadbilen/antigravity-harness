@@ -1,0 +1,953 @@
+// Shared gate parsing, scope resolution, durable writes, locks, and leases.
+// Zero dependencies. Node 16+.
+
+import {
+  closeSync, constants as fsConstants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync,
+  openSync, readFileSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
+export const UNLAZY_DIR = ".unlazy";
+export const LOCK_DIR = join(UNLAZY_DIR, "locks");
+export const MAX_CHECK_OUTPUT_BYTES = 1024 * 1024;
+export const MAX_AUTOMATIC_EVIDENCE_CHARS = 900;
+
+export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+export const sha256 = (value) => createHash("sha256").update(String(value)).digest("hex");
+
+const WINDOWS_TRANSIENT_FS_ERRORS = new Set(["EACCES", "EBUSY", "EPERM"]);
+const SYNC_SLEEP_CELL = new Int32Array(new SharedArrayBuffer(4));
+const DEFAULT_STABLE_FILE_MAX_BYTES = 8 * 1024 * 1024;
+const LEASE_MAX_BYTES = 64 * 1024;
+
+function isTransientWindowsFsError(error) {
+  return process.platform === "win32" && WINDOWS_TRANSIENT_FS_ERRORS.has(error && error.code);
+}
+
+function pathIsInside(parent, child) {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === "" || (!rel.startsWith(".." + sep) && rel !== ".." && !isAbsolute(rel));
+}
+
+export function sameFileIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameSnapshot(left, right) {
+  return sameFileIdentity(left, right) && left.size === right.size &&
+    (left.mtimeNs === undefined ? left.mtimeMs : left.mtimeNs) ===
+      (right.mtimeNs === undefined ? right.mtimeMs : right.mtimeNs) &&
+    (left.ctimeNs === undefined ? left.ctimeMs : left.ctimeNs) ===
+      (right.ctimeNs === undefined ? right.ctimeMs : right.ctimeNs);
+}
+
+function assertRegularSingleLink(info, target, label, maxBytes) {
+  if (!info.isFile() || info.isSymbolicLink() || (info.nlink !== 1 && info.nlink !== 1n)) {
+    throw new Error(label + " must be one unchanged regular single-link file: " + target);
+  }
+  if (info.size > maxBytes) {
+    throw new Error(label + " exceeds " + maxBytes + " bytes: " + target);
+  }
+}
+
+// Path-based stat and descriptor-based stat used different Windows/libuv
+// implementations in affected Node releases, so their `dev` fields are not
+// comparable. Keep lstat as the named-entry link/type guard, but on Windows
+// acquire identity through a second, non-creating descriptor opened from the
+// current name. Callers can then compare fstat to fstat without weakening the
+// strict volume-plus-file identity rule.
+export function statCurrentNamedFile(path, options = {}) {
+  const target = resolve(path);
+  const kind = String(options.label || "file");
+  const limit = options.maxBytes === undefined ? Infinity : Number(options.maxBytes);
+  if (!(limit === Infinity || (Number.isInteger(limit) && limit >= 1))) {
+    throw new Error(kind + " maxBytes must be a positive integer");
+  }
+  const accessFlags = options.openFlags === undefined
+    ? fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK || 0)
+    : Number(options.openFlags);
+  const mutatingFlags = (fsConstants.O_CREAT || 0) | (fsConstants.O_TRUNC || 0);
+  if (!Number.isInteger(accessFlags) || (accessFlags & mutatingFlags) !== 0) {
+    throw new Error(kind + " identity descriptor must use non-creating, non-truncating flags");
+  }
+
+  const before = lstatSync(target, { bigint: true });
+  assertRegularSingleLink(before, target, kind, limit);
+  if (process.platform !== "win32") return before;
+
+  let fd = null;
+  try {
+    fd = openSync(target, accessFlags);
+    const current = fstatSync(fd, { bigint: true });
+    assertRegularSingleLink(current, target, kind, limit);
+    const after = lstatSync(target, { bigint: true });
+    assertRegularSingleLink(after, target, kind, limit);
+    const afterCurrent = fstatSync(fd, { bigint: true });
+    assertRegularSingleLink(afterCurrent, target, kind, limit);
+    // These are two results from the same path-stat implementation, so their
+    // strict identity and snapshot fields remain comparable even on affected
+    // libuv builds. This brackets the secondary open without comparing
+    // path-stat `dev` to descriptor-stat `dev`.
+    const namedEntryUnchanged = options.stableSnapshot === false
+      ? sameFileIdentity(before, after)
+      : sameSnapshot(before, after);
+    if (!namedEntryUnchanged) {
+      throw new Error(kind + " changed while its named identity was checked: " + target);
+    }
+    // The lstat pair alone cannot detect A -> B -> A around a descriptor open.
+    // Exact BigInt inode equality supplies the comparable named-to-handle field
+    // exposed by the affected runtime; the caller still makes the decisive
+    // strict dev+ino fstat-to-fstat check. This remains a snapshot rather than
+    // atomic Windows path isolation; SECURITY.md documents that boundary.
+    if (before.ino !== current.ino || after.ino !== current.ino) {
+      throw new Error(kind + " descriptor does not identify its guarded name: " + target);
+    }
+    if (options.stableSnapshot !== false && !sameSnapshot(current, afterCurrent)) {
+      throw new Error(kind + " changed while its descriptor identity was checked: " + target);
+    }
+    return afterCurrent;
+  } finally {
+    // A close failure is an infrastructure failure, not a reason to accept an
+    // identity result whose secondary descriptor did not close cleanly.
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+// Read repository and coordination inputs without following a pre-existing
+// symlink, blocking on a FIFO, accepting a hard link, or crossing an optional
+// canonical root. The descriptor and named entry must identify the same stable
+// file before and after the bounded read.
+export function readStableRegularFile(path, { root, maxBytes, label } = {}) {
+  const target = resolve(path);
+  const kind = String(label || "file");
+  const limit = maxBytes === undefined ? DEFAULT_STABLE_FILE_MAX_BYTES : Number(maxBytes);
+  if (!Number.isInteger(limit) || limit < 1) throw new Error(kind + " maxBytes must be a positive integer");
+
+  let fd = null;
+  const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW || 0);
+  try {
+    fd = openSync(target, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK || 0) | noFollow);
+  } catch (error) {
+    if (error && error.code === "ELOOP") {
+      throw new Error(kind + " must be one unchanged regular single-link file: " + target);
+    }
+    if (error && error.code === "ENOENT") {
+      try {
+        const named = lstatSync(target);
+        assertRegularSingleLink(named, target, kind, limit);
+        throw new Error(kind + " appeared after its open reported it missing: " + target);
+      } catch (probeError) {
+        if (probeError && probeError.code === "ENOENT") throw error;
+        throw probeError;
+      }
+    }
+    // ENOENT is intentionally exposed only here. Callers that permit a missing
+    // file can distinguish absence at descriptor acquisition from a later race.
+    throw error;
+  }
+
+  try {
+    const opened = fstatSync(fd, { bigint: true });
+    const named = statCurrentNamedFile(target, { maxBytes: limit, label: kind });
+    assertRegularSingleLink(opened, target, kind, limit);
+    if (!sameFileIdentity(opened, named)) {
+      throw new Error(kind + " changed before it was read: " + target);
+    }
+    const canonicalRoot = root === undefined ? null : realpathSync(resolve(root));
+    const canonicalBefore = realpathSync(target);
+    if (canonicalRoot && !pathIsInside(canonicalRoot, canonicalBefore)) {
+      throw new Error(kind + " resolves outside the allowed root: " + target);
+    }
+
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, limit + 1 - total));
+      const count = readSync(fd, chunk, 0, chunk.length, null);
+      if (count === 0) break;
+      chunks.push(chunk.subarray(0, count));
+      total += count;
+      if (total > limit) throw new Error(kind + " exceeds " + limit + " bytes: " + target);
+    }
+
+    const afterOpened = fstatSync(fd, { bigint: true });
+    const afterNamed = statCurrentNamedFile(target, { maxBytes: limit, label: kind });
+    assertRegularSingleLink(afterOpened, target, kind, limit);
+    if (!sameSnapshot(opened, afterOpened) || !sameSnapshot(afterOpened, afterNamed)) {
+      throw new Error(kind + " changed while it was read: " + target);
+    }
+    const canonicalAfter = realpathSync(target);
+    if (canonicalAfter !== canonicalBefore || (canonicalRoot && !pathIsInside(canonicalRoot, canonicalAfter))) {
+      throw new Error(kind + " changed canonical location while it was read: " + target);
+    }
+    return Buffer.concat(chunks, total).toString("utf8");
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      throw new Error(kind + " changed while it was read: " + target);
+    }
+    throw error;
+  } finally {
+    if (fd !== null) try { closeSync(fd); } catch { /* ignore */ }
+  }
+}
+
+function realDirectoryInside(root, directory) {
+  try {
+    const named = lstatSync(directory);
+    if (named.isSymbolicLink() || !named.isDirectory()) return false;
+    return pathIsInside(realpathSync(resolve(root)), realpathSync(directory));
+  } catch {
+    return false;
+  }
+}
+
+function namedEntry(file) {
+  try {
+    lstatSync(file);
+    return true;
+  } catch (error) {
+    if (error && error.code !== "ENOENT") return true;
+    return false;
+  }
+}
+
+// Windows scanners and indexers can briefly retain a handle to a file after it
+// closes. Keep the same private temp file and retry replacement while the caller
+// still holds its lock; never unlink the destination or fall back to an in-place
+// write, either of which would sacrifice atomicity.
+function replaceAtomic(temp, target) {
+  const deadline = Date.now() + 2000;
+  let delay = 5;
+  for (;;) {
+    try {
+      renameSync(temp, target);
+      return;
+    } catch (error) {
+      const remaining = deadline - Date.now();
+      if (!isTransientWindowsFsError(error) || remaining <= 0) throw error;
+      Atomics.wait(SYNC_SLEEP_CELL, 0, 0, Math.min(delay, remaining));
+      delay = Math.min(delay * 2, 100);
+    }
+  }
+}
+
+const GATE_RE = /^- \[( |x|X)\] (.*)$/;
+const ATTR_RE = /^(\s+)(CHECK|EXPECT|EVIDENCE|CWD):\s?(.*)$/;
+const UNINDENTED_ATTR_RE = /^(CHECK|EXPECT|EVIDENCE|CWD):\s?(.*)$/;
+const ABANDON_RE = /^ABANDON:\s*(\S*)\s*(.*)$/;
+const INDENTED_ABANDON_RE = /^\s+ABANDON:/;
+const OWNS_RE = /^OWNS:\s*(.*)$/;
+const FENCE_OPEN_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+const REGEX_RE = /^\/([\s\S]*)\/([a-z]*)$/;
+// A pattern author escapes an inner slash or has none. A literal path always
+// carries one, so an unescaped inner slash marks the ambiguous reading.
+const UNESCAPED_SLASH_RE = /(^|[^\\])\//;
+const SCOPE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function parseRegex(expect) {
+  const match = String(expect).match(REGEX_RE);
+  if (!match) return { kind: "text", value: String(expect) };
+  if (match[1].length > 1000) return { error: "EXPECT regex is longer than 1000 characters" };
+  try {
+    // Matching happens in a disposable worker so catastrophic backtracking
+    // cannot hang the checker.
+    new RegExp(match[1], match[2]);
+  } catch (error) {
+    return { error: "invalid EXPECT regex: " + error.message };
+  }
+  return {
+    kind: "regex",
+    source: match[1],
+    flags: match[2],
+    pathLike: UNESCAPED_SLASH_RE.test(match[1]),
+  };
+}
+
+// The checker and Stop hook both consume this exact result. Diagnostics are
+// returned together so callers can report all malformed input in one pass.
+export function parseGates(text, options = {}) {
+  const source = String(text);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const finalNewline = source.endsWith("\n");
+  const lines = source.split(/\r?\n/);
+  const gates = [];
+  const abandoned = new Map();
+  const owns = [];
+  const errors = [];
+  const warnings = [];
+  const ids = new Map();
+  const attrs = new Map();
+  let current = null;
+  let seenGate = false;
+  let fence = null;
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (fence) {
+      const close = line.match(/^( {0,3})(`+|~+)[ \t]*$/);
+      if (close && close[2][0] === fence.character && close[2].length >= fence.length) fence = null;
+      continue;
+    }
+    const fenceMatch = line.match(FENCE_OPEN_RE);
+    if (fenceMatch && !(fenceMatch[2][0] === "`" && fenceMatch[3].includes("`"))) {
+      fence = { character: fenceMatch[2][0], length: fenceMatch[2].length };
+      continue;
+    }
+
+    const gateMatch = line.match(GATE_RE);
+    if (gateMatch) {
+      seenGate = true;
+      const rawTitle = gateMatch[2].trim();
+      const idMatch = rawTitle.match(/^(\S+?):(?:\s+|$)/);
+      const id = idMatch ? idMatch[1] : "L" + (index + 1);
+      const title = idMatch ? rawTitle.slice(idMatch[0].length).trim() : rawTitle;
+      current = {
+        line: index,
+        checked: gateMatch[1].toLowerCase() === "x",
+        id,
+        title,
+        check: null,
+        expect: null,
+        evidence: null,
+        evidenceLine: -1,
+        cwd: null,
+      };
+      gates.push(current);
+      attrs.set(current, new Set());
+      if (!idMatch) errors.push("line " + (index + 1) + ": gate needs an explicit ID followed by a colon");
+      else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+        errors.push("line " + (index + 1) + ": invalid gate id " + id);
+      }
+      if (!title) errors.push("line " + (index + 1) + ": gate outcome is blank");
+      if (ids.has(id)) {
+        errors.push("line " + (index + 1) + ": duplicate gate id " + id +
+          " (first declared on line " + ids.get(id) + ")");
+      } else ids.set(id, index + 1);
+      continue;
+    }
+
+    // Attributes must be indented and ABANDON must not be, so the two rules
+    // point opposite ways. Diagnose the indented abandonment rather than
+    // ignoring it, or the author's honest exit fails with no explanation.
+    if (INDENTED_ABANDON_RE.test(line)) {
+      errors.push("line " + (index + 1) +
+        ": indented ABANDON is not applied; start ABANDON at column 1");
+      current = null;
+      continue;
+    }
+
+    const unindented = line.match(UNINDENTED_ATTR_RE);
+    if (unindented) {
+      errors.push("line " + (index + 1) + ": unindented " + unindented[1] +
+        " is not attached to a gate; indent attribute lines with spaces");
+      current = null;
+      continue;
+    }
+
+    const anyAttr = line.match(ATTR_RE);
+    if (anyAttr && !current) {
+      errors.push("line " + (index + 1) + ": orphan " + anyAttr[2] + " is not attached to a gate");
+      continue;
+    }
+    const attrMatch = current && anyAttr;
+    if (attrMatch) {
+      const key = attrMatch[2].toLowerCase();
+      const value = attrMatch[3].trim();
+      if (attrs.get(current).has(key)) {
+        errors.push("line " + (index + 1) + ": duplicate " + attrMatch[2] +
+          " for gate " + current.id);
+      }
+      attrs.get(current).add(key);
+      if (key === "evidence") {
+        current.evidence = value;
+        current.evidenceLine = index;
+      } else current[key] = value;
+      continue;
+    }
+
+    const abandonMatch = line.match(ABANDON_RE);
+    if (abandonMatch) {
+      const id = abandonMatch[1].replace(/:$/, "");
+      const reason = abandonMatch[2].trim();
+      if (!id) errors.push("line " + (index + 1) + ": ABANDON needs a gate id and reason");
+      else if (!reason) errors.push("line " + (index + 1) + ": ABANDON " + id + " needs a non-blank reason");
+      else if (abandoned.has(id)) errors.push("line " + (index + 1) + ": duplicate ABANDON for " + id);
+      else abandoned.set(id, reason);
+      current = null;
+      continue;
+    }
+
+    const ownsMatch = line.match(OWNS_RE);
+    if (ownsMatch) {
+      if (seenGate) {
+        errors.push("line " + (index + 1) + ": OWNS must appear before the first gate");
+        current = null;
+        continue;
+      }
+      const declared = ownsMatch[1].split(",").map((item) => item.trim()).filter(Boolean);
+      if (!declared.length) errors.push("line " + (index + 1) + ": OWNS declares no paths");
+      for (const item of declared) {
+        const normalized = normalizeOwnsGlob(item);
+        if (normalized.error) errors.push("line " + (index + 1) + ": " + normalized.error);
+        else owns.push(normalized.value);
+      }
+      continue;
+    }
+    if (/^#|^- /.test(line)) current = null;
+  }
+
+  if (fence) errors.push("unclosed fenced block");
+
+  for (const gate of gates) {
+    const hasCheck = gate.check !== null && gate.check !== "";
+    const hasExpect = gate.expect !== null && gate.expect !== "";
+    if (hasCheck !== hasExpect) {
+      errors.push("gate " + gate.id + ": runnable gates require both non-blank CHECK and EXPECT");
+    }
+    if (gate.check === "" || gate.expect === "") {
+      errors.push("gate " + gate.id + ": CHECK and EXPECT cannot be blank");
+    }
+    if (hasExpect) {
+      const parsed = parseRegex(gate.expect);
+      if (parsed.error) errors.push("gate " + gate.id + ": " + parsed.error);
+      else if (parsed.pathLike) {
+        // Warn rather than reject: the pattern reading may be intended, and a
+        // literal path cannot be expressed once the wrapping slashes sniff.
+        warnings.push("gate " + gate.id + ": EXPECT " + JSON.stringify(gate.expect) +
+          " is read as a regular expression, so its dots and other metacharacters" +
+          " are wildcards. Escape the inner slashes to keep the pattern, or drop" +
+          " the wrapping slashes to match a literal substring.");
+      }
+      gate.expectation = parsed;
+    } else gate.expectation = null;
+  }
+
+  for (const id of abandoned.keys()) {
+    if (!ids.has(id)) errors.push("ABANDON references unknown gate " + id);
+  }
+  if (options.requireGates !== false && gates.length === 0) errors.push("ledger contains zero live gates");
+
+  return { lines, eol, finalNewline, gates, abandoned, owns, errors, warnings };
+}
+
+export function formatDocument(doc) {
+  let output = doc.lines.join(doc.eol);
+  if (doc.finalNewline && !output.endsWith(doc.eol)) output += doc.eol;
+  return output;
+}
+
+export function qualify(fileOrLabel, id) {
+  return basename(String(fileOrLabel)).replace(/\.md$/i, "") + ":" + id;
+}
+
+export function gateDefinitionDigest(gate) {
+  if (!gate || typeof gate.check !== "string" || gate.check === "" ||
+      typeof gate.expect !== "string" || gate.expect === "") return null;
+  return sha256(JSON.stringify([
+    "unlazy.gate-definition",
+    1,
+    gate.check,
+    gate.expect,
+    gate.cwd === null || gate.cwd === undefined ? null : String(gate.cwd),
+  ]));
+}
+
+export function automaticEvidencePrefix(definitionDigest) {
+  if (!/^[a-f0-9]{64}$/.test(String(definitionDigest || ""))) {
+    throw new Error("automatic evidence needs a full lowercase SHA-256 definition digest");
+  }
+  return "automatic-evidence=v1; definition-sha256=" + definitionDigest + ";";
+}
+
+export function classifyGateEvidence(gate) {
+  const evidence = gate && gate.evidence === null ? "" : String((gate && gate.evidence) || "");
+  if (evidence === "" || /^pending$/i.test(evidence)) return "pending";
+  const definitionDigest = gateDefinitionDigest(gate);
+  if (definitionDigest !== null) {
+    const prefix = automaticEvidencePrefix(definitionDigest);
+    const decidingFields = evidence.slice(prefix.length);
+    const success = decidingFields.match(
+      /^ exit=0; EXPECT=matched; output-sha256=[a-f0-9]{64}; output-bytes=(0|[1-9][0-9]{0,6}); shell=./,
+    );
+    if (evidence.length <= MAX_AUTOMATIC_EVIDENCE_CHARS && evidence.startsWith(prefix) &&
+        success && Number(success[1]) <= MAX_CHECK_OUTPUT_BYTES) {
+      return "automatic-current";
+    }
+  }
+  if (evidence.startsWith("automatic-evidence=") || evidence.startsWith("exit=0; shell=")) {
+    return "automatic-stale";
+  }
+  return "human";
+}
+
+export function gateState(gate, abandoned) {
+  if (abandoned.has(gate.id)) return "abandoned";
+  if (!gate.checked) return "unmet";
+  const evidence = classifyGateEvidence(gate);
+  const runnable = gateDefinitionDigest(gate) !== null;
+  if (runnable) return evidence === "automatic-current" ? "met" : "stale-unmet";
+  if (evidence === "pending") return "unmet-no-evidence";
+  if (evidence === "automatic-current" || evidence === "automatic-stale") return "stale-unmet";
+  return "met";
+}
+
+export function tail(output, max = 240) {
+  const lines = String(output).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return (lines.slice(-2).join(" | ") || "(no output)").slice(0, max);
+}
+
+export function validateScopeId(value, label = "scope") {
+  const id = String(value || "");
+  if (!SCOPE_RE.test(id) || id === "." || id === "..") {
+    return label + " must match " + SCOPE_RE + " and cannot be . or ..";
+  }
+  return null;
+}
+
+export function normalizeOwnsGlob(value) {
+  const raw = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!raw) return { error: "OWNS path is blank" };
+  if (isAbsolute(raw) || /^[A-Za-z]:\//.test(raw) || raw.startsWith("//")) {
+    return { error: "OWNS path must be relative: " + value };
+  }
+  const parts = raw.split("/");
+  if (raw.includes("\0") || parts.some((part) => part === "..")) {
+    return { error: "OWNS path cannot contain traversal: " + value };
+  }
+  const normalized = parts.filter((part) => part !== "" && part !== ".").join("/");
+  if (!normalized || normalized === ".") return { error: "OWNS path cannot claim an implicit root" };
+  return { value: normalized };
+}
+
+export function literalPrefix(glob) {
+  const normalized = normalizeOwnsGlob(glob);
+  if (normalized.error) return "";
+  const literal = [];
+  for (const part of normalized.value.split("/")) {
+    if (/[*?[{]/.test(part)) break;
+    literal.push(part);
+  }
+  return literal.join("/");
+}
+
+// Prove disjointness only when literal path segments disagree. Everything else
+// conflicts, including mid-segment pairs such as a* and ab*.
+export function globsOverlap(left, right) {
+  const a = normalizeOwnsGlob(left);
+  const b = normalizeOwnsGlob(right);
+  if (a.error || b.error) return true;
+  const as = a.value.split("/");
+  const bs = b.value.split("/");
+  const count = Math.min(as.length, bs.length);
+  for (let index = 0; index < count; index++) {
+    const av = as[index], bv = bs[index];
+    if (/[*?[{]/.test(av) || /[*?[{]/.test(bv)) return true;
+    if (av !== bv) return false;
+  }
+  // An exact prefix may denote a directory ownership claim, so it can overlap
+  // every descendant. Treat common-prefix length differences as conflicts.
+  if (as.length !== bs.length) return true;
+  return true;
+}
+
+export function scopeRoot(root, scope) {
+  return join(root, UNLAZY_DIR, scope);
+}
+
+export function listScopes(root) {
+  const directory = join(root, UNLAZY_DIR);
+  if (!existsSync(directory)) return [];
+  try {
+    if (!realDirectoryInside(root, directory)) return [];
+    return readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && entry.name !== "locks" &&
+        !validateScopeId(entry.name) && realDirectoryInside(root, join(directory, entry.name)))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function markdownDiscovery(root, directory) {
+  if (!namedEntry(directory)) return { files: [], errors: [] };
+  try {
+    if (!realDirectoryInside(root, directory)) {
+      return { files: [], errors: ["gate directory must be a real directory inside the repository: " + directory] };
+    }
+    const files = readdirSync(directory, { withFileTypes: true })
+      // Include every named Markdown entry. Consumers perform the stable-file
+      // check, so a FIFO, link, or directory cannot disappear as "no gates".
+      .filter((entry) => entry.name.endsWith(".md"))
+      .map((entry) => join(directory, entry.name))
+      .sort();
+    return { files, errors: [] };
+  } catch (error) {
+    return { files: [], errors: ["cannot inspect gate directory " + directory + ": " + error.message] };
+  }
+}
+
+function scopeDiscovery(root, scope) {
+  const base = scopeRoot(root, scope);
+  if (!realDirectoryInside(root, base)) {
+    return { files: [], errors: ["scope directory must be a real directory inside the repository: " + base] };
+  }
+  const files = [];
+  const top = join(base, "GATES.md");
+  if (namedEntry(top)) files.push(top);
+  const nested = markdownDiscovery(root, join(base, "gates"));
+  files.push(...nested.files);
+  return { files, errors: nested.errors };
+}
+
+function legacyDiscovery(root) {
+  const files = [];
+  const top = join(root, "GATES.md");
+  if (namedEntry(top)) files.push(top);
+  const nested = markdownDiscovery(root, join(root, "gates"));
+  files.push(...nested.files);
+  return { files, errors: nested.errors };
+}
+
+export function scopeFiles(root, scope) { return scopeDiscovery(root, scope).files; }
+export function legacyFiles(root) { return legacyDiscovery(root).files; }
+
+function targetFromDiscovery(mode, scope, discovery) {
+  return { mode, scope, files: discovery.files, discoveryErrors: discovery.errors };
+}
+
+export function resolveTarget(options = {}) {
+  const root = resolve(options.root || process.cwd());
+  const files = options.files || [];
+  const sessionId = options.sessionId || null;
+  if (files.length) return { mode: "explicit", scope: null, files: files.map((file) => resolve(root, file)) };
+
+  const scopes = listScopes(root);
+  const wanted = options.scope || process.env.UNLAZY_SCOPE || null;
+  if (wanted) {
+    const invalid = validateScopeId(wanted);
+    if (invalid) return { mode: "none", scope: wanted, files: [], error: invalid };
+    if (!scopes.includes(wanted)) {
+      const scopePath = scopeRoot(root, wanted);
+      const statePath = join(root, UNLAZY_DIR);
+      // A named scope that is physically absent is safe to treat as stale
+      // configuration. A named entry that exists but was excluded from
+      // listScopes (link, file, FIFO, outside-root directory, or unreadable
+      // state container) must remain visible as an invalid input instead of
+      // becoming the same harmless "no such scope" result.
+      if (namedEntry(scopePath) || (namedEntry(statePath) && !realDirectoryInside(root, statePath))) {
+        return targetFromDiscovery("scope", wanted, scopeDiscovery(root, wanted));
+      }
+      return {
+        mode: "none", scope: wanted, files: [],
+        error: "no such scope \"" + wanted + "\" under " + UNLAZY_DIR + "/ (have: " +
+          (scopes.join(", ") || "none") + ")",
+      };
+    }
+    return targetFromDiscovery("scope", wanted, scopeDiscovery(root, wanted));
+  }
+
+  if (scopes.length === 1) return targetFromDiscovery("scope", scopes[0], scopeDiscovery(root, scopes[0]));
+  if (scopes.length > 1) {
+    if (sessionId) {
+      const owned = scopes.filter((scope) => {
+        try {
+          return readStableRegularFile(join(scopeRoot(root, scope), "session"), {
+            root, maxBytes: 4096, label: "session binding",
+          }).trim() === String(sessionId).trim();
+        } catch { return false; }
+      });
+      if (owned.length === 1) return targetFromDiscovery("scope", owned[0], scopeDiscovery(root, owned[0]));
+    }
+    return {
+      mode: "none", scope: null, files: [], ambiguous: scopes,
+      error: scopes.length + " pipelines present (" + scopes.join(", ") +
+        "); pass --scope <id> or set UNLAZY_SCOPE. Refusing to guess.",
+    };
+  }
+
+  const legacy = legacyDiscovery(root);
+  if (legacy.files.length || legacy.errors.length) return targetFromDiscovery("legacy", null, legacy);
+  return { mode: "none", scope: null, files: [] };
+}
+
+export function statusLogPath(root, scope) {
+  return scope ? join(scopeRoot(root, scope), "status.log") : join(root, "unlazy-status.log");
+}
+
+export function hookStatePath(root, scope) {
+  return scope ? join(scopeRoot(root, scope), "hook-state.json") : join(root, ".unlazy-hook-state.json");
+}
+
+function assertSafeStatePath(root, target) {
+  const stateRoot = join(resolve(root), UNLAZY_DIR);
+  if (existsSync(stateRoot)) {
+    const info = lstatSync(stateRoot);
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(stateRoot + " must be a real directory, not a link or file");
+  }
+  const parent = dirname(target);
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const info = lstatSync(parent);
+  if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(parent + " must be a real directory");
+}
+
+export function writeAtomic(file, text, options = {}) {
+  const target = resolve(file);
+  if (options.root) assertSafeStatePath(options.root, target);
+  else {
+    const parent = dirname(target);
+    mkdirSync(parent, { recursive: true });
+    const info = lstatSync(parent);
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(parent + " must be a real directory");
+  }
+  try {
+    const existing = lstatSync(target);
+    if (existing.isSymbolicLink()) throw new Error("refusing to replace symlink " + target);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  let temp = "";
+  let fd = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    temp = target + "." + process.pid + "." + randomBytes(8).toString("hex") + ".tmp";
+    try { fd = openSync(temp, "wx", 0o600); break; }
+    catch (error) { if (error.code !== "EEXIST") throw error; }
+  }
+  if (fd === null) throw new Error("could not create a unique temporary file for " + target);
+  try {
+    writeFileSync(fd, String(text), "utf8");
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = null;
+    replaceAtomic(temp, target);
+  } finally {
+    if (fd !== null) try { closeSync(fd); } catch { /* ignore */ }
+    if (temp) try { unlinkSync(temp); } catch { /* renamed or absent */ }
+  }
+}
+
+function lockDirectory(root) {
+  // Use the physical root so lexical aliases of one repository share one lock
+  // namespace. The root itself must exist for any unlazy operation.
+  const canonicalRoot = realpathSync(resolve(root));
+  const directory = join(canonicalRoot, LOCK_DIR);
+  assertSafeStatePath(canonicalRoot, directory);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const info = lstatSync(directory);
+  if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(directory + " must be a real directory");
+  return directory;
+}
+
+function canonicalLockTarget(target) {
+  // Lock targets are often not files yet (dispatch state, hook state, or the
+  // lease registry). Canonicalize the nearest existing ancestor and rebuild
+  // the missing suffix so real-root and symlink-root spellings hash alike.
+  // Never follow the final named component: atomic replacement or a rejected
+  // final symlink must not change which lock protects that path.
+  const absolute = resolve(target);
+  let current = dirname(absolute);
+  const suffix = [basename(absolute)];
+  for (;;) {
+    try {
+      const canonical = realpathSync(current);
+      return suffix.length ? resolve(canonical, ...suffix) : canonical;
+    } catch (error) {
+      if (!error || error.code !== "ENOENT") throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      suffix.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+export async function withFileLock(root, target, fn, options = {}) {
+  const timeoutMs = options.timeoutMs === undefined ? 30000 : options.timeoutMs;
+  const directory = lockDirectory(root);
+  const lockTarget = canonicalLockTarget(target);
+  const lock = join(directory, sha256(lockTarget).slice(0, 24) + ".filelock");
+  const deadline = Date.now() + timeoutMs;
+  const token = randomBytes(16).toString("hex");
+  let fd = null;
+  for (;;) {
+    try { fd = openSync(lock, "wx", 0o600); break; }
+    catch (error) {
+      // On Windows, opening or inspecting an existing file held by another
+      // process can surface as EPERM/EACCES/EBUSY rather than EEXIST. Treat
+      // only those platform-specific sharing errors as lock contention.
+      if (error.code !== "EEXIST" && !isTransientWindowsFsError(error)) throw error;
+      // Never unlink a lock observed by path: between stat and unlink its
+      // prior owner can release and a successor can acquire the same name
+      // (the classic ABA race). Missing-after-EEXIST simply means retry. A
+      // crashed owner's lock fails closed at timeout and can be removed by a
+      // human after inspecting its JSON metadata.
+      let missing = false;
+      try { statSync(lock); } catch (statError) {
+        if (statError.code === "ENOENT") missing = true;
+        else if (!isTransientWindowsFsError(statError)) throw statError;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("timed out waiting for lock on " + target + " (last filesystem error: " + error.code + ")");
+      }
+      if (missing && error.code === "EEXIST") continue;
+      await sleep(15 + Math.floor(Math.random() * 25));
+    }
+  }
+  let identified = false;
+  try {
+    writeFileSync(fd, JSON.stringify({ token, pid: process.pid, target: lockTarget, at: Date.now() }));
+    identified = true;
+  } catch { /* leave for manual cleanup rather than risk deleting a successor */ }
+  try { return await fn(); }
+  finally {
+    try { closeSync(fd); } catch { /* ignore */ }
+    if (identified) {
+      const deadline = Date.now() + 2000;
+      let delay = 5;
+      for (;;) {
+        try {
+          const current = JSON.parse(readFileSync(lock, "utf8"));
+          if (current.token === token) unlinkSync(lock);
+          break;
+        } catch (error) {
+          if (error && error.code === "ENOENT") break;
+          const remaining = deadline - Date.now();
+          if (!isTransientWindowsFsError(error) || remaining <= 0) break;
+          await sleep(Math.min(delay, remaining));
+          delay = Math.min(delay * 2, 100);
+        }
+      }
+    }
+  }
+}
+
+export function appendStatus(root, scope, line) {
+  const path = statusLogPath(root, scope);
+  assertSafeStatePath(root, path);
+  let fd = null;
+  try {
+    try {
+      const before = lstatSync(path);
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+        throw new Error("refusing non-file or linked status log " + path);
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    // Open first but write only after validating a named-entry snapshot against
+    // the descriptor. This rejects persistent links and ordinary replacements;
+    // SECURITY.md documents the concurrent Windows path-control boundary.
+    const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW || 0);
+    fd = openSync(path, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT |
+      (fsConstants.O_NONBLOCK || 0) | noFollow, 0o600);
+    const opened = fstatSync(fd, { bigint: true });
+    const named = statCurrentNamedFile(path, {
+      label: "status log",
+      openFlags: fsConstants.O_WRONLY | fsConstants.O_APPEND | (fsConstants.O_NONBLOCK || 0),
+      // Independent O_APPEND writers are valid; identity, link, and type are
+      // the append boundary, while concurrent size/mtime changes are expected.
+      stableSnapshot: false,
+    });
+    if (!opened.isFile() || opened.nlink !== 1n || !sameFileIdentity(opened, named)) {
+      throw new Error("refusing non-file or replaced status log " + path);
+    }
+    writeFileSync(fd, String(line).replace(/[\r\n]+/g, " ") + "\n", "utf8");
+    fsyncSync(fd);
+    return path;
+  } finally {
+    if (fd !== null) try { closeSync(fd); } catch { /* ignore */ }
+  }
+}
+
+function readLeasesUnlocked(root) {
+  const directory = join(resolve(root), LOCK_DIR);
+  try { lstatSync(directory); }
+  catch (error) {
+    if (error && error.code === "ENOENT") return [];
+    return [{ scope: "(invalid)", leaf: "locks", globs: ["**"], file: directory, invalid: true }];
+  }
+  if (!realDirectoryInside(root, directory)) {
+    return [{ scope: "(invalid)", leaf: "locks", globs: ["**"], file: directory, invalid: true }];
+  }
+  const leases = [];
+  for (const name of readdirSync(directory).sort()) {
+    if (!name.endsWith(".lease")) continue;
+    const file = join(directory, name);
+    try {
+      const value = JSON.parse(readStableRegularFile(file, {
+        root, maxBytes: LEASE_MAX_BYTES, label: "lease record",
+      }));
+      if (!value || typeof value.scope !== "string" || validateScopeId(value.scope) ||
+          typeof value.leaf !== "string" || validateScopeId(value.leaf, "leaf") ||
+          !Array.isArray(value.globs) || !value.globs.length ||
+          name !== sha256(value.scope + "::" + value.leaf).slice(0, 24) + ".lease") {
+        throw new Error("invalid lease record shape or identity");
+      }
+      const normalized = value.globs.map((glob) => normalizeOwnsGlob(glob));
+      if (normalized.some((item) => item.error) ||
+          normalized.some((item, index) => item.value !== value.globs[index])) {
+        throw new Error("invalid lease record OWNS paths");
+      }
+      leases.push({ ...value, globs: normalized.map((item) => item.value), file });
+    } catch {
+      leases.push({ scope: "(invalid)", leaf: name, globs: ["**"], file, invalid: true });
+    }
+  }
+  return leases;
+}
+
+export function readLeases(root) {
+  return readLeasesUnlocked(root);
+}
+
+const leaseRegistry = (root) => join(resolve(root), LOCK_DIR, "lease-registry");
+
+export async function claimLeases(root, spec) {
+  return withFileLock(root, leaseRegistry(root), () => {
+    const scopeError = validateScopeId(spec.scope);
+    const leafError = validateScopeId(spec.leaf, "leaf");
+    if (scopeError || leafError) return { ok: false, conflicts: [], error: scopeError || leafError };
+    const normalized = [];
+    for (const glob of spec.globs || []) {
+      const result = normalizeOwnsGlob(glob);
+      if (result.error) return { ok: false, conflicts: [], error: result.error };
+      normalized.push(result.value);
+    }
+    if (!normalized.length) return { ok: false, conflicts: [], error: "no OWNS paths to claim" };
+
+    const heldLeases = readLeasesUnlocked(root);
+    const sameOwner = heldLeases.find((held) => held.scope === spec.scope && held.leaf === spec.leaf);
+    if (sameOwner) {
+      return {
+        ok: false,
+        conflicts: [{ identity: true, with: spec.scope + "/" + spec.leaf, heldGlobs: sameOwner.globs }],
+      };
+    }
+
+    const conflicts = [];
+    for (const glob of normalized) {
+      for (const held of heldLeases) {
+        const theirGlob = held.globs.find((other) => globsOverlap(glob, other));
+        if (theirGlob) conflicts.push({ glob, with: held.scope + "/" + held.leaf, theirGlob });
+      }
+    }
+    if (conflicts.length) return { ok: false, conflicts };
+    const file = join(lockDirectory(root), sha256(spec.scope + "::" + spec.leaf).slice(0, 24) + ".lease");
+    writeAtomic(file, JSON.stringify({ scope: spec.scope, leaf: spec.leaf, globs: normalized, pid: process.pid }, null, 2) + "\n", { root });
+    return { ok: true, file, conflicts: [], globs: normalized };
+  });
+}
+
+export async function releaseLeases(root, spec) {
+  return withFileLock(root, leaseRegistry(root), () => {
+    let count = 0;
+    for (const lease of readLeasesUnlocked(root)) {
+      if (lease.scope !== spec.scope) continue;
+      if (spec.leaf && lease.leaf !== spec.leaf) continue;
+      try { unlinkSync(lease.file); count++; } catch { /* raced or absent */ }
+    }
+    return count;
+  });
+}
