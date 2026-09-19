@@ -1,15 +1,15 @@
 # Session Handoff Document
 
 **Status:** `[COMPLETE]`  
-**Date & Time:** 2026-09-19T18:51:00Z  
+**Date & Time:** 2026-09-19T19:16:00Z  
 **Previous Conversation / Session ID:** `8d978dfb-a954-446a-81be-62599c46defa`  
-**Git Branch / Commit:** `main` (tag: `v1.2.3`)  
-**Release URL:** https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.3  
+**Git Branch / Commit:** `main` (tag: `v1.2.4`)  
+**Release URL:** https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.4  
 
 ---
 
 ## 1. Executive Summary & Objective
-- **Completed Milestone:** Antigravity Harness v1.2.3 — State-Synchronized Rollback, Isolated Trust Anchor & Cross-Platform CI Matrix.
+- **Completed Milestone:** Antigravity Harness v1.2.4 — Windows NTFS Governance Patch, Recursive Unlocks & Root Repository Hygiene.
 - **Architectural Context:** 
   - Addressed and implemented all peer audit recommendations and hardening priorities:
   - **Full-State Rollback:** Refactored `guard/snapshot.py` to prune extraneous files created after a snapshot was taken, achieving true state restoration.

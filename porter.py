@@ -23,6 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from porter import __version__ as PORTER_VERSION
 from porter.analyzer import SuitabilityAnalyzer
 from porter.emitters.aider import AiderEmitter
 from porter.emitters.claude import ClaudeEmitter
@@ -83,7 +84,7 @@ def fetch_target_content(target: str) -> str:
     """Reads content from local filesystem path or remote HTTP(S) URL with SSRF protection."""
     if target.startswith("http://") or target.startswith("https://"):
         _validate_safe_url(target)
-        req = urllib.request.Request(target, headers={"User-Agent": "Antigravity-Porter/1.1.1"})
+        req = urllib.request.Request(target, headers={"User-Agent": f"Antigravity-Porter/{PORTER_VERSION}"})
         with urllib.request.urlopen(req, timeout=10) as response:
             return response.read().decode("utf-8", errors="ignore")
     path = Path(target)
@@ -230,7 +231,7 @@ def main() -> int:
         prog="porter",
         description="Universal Bidirectional AI Agent Bridge, Suitability Analyzer, and Transpiler."
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 1.1.1")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {PORTER_VERSION}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
