@@ -51,6 +51,7 @@ Direction: Modern Zinc/Slate neutral surfaces with a focused Cobalt Blue accent.
 | Secondary / Placeholder | `#475569` | 6.21:1 against canvas, 5.80:1 on card |
 | Accent Text | `#1D4ED8` | 7.34:1 against canvas |
 | Primary Button | Background `#2563EB`, Text `#FFFFFF` | 4.60:1 |
+| Disabled Control | Background `#E2E8F0`, Text `#94A3B8` | 3.10:1 (Neutral disabled surface) |
 
 ### Dark Theme
 
@@ -64,7 +65,8 @@ Direction: Modern Zinc/Slate neutral surfaces with a focused Cobalt Blue accent.
 | Primary Text | `#F4F4F5` | 16.12:1 against card surface |
 | Secondary / Placeholder | `#A1A1AA` | 6.34:1 against card surface |
 | Accent Text | `#60A5FA` | 8.42:1 against card surface |
-| Primary Button | Background `#3B82F6`, Text `#09090B` | 8.12:1 |
+| Primary Button | Background `#2563EB`, Text `#FFFFFF` | 5.17:1 (or Bg `#3B82F6`, Text `#09090B`: 8.12:1) |
+| Disabled Control | Background `#27272A`, Text `#A1A1AA` | 5.81:1 on neutral dark surface (passes WCAG AA) |
 
 ### Status Colors (Semantic)
 - **Success:** Green (`#16A34A` light / `#22C55E` dark)
@@ -100,14 +102,26 @@ Direction: Modern Zinc/Slate neutral surfaces with a focused Cobalt Blue accent.
 
 ---
 
-## 6. The Five Mandatory Component States
+## 6. The Five Mandatory Component States & Interactive Control States
 
+### 6.1 Data Lifecycle States
 Every component handling dynamic data must account for five states:
 1. **Default:** Normal operational state with complete, valid data.
 2. **Loading:** Structured skeleton loader or clear indicator preventing layout shifts while data loads.
 3. **Empty:** Honest guidance explaining what to do when no data exists (no dead blank space).
 4. **Error:** Clear description of why the failure occurred, paired with an actionable "Retry" button.
 5. **Success:** Immediate, transient feedback following create, update, or delete operations.
+
+### 6.2 Interactive Control States (Buttons, Inputs, Toggles)
+All interactive controls must implement explicit states:
+1. **Default:** Standard surface or accent styling.
+2. **Hover:** Predictable micro-transition (150ms) with subtle brightness change.
+3. **Active / Pressed:** Visual depression or darker tone indicating actuation.
+4. **Focus-Visible:** Unambiguous 2px focus ring (`#3B82F6` or `#60A5FA`) with clear offset; removing focus rings without replacement is strictly prohibited.
+5. **Disabled:**
+   - **Prohibition:** Disabled controls must NEVER retain saturated or bright accent backgrounds (e.g. `#3B82F6` or `#2563EB`). Maintaining an active accent background with dimmed text is strictly classified as unreadable UI slop (contrast failure).
+   - Controls must drop back to neutral surface tones (`#27272A` dark / `#E2E8F0` light) with muted text (`#71717A` / `#A1A1AA` dark / `#94A3B8` light).
+   - Text within disabled controls must maintain readable contrast (at least 3:1 for disabled states, 4.5:1 preferred) against the neutral disabled surface without blending into unreadable mud.
 
 ---
 

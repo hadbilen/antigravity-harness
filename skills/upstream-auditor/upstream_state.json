@@ -18,7 +18,7 @@
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "7437352",
+      "last_synced_commit": "d8529a6",
       "target_skills": [
         "antislop",
         "antislop-code",
@@ -63,7 +63,7 @@
     "everything-claude-code": {
       "repo": "affaan-m/everything-claude-code",
       "branch": "main",
-      "last_synced_commit": "07756ce",
+      "last_synced_commit": "b2279eb",
       "target_skills": [
         "architecture-decision-records",
         "database-migrations",

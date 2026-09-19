@@ -205,6 +205,7 @@ The 38 rules fall into three groups with different enforcement standards:
 - **Rule:** Never use AI marketing buzzwords or generic filler copy.
 - **Banned:** "Streamline", "supercharge", "unlock", "seamless", "revolutionary", "game-changing", "cutting-edge", "next-gen", "tailored", "elevate", "fast-paced world".
 - **Fix:** State what the product actually does in plain language. If a sentence has no real information, delete it.
+- **Voice & Direction Scope:** The ban governs copy authored by the agent. If the user provides a writing sample or brand guide with deliberate stylistic patterns or punctuation (e.g. em dashes), that sample is an explicit direction, not agent copy. Follow the R-37 conflict protocol: name the element, name the rule, and ask rather than silently scrubbing or retaining them.
 - **Skill:** `skills/antislop-copywriting/SKILL.md`
 
 #### R-03 — Mobile Responsiveness

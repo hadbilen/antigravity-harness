@@ -195,3 +195,29 @@ class SnapshotEngine:
         finally:
             if was_locked:
                 self.os_adapter.lock()
+
+    def get_snapshot_files(self, snap_id: str) -> List[str]:
+        """Returns sorted relative paths of all files in the specified snapshot."""
+        snap_path = self.snapshots_dir / snap_id
+        if not snap_path.is_dir():
+            return []
+        files = []
+        for p in snap_path.rglob("*"):
+            if p.is_file() and p.name != ".snap_meta.json":
+                files.append(str(p.relative_to(snap_path)))
+        return sorted(files)
+
+    def read_snapshot_file(self, snap_id: str, rel_path: str) -> Optional[str]:
+        """Reads content of a specific file in a snapshot with path traversal guard."""
+        snap_path = (self.snapshots_dir / snap_id).resolve()
+        target_file = (snap_path / rel_path).resolve()
+        # Security invariant: prevent path traversal outside snapshot directory
+        if not str(target_file).startswith(str(snap_path)):
+            return None
+        if target_file.is_file():
+            try:
+                return target_file.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                return None
+        return None
+

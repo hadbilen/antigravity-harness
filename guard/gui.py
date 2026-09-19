@@ -1,7 +1,6 @@
 """
 guard/gui.py — High-Contrast Desktop Interface for Antigravity Guard
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
-Zero external dependencies: uses strictly Python standard library tkinter/ttk.
 Strictly adheres to DESIGN.md (ENERGY 2 / RHYTHM 2 / Dark Zinc Palette).
 """
 
@@ -9,6 +8,7 @@ from __future__ import annotations
 
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -24,6 +24,7 @@ from guard.integrity import FileIntegrityMonitor
 from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
 from guard.snapshot import SnapshotEngine
+from guard.tray import create_tray_adapter
 from guard.upstream import UpstreamAuditorBridge
 
 # Design Tokens from DESIGN.md (Dark Theme)
@@ -33,7 +34,9 @@ BG_SURFACE_ALT = "#27272A"
 BORDER_COLOR = "#3F3F46"
 TEXT_PRIMARY = "#F4F4F5"
 TEXT_MUTED = "#A1A1AA"
-ACCENT_BLUE = "#3B82F6"
+TEXT_DISABLED = "#71717A"
+BG_DISABLED = "#27272A"
+ACCENT_BLUE = "#2563EB"
 ACCENT_GREEN = "#22C55E"
 ACCENT_AMBER = "#F59E0B"
 ACCENT_RED = "#EF4444"
@@ -43,8 +46,8 @@ class AntigravityGuardApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(f"Antigravity Guard v{__version__}")
-        self.root.geometry("980x680")
-        self.root.minsize(860, 580)
+        self.root.geometry("1040x720")
+        self.root.minsize(920, 620)
         self.root.configure(bg=BG_CANVAS)
 
         self.adapter = OSProtectionAdapter()
@@ -52,6 +55,19 @@ class AntigravityGuardApp:
         self.snapshot_engine = SnapshotEngine()
         self.porter_bridge = PorterBridge()
         self.upstream_bridge = UpstreamAuditorBridge()
+
+        self.var_minimize_to_tray = tk.BooleanVar(value=True)
+
+        # Cross-Platform System Tray Integration
+        self.tray_adapter = create_tray_adapter(
+            self.show_window,
+            self.toggle_lock,
+            self.quit_app,
+        )
+        if self.tray_adapter.is_available:
+            self.tray_adapter.start()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close_window)
 
         self._configure_styles()
         self._build_header()
@@ -74,16 +90,39 @@ class AntigravityGuardApp:
         style.configure("TLabel", background=BG_CANVAS, foreground=TEXT_PRIMARY)
         style.configure("Card.TLabel", background=BG_SURFACE, foreground=TEXT_PRIMARY)
         style.configure("Muted.TLabel", background=BG_SURFACE, foreground=TEXT_MUTED, font=("Sans-serif", 9))
-        style.configure("Header.TLabel", background=BG_SURFACE, foreground=TEXT_PRIMARY, font=("Sans-serif", 14, "bold"))
+        style.configure("Header.TLabel", background=BG_SURFACE, foreground=TEXT_PRIMARY, font=("Sans-serif", 13, "bold"))
 
+        # Primary Button (WCAG AA compliant enabled: 5.17:1, disabled: 5.81:1)
         style.configure("Primary.TButton", background=ACCENT_BLUE, foreground="#FFFFFF", font=("Sans-serif", 10, "bold"), borderwidth=0, padding=6)
-        style.map("Primary.TButton", background=[("active", "#2563EB")])
+        style.map(
+            "Primary.TButton",
+            background=[("disabled", BG_DISABLED), ("active", "#1D4ED8")],
+            foreground=[("disabled", TEXT_MUTED), ("active", "#FFFFFF")],
+        )
 
+        # Action Button
         style.configure("Action.TButton", background=BG_SURFACE_ALT, foreground=TEXT_PRIMARY, font=("Sans-serif", 9), borderwidth=1, padding=5)
-        style.map("Action.TButton", background=[("active", "#3F3F46")])
+        style.map(
+            "Action.TButton",
+            background=[("disabled", BG_SURFACE), ("active", "#3F3F46")],
+            foreground=[("disabled", TEXT_DISABLED), ("active", TEXT_PRIMARY)],
+        )
 
+        # Danger Button
         style.configure("Danger.TButton", background=ACCENT_RED, foreground="#FFFFFF", font=("Sans-serif", 9, "bold"), borderwidth=0, padding=5)
-        style.map("Danger.TButton", background=[("active", "#DC2626")])
+        style.map(
+            "Danger.TButton",
+            background=[("disabled", BG_DISABLED), ("active", "#DC2626")],
+            foreground=[("disabled", TEXT_DISABLED), ("active", "#FFFFFF")],
+        )
+
+        # Checkbutton
+        style.configure("TCheckbutton", background=BG_SURFACE, foreground=TEXT_PRIMARY, font=("Sans-serif", 9))
+        style.map(
+            "TCheckbutton",
+            background=[("active", BG_SURFACE)],
+            foreground=[("disabled", TEXT_DISABLED), ("active", TEXT_PRIMARY)],
+        )
 
         style.configure("Treeview", background=BG_SURFACE, foreground=TEXT_PRIMARY, fieldbackground=BG_SURFACE, borderwidth=0, font=("Sans-serif", 9))
         style.configure("Treeview.Heading", background=BG_SURFACE_ALT, foreground=TEXT_PRIMARY, font=("Sans-serif", 9, "bold"))
@@ -124,64 +163,60 @@ class AntigravityGuardApp:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=16, pady=8)
 
-        self.tab_integrity = ttk.Frame(self.notebook, padding=12)
+        self.tab_shield = ttk.Frame(self.notebook, padding=12)
         self.tab_porter = ttk.Frame(self.notebook, padding=12)
         self.tab_upstream = ttk.Frame(self.notebook, padding=12)
         self.tab_settings = ttk.Frame(self.notebook, padding=12)
 
-        self.notebook.add(self.tab_integrity, text="Shield & Integrity")
+        self.notebook.add(self.tab_shield, text="Shield & Integrity")
         self.notebook.add(self.tab_porter, text="Porter Staging Gate")
         self.notebook.add(self.tab_upstream, text="Upstream Auditor")
-        self.notebook.add(self.tab_settings, text="Snapshots & Audit Log")
+        self.notebook.add(self.tab_settings, text="Snapshots & Settings")
 
-        self._build_tab_integrity()
+        self._build_tab_shield()
         self._build_tab_porter()
         self._build_tab_upstream()
         self._build_tab_settings()
 
-    # --- TAB 1: Integrity & Shield ---
-    def _build_tab_integrity(self):
-        card = ttk.Frame(self.tab_integrity, style="Card.TFrame", padding=16)
-        card.pack(fill="x", pady=(0, 10))
+    # --- TAB 1: Shield & Integrity ---
+    def _build_tab_shield(self):
+        card_stat = ttk.Frame(self.tab_shield, style="Card.TFrame", padding=16)
+        card_stat.pack(fill="x", pady=(0, 12))
 
-        lbl_sec = ttk.Label(card, text="Cryptographic File Integrity Monitor (SHA-256)", style="Header.TLabel")
-        lbl_sec.pack(anchor="w")
+        ttk.Label(card_stat, text="File Integrity Monitor (FIM)", style="Header.TLabel").pack(anchor="w")
+        self.lbl_fim_summary = ttk.Label(card_stat, text="Scanning configuration baseline...", style="Card.TLabel")
+        self.lbl_fim_summary.pack(anchor="w", pady=(4, 8))
 
-        self.lbl_fim_summary = ttk.Label(card, text="Scanning file tree...", style="Muted.TLabel")
-        self.lbl_fim_summary.pack(anchor="w", pady=(4, 12))
+        btn_bar = ttk.Frame(card_stat, style="Card.TFrame")
+        btn_bar.pack(fill="x")
+        ttk.Button(btn_bar, text="Verify Integrity Now", style="Action.TButton", command=self.verify_integrity).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="Establish Baseline (Re-baseline)", style="Primary.TButton", command=self.rebaseline).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="Create Snapshot Point", style="Action.TButton", command=self.create_snapshot).pack(side="left")
 
-        btn_row = ttk.Frame(card, style="Card.TFrame")
-        btn_row.pack(fill="x")
+        card_list = ttk.Frame(self.tab_shield, style="Card.TFrame", padding=16)
+        card_list.pack(fill="both", expand=True)
 
-        ttk.Button(btn_row, text="Verify Integrity", style="Primary.TButton", command=self.verify_integrity).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="Update Baseline", style="Action.TButton", command=self.rebaseline).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="Create Snapshot", style="Action.TButton", command=self.create_snapshot).pack(side="left")
+        ttk.Label(card_list, text="Monitored Target Files", style="Header.TLabel").pack(anchor="w", pady=(0, 8))
 
-        # Treeview for modified/drift files
-        tree_frame = ttk.Frame(self.tab_integrity, style="Card.TFrame", padding=12)
-        tree_frame.pack(fill="both", expand=True)
-
-        ttk.Label(tree_frame, text="File System Status Matrix:", style="Header.TLabel").pack(anchor="w", pady=(0, 6))
-
-        columns = ("status", "file")
-        self.tree_fim = ttk.Treeview(tree_frame, columns=columns, show="headings", height=12)
-        self.tree_fim.heading("status", text="Status")
-        self.tree_fim.heading("file", text="Relative File Path")
-        self.tree_fim.column("status", width=140, anchor="w")
-        self.tree_fim.column("file", width=700, anchor="w")
+        cols = ("status", "path")
+        self.tree_fim = ttk.Treeview(card_list, columns=cols, show="headings", height=12)
+        self.tree_fim.heading("status", text="Integrity State")
+        self.tree_fim.heading("path", text="Protected Path")
+        self.tree_fim.column("status", width=140)
+        self.tree_fim.column("path", width=680)
         self.tree_fim.pack(fill="both", expand=True)
 
     # --- TAB 2: Porter Staging Gate ---
     def _build_tab_porter(self):
-        top_bar = ttk.Frame(self.tab_porter, style="Card.TFrame", padding=12)
-        top_bar.pack(fill="x", pady=(0, 10))
+        input_frame = ttk.Frame(self.tab_porter, style="Card.TFrame", padding=12)
+        input_frame.pack(fill="x", pady=(0, 10))
 
-        ttk.Label(top_bar, text="Source Path or URL:", style="Card.TLabel").pack(side="left", padx=(0, 8))
-        self.ent_porter_source = tk.Entry(top_bar, bg=BG_SURFACE_ALT, fg=TEXT_PRIMARY, insertbackground=TEXT_PRIMARY, relief="flat", font=("Sans-serif", 10))
-        self.ent_porter_source.pack(side="left", fill="x", expand=True, padx=(0, 8), ipady=4)
+        ttk.Label(input_frame, text="Source Path or URL:", style="Card.TLabel").pack(side="left", padx=(0, 8))
+        self.ent_porter_source = tk.Entry(input_frame, bg=BG_SURFACE_ALT, fg=TEXT_PRIMARY, insertbackground=TEXT_PRIMARY, relief="flat", font=("Sans-serif", 10))
+        self.ent_porter_source.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
-        ttk.Button(top_bar, text="Browse...", style="Action.TButton", command=self._browse_porter_file).pack(side="left", padx=(0, 8))
-        ttk.Button(top_bar, text="Inspect Gate", style="Primary.TButton", command=self.inspect_porter).pack(side="left")
+        ttk.Button(input_frame, text="Browse...", style="Action.TButton", command=self._browse_porter_file).pack(side="left", padx=(0, 8))
+        ttk.Button(input_frame, text="Inspect & Sanitize", style="Primary.TButton", command=self.inspect_porter).pack(side="left")
 
         # Score Card
         self.card_score = ttk.Frame(self.tab_porter, style="Card.TFrame", padding=12)
@@ -218,13 +253,12 @@ class AntigravityGuardApp:
         header_card = ttk.Frame(self.tab_upstream, style="Card.TFrame", padding=12)
         header_card.pack(fill="x", pady=(0, 10))
 
+        ttk.Label(header_card, text="Tracked Ecosystem & Model Drift", style="Header.TLabel").pack(anchor="w")
         model_info = self.upstream_bridge.get_model_drift_status()
-        ttk.Label(header_card, text=f"Active Model: {model_info['active_model']}", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(header_card, text="Tracking 7 community repositories & Antigravity runtime (Zero LLM token cost)", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+        ttk.Label(header_card, text=f"Active Antigravity Model: {model_info['active_model']} | Monitored: {model_info['tracked_ecosystems']} ecosystems", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
 
         ttk.Button(header_card, text="Check Repositories Now", style="Primary.TButton", command=self.check_upstream_async).pack(anchor="w")
 
-        # Repos Table
         table_frame = ttk.Frame(self.tab_upstream, style="Card.TFrame", padding=12)
         table_frame.pack(fill="both", expand=True)
 
@@ -245,28 +279,72 @@ class AntigravityGuardApp:
 
     # --- TAB 4: Settings & Snapshots ---
     def _build_tab_settings(self):
+        # 1. Desktop & System Tray Preferences Card
+        pref_card = ttk.Frame(self.tab_settings, style="Card.TFrame", padding=12)
+        pref_card.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(pref_card, text="Desktop & System Preferences", style="Header.TLabel").pack(anchor="w")
+
+        if getattr(self, "tray_adapter", None) and getattr(self.tray_adapter, "is_available", False):
+            backend_name = type(self.tray_adapter).__name__
+            tray_info = f"Active ({backend_name})"
+        else:
+            tray_info = "Disabled (Standard Taskbar Mode)"
+
+        chk_tray = ttk.Checkbutton(
+            pref_card,
+            text=f"Minimize to System Tray on close / minimize [System Tray: {tray_info}]",
+            variable=self.var_minimize_to_tray,
+            style="TCheckbutton",
+        )
+        chk_tray.pack(anchor="w", pady=(6, 2))
+        ttk.Label(pref_card, text="When enabled, closing or minimizing the window keeps Antigravity Guard active in the system tray.", style="Muted.TLabel").pack(anchor="w")
+
+        # 2. Dual-Pane Snapshot Frame
         snap_frame = ttk.Frame(self.tab_settings, style="Card.TFrame", padding=12)
         snap_frame.pack(fill="both", expand=True)
 
-        ttk.Label(snap_frame, text="Recorded Configuration Snapshots", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(snap_frame, text="One-click atomic rollback points created before rule imports or edits.", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+        ttk.Label(snap_frame, text="Recorded Configuration Snapshots & Inspection", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(snap_frame, text="Point-in-time state records. Select a snapshot to inspect files in read-only mode or rollback.", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+
+        split_box = ttk.Frame(snap_frame, style="Card.TFrame")
+        split_box.pack(fill="both", expand=True, pady=(0, 8))
+
+        # Left Column: Snapshots Tree
+        left_box = ttk.Frame(split_box, style="Card.TFrame")
+        left_box.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
         cols = ("id", "label", "date")
-        self.tree_snaps = ttk.Treeview(snap_frame, columns=cols, show="headings", height=8)
+        self.tree_snaps = ttk.Treeview(left_box, columns=cols, show="headings", height=8)
         self.tree_snaps.heading("id", text="Snapshot ID")
         self.tree_snaps.heading("label", text="Description")
         self.tree_snaps.heading("date", text="Created At (UTC)")
-        self.tree_snaps.column("id", width=220)
-        self.tree_snaps.column("label", width=340)
-        self.tree_snaps.column("date", width=240)
-        self.tree_snaps.pack(fill="both", expand=True, pady=(0, 8))
+        self.tree_snaps.column("id", width=160)
+        self.tree_snaps.column("label", width=220)
+        self.tree_snaps.column("date", width=180)
+        self.tree_snaps.pack(fill="both", expand=True)
+        self.tree_snaps.bind("<<TreeviewSelect>>", self.on_snapshot_selected)
 
+        # Right Column: Files in Snapshot
+        right_box = ttk.Frame(split_box, style="Card.TFrame")
+        right_box.pack(side="right", fill="both", expand=True, padx=(6, 0))
+
+        ttk.Label(right_box, text="Files in Selected Snapshot (Read-Only)", style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
+        self.tree_snap_files = ttk.Treeview(right_box, columns=("file",), show="headings", height=8)
+        self.tree_snap_files.heading("file", text="Relative File Path")
+        self.tree_snap_files.column("file", width=300)
+        self.tree_snap_files.pack(fill="both", expand=True)
+        self.tree_snap_files.bind("<Double-1>", lambda e: self.inspect_selected_snapshot_file())
+
+        # Button Row
         btn_row = ttk.Frame(snap_frame, style="Card.TFrame")
         btn_row.pack(fill="x")
 
         ttk.Button(btn_row, text="Restore Selected Snapshot", style="Danger.TButton", command=self.restore_snapshot).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="Refresh List", style="Action.TButton", command=self.refresh_snapshots).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="Prune Older Snapshots", style="Action.TButton", command=self.prune_snapshots).pack(side="left")
+        ttk.Button(btn_row, text="Inspect File (In-App)", style="Primary.TButton", command=self.inspect_selected_snapshot_file).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="Open in External Editor", style="Action.TButton", command=self.open_external_snapshot_file).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="Prune Older Snapshots", style="Action.TButton", command=self.prune_snapshots).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="Refresh", style="Action.TButton", command=self.refresh_snapshots).pack(side="right")
 
     # --- Operational Actions ---
     def refresh_status(self):
@@ -277,6 +355,9 @@ class AntigravityGuardApp:
         else:
             self.badge_status.config(text="🔓 UNLOCKED", bg=ACCENT_AMBER, fg="#000000")
             self.btn_toggle_lock.config(text="Lock Shield Now")
+
+        if hasattr(self, "tray_adapter") and self.tray_adapter.is_available:
+            self.tray_adapter.update_status(is_locked)
 
         self.verify_integrity()
         self.refresh_snapshots()
@@ -324,6 +405,89 @@ class AntigravityGuardApp:
             self.tree_snaps.delete(row)
         for s in self.snapshot_engine.list_snapshots():
             self.tree_snaps.insert("", "end", values=(s.get("id"), s.get("label"), s.get("created_at")))
+
+    def on_snapshot_selected(self, event=None):
+        selected = self.tree_snaps.selection()
+        for row in self.tree_snap_files.get_children():
+            self.tree_snap_files.delete(row)
+        if not selected:
+            return
+        snap_id = self.tree_snaps.item(selected[0])["values"][0]
+        files = self.snapshot_engine.get_snapshot_files(snap_id)
+        for f in files:
+            self.tree_snap_files.insert("", "end", values=(f,))
+
+    def inspect_selected_snapshot_file(self):
+        sel_snap = self.tree_snaps.selection()
+        sel_file = self.tree_snap_files.selection()
+        if not sel_snap or not sel_file:
+            messagebox.showwarning("Selection Required", "Please select a snapshot and a file from the list to inspect.")
+            return
+
+        snap_id = self.tree_snaps.item(sel_snap[0])["values"][0]
+        rel_path = self.tree_snap_files.item(sel_file[0])["values"][0]
+
+        content = self.snapshot_engine.read_snapshot_file(snap_id, rel_path)
+        if content is None:
+            messagebox.showerror("Read Error", f"Unable to read file: {rel_path}")
+            return
+
+        # Modal Read-Only Viewer
+        win = tk.Toplevel(self.root)
+        win.title(f"Read-Only Viewer: {rel_path} ({snap_id})")
+        win.geometry("820x580")
+        win.configure(bg=BG_CANVAS)
+
+        top_bar = ttk.Frame(win, style="Card.TFrame", padding=10)
+        top_bar.pack(fill="x")
+        ttk.Label(top_bar, text=f"Snapshot: {snap_id} | Path: {rel_path}", style="Card.TLabel", font=("Sans-serif", 10, "bold")).pack(side="left")
+        ttk.Label(top_bar, text="[IMMUTABLE READ-ONLY]", style="Muted.TLabel").pack(side="right")
+
+        text_area = tk.Text(win, bg=BG_SURFACE_ALT, fg=TEXT_PRIMARY, font=("Monospace", 10), relief="flat")
+        text_area.pack(fill="both", expand=True, padx=10, pady=10)
+        text_area.insert("1.0", content)
+        text_area.configure(state="disabled")
+
+        bottom_bar = ttk.Frame(win, style="Card.TFrame", padding=10)
+        bottom_bar.pack(fill="x")
+        ttk.Button(bottom_bar, text="Open in External Editor (Read-Only)", style="Action.TButton", command=lambda: self._open_external_file_by_path(snap_id, rel_path)).pack(side="left")
+        ttk.Button(bottom_bar, text="Close", style="Action.TButton", command=win.destroy).pack(side="right")
+
+    def _open_external_file_by_path(self, snap_id: str, rel_path: str):
+        snap_path = (self.snapshot_engine.snapshots_dir / snap_id / rel_path).resolve()
+        if not snap_path.is_file():
+            messagebox.showerror("Error", "File does not exist.")
+            return
+
+        # Ensure snapshot file is read-only
+        try:
+            os.chmod(snap_path, 0o444)
+        except Exception:
+            pass
+
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(snap_path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(snap_path)])
+            else:
+                editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+                if editor:
+                    subprocess.Popen([editor, str(snap_path)])
+                else:
+                    subprocess.Popen(["xdg-open", str(snap_path)])
+        except Exception as e:
+            messagebox.showerror("Open Error", f"Failed to launch external editor: {e}")
+
+    def open_external_snapshot_file(self):
+        sel_snap = self.tree_snaps.selection()
+        sel_file = self.tree_snap_files.selection()
+        if not sel_snap or not sel_file:
+            messagebox.showwarning("Selection Required", "Please select a snapshot and a file to open.")
+            return
+        snap_id = self.tree_snaps.item(sel_snap[0])["values"][0]
+        rel_path = self.tree_snap_files.item(sel_file[0])["values"][0]
+        self._open_external_file_by_path(snap_id, rel_path)
 
     def restore_snapshot(self):
         selected = self.tree_snaps.selection()
@@ -424,6 +588,23 @@ class AntigravityGuardApp:
                 "", "end",
                 values=(r["name"], r["local_sha"] or "None", r["remote_sha"] or "None", r["status"], r["commit_message"]),
             )
+
+    # --- Window & Tray Lifecycle ---
+    def on_close_window(self):
+        if self.var_minimize_to_tray.get() and hasattr(self, "tray_adapter") and self.tray_adapter.is_available:
+            self.root.withdraw()
+        else:
+            self.quit_app()
+
+    def show_window(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def quit_app(self):
+        if hasattr(self, "tray_adapter") and self.tray_adapter.is_available:
+            self.tray_adapter.stop()
+        self.root.destroy()
 
 
 def launch_gui():

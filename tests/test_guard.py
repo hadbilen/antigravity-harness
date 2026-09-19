@@ -320,5 +320,52 @@ class TestCLICommands(unittest.TestCase):
         self.assertEqual(exit_code, 0)
 
 
+class TestTrayAndSnapshotEnhancements(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="test_guard_enhancements_"))
+        (self.temp_dir / "sample.txt").write_text("Hello Snapshot World", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_tray_adapter_factory(self):
+        from guard.tray import create_tray_adapter, BaseTrayAdapter
+        adapter = create_tray_adapter(lambda: None, lambda: None, lambda: None)
+        self.assertIsInstance(adapter, BaseTrayAdapter)
+        self.assertIsInstance(adapter.is_available, bool)
+
+    def test_shield_icon_generation(self):
+        from guard.tray import generate_shield_icon, PIL_AVAILABLE
+        if PIL_AVAILABLE:
+            img = generate_shield_icon(True, size=64)
+            self.assertIsNotNone(img)
+            self.assertEqual(img.size, (64, 64))
+
+            img_unlocked = generate_shield_icon(False, size=32)
+            self.assertIsNotNone(img_unlocked)
+            self.assertEqual(img_unlocked.size, (32, 32))
+
+    def test_snapshot_inspection_and_traversal_guard(self):
+        engine = SnapshotEngine(self.temp_dir)
+        snap_id, _ = engine.create_snapshot(label="inspect_test")
+
+        files = engine.get_snapshot_files(snap_id)
+        self.assertIn("sample.txt", files)
+
+        content = engine.read_snapshot_file(snap_id, "sample.txt")
+        self.assertEqual(content, "Hello Snapshot World")
+
+        # Traversal attempt must be rejected and return None
+        traversal = engine.read_snapshot_file(snap_id, "../../../etc/passwd")
+        self.assertIsNone(traversal)
+
+    def test_gui_design_disabled_tokens(self):
+        from guard.gui import BG_DISABLED, TEXT_MUTED, TEXT_DISABLED
+        self.assertEqual(BG_DISABLED, "#27272A")
+        self.assertEqual(TEXT_MUTED, "#A1A1AA")
+        self.assertEqual(TEXT_DISABLED, "#71717A")
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -2,6 +2,15 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.2.5] - 2026-09-20
+### Added & Hardened
+- **Design & Interactive State Governance (`DESIGN.md` & Rule 14):** Added explicit Interactive Component States (Default, Hover, Active/Pressed, Focus-Visible, Disabled) and prohibited bright accent retention on disabled controls; defined WCAG AA compliant disabled tokens (`#27272A` / `#A1A1AA`, 5.81:1 contrast).
+- **GUI Disabled Button High Contrast (`guard/gui.py`):** Resolved low-contrast button styling in Tkinter/ttk by mapping explicit disabled states to dark neutral surfaces, eliminating unreadable text.
+- **Cross-Platform System Tray & Minimize-to-Tray (`guard/tray.py`, `guard/gui.py`):** Added native system tray support via `AyatanaAppIndicator3` for Kubuntu/KDE Plasma, GNOME, XFCE and `pystray` across Linux, macOS, and Windows. Included configurable "Minimize to Tray on close/minimize" setting and dynamic shield status icons.
+- **Snapshot Inspection & In-App Read-Only Viewer (`guard/snapshot.py`, `guard/gui.py`):** Added dual-pane snapshot file tree, in-app modal file viewer with path traversal guards, and external editor read-only launch.
+- **Standalone Binary Packaging & CI Matrix (`installers/build_binaries.py`, `.github/workflows/ci.yml`):** Added PyInstaller packaging script and automated multi-OS build matrix for Linux, macOS, and Windows standalone executables.
+- **Upstream Ecosystem Synchronization:** Synchronized `antislop` v3.2.10 (R-02 / R-37 em-dash scoping for user samples) and `everything-claude-code` (parameterized SQL injection fix), updating all tracked repositories to `Up-to-date`.
+
 ## [1.2.4] - 2026-09-19
 ### Fixed & Hardened
 - **Windows NTFS Specific Rights:** Replaced broad `(W)` denial with `(WD,AD,DE,DC)` to preserve `READ_CONTROL` for binary reading and integrity verification under lock (`guard/os_adapter.py`).
