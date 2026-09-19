@@ -18,14 +18,14 @@ This skill enforces zero-trust security checks, defense-in-depth principles, and
 - Implementing financial/payment transactions
 - Storing or transmitting sensitive data
 
-## Context Hygiene & Think in Code (Bağlam Hijyeni)
+## Context Hygiene & Think in Code
 
-* **Hesaplamalı Tarama:** Gizli anahtar, yetki sınırları veya enjeksiyon açıkları taranırken kaynak dosyaları tek tek bağlama çekmek yasaktır. Terminal üzerinde `grep_search` veya tek satırlık terminal betikleri (ripgrep, Python, find) çalıştırılarak yalnızca ihlal şüphesi taşıyan satırlar getirilir.
-* **Gizlilik Koruması:** `.env` dosyaları, SSH anahtarları ve API anahtarları komut satırında veya çıktıda asla ifşa edilmez.
+* **Computational Scanning:** When scanning for secrets, authorization boundaries, or injection vectors, do not pull source files one by one into conversation context. Execute targeted shell one-liners (`run_command` via ripgrep, Python, find) to extract only suspect lines.
+* **Secret Protection:** Never emit `.env` files, SSH keys, or API tokens into command stdout or chat output.
 
-## Subagent Orchestration (Uzman Alt Ajan Delege Protokolü)
+## Subagent Orchestration
 
-Kritik güvenlik denetimlerinde, kimlik doğrulama/yetkilendirme mimarilerinde veya çok kiracılı (multi-tenant) veri sınırlarında ana oturumu kirletmemek için `security-boundary-verifier` alt ajanı (`invoke_subagent`) çağrılır. Alt ajan negatif test senaryolarını çalıştırır ve doğrulanmış kanıtları ana oturuma iletir.
+For critical security audits, authentication/authorization overhauls, or multi-tenant data boundaries, dispatch the `security-boundary-verifier` subagent via `invoke_subagent` to avoid polluting the main conversation context. The subagent executes negative boundary tests and returns verified evidence to the primary session.
 
 ---
 
