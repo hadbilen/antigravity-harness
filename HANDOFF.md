@@ -16,18 +16,22 @@
   - Diagnosed and fixed Python 3.14 Tkinter thread-safety issue in `guard/gui.py` (`queue.Queue` main-thread polling).
   - Enhanced `guard/upstream.py` with automated `gh auth token` fallback to eliminate GitHub API 403 rate limits.
   - Elevated status badge contrast from 2.28:1 to 9.22:1 (exceeding WCAG AAA / AA standards).
+  - Implemented atomic lock-aware mutations in `guard/integrity.py` and `guard/snapshot.py`, allowing baseline updates and snapshots while locked without permission crashes.
   - Launched and left the live desktop GUI running as a daemon for user interaction.
 
 ## 2. Completed Changes & Verified Seams
 - **Modified Files:**
-  - `guard/gui.py`: Thread-safe queue polling for async upstream checks; dark zinc badge foreground `#09090B` on green background.
+  - `guard/gui.py`: Thread-safe queue polling for async upstream checks; dark zinc badge foreground `#09090B` on green background; clean atomic restore call.
   - `guard/upstream.py`: Authentication header fallback via `gh auth token` or `GITHUB_TOKEN`.
+  - `guard/integrity.py`: Atomic lock handling with `try ... finally` in `save_baseline`.
+  - `guard/snapshot.py`: Atomic lock handling with `try ... finally` in `create_snapshot`, `restore_snapshot`, and `prune_snapshots`.
+  - `tests/test_guard.py`: Added seam unit tests verifying baseline and snapshot execution while locked.
   - `tasks.md`: Appended Phase 7 verification ledger.
   - `screenshots/`: 5 high-resolution PNG captures covering all tabs and states.
 - **Verification Proof:**
-  - `python3 -m unittest discover -s tests -v`: 15 passed, 0 failures.
+  - `python3 -m unittest discover -s tests -v`: 17 passed, 0 failures.
   - `python3 scripts/verify_invariants.py`: Invariant verification passed.
-  - `~/.local/bin/agy-guard status`: Verified on host Linux environment.
+  - `~/.local/bin/agy-guard status`: Verified on host Linux environment (State: PROTECTED, 122 files intact).
   - 5 screenshots verified visually and structurally.
 - **Verification Gaps Declared:**
   - Native Windows `icacls` and macOS `chflags uchg` were verified structurally but not executed on bare-metal Windows/Darwin kernels.
