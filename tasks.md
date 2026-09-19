@@ -18,9 +18,9 @@
   - [x] Test CLI commands (`inspect`, `import`, `export --target all`, `manifest`)
   - [x] Verify installer execution (`install.py` and `install.sh`)
   - [x] Verify active configuration update (`~/.gemini/config/`)
-- [/] Phase 4: Remote Push & GitHub v1.1.0 Release
-  - [ ] Review git status & commit all changes with conventional commit
-  - [ ] Push `origin main`
-  - [ ] Create annotated git tag `v1.1.0` & push tag
-  - [ ] Publish rich GitHub release with pre-v1.0.4 style comprehensive release notes
-  - [ ] Generate `walkthrough.md`
+- [x] Phase 4: Remote Push & GitHub v1.1.0 Release
+  - [x] Review git status & commit all changes with conventional commit
+  - [x] Push `origin main`
+  - [x] Create annotated git tag `v1.1.0` & push tag
+  - [x] Publish rich GitHub release with pre-v1.0.4 style comprehensive release notes
+  - [x] Generate `walkthrough.md`
