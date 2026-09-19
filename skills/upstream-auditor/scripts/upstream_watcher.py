@@ -13,6 +13,7 @@ import hashlib
 import re
 import urllib.request
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CONFIG_DIR = os.path.expanduser("~/.gemini/config")
 SKILL_DIR = os.path.join(CONFIG_DIR, "skills", "upstream-auditor")
@@ -85,7 +86,7 @@ def get_pbtxt_model():
     return ""
 
 def check_tracked_skills(state: dict):
-    """Checks tracked repositories every 72 hours (3 days) with zero LLM cost."""
+    """Checks tracked repositories every 72 hours (3 days) with zero LLM cost using parallel HTTP requests."""
     last_audit_str = state.get("last_skills_audit_timestamp")
     interval_hours = state.get("skills_audit_interval_hours", 72)
 
@@ -98,33 +99,47 @@ def check_tracked_skills(state: dict):
         except Exception:
             pass
 
+    # Immediately mark timestamp so a failed or interrupted network call does not retry on every subsequent turn
+    state["last_skills_audit_timestamp"] = now.isoformat()
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+    except Exception:
+        pass
+
     tracked = state.get("tracked_repositories", {})
     if not tracked:
         return []
 
-    changed_repos = []
-    for name, info in tracked.items():
+    def fetch_repo_status(name: str, info: dict):
         repo = info.get("repo")
         branch = info.get("branch", "main")
         recorded_sha = info.get("last_synced_commit", "")[:7]
         url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
         req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.0"})
         try:
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
                 data = json.loads(resp.read().decode())
                 if data and isinstance(data, list):
                     current_sha = data[0]["sha"][:7]
                     if recorded_sha and current_sha and recorded_sha != current_sha:
-                        changed_repos.append(f"{name} ({recorded_sha}->{current_sha})")
+                        return f"{name} ({recorded_sha}->{current_sha})"
         except Exception:
-            continue
+            return None
+        return None
 
-    # Update timestamp in state file so check runs at most once every 72 hours
-    state["last_skills_audit_timestamp"] = now.isoformat()
+    changed_repos = []
     try:
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+        with ThreadPoolExecutor(max_workers=min(len(tracked), 8)) as executor:
+            futures = [executor.submit(fetch_repo_status, name, info) for name, info in tracked.items()]
+            for future in as_completed(futures, timeout=4.0):
+                try:
+                    res = future.result()
+                    if res:
+                        changed_repos.append(res)
+                except Exception:
+                    continue
     except Exception:
         pass
 

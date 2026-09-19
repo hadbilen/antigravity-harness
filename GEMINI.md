@@ -34,7 +34,7 @@ To prevent analysis paralysis and disproportionate engineering overhead, tasks a
   * *Procedure:* No planning artifacts, no subagent dispatches, and no Architecture Decision Records (`ADR`). Edit code directly, execute relevant local type checks or targeted unit tests, and deliver.
 * **Tier 2 (Medium Volume / Standard Development):**
   * *Criteria:* 3–8 files, new endpoints, new components, or standard bug investigations.
-  * *Procedure:* Prepare a concise implementation plan (`implementation_plan.md` / `tasks.md`). If modifying existing shared types, interfaces, or functions, inspect call sites to establish a **Blast Radius Map** (if affected files exceed 8, escalate to Tier 3). Upon completion, verify **Call-Graph Reachability** via grep or routing patterns from production entry points (zero callers = orphaned code). Enforce type checks (`tsc`/`mypy`), linters, and unit test gates with zero errors.
+  * *Procedure:* Prepare the formal implementation plan artifact (`<appDataDir>/brain/<conversation-id>/implementation_plan.md`) with `ArtifactMetadata` to trigger the interactive platform review gate, maintaining `tasks.md` at workspace root as the persistent execution checklist. If modifying existing shared types, interfaces, or functions, inspect call sites to establish a **Blast Radius Map** (if affected files exceed 8, escalate to Tier 3). Upon completion, verify **Call-Graph Reachability** via grep or routing patterns from production entry points (zero callers = orphaned code). Enforce type checks (`tsc`/`mypy`), linters, and unit test gates with zero errors.
 * **Tier 3 (High Volume / Architectural Refactoring):**
   * *Criteria:* >8 files, database schema modifications, authentication changes, or cross-system protocol migrations.
   * *Procedure:* Activate the full harness workflow: interactive trade-off interview (`deep-grill`), ADR documentation, blast radius mapping, call-graph reachability verification, and depth trees (`unlazy`) or sprint chains (`procoder`). Dispatch independent auditor subagents prior to final delivery.
@@ -58,7 +58,7 @@ To prevent analysis paralysis and disproportionate engineering overhead, tasks a
 
 ## 5. Process, Failure, and Context Discipline
 
-10. **Failure Log (`MISTAKES.md`):** Upon encountering an unexpected failure, broken contract, or user correction, prepend an entry to `MISTAKES.md` at project root with these four fields:
+10. **Failure Log (`MISTAKES.md`):** Upon encountering an unexpected failure, broken contract, or user correction, prepend an entry to `MISTAKES.md` at project root. If `MISTAKES.md` does not yet exist at the project root, automatically initialize it from `~/.gemini/config/MISTAKES.md` before writing the entry. Each entry must contain these four fields:
     * **Date & Incident:** Summary of what broke.
     * **Root Cause:** What flawed assumption or missing validation triggered the defect?
     * **Impact:** What was disrupted or regressed?

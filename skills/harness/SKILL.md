@@ -77,10 +77,10 @@ Upon writing or editing code, the agent sequentially executes and evaluates outp
 As conversation trajectories grow, models suffer context rot and instruction loss. Operational state is therefore managed in persistent disk artifacts rather than transient model memory:
 
 ### A. Standard Artifact Hierarchy
-For medium and large tasks, maintain three artifacts at the workspace root:
-1. **`spec.md` (Specification):** Requirements, acceptance criteria, and system invariants.
-2. **`plan.md` (Architectural Plan):** Impacted components, dependency sequence, Blast Radius Mapping (direct consumers at `depth=1`, core schemas at `depth=2`), and risk analysis.
-3. **`tasks.md` (Task Tree):** Granular checkable milestones (`[ ]` / `[x]`).
+For medium and large tasks, maintain aligned platform artifacts and disk tracking:
+1. **`implementation_plan.md` (Design Document & Review Gate):** Created in the Antigravity artifact directory (`<appDataDir>/brain/<conversation-id>/implementation_plan.md`) with `ArtifactMetadata` (`request_feedback: true`, `user_facing: true`) to trigger the platform's interactive "Proceed" review UI.
+2. **`tasks.md` (Execution Checklist):** Checkable milestones (`[ ]` / `[x]`) maintained at the workspace root as a persistent ledger.
+3. **`walkthrough.md` (Delivery Walkthrough):** Summary of verified changes, automated gate outputs, and verification gap declarations upon task completion.
 
 ### B. Context Preservation Discipline
 * Update `tasks.md` on disk immediately upon completing each sub-step.
