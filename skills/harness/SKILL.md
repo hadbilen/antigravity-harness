@@ -26,6 +26,8 @@ To eliminate over-engineering, latency, and context bloat, tasks are partitioned
 *   **Tier 3 (High-Volume / Architectural Refactoring):**
     *   *Scope:* >8 files, cross-system architectural migrations, schema redesigns, or authentication protocol overhauls.
     *   *Procedure:* Automatically transitions beyond standard harness boundaries to `unlazy` (Depth Tree) or `procoder` (Sprint / Backlog) scaffolding.
+*   **Vertical Slices Discipline:**
+    *   Construct narrow, end-to-end, demoable vertical paths cutting through all affected architectural layers (schema -> API -> UI) within a single context window. Avoid wide, half-broken horizontal refactors that cannot be validated incrementally.
 
 ---
 
@@ -64,8 +66,11 @@ Upon writing or editing code, the agent sequentially executes and evaluates outp
    5. Silent Failures & Security (`silent-failure-hunter` and `security-boundary-verifier`)
           │  (Mandatory for Tier 3 or Security/Core exceptions; bypassed for Tier 1-2)
           ▼
-   6. Verification Gap Declaration (Gap-Round: explicit declaration of unverified boundaries)
+    6. Verification Gap Declaration (Gap-Round: explicit declaration of unverified boundaries)
           │  (Critical unverified gap blocks delivery; requests user review)
+          ▼
+    7. Session Boundary Advisory (Tier 2/3: prompt user to start fresh session)
+          │
           ▼
 [User Delivery]
 ```
@@ -81,6 +86,7 @@ For medium and large tasks, maintain aligned platform artifacts and disk trackin
 1. **`implementation_plan.md` (Design Document & Review Gate):** Created in the Antigravity artifact directory (`<appDataDir>/brain/<conversation-id>/implementation_plan.md`) with `ArtifactMetadata` (`request_feedback: true`, `user_facing: true`) to trigger the platform's interactive "Proceed" review UI.
 2. **`tasks.md` (Execution Checklist):** Checkable milestones (`[ ]` / `[x]`) maintained at the workspace root as a persistent ledger.
 3. **`walkthrough.md` (Delivery Walkthrough):** Summary of verified changes, automated gate outputs, and verification gap declarations upon task completion.
+4. **Continuity & Handoff Ledger (`tasks.md`):** For multi-session workflows, append a structured `## Continuity & Handoff` section to `tasks.md` recording: Last Verified State, Active Invariants, Next Milestones, and Exact File Links. This enables new chat sessions to resume immediately with zero context decay.
 
 ### B. Context Preservation Discipline
 * Update `tasks.md` on disk immediately upon completing each sub-step.

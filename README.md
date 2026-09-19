@@ -45,6 +45,7 @@ Agentic coding tools frequently stumble into three failure modes:
 - **Proportional Gate Escalation:** Eliminates over-engineering. Tier 1 (<20 lines) bypasses planning artifacts. Tier 2 (3–8 files) triggers Blast Radius Mapping and Call-Graph Reachability checks. Tier 3 (>8 files or auth/schema changes) mandates the full harness pipeline.
 - **The Immutable Test Invariant:** An agent is strictly prohibited from altering test assertions or skipping tests to pass a gate. Tests must target contract boundaries (*seams*), not private implementation details. Source code must fix the test—never the reverse.
 - **Think in Code Context Hygiene:** The agent must never dump whole files or massive logs into the context window. It parses and filters state using targeted shell pipelines (`grep`, `jq`, `awk`).
+- **Circuit Breaker & Oscillation Guard:** Caps fix passes to ~10% blast radius and halts editing loops when code oscillations (state A <-> B) or repeating errors are detected.
 - **Failure Logging (`MISTAKES.md`):** Every defect is logged with Root Cause, Impact, and Preventive Invariant. Patterns recurring 3 times are promoted to permanent constitutional rules.
 
 ### 2. Independent Auditor Subagents (`/agents`)
