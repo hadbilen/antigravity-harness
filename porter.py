@@ -8,9 +8,12 @@ Zero external dependencies: uses strictly the Python standard library.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
+import socket
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -31,10 +34,56 @@ from porter.parsers.generic_parser import GenericParser
 from porter.sanitizer import ConstitutionalSanitizer
 
 
+def _validate_safe_url(url: str) -> None:
+    """
+    Validates that a URL does not target localhost, private subnets,
+    link-local addresses (e.g. AWS/GCP metadata 169.254.169.254), or reserved IP ranges.
+    Guarantees strict Server-Side Request Forgery (SSRF) immunity.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"Invalid URL: missing hostname in '{url}'.")
+
+    # Immediate rejection of obvious loopback aliases
+    if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError(f"SSRF Protection: Access to localhost ('{hostname}') is blocked.")
+
+    # Resolve all IPs for hostname and evaluate each against forbidden subnets
+    try:
+        addr_info = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve hostname '{hostname}': {e}")
+
+    for family, _, _, _, sockaddr in addr_info:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise ValueError(
+                f"SSRF Protection: Access to private, local, or internal metadata address "
+                f"'{ip_str}' ({hostname}) is strictly prohibited."
+            )
+
+
 def fetch_target_content(target: str) -> str:
-    """Reads content from local filesystem path or remote HTTP(S) URL."""
+    """Reads content from local filesystem path or remote HTTP(S) URL with SSRF protection."""
     if target.startswith("http://") or target.startswith("https://"):
-        req = urllib.request.Request(target, headers={"User-Agent": "Antigravity-Porter/1.1.0"})
+        _validate_safe_url(target)
+        req = urllib.request.Request(target, headers={"User-Agent": "Antigravity-Porter/1.1.1"})
         with urllib.request.urlopen(req, timeout=10) as response:
             return response.read().decode("utf-8", errors="ignore")
     path = Path(target)
@@ -181,7 +230,7 @@ def main() -> int:
         prog="porter",
         description="Universal Bidirectional AI Agent Bridge, Suitability Analyzer, and Transpiler."
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 1.1.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 1.1.1")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 

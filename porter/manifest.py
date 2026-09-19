@@ -23,7 +23,7 @@ class ManifestEngine:
     def build_manifest(self) -> UniversalManifest:
         """Inspects all local harness assets and compiles a complete lossless manifest."""
         manifest = UniversalManifest(
-            version="1.1.0",
+            version="1.2.0",
             schema_version="1.0.0",
             generated_at=datetime.utcnow().isoformat() + "Z",
             metadata={
@@ -67,7 +67,7 @@ class ManifestEngine:
                     "raw": content
                 })
 
-        # 4. Ingest Modular Skills (skills/*/SKILL.md)
+        # 4. Ingest Modular Skills (skills/*/SKILL.md and all subfiles)
         skills_dir = self.harness_root / "skills"
         if skills_dir.is_dir():
             for skill_dir in sorted(skills_dir.iterdir()):
@@ -77,10 +77,26 @@ class ManifestEngine:
                         content = skill_file.read_text(encoding="utf-8", errors="ignore")
                         desc_match = re.search(r"description:\s*([^\n\r]+)", content)
                         desc = desc_match.group(1).strip() if desc_match else ""
+
+                        # Ingest all supporting subfiles (scripts, references, assets, templates)
+                        subfiles = {}
+                        for sub_path in sorted(skill_dir.rglob("*")):
+                            if sub_path.is_file() and sub_path != skill_file:
+                                if "__pycache__" in sub_path.parts or sub_path.suffix in (".pyc", ".pyo"):
+                                    continue
+                                rel_sub = str(sub_path.relative_to(skill_dir)).replace("\\", "/")
+                                try:
+                                    sub_content = sub_path.read_text(encoding="utf-8")
+                                except UnicodeDecodeError:
+                                    import base64
+                                    sub_content = "base64:" + base64.b64encode(sub_path.read_bytes()).decode("ascii")
+                                subfiles[rel_sub] = sub_content
+
                         manifest.skills.append({
                             "name": skill_dir.name,
                             "description": desc,
-                            "raw": content
+                            "raw": content,
+                            "subfiles": subfiles
                         })
 
         return manifest

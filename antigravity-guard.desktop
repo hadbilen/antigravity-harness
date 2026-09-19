@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Antigravity Guard
+Comment=OS-Level Governance, Write Protection, & Staging Suite for Antigravity Harness
+Exec=python3 -m guard.gui
+Terminal=false
+Categories=Development;Security;Utility;
+Keywords=antigravity;guard;security;protection;porter;

@@ -102,7 +102,7 @@ class SuitabilityAnalyzer:
         return "skill", base_name
 
     def find_redundancies(self, content: str, name: str) -> List[Dict[str, str]]:
-        """Identifies any overlap with our existing 18 skills and 6 subagents."""
+        """Identifies any overlap with our existing modular skills and autonomous subagents."""
         redundancies = []
         lower_content = content.lower()
         lower_name = name.lower()

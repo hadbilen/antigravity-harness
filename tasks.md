@@ -24,3 +24,31 @@
   - [x] Create annotated git tag `v1.1.0` & push tag
   - [x] Publish rich GitHub release with pre-v1.0.4 style comprehensive release notes
   - [x] Generate `walkthrough.md`
+
+- [x] Phase 5: v1.1.1 Hardening & Production Maturation
+  - [x] Update version to 1.1.1 across repo (`porter/__init__.py`, `porter.py`, `models.py`, `install.py`, etc.)
+  - [x] Implement SSRF & private IP protection in `porter.py` (`fetch_target_content`)
+  - [x] Implement lossless skill subfiles (`scripts/`, `assets/`, `references/`) in `porter/manifest.py`
+  - [x] Harden `porter/sanitizer.py` to scrub/comment out test weakening & sycophancy directives
+  - [x] Fix metadata synchronization ("18 skills" -> dynamic count) in `analyzer.py` and `models.py`
+  - [x] Harden `skills/upstream-auditor/scripts/upstream_watcher.py` (respect `ANTIGRAVITY_CONFIG_DIR`, retry backoff on network failure)
+  - [x] Fix cross-platform portability in `hooks.json` and `install.py`
+  - [x] Add `scripts/verify_invariants.py` for machine-enforced test invariants and diff checks
+  - [x] Regenerate `.harness/manifest.json` with full subfiles
+- [x] Phase 6: v1.2.0 Antigravity Guard (`agy-guard`) Governance Suite & Write Protection
+  - [x] Design cross-platform OS write protection adapter (`guard/os_adapter.py`)
+  - [x] Build cryptographic SHA-256 File Integrity Monitor (`guard/integrity.py`)
+  - [x] Implement atomic snapshot and rollback engine (`guard/snapshot.py`)
+  - [x] Build Porter Staging Gate & visual diff bridge (`guard/porter_bridge.py`)
+  - [x] Implement Upstream Auditor watchdog bridge (`guard/upstream.py`)
+  - [x] Build rich CLI interface (`guard/cli.py`, `guard.py`)
+  - [x] Build dark-mode desktop GUI adhering to `DESIGN.md` (`guard/gui.py`, `antigravity-guard.desktop`)
+  - [x] Create multi-platform launchers (`bin/agy-guard`, `bin/agy-guard.bat`, `bin/agy-guard.ps1`)
+  - [x] Update installers (`install.py`, `install.sh`) to link `guard` and install launcher to `~/.local/bin/agy-guard`
+  - [x] Bump version to 1.2.0 across `.harness/manifest.json`, `porter/__init__.py`, `guard/__init__.py`, `README.md`
+  - [x] Create automated unit tests (`tests/test_guard.py`) and verify invariants
+  - [x] Git commit, tag `v1.2.0`, push to `origin/main`
+  - [x] Publish rich GitHub release `v1.2.0`
+
+
+

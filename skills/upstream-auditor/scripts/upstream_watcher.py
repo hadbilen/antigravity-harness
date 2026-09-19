@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-CONFIG_DIR = os.path.expanduser("~/.gemini/config")
+CONFIG_DIR = os.path.expanduser(os.environ.get("ANTIGRAVITY_CONFIG_DIR", "~/.gemini/config"))
 SKILL_DIR = os.path.join(CONFIG_DIR, "skills", "upstream-auditor")
 CUSTOM_SKILLS_DIR = os.path.join(CONFIG_DIR, "skills")
 STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
@@ -88,7 +88,8 @@ def get_pbtxt_model():
 def check_tracked_skills(state: dict):
     """Checks tracked repositories every 72 hours (3 days) with zero LLM cost using parallel HTTP requests."""
     last_audit_str = state.get("last_skills_audit_timestamp")
-    interval_hours = state.get("skills_audit_interval_hours", 72)
+    last_failed = state.get("last_audit_failed", False)
+    interval_hours = state.get("skills_audit_retry_hours", 2) if last_failed else state.get("skills_audit_interval_hours", 72)
 
     now = datetime.now(timezone.utc)
     if last_audit_str:
@@ -99,29 +100,24 @@ def check_tracked_skills(state: dict):
         except Exception:
             pass
 
-    # Immediately mark timestamp so a failed or interrupted network call does not retry on every subsequent turn
-    state["last_skills_audit_timestamp"] = now.isoformat()
-    try:
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-    except Exception:
-        pass
-
     tracked = state.get("tracked_repositories", {})
     if not tracked:
         return []
 
+    successful_checks = 0
+
     def fetch_repo_status(name: str, info: dict):
+        nonlocal successful_checks
         repo = info.get("repo")
         branch = info.get("branch", "main")
         recorded_sha = info.get("last_synced_commit", "")[:7]
         url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
-        req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.1"})
         try:
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 data = json.loads(resp.read().decode())
                 if data and isinstance(data, list):
+                    successful_checks += 1
                     current_sha = data[0]["sha"][:7]
                     if recorded_sha and current_sha and recorded_sha != current_sha:
                         return f"{name} ({recorded_sha}->{current_sha})"
@@ -140,6 +136,16 @@ def check_tracked_skills(state: dict):
                         changed_repos.append(res)
                 except Exception:
                     continue
+    except Exception:
+        pass
+
+    # Record timestamp and mark whether network checks succeeded or failed
+    state["last_skills_audit_timestamp"] = now.isoformat()
+    state["last_audit_failed"] = (successful_checks == 0)
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+            f.write("\n")
     except Exception:
         pass
 

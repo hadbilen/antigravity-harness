@@ -37,14 +37,23 @@ link_or_copy() {
   echo "[LINKED] $(basename "$dest") -> $src"
 }
 
-# Core constitution, design contracts, and porter CLI
+# Core constitution, design contracts, mistakes, porter and guard CLI
 link_or_copy "${SCRIPT_DIR}/GEMINI.md" "${TARGET_DIR}/GEMINI.md"
 link_or_copy "${SCRIPT_DIR}/DESIGN.md" "${TARGET_DIR}/DESIGN.md"
 link_or_copy "${SCRIPT_DIR}/MISTAKES.md" "${TARGET_DIR}/MISTAKES.md"
 link_or_copy "${SCRIPT_DIR}/hooks.json" "${TARGET_DIR}/hooks.json"
 link_or_copy "${SCRIPT_DIR}/porter.py" "${TARGET_DIR}/porter.py"
+link_or_copy "${SCRIPT_DIR}/guard.py" "${TARGET_DIR}/guard.py"
 [ -d "${SCRIPT_DIR}/porter" ] && link_or_copy "${SCRIPT_DIR}/porter" "${TARGET_DIR}/porter"
+[ -d "${SCRIPT_DIR}/guard" ] && link_or_copy "${SCRIPT_DIR}/guard" "${TARGET_DIR}/guard"
 [ -d "${SCRIPT_DIR}/.harness" ] && link_or_copy "${SCRIPT_DIR}/.harness" "${TARGET_DIR}/.harness"
+
+# CLI launcher in ~/.local/bin
+mkdir -p "${HOME}/.local/bin"
+if [ -f "${SCRIPT_DIR}/bin/agy-guard" ]; then
+  chmod +x "${SCRIPT_DIR}/bin/agy-guard"
+  link_or_copy "${SCRIPT_DIR}/bin/agy-guard" "${HOME}/.local/bin/agy-guard"
+fi
 
 # Autonomous subagents directory
 mkdir -p "${TARGET_DIR}/agents"
@@ -73,6 +82,22 @@ fi
 if [ -f "${TARGET_DIR}/skills/upstream-auditor/scripts/check_skills.sh" ]; then
   chmod +x "${TARGET_DIR}/skills/upstream-auditor/scripts/check_skills.sh"
 fi
+
+# Configure hooks.json to point to exact TARGET_DIR
+cat > "${TARGET_DIR}/hooks.json" << EOF
+{
+  "upstream-watchdog": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ${TARGET_DIR}/skills/upstream-auditor/scripts/upstream_watcher.py",
+        "timeout": 15
+      }
+    ]
+  }
+}
+EOF
+echo "[CONFIGURED] hooks.json -> python3 ${TARGET_DIR}/skills/upstream-auditor/scripts/upstream_watcher.py"
 
 echo "========================================================"
 echo "[SUCCESS] Antigravity Harness successfully installed!"

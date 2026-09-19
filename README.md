@@ -20,7 +20,7 @@ Agentic coding tools frequently stumble into four failure modes:
 
 ---
 
-## The Five Pillars
+## The Six Pillars
 
 ```
                      ┌───────────────────────────────────────────────┐
@@ -31,13 +31,13 @@ Agentic coding tools frequently stumble into four failure modes:
                      │  - External Rule Ingestion Invariant (Rule 16)│
                      └───────────────────────┬───────────────────────┘
                                              │
-      ┌────────────────────────┬─────────────┴────────────┬────────────────────────┐
-      ▼                        ▼                          ▼                        ▼
-┌──────────────┐      ┌─────────────────┐       ┌──────────────────┐     ┌──────────────────┐
-│  Autonomous  │      │  Modular Skill  │       │ Baseline Design  │     │ Universal Bridge │
-│  Subagents   │      │     System      │       │     Contract     │     │   & Porter CLI   │
-│ (6 Auditors) │      │   (20 Skills)   │       │  (Antislop UI)   │     │ (Lossless Trans) │
-└──────────────┘      └─────────────────┘       └──────────────────┘     └──────────────────┘
+       ┌──────────────────┬──────────────────┼──────────────────┬──────────────────┐
+       ▼                  ▼                  ▼                  ▼                  ▼
+ ┌──────────────┐ ┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐
+ │  Autonomous  │ │  Modular Skill  │ │ Baseline UI  │ │ Universal Bridge │ │Antigravity Guard │
+ │  Subagents   │ │     System      │ │   Contract   │ │   & Porter CLI   │ │(agy-guard CLI/GUI│
+ │ (6 Auditors) │ │   (20 Skills)   │ │(Antislop UI) │ │ (Lossless Trans) │ │Write Protect/FIM)│
+ └──────────────┘ └─────────────────┘ └──────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
 ### 1. The Engineering Constitution (`GEMINI.md`)
@@ -89,6 +89,18 @@ The bridge enables seamless two-way portability between Antigravity and any exte
 * **Lossless Canonical Manifest (`.harness/manifest.json`):** Machine-readable single source of truth preserving all 20 skills, 6 subagents, and constitution rules across multi-hop migrations (A -> B -> C) with zero information decay.
 * **Target Emitters:** Generates native configurations for Claude Code (`CLAUDE.md` + `.claude/commands/`), Cursor (`.cursor/rules/*.mdc`), Universal Open Standard (`AGENTS.md`), Aider (`CONVENTIONS.md` + `.aider.conf.yml`), and generic environments (Hermes, Cline, etc.).
 
+### 6. Antigravity Guard (`agy-guard`) — OS-Level Governance Suite
+`antigravity-guard` (`guard.py`, `guard/`, `bin/agy-guard`) acts as the system-level shield and companion application for your Antigravity environment:
+* **Cross-Platform Write Protection:** Locks `~/.gemini/config/` against tampering by hallucinating models, unauthorized subprocesses, or rogue third-party IDE extensions using native OS primitives:
+  * **Linux:** POSIX permission lockdown (0555/0444) + `chattr +i` ext4/xfs immutable flags.
+  * **macOS:** BSD user-immutable flags (`chflags uchg` / `nouchg`).
+  * **Windows:** NTFS Access Control Lists (`icacls /deny Everyone:(W,D)`).
+* **Cryptographic File Integrity Monitor (FIM):** Maintains a deterministic SHA-256 Merkle baseline, instantly detecting modified, added, or deleted files across your custom environment.
+* **1-Click Atomic Snapshot & Rollback:** Automatically captures state snapshots before any external rule ingestion or experimental configuration changes, enabling instant 1-click restoration.
+* **Porter Staging Gate:** Visual and CLI bridge for `porter.py`. Provides split diff viewers, pre-flight score cards, and atomic "Unlock -> Ingest Sanitized Rule -> Re-lock" workflows.
+* **Upstream Auditor Watchdog:** Proactively monitors git HEADs across the 7 tracked community repositories and checks model drift with zero LLM token consumption.
+* **Dual Interface (CLI + GUI):** Full terminal workflow (`agy-guard status`, `lock`, `unlock`, `verify`, `snapshot`, `porter`, `upstream`) paired with a high-contrast, WCAG AA compliant desktop GUI (`guard.gui` / `antigravity-guard.desktop`).
+
 ---
 
 ## Directory Structure
@@ -102,9 +114,24 @@ antigravity-harness/
 ├── install.sh                         # POSIX Unix installer (Linux, macOS, FreeBSD)
 ├── LICENSE                            # MIT License
 ├── README.md                          # Complete documentation & architecture guide
+├── guard.py                           # Antigravity Guard CLI & GUI root launcher
 ├── porter.py                          # Universal Bidirectional Bridge & CLI Transpiler
 ├── .harness/
 │   └── manifest.json                  # Lossless machine-readable canonical manifest
+├── bin/                               # Native OS launcher executables
+│   ├── agy-guard                      # POSIX shell executable (Linux / macOS)
+│   ├── agy-guard.bat                  # Windows CMD batch launcher
+│   └── agy-guard.ps1                  # Windows PowerShell launcher
+├── guard/                             # Antigravity Guard core engine
+│   ├── os_adapter.py                  # Cross-platform write protection (Linux, macOS, Windows)
+│   ├── integrity.py                   # Cryptographic File Integrity Monitor (SHA-256)
+│   ├── snapshot.py                    # Lightweight snapshot and rollback engine
+│   ├── porter_bridge.py               # Bridge to Porter suitability & staging gate
+│   ├── upstream.py                    # Bridge to Upstream Auditor watchdog
+│   ├── cli.py                         # Rich command-line interface
+│   └── gui.py                         # Dark-mode desktop GUI (Tkinter / DESIGN.md compliant)
+├── tests/                             # Automated test suite
+│   └── test_guard.py                  # Unit tests for Guard, OS adapter, FIM, and Porter
 ├── porter/                            # Core transpiler and analyzer modules
 │   ├── analyzer.py                    # Pre-flight suitability and adaptability analyzer
 │   ├── sanitizer.py                   # Constitutional de-slop & invariant filter
@@ -188,9 +215,19 @@ python porter.py export --target all --out ./export/
 ```
 
 ### 4. Canonical Manifest Generation
-Compile the lossless machine-readable manifest:
+Compile the lossless machine-readable manifest (bundling all 20 skills and 76+ auxiliary subfiles):
 ```bash
 python porter.py manifest
+```
+
+### 5. Machine-Enforced Invariant Guard (`verify_invariants.py`)
+Deterministically verify code diffs and repositories against constitutional invariants (Goodhart's test weakening invariant, WCAG contrast, supply-chain checks):
+```bash
+# Verify current git diff
+python scripts/verify_invariants.py --diff
+
+# Full repository audit
+python scripts/verify_invariants.py --all
 ```
 
 ---
@@ -223,6 +260,41 @@ python install.py
 
 # Unix / macOS / FreeBSD
 python3 install.py
+```
+
+---
+
+## Antigravity Guard (`agy-guard`) Quickstart
+
+Once installed, `agy-guard` is available globally in your PATH (or via `python3 guard.py`):
+
+```bash
+# 1. Check environment security and file integrity
+agy-guard status
+
+# 2. Lock environment against writes (chattr +i / chmod 0555 / icacls)
+agy-guard lock
+
+# 3. Temporarily unlock for manual editing or maintenance
+agy-guard unlock
+
+# 4. Verify cryptographic SHA-256 baseline (detect tampered files)
+agy-guard verify
+
+# 5. Capture a timestamped snapshot of your configuration
+agy-guard snapshot create --label "pre_experiment"
+
+# 6. Inspect an external rule with Porter Suitability Gate
+agy-guard porter inspect https://example.com/some_rule.md
+
+# 7. Atomic Staging & Ingestion (Snapshots -> Unlocks -> Ingests -> Updates FIM -> Re-locks)
+agy-guard porter stage ./custom_rule.md
+
+# 8. Check tracked community repositories for upstream changes (zero LLM token cost)
+agy-guard upstream check
+
+# 9. Launch Desktop GUI
+agy-guard gui
 ```
 
 ---

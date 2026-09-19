@@ -91,7 +91,7 @@ class SuitabilityReport:
             f"### 2. Redundancy & Existing Ecosystem Overlap",
         ])
         if not self.redundancies:
-            lines.append("No direct overlap with existing 18 skills or 6 subagents.")
+            lines.append("No direct overlap with existing custom skills or subagents.")
         else:
             for red in self.redundancies:
                 lines.append(f"- **Matches `{red.get('name')}`** ({red.get('type')}): {red.get('reason')}")
@@ -112,7 +112,7 @@ class UniversalManifest:
     Lossless canonical machine-readable representation of the entire harness.
     Guarantees zero information decay across multi-hop migrations (A -> B -> C).
     """
-    version: str = "1.1.0"
+    version: str = "1.2.0"
     schema_version: str = "1.0.0"
     generated_at: str = ""
     constitution: Dict[str, Any] = field(default_factory=dict)

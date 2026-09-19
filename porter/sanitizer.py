@@ -93,12 +93,36 @@ class ConstitutionalSanitizer:
 
     @classmethod
     def sanitize_for_import(cls, content: str) -> str:
-        """Sanitizes external rule content for seamless ingestion into Antigravity."""
-        sanitized = content
+        """
+        Sanitizes external rule content for seamless ingestion into Antigravity:
+        1. Neutralizes and comments out test-weakening directives (Goodhart's Invariant).
+        2. Strips forced conversational apologies, sycophancy, and emotional validation.
+        3. Replaces fake marketing metrics with clean placeholders.
+        4. Normalizes whitespace and line breaks.
+        """
+        lines = []
+        for line in content.splitlines():
+            stripped = line.strip()
 
-        # Remove forced conversational apologies / flattery
-        sanitized = re.sub(r"(?i)^.*(always apologize|never contradict the user).*$\n?", "", sanitized, flags=re.MULTILINE)
+            # Check sycophancy patterns -> strip completely
+            if any(re.search(pattern, line) for pattern, _ in SYCOPHANCY_PATTERNS):
+                continue
 
+            # Check test weakening patterns -> neutralize with clear invariant guard
+            is_test_weakening = any(re.search(pattern, line) for pattern, _ in TEST_WEAKENING_PATTERNS)
+            if is_test_weakening:
+                indent = re.match(r"^\s*", line).group(0)
+                bullet = "- " if stripped.startswith(("- ", "* ", "+ ")) else ""
+                lines.append(f"{indent}{bullet}# [SANITIZED BY HARNESS: Test weakening directive suppressed per Goodhart's Invariant]")
+                continue
+
+            # Check and sanitize obvious AI-slop marketing placeholders
+            cleaned_line = line
+            cleaned_line = re.sub(r"(?i)\b10,?000\+\s+happy\s+users\b", "[Verified Metrics Placeholder]", cleaned_line)
+
+            lines.append(cleaned_line)
+
+        sanitized = "\n".join(lines)
         # Normalize multiple excessive empty lines
         sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
 

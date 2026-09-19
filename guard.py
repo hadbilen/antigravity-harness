@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""
+guard.py — Antigravity Guard (agy-guard) CLI & GUI Root Launcher
+Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Zero external dependencies: uses strictly the Python standard library.
+
+Usage:
+  python3 guard.py status                     # View write-protection and integrity state
+  python3 guard.py lock                       # Lock environment (read-only/immutable)
+  python3 guard.py unlock                     # Unlock environment for maintenance
+  python3 guard.py verify                     # Check SHA-256 file integrity (FIM)
+  python3 guard.py snapshot create --label X  # Create local state snapshot
+  python3 guard.py snapshot list              # List available snapshots
+  python3 guard.py porter inspect <path/url>  # Inspect rule with Porter suitability gate
+  python3 guard.py porter stage <path/url>    # Staging & atomic promotion gate
+  python3 guard.py upstream check             # Check 7 tracked repos (zero LLM token cost)
+  python3 guard.py gui                        # Launch desktop GUI
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+# Add repository root to python path
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from guard.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

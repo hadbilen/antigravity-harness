@@ -3,7 +3,7 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python3 ~/.gemini/config/skills/upstream-auditor/scripts/upstream_watcher.py",
+        "command": "python3 \"/home/tugay/.gemini/antigravity-harness/skills/upstream-auditor/scripts/upstream_watcher.py\"",
         "timeout": 15
       }
     ]

@@ -79,24 +79,57 @@ def main() -> int:
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Core constitution, design contracts, mistakes, hooks, and porter CLI
-    core_files = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", "hooks.json", "porter.py"]
+    # 1. Core constitution, design contracts, mistakes, porter and guard CLI
+    core_files = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", "porter.py", "guard.py"]
     for file_name in core_files:
         src = script_dir / file_name
         if src.is_file():
             status = make_symlink_or_copy(src, target_dir / file_name, backup_dir)
             print(status)
 
-    # 1.1 Porter engine package & canonical manifest
-    porter_src_dir = script_dir / "porter"
-    if porter_src_dir.is_dir():
-        status = make_symlink_or_copy(porter_src_dir, target_dir / "porter", backup_dir)
-        print(status)
+    # 1.1 Engine packages & canonical manifest
+    for pkg_dir in ["porter", "guard", ".harness"]:
+        src_dir = script_dir / pkg_dir
+        if src_dir.is_dir():
+            status = make_symlink_or_copy(src_dir, target_dir / pkg_dir, backup_dir)
+            print(status)
 
-    harness_src_dir = script_dir / ".harness"
-    if harness_src_dir.is_dir():
-        status = make_symlink_or_copy(harness_src_dir, target_dir / ".harness", backup_dir)
-        print(status)
+    # 1.1.1 Launcher executable for CLI
+    if not IS_WINDOWS:
+        local_bin = Path.home() / ".local" / "bin"
+        local_bin.mkdir(parents=True, exist_ok=True)
+        guard_bin = script_dir / "bin" / "agy-guard"
+        if guard_bin.is_file():
+            guard_bin.chmod(guard_bin.stat().st_mode | 0o755)
+            dest_bin = local_bin / "agy-guard"
+            try:
+                if dest_bin.is_symlink() or dest_bin.exists():
+                    dest_bin.unlink(missing_ok=True)
+                dest_bin.symlink_to(guard_bin.resolve())
+                print(f"[LAUNCHER] Linked agy-guard -> {dest_bin}")
+            except Exception:
+                pass
+
+    # 1.2 Cross-platform hook configuration with absolute path and platform Python binary
+    import json
+    watcher_target = (target_dir / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py").resolve()
+    python_bin = "python" if IS_WINDOWS else "python3"
+    hooks_payload = {
+        "upstream-watchdog": {
+            "PreInvocation": [
+                {
+                    "type": "command",
+                    "command": f"{python_bin} \"{watcher_target}\"",
+                    "timeout": 15
+                }
+            ]
+        }
+    }
+    target_hooks = target_dir / "hooks.json"
+    with open(target_hooks, "w", encoding="utf-8") as f:
+        json.dump(hooks_payload, f, indent=2)
+        f.write("\n")
+    print(f"[CONFIGURED] hooks.json -> {python_bin} \"{watcher_target}\"")
 
     # 2. Autonomous subagents
     agents_src_dir = script_dir / "agents"
