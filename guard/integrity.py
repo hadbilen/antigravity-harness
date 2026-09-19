@@ -182,13 +182,12 @@ class FileIntegrityMonitor:
         now_str = datetime.now(timezone.utc).isoformat()
 
         if not self.state_file.exists():
-            # If no baseline exists, establish current as baseline
-            self.save_baseline()
             return IntegrityReport(
                 timestamp=now_str,
                 target_dir=str(self.target_dir),
                 total_files=len(current_hashes),
-                is_intact=True,
+                is_intact=False,
+                deleted=["[BASELINE MISSING: No cryptographic baseline found. Run 'agy-guard rebaseline' to establish initial state]"],
             )
 
         try:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -22,10 +22,15 @@ class ManifestEngine:
 
     def build_manifest(self) -> UniversalManifest:
         """Inspects all local harness assets and compiles a complete lossless manifest."""
+        try:
+            from porter import __version__ as PORTER_VERSION
+        except ImportError:
+            PORTER_VERSION = "1.2.6"
+
         manifest = UniversalManifest(
-            version="1.2.5",
+            version=PORTER_VERSION,
             schema_version="1.0.0",
-            generated_at=datetime.utcnow().isoformat() + "Z",
+            generated_at=datetime.now(timezone.utc).isoformat(),
             metadata={
                 "name": "antigravity-harness",
                 "description": "Deterministic engineering harness, behavioral constitution, and autonomous subagent ecosystem.",

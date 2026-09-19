@@ -475,6 +475,113 @@ Never skip tests. Always be objective.
         self.assertIn("[LOCK", msg)
 
 
+class TestV126Bugfixes(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = Path(tempfile.mkdtemp(prefix="test_v126_fixes_"))
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_porter_import_re_no_name_error(self):
+        import subprocess
+        import sys
+        src_file = self.test_dir / "rule.md"
+        src_file.write_text("# Test Rule\nDo not bypass tests.", encoding="utf-8")
+        repo_root = Path(__file__).resolve().parent.parent
+        res = subprocess.run(
+            [sys.executable, str(repo_root / "porter.py"), "import", str(src_file), "--dry-run"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        self.assertEqual(res.returncode, 0, f"porter.py failed: {res.stderr}")
+        self.assertIn("[DRY-RUN]", res.stdout)
+
+    def test_upstream_state_resolution(self):
+        from guard.upstream import UpstreamAuditorBridge
+
+        old_file_env = os.environ.get("UPSTREAM_STATE_FILE")
+        old_xdg_env = os.environ.get("XDG_STATE_HOME")
+
+        # 1. Custom UPSTREAM_STATE_FILE
+        custom_state = self.test_dir / "custom_state.json"
+        custom_state.write_text('{"tracked_repositories": {}}', encoding="utf-8")
+        try:
+            os.environ["UPSTREAM_STATE_FILE"] = str(custom_state)
+            bridge = UpstreamAuditorBridge(target_dir=self.test_dir)
+            self.assertEqual(bridge.state_file, custom_state.resolve())
+        finally:
+            if old_file_env is not None:
+                os.environ["UPSTREAM_STATE_FILE"] = old_file_env
+            else:
+                os.environ.pop("UPSTREAM_STATE_FILE", None)
+
+        # 2. Legacy fallback when XDG state does not exist
+        try:
+            clean_xdg = self.test_dir / "clean_xdg"
+            os.environ["XDG_STATE_HOME"] = str(clean_xdg)
+            legacy_dir = self.test_dir / "skills" / "upstream-auditor"
+            legacy_dir.mkdir(parents=True)
+            legacy_file = legacy_dir / "upstream_state.json"
+            legacy_file.write_text('{"tracked_repositories": {}}', encoding="utf-8")
+
+            bridge_legacy = UpstreamAuditorBridge(target_dir=self.test_dir)
+            self.assertEqual(bridge_legacy.state_file, legacy_file)
+
+            # 3. Primary XDG state when it exists
+            primary_dir = clean_xdg / "antigravity-harness"
+            primary_dir.mkdir(parents=True)
+            primary_file = primary_dir / "upstream_state.json"
+            primary_file.write_text('{"tracked_repositories": {}}', encoding="utf-8")
+
+            bridge_primary = UpstreamAuditorBridge(target_dir=self.test_dir)
+            self.assertEqual(bridge_primary.state_file, primary_file)
+        finally:
+            if old_xdg_env is not None:
+                os.environ["XDG_STATE_HOME"] = old_xdg_env
+            else:
+                os.environ.pop("XDG_STATE_HOME", None)
+
+    def test_porter_bridge_relock_failure_detection(self):
+        class MockFailingLockAdapter(OSProtectionAdapter):
+            def lock(self, target=None):
+                return False, "Simulated permission denial"
+
+        adapter = MockFailingLockAdapter(target_dir=self.test_dir)
+        bridge = PorterBridge(target_dir=self.test_dir, os_adapter=adapter)
+        src = self.test_dir / "test_rule.md"
+        src.write_text("# Rule\nObjective rule.", encoding="utf-8")
+
+        success, msg = bridge.stage_and_ingest(str(src), force=True)
+        self.assertFalse(success)
+        self.assertIn("Re-lock failed", msg)
+
+    def test_fim_verify_without_baseline_returns_false(self):
+        monitor = FileIntegrityMonitor(target_dir=self.test_dir)
+        (self.test_dir / "file.txt").write_text("hello", encoding="utf-8")
+        report = monitor.verify()
+        self.assertFalse(report.is_intact)
+        self.assertFalse(monitor.state_file.exists())
+        self.assertIn("BASELINE MISSING", report.deleted[0])
+
+    def test_manifest_engine_dynamic_version(self):
+        from porter.manifest import ManifestEngine
+        engine = ManifestEngine()
+        manifest = engine.build_manifest()
+        self.assertEqual(manifest.version, "1.2.6")
+
+    def test_rapid_snapshot_same_second_no_collision(self):
+        engine = SnapshotEngine(target_dir=self.test_dir)
+        (self.test_dir / "sample.txt").write_text("v1", encoding="utf-8")
+        snap1_id, path1 = engine.create_snapshot(label="snap1")
+        snap2_id, path2 = engine.create_snapshot(label="snap2")
+        self.assertNotEqual(snap1_id, snap2_id)
+        self.assertTrue(path1.is_dir())
+        self.assertTrue(path2.is_dir())
+        snapshots = engine.list_snapshots()
+        self.assertEqual(len(snapshots), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -33,16 +33,16 @@ class PorterBridge:
     vetted promotion, and immediately re-locked with a re-computed integrity manifest.
     """
 
-    def __init__(self, target_dir: Optional[Path] = None):
+    def __init__(self, target_dir: Optional[Path] = None, os_adapter: Optional[OSProtectionAdapter] = None):
         if target_dir is None:
             config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
             self.target_dir = Path(config_env).resolve() if config_env else Path.home() / ".gemini" / "config"
         else:
             self.target_dir = Path(target_dir).resolve()
 
-        self.os_adapter = OSProtectionAdapter(self.target_dir)
+        self.os_adapter = os_adapter or OSProtectionAdapter(self.target_dir)
         self.integrity_monitor = FileIntegrityMonitor(self.target_dir)
-        self.snapshot_engine = SnapshotEngine(self.target_dir)
+        self.snapshot_engine = SnapshotEngine(self.target_dir, os_adapter=self.os_adapter)
 
     def inspect_content(self, raw_content: str, name: str = "incoming_rule") -> Dict[str, Any]:
         """Runs the 4-dimensional suitability analysis on raw rule content."""
@@ -166,6 +166,12 @@ class PorterBridge:
             success = False
         finally:
             # Step 6: Atomic Re-lock
-            self.os_adapter.lock()
+            relock_ok, relock_msg = self.os_adapter.lock()
+            if not relock_ok:
+                if success:
+                    status_msg = f"{status_msg} [WARNING: Re-lock failed: {relock_msg}]"
+                    success = False
+                else:
+                    status_msg = f"{status_msg} [Re-lock also failed: {relock_msg}]"
 
         return success, status_msg

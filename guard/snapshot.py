@@ -46,7 +46,7 @@ class SnapshotEngine:
         try:
             self.snapshots_dir.mkdir(parents=True, exist_ok=True)
             now = datetime.now(timezone.utc)
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
             safe_label = ("_" + "".join(c for c in label if c.isalnum() or c in "-_")) if label else ""
             snap_id = f"snap_{timestamp}{safe_label}"
             dest_dir = self.snapshots_dir / snap_id
@@ -115,7 +115,7 @@ class SnapshotEngine:
 
         try:
             # Take an emergency backup of current state first
-            now_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            now_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
             pre_rollback = self.snapshots_dir / f"pre_rollback_{now_ts}"
             try:
                 shutil.copytree(

@@ -29,7 +29,20 @@ class UpstreamAuditorBridge:
         else:
             self.target_dir = Path(target_dir).resolve()
 
-        self.state_file = self.target_dir / "skills" / "upstream-auditor" / "upstream_state.json"
+        xdg_env = os.environ.get("XDG_STATE_HOME")
+        default_state_dir = Path(xdg_env).expanduser() / "antigravity-harness" if xdg_env else Path.home() / ".local" / "state" / "antigravity-harness"
+        state_file_env = os.environ.get("UPSTREAM_STATE_FILE")
+        if state_file_env:
+            self.state_file = Path(state_file_env).resolve()
+        else:
+            candidate_state = default_state_dir / "upstream_state.json"
+            legacy_state = self.target_dir / "skills" / "upstream-auditor" / "upstream_state.json"
+            if candidate_state.is_file():
+                self.state_file = candidate_state
+            elif legacy_state.is_file():
+                self.state_file = legacy_state
+            else:
+                self.state_file = candidate_state
 
     def load_state(self) -> Dict[str, Any]:
         """Loads state from upstream_state.json or returns default tracked repo structure."""
