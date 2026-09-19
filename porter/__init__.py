@@ -9,7 +9,7 @@ from porter.models import HarnessAgent, HarnessRule, HarnessSkill, SuitabilityRe
 from porter.net import safe_fetch_url, validate_safe_url
 from porter.sanitizer import ConstitutionalSanitizer
 
-__version__ = "1.2.7"
+__version__ = "1.2.8"
 
 __all__ = [
     "SuitabilityAnalyzer",

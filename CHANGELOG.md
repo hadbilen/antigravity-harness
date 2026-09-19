@@ -2,6 +2,11 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.2.8] - 2026-09-20
+### Fixed
+- **GUI Crash on Launch (`guard/gui.py`, `guard/upstream.py`):** Resolved fatal `KeyError: 'tracked_ecosystems'` during `AntigravityGuardApp` tab construction. `UpstreamAuditorBridge.get_model_drift_status()` now dynamically calculates and returns `"tracked_ecosystems"` count from state, and `_build_tab_upstream()` accesses dictionary keys defensively using safe fallbacks.
+- **Upstream Auditor Contract Test (`tests/test_guard.py`):** Added `test_upstream_auditor_model_drift_status_keys` unit test ensuring drift status model and ecosystem contracts remain satisfied across releases.
+
 ## [1.2.7] - 2026-09-20
 ### Fixed & Hardened
 - **Decoupled Control Plane & Policy Workspace (`install.py`, `install.sh`):** Separated standalone control plane binary (`agy-guard`) from config/policy workspace installation. Installers download or link compiled binary to `~/.local/bin/agy-guard` without altering underlying policy configuration unless `--full` is specified.

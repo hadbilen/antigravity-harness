@@ -1,6 +1,6 @@
 # Antigravity Harness
 
-[![Release](https://img.shields.io/badge/release-v1.2.7-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.7)
+[![Release](https://img.shields.io/badge/release-v1.2.8-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.8)
 [![CI Matrix](https://img.shields.io/badge/CI-Linux%20%7C%20macOS%20%7C%20Windows-success.svg)](https://github.com/hadbilen/antigravity-harness/actions)
 [![Python Stdlib](https://img.shields.io/badge/dependencies-zero%20external-brightgreen.svg)](https://github.com/hadbilen/antigravity-harness)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20antislop-orange.svg)](DESIGN.md)
