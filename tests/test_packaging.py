@@ -40,28 +40,53 @@ class TestLinuxPackaging(unittest.TestCase):
             self.assertTrue((stage / "usr" / "share" / "bash-completion" / "completions" / "agy-guard").exists())
 
     def test_pure_python_deb_archive_generation(self):
+        with tempfile.TemporaryDirectory() as tmp_stage:
+            stage = Path(tmp_stage) / "stage"
+            self.packager._prepare_payload(stage)
+            deb_dir = stage / "DEBIAN"
+            deb_dir.mkdir(parents=True, exist_ok=True)
+            (deb_dir / "control").write_text("Package: test\nVersion: 1.0\nArchitecture: all\nDescription: test\n", encoding="utf-8")
+
+            target_deb = self.out_dir / "pure_test.deb"
+            deb_path = self.packager._build_deb_pure_python(stage, target_deb)
+            self.assertIsNotNone(deb_path)
+            self.assertTrue(deb_path.exists())
+
+            # Validate ar archive structure
+            with open(deb_path, "rb") as f:
+                magic = f.read(8)
+                self.assertEqual(magic, b"!<arch>\n", "Invalid ar header magic")
+
+                # First entry: debian-binary
+                h1 = f.read(60)
+                self.assertEqual(len(h1), 60)
+                self.assertTrue(h1.startswith(b"debian-binary   "))
+                body1 = f.read(4)
+                self.assertEqual(body1, b"2.0\n")
+
+                # Second entry: control.tar.gz
+                h2 = f.read(60)
+                self.assertEqual(len(h2), 60)
+                self.assertTrue(h2.startswith(b"control.tar.gz  "))
+
+    def test_build_deb_package(self):
         deb_path = self.packager.build_deb()
         self.assertIsNotNone(deb_path)
         self.assertTrue(deb_path.exists())
         self.assertTrue(deb_path.name.endswith(".deb"))
         self.assertGreater(deb_path.stat().st_size, 1000)
 
-        # Validate ar archive structure
         with open(deb_path, "rb") as f:
             magic = f.read(8)
             self.assertEqual(magic, b"!<arch>\n", "Invalid ar header magic")
 
-            # First entry: debian-binary
             h1 = f.read(60)
-            self.assertEqual(len(h1), 60)
             self.assertTrue(h1.startswith(b"debian-binary   "))
             body1 = f.read(4)
             self.assertEqual(body1, b"2.0\n")
 
-            # Second entry: control.tar.gz
             h2 = f.read(60)
-            self.assertEqual(len(h2), 60)
-            self.assertTrue(h2.startswith(b"control.tar.gz  "))
+            self.assertTrue(h2.startswith(b"control.tar"))
 
     def test_rpm_spec_generation(self):
         result_path = self.packager.build_rpm()

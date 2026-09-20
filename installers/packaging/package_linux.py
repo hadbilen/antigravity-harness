@@ -200,6 +200,7 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
             fmag = "`\n"
             return f"{name_field}{timestamp}{owner}{group}{mode}{size_field}{fmag}".encode("ascii")
 
+        target_deb.parent.mkdir(parents=True, exist_ok=True)
         with open(target_deb, "wb") as f:
             f.write(b"!<arch>\n")
             # debian-binary
