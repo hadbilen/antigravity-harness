@@ -120,7 +120,8 @@ class TestLinuxPackaging(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0)
         self.assertIn("Packaging configuration valid:", res.stdout)
-        self.assertIn(str(self.out_dir), res.stdout)
+        self.assertIn("Version: 1.3.0", res.stdout)
+        self.assertIn(self.out_dir.name, res.stdout)
 
 
 if __name__ == "__main__":
