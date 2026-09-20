@@ -258,7 +258,7 @@ Download pre-built distribution packages directly from [GitHub Releases](https:/
 
 ```bash
 # Debian / Ubuntu / Mint / Pop!_OS (.deb)
-sudo apt-get install ./antigravity-guard_1.3.0_amd64.deb
+sudo apt install ./antigravity-guard_1.3.0_amd64.deb
 
 # Fedora / RHEL / AlmaLinux / openSUSE (.rpm)
 sudo dnf install ./antigravity-guard-1.3.0-1.x86_64.rpm
