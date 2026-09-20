@@ -42,7 +42,7 @@ Autonomous coding agents frequently encounter five systemic failure modes:
   ┌──────────────┐ ┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐
   │  Autonomous  │ │  Modular Skill  │ │ Baseline UI  │ │ Universal Bridge │ │Antigravity Guard │
   │  Subagents   │ │     System      │ │   Contract   │ │   & Porter CLI   │ │(agy-guard CLI/GUI│
-  │ (6 Auditors) │ │   (20 Skills)   │ │(Antislop UI) │ │ (Lossless Trans) │ │Write Protect/FIM)│
+  │ (7 Auditors) │ │   (20 Skills)   │ │(Antislop UI) │ │ (Lossless Trans) │ │Write Protect/FIM)│
   └──────────────┘ └─────────────────┘ └──────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
@@ -73,8 +73,22 @@ Standard backup utilities merely overwrite existing files, leaving rogue files i
 * Computes deterministic SHA-256 Merkle baselines across all constitutional files, skills, subagents, and configurations.
 * Supports hosting the integrity baseline outside the protected directory via `ANTIGRAVITY_INTEGRITY_FILE` (or `~/.gemini/.guard_integrity.json`), physically decoupling the baseline from the target configuration to eliminate simultaneous tampering.
 
+### Multi-Environment Matrix & Governance (`guard/environment.py`)
+* Discovers, registers, and tracks foreign coding agent environments (Claude Code, GPT Codex, Cursor, Windsurf, Aider).
+* Enforces per-environment protection policies (`enforced`, `audit_only`, `exempt`) and tracks file mutations across toolchains.
+* Generates cross-environment drift matrices (`agy-guard drift`) to spot divergent prompt contracts or skill drift immediately.
+
+### Human-in-the-Loop Time-Bounded Lease Unlock (`guard/lease.py`)
+* Eliminates permanent manual unshielded exposures: when an agent or user needs to edit configuration files, a time-bounded lease is issued (`agy-guard request-unlock --duration 60`).
+* Automatic relock and cryptographic rebaselining when the lease expires or when `agy-guard lock-complete` is executed.
+
+### Multi-Tier Ergonomic Notifications (`guard/notifier.py`)
+* Low-frequency, spam-resistant desktop alerts integrated with native OS systems (`notify-send` on Linux DBus, AppleScript on macOS, PowerShell Toast on Windows).
+* Strict priority tiers (`INFO` with 30-minute cooldown, `WARNING` with 15-minute cooldown, and `CRITICAL` with instant zero cooldown).
+* Optional `--quiet` / `--disabled` modes ensuring developers are never bombarded by noisy notifications during long coding sessions.
+
 ### Dual Operational Interfaces (Ergonomic CLI + Dark GUI)
-* **Full CLI Workflow (`bin/agy-guard`):** `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `doctor`, `upstream`, and `gui`.
+* **Full CLI Workflow (`bin/agy-guard`):** `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `doctor`, `upstream`, `env`, `lease`, `drift`, `self-audit`, `test-boundary`, `provenance`, and `gui`.
 * **Zero-Dependency Desktop GUI (`guard/gui.py`):** Built strictly on Python's native standard library (`tkinter` / `ttk`). Follows `DESIGN.md` (ENERGY 2 / RHYTHM 2 / Dark Zinc palette) with verified WCAG AA contrast, real-time FIM auditing, and split-diff external rule staging.
 
 ---
@@ -103,6 +117,7 @@ The primary model cannot objectively grade its own work. Specialized read-only s
 * **`security-boundary-verifier`:** Verifies authorization boundaries, IDOR, input validation, SSRF immunity, and race conditions (TOCTOU).
 * **`specification-gap-auditor`:** Detects unhandled edge cases, missing error branches, and ambiguous adjectives (*"fast"*, *"robust"*) in requirements.
 * **`consistency-auditor`:** Evaluates multi-volume specifications and schemas for axiomatic contradictions, circular dependencies, and broken cross-references.
+* **`meta-auditor`:** Meta-consistency and self-audit specialist. Executes the deterministic 5-pass harness self-audit (`meta_audit.py`), detecting broken cross-references, missing frontmatter schemas, mutual exclusion violations, and Porter parity loss across the governance core.
 * **`build-error-resolver`:** Analyzes compiler and TypeScript errors in an isolated context, producing minimal, non-architectural diffs.
 * **`research`:** Ingests large external documentation (>50 KB) and complex codebases in an isolated sandbox, returning distilled decision matrices without polluting the primary session context.
 
@@ -115,7 +130,7 @@ A bidirectional bridge enabling lossless rule portability between Antigravity an
 * **Pre-Flight Suitability & Adaptability Gate:** Analyzes external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`) before writing files, scoring them 0–100 on constitutional alignment and platform fit.
 * **Constitutional Sanitizer (`porter/sanitizer.py`):** Automatically strips conversational sycophancy, AI-slop, and test-weakening directives from imported rules.
 * **SSRF Protection:** Enforces strict RFC-1918, link-local metadata (`169.254.169.254`), loopback, and IPv6 DNS resolution validation during remote rule ingestion.
-* **Lossless Canonical Manifest (`.harness/manifest.json`):** Single-source compilation bundling all 20 skills, 6 subagents, and constitution rules across multi-hop migrations with zero information decay.
+* **Lossless Canonical Manifest (`.harness/manifest.json`):** Single-source compilation bundling all 20 skills, 7 subagents, and constitution rules across multi-hop migrations with zero information decay.
 * **Native Emitters:** Generates idiomatic configs for Claude Code (`CLAUDE.md` + `.claude/commands/`), Cursor (`.cursor/rules/*.mdc`), Universal Standard (`AGENTS.md`), Aider (`CONVENTIONS.md`), and generic environments.
 
 ---
@@ -219,7 +234,7 @@ antigravity-harness/
 │   ├── silent-failure-hunter.md
 │   └── specification-gap-auditor.md
 ├── skills/                            # 20 modular capability packages
-├── tests/                             # Automated multi-platform test suite (75 tests)
+├── tests/                             # Automated multi-platform test suite (77 tests)
 │   ├── test_guard.py
 │   ├── test_environment.py
 │   ├── test_notifier.py
@@ -237,25 +252,45 @@ antigravity-harness/
 
 ## Quickstart & Installation
 
-Clone the repository:
+### Option 1: Native Linux Distribution Packages (.deb, .rpm, .pkg.tar.zst)
+
+Download pre-built distribution packages directly from [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases/latest):
+
+```bash
+# Debian / Ubuntu / Mint / Pop!_OS (.deb)
+sudo apt-get install ./antigravity-guard_1.3.0_amd64.deb
+
+# Fedora / RHEL / AlmaLinux / openSUSE (.rpm)
+sudo dnf install ./antigravity-guard-1.3.0-1.x86_64.rpm
+
+# Arch Linux / Manjaro (.pkg.tar.zst)
+sudo pacman -U ./antigravity-guard-1.3.0-1-x86_64.pkg.tar.zst
+```
+
+### Option 2: Pre-Built Standalone Binaries (Linux, macOS, Windows)
+
+No Python installation required. Download the single-file executable for your OS from [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases/latest):
+* **Linux:** `agy-guard-linux-x86_64` (move to `~/.local/bin/agy-guard` and `chmod +x`)
+* **macOS:** `agy-guard-macos-arm64` / `agy-guard-macos-x86_64`
+* **Windows:** `agy-guard-windows-x86_64.exe`
+
+### Option 3: Unix Fast Path from Source (Linux, macOS, FreeBSD)
 
 ```bash
 git clone https://github.com/hadbilen/antigravity-harness.git ~/.gemini/antigravity-harness
 cd ~/.gemini/antigravity-harness
-```
-
-### Option 1: Unix Fast Path (Linux, macOS, FreeBSD)
-
-```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-### Option 2: Windows & Universal Engine (Python)
+### Option 4: Windows & Universal Engine from Source (Python)
 
 Zero third-party dependencies. On Windows, it handles NTFS symlinks with automatic fallback to directory junctions (`mklink /J`) or copies:
 
 ```bash
+git clone https://github.com/hadbilen/antigravity-harness.git ~/.gemini/antigravity-harness
+cd ~/.gemini/antigravity-harness
+
 # Windows (PowerShell or Command Prompt)
 python install.py
 
@@ -370,7 +405,7 @@ python3 porter.py manifest
 Every commit and pull request is automatically tested across **Linux, macOS, and Windows** on Python 3.10, 3.11, and 3.12:
 
 ```bash
-# Run complete unit test suite (75 passing tests)
+# Run complete unit test suite (77 passing tests)
 python3 -m unittest discover -s tests -v
 
 # Run autonomous harness self-audit (Rule 17)
