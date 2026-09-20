@@ -14,6 +14,8 @@ description: >
 
 Teknik jargondan uzak, vizyon ve his (vibe) odaklı hızlı prototipleme becerisi. Kullanıcının teknik şartname çıkarma yükünü tamamen devralır; ne istediğini dinler, arkasındaki asıl ihtiyacı süzer ve sıfır kurulumla doğrudan çalışan arayüzler üretir.
 
+> **Mutual Exclusion Notice:** This skill operates EXCLUSIVELY in rapid vibe-prototyping mode and is mutually exclusive with the strict architectural 'harness' workflows. Never combine with harness planning artifacts or ADRs.
+
 ---
 
 ## 1. Temel Felsefe ve İlkeler
