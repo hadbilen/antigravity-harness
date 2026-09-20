@@ -5,6 +5,7 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 
 import json
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -114,7 +115,7 @@ class TestTestBoundaryGuard(unittest.TestCase):
 
     def test_run_reproducible_success(self):
         success, msg, codes = self.guard.run_reproducible(
-            ["python3", "-c", "import sys; sys.exit(0)"],
+            [sys.executable, "-c", "import sys; sys.exit(0)"],
             passes=2,
         )
         self.assertTrue(success)
@@ -123,7 +124,7 @@ class TestTestBoundaryGuard(unittest.TestCase):
 
     def test_run_reproducible_failure(self):
         success, msg, codes = self.guard.run_reproducible(
-            ["python3", "-c", "import sys; sys.exit(1)"],
+            [sys.executable, "-c", "import sys; sys.exit(1)"],
             passes=2,
         )
         self.assertFalse(success)

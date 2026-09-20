@@ -58,11 +58,12 @@ class TestRunProvenanceTracker(unittest.TestCase):
                 os.environ.pop("MOCK_AUTH", None)
 
     def test_generate_manifest_with_reproducible_test(self):
+        import sys
         manifest = self.tracker.generate_manifest(
-            mode="bugfix",
-            test_command="python3 -c 'import sys; sys.exit(0)'",
-            reproducibility_passes=2,
-        )
+             mode="bugfix",
+             test_command=f'"{sys.executable}" -c "import sys; sys.exit(0)"',
+             reproducibility_passes=2,
+         )
         self.assertTrue(manifest.reproducibility_verified)
         self.assertEqual(manifest.reproducibility_runs, 2)
         md = manifest.to_markdown()

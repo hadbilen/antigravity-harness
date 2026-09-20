@@ -279,13 +279,23 @@ class TestBoundaryGuard:
         """
         work_dir = cwd or self.workspace_dir
         exit_codes: List[int] = []
-        cmd_str = command if isinstance(command, str) else " ".join(shlex.quote(c) for c in command)
+
+        exec_cmd = command
+        if os.name == "nt":
+            if isinstance(command, str):
+                if command.startswith("python3 "):
+                    exec_cmd = f'"{sys.executable}" ' + command[8:]
+                if " -c '" in exec_cmd and exec_cmd.endswith("'"):
+                    exec_cmd = exec_cmd.replace(" -c '", ' -c "')[:-1] + '"'
+            elif isinstance(command, list):
+                if command and command[0] == "python3":
+                    exec_cmd = [sys.executable] + command[1:]
 
         for run_idx in range(1, passes + 1):
             try:
                 proc = subprocess.run(
-                    command,
-                    shell=isinstance(command, str),
+                    exec_cmd,
+                    shell=isinstance(exec_cmd, str),
                     cwd=work_dir,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
