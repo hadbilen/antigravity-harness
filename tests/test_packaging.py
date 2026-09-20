@@ -6,6 +6,7 @@ Zero external dependencies: uses strictly the Python standard library.
 
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -109,6 +110,19 @@ class TestLinuxPackaging(unittest.TestCase):
         )
         self.assertGreater(arch_pkg.stat().st_size, 1000)
 
+    def test_cli_argument_parsing(self):
+        import subprocess
+        pkg_script = Path(__file__).resolve().parent.parent / "installers" / "packaging" / "package_linux.py"
+        res = subprocess.run(
+            [sys.executable, str(pkg_script), "--all", "--output-dir", str(self.out_dir), "--check-only"],
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("Packaging configuration valid:", res.stdout)
+        self.assertIn(str(self.out_dir), res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
+

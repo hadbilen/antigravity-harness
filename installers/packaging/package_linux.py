@@ -361,12 +361,16 @@ def main() -> int:
         description="Native Linux Distribution Packaging Utility for Antigravity Guard"
     )
     parser.add_argument("--format", choices=["deb", "rpm", "arch", "all"], default="all", help="Target package format")
+    parser.add_argument("--all", action="store_true", help="Build all package formats (deb, rpm, arch)")
     parser.add_argument("--arch", choices=["x86_64", "amd64", "arm64", "aarch64"], default="x86_64", help="Architecture")
     parser.add_argument("--binary", help="Path to pre-built pyinstaller standalone binary")
-    parser.add_argument("--out-dir", help="Output directory path (default: dist/packages)")
+    parser.add_argument("--out-dir", "--output-dir", dest="out_dir", help="Output directory path (default: dist/packages)")
     parser.add_argument("--version", help="Override package version string")
     parser.add_argument("--check-only", action="store_true", help="Validate packaging inputs without building archives")
     args = parser.parse_args()
+
+    if args.all:
+        args.format = "all"
 
     packager = LinuxPackager(
         version=args.version,
