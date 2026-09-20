@@ -148,7 +148,7 @@ class RunProvenanceTracker:
             repro_runs = reproducibility_passes
 
         manifest = RunProvenanceManifest(
-            version="1.2.9",
+            version="1.3.0",
             session_timestamp=datetime.now(timezone.utc).isoformat(),
             workspace_dir=str(self.workspace_dir),
             git_base_commit=base_commit,

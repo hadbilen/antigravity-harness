@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181B" />
+      <stop offset="100%" stop-color="#09090B" />
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22C55E" />
+      <stop offset="100%" stop-color="#16A34A" />
+    </linearGradient>
+  </defs>
+  <!-- Background Shield -->
+  <path d="M64 8 L112 28 L112 72 C112 98 88 116 64 120 C40 116 16 98 16 72 L16 28 Z" 
+        fill="url(#shieldGrad)" 
+        stroke="url(#borderGrad)" 
+        stroke-width="6" 
+        stroke-linejoin="round" />
+  <!-- Inner Glow Ring -->
+  <path d="M64 18 L102 34 L102 70 C102 91 82 106 64 110 C46 106 26 91 26 70 L26 34 Z" 
+        fill="none" 
+        stroke="#27272A" 
+        stroke-width="2" />
+  <!-- Checkmark Emblem -->
+  <path d="M44 64 L56 78 L86 48" 
+        fill="none" 
+        stroke="#22C55E" 
+        stroke-width="8" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+</svg>

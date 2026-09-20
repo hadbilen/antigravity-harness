@@ -12,7 +12,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from guard.os_adapter import OSProtectionAdapter
 
@@ -66,12 +66,15 @@ class FileIntegrityMonitor:
         target_dir: Optional[Path] = None,
         state_file: Optional[Path] = None,
         os_adapter: Optional[OSProtectionAdapter] = None,
+        target_paths: Optional[Sequence[Path]] = None,
     ):
         if target_dir is None:
             config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
             self.target_dir = Path(config_env).resolve() if config_env else Path.home() / ".gemini" / "config"
         else:
             self.target_dir = Path(target_dir).resolve()
+
+        self.target_paths = [Path(p).resolve() for p in target_paths] if target_paths else None
 
         if state_file is not None:
             self.state_file = Path(state_file).resolve()
@@ -107,10 +110,40 @@ class FileIntegrityMonitor:
             return ""
 
     def scan_directory(self) -> Dict[str, str]:
-        """Recursively scans target directory and returns relative_path -> sha256."""
+        """Recursively scans target directory or specified target_paths and returns relative_path -> sha256."""
         hashes: Dict[str, str] = {}
         if not self.target_dir.exists():
             return hashes
+
+        if self.target_paths is not None:
+            for p in self.target_paths:
+                if not p.exists():
+                    continue
+                if p.is_file():
+                    try:
+                        rel_path = p.relative_to(self.target_dir).as_posix()
+                    except ValueError:
+                        rel_path = p.name
+                    file_hash = self._hash_file(p)
+                    if file_hash:
+                        hashes[rel_path] = file_hash
+                elif p.is_dir():
+                    for root, dirs, files in os.walk(p, followlinks=True):
+                        dirs[:] = [d for d in dirs if d not in self.EXCLUDED_PATTERNS and not d.startswith(".backup_")]
+                        for f in files:
+                            if f in self.EXCLUDED_PATTERNS or f.startswith(".guard_") or f.endswith((".tmp", ".swp")):
+                                continue
+                            fp = Path(root) / f
+                            if not fp.is_file():
+                                continue
+                            try:
+                                rel_path = fp.relative_to(self.target_dir).as_posix()
+                            except ValueError:
+                                rel_path = fp.as_posix()
+                            file_hash = self._hash_file(fp)
+                            if file_hash:
+                                hashes[rel_path] = file_hash
+            return dict(sorted(hashes.items()))
 
         visited_dirs: Set[str] = set()
         for root, dirs, files in os.walk(self.target_dir, followlinks=True):
@@ -153,14 +186,14 @@ class FileIntegrityMonitor:
 
     def save_baseline(self) -> Tuple[int, str]:
         """Saves current state as the trusted baseline manifest."""
-        was_locked = self.os_adapter.is_locked()
+        was_locked = self.os_adapter.is_locked(self.target_paths if self.target_paths is not None else self.target_dir)
         if was_locked:
-            self.os_adapter.unlock()
+            self.os_adapter.unlock(self.target_paths if self.target_paths is not None else self.target_dir)
 
         try:
             current_hashes = self.scan_directory()
             payload = {
-                "version": "1.2.9",
+                "version": "1.3.0",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "target_dir": str(self.target_dir),
                 "file_count": len(current_hashes),
@@ -172,7 +205,7 @@ class FileIntegrityMonitor:
                 f.write("\n")
         finally:
             if was_locked:
-                self.os_adapter.lock()
+                self.os_adapter.lock(self.target_paths if self.target_paths is not None else self.target_dir)
 
         return len(current_hashes), self.state_file.as_posix()
 

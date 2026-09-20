@@ -20,7 +20,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 from guard import __version__
+from guard.environment import AgentEnvironment, EnvironmentRegistry
 from guard.integrity import FileIntegrityMonitor
+from guard.lease import LeaseManager
+from guard.notifier import GuardNotifier
 from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
 from guard.snapshot import SnapshotEngine
@@ -57,6 +60,9 @@ class AntigravityGuardApp:
         self.porter_bridge = PorterBridge()
         self.upstream_bridge = UpstreamAuditorBridge()
         self.startup_mgr = StartupManager(self.adapter.target_dir)
+        self.env_registry = EnvironmentRegistry()
+        self.lease_manager = LeaseManager(registry=self.env_registry)
+        self.notifier = GuardNotifier()
 
         self.var_minimize_to_tray = tk.BooleanVar(value=True)
         st_info = self.startup_mgr.status()
@@ -168,16 +174,19 @@ class AntigravityGuardApp:
         self.notebook.pack(fill="both", expand=True, padx=16, pady=8)
 
         self.tab_shield = ttk.Frame(self.notebook, padding=12)
+        self.tab_env = ttk.Frame(self.notebook, padding=12)
         self.tab_porter = ttk.Frame(self.notebook, padding=12)
         self.tab_upstream = ttk.Frame(self.notebook, padding=12)
         self.tab_settings = ttk.Frame(self.notebook, padding=12)
 
         self.notebook.add(self.tab_shield, text="Shield & Integrity")
+        self.notebook.add(self.tab_env, text="Multi-Environment")
         self.notebook.add(self.tab_porter, text="Porter Staging Gate")
         self.notebook.add(self.tab_upstream, text="Upstream Auditor")
         self.notebook.add(self.tab_settings, text="Snapshots & Settings")
 
         self._build_tab_shield()
+        self._build_tab_env()
         self._build_tab_porter()
         self._build_tab_upstream()
         self._build_tab_settings()
@@ -209,6 +218,41 @@ class AntigravityGuardApp:
         self.tree_fim.column("status", width=140)
         self.tree_fim.column("path", width=680)
         self.tree_fim.pack(fill="both", expand=True)
+
+    # --- TAB: Multi-Environment Governance ---
+    def _build_tab_env(self):
+        ctrl_card = ttk.Frame(self.tab_env, style="Card.TFrame", padding=12)
+        ctrl_card.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(ctrl_card, text="Multi-Environment Coding Agent Registry", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(ctrl_card, text="Manage write-protection across Antigravity, Claude Code, GPT Codex, Cursor, and Aider.", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+
+        btn_box = ttk.Frame(ctrl_card, style="Card.TFrame")
+        btn_box.pack(fill="x")
+        ttk.Button(btn_box, text="Auto-Detect Environments", style="Primary.TButton", command=self.detect_environments).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_box, text="Lock All Enforced", style="Action.TButton", command=self.lock_all_environments).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_box, text="Unlock All", style="Action.TButton", command=self.unlock_all_environments).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_box, text="Request 60s Lease", style="Action.TButton", command=self.gui_request_lease).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_box, text="Analyze Drift", style="Action.TButton", command=self.gui_analyze_drift).pack(side="left")
+
+        tree_card = ttk.Frame(self.tab_env, style="Card.TFrame", padding=12)
+        tree_card.pack(fill="both", expand=True)
+
+        cols = ("id", "name", "platform", "policy", "shield", "tracked")
+        self.tree_envs = ttk.Treeview(tree_card, columns=cols, show="headings", height=12)
+        self.tree_envs.heading("id", text="Environment ID")
+        self.tree_envs.heading("name", text="Display Name")
+        self.tree_envs.heading("platform", text="Platform")
+        self.tree_envs.heading("policy", text="Policy")
+        self.tree_envs.heading("shield", text="Shield State")
+        self.tree_envs.heading("tracked", text="Tracked Seam Files")
+        self.tree_envs.column("id", width=140)
+        self.tree_envs.column("name", width=220)
+        self.tree_envs.column("platform", width=110)
+        self.tree_envs.column("policy", width=100)
+        self.tree_envs.column("shield", width=110)
+        self.tree_envs.column("tracked", width=140)
+        self.tree_envs.pack(fill="both", expand=True)
 
     # --- TAB 2: Porter Staging Gate ---
     def _build_tab_porter(self):
@@ -399,6 +443,77 @@ class AntigravityGuardApp:
 
         self.verify_integrity()
         self.refresh_snapshots()
+        self.refresh_environments()
+
+    def refresh_environments(self):
+        if not hasattr(self, "tree_envs"):
+            return
+        for row in self.tree_envs.get_children():
+            self.tree_envs.delete(row)
+        matrix = self.env_registry.get_status_matrix()
+        for item in matrix:
+            shield_icon = "🔒 LOCKED" if item["is_locked"] else "🔓 UNLOCKED"
+            self.tree_envs.insert(
+                "", "end",
+                values=(
+                    item["id"],
+                    item["name"],
+                    item["platform"],
+                    item["policy"],
+                    shield_icon,
+                    f"{item['file_count']} files",
+                ),
+            )
+
+    def detect_environments(self):
+        discovered = self.env_registry.discover_environments(register=True)
+        messagebox.showinfo("Discovery Complete", f"Auto-detected and registered {len(discovered)} coding agent environments.")
+        self.refresh_environments()
+
+    def lock_all_environments(self):
+        ok, msg = self.env_registry.lock()
+        messagebox.showinfo("Lock Matrix", msg)
+        self.refresh_status()
+
+    def unlock_all_environments(self):
+        if messagebox.askyesno("Confirm Unlock", "Unlock all registered agent environments for maintenance?"):
+            ok, msg = self.env_registry.unlock()
+            messagebox.showinfo("Unlock Matrix", msg)
+            self.refresh_status()
+
+    def gui_request_lease(self):
+        sel = self.tree_envs.selection()
+        env_id = "antigravity"
+        if sel:
+            env_id = self.tree_envs.item(sel[0])["values"][0]
+        success, msg, lease = self.lease_manager.request_unlock(
+            env_id=env_id,
+            reason="GUI operator manual lease request",
+            duration_seconds=60,
+            interactive=False,
+            auto_approve=True,
+        )
+        if success:
+            messagebox.showinfo("Lease Granted", f"{msg}\nTarget: {env_id}")
+        else:
+            messagebox.showerror("Lease Error", msg)
+        self.refresh_status()
+
+    def gui_analyze_drift(self):
+        matrix = self.env_registry.get_status_matrix()
+        drift_items = []
+        for item in matrix:
+            env = self.env_registry.get_environment(item["id"])
+            if not env:
+                continue
+            mon = FileIntegrityMonitor(target_dir=env.get_root(), target_paths=env.get_governance_paths(existing_only=True))
+            rep = mon.verify()
+            if not rep.is_intact:
+                drift_items.append(f"{env.name}: {len(rep.modified)} modified, {len(rep.added)} added, {len(rep.deleted)} deleted")
+        if drift_items:
+            messagebox.showwarning("Drift Detected", "\n".join(drift_items))
+        else:
+            messagebox.showinfo("Integrity Verified", "All tracked environments match their cryptographic baselines perfectly!")
 
     def toggle_lock(self):
         if self.adapter.is_locked():

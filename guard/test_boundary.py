@@ -166,7 +166,7 @@ class TestBoundaryGuard:
 
         files_map = self.discover_files()
         payload = {
-            "version": "1.2.9",
+            "version": "1.3.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "workspace": str(self.workspace_dir),
             "total_files": len(files_map),

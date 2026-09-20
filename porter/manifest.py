@@ -25,7 +25,7 @@ class ManifestEngine:
         try:
             from porter import __version__ as PORTER_VERSION
         except ImportError:
-            PORTER_VERSION = "1.2.9"
+            PORTER_VERSION = "1.3.0"
 
         manifest = UniversalManifest(
             version=PORTER_VERSION,

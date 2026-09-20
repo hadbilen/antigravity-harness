@@ -1,6 +1,6 @@
 # Antigravity Harness
 
-[![Release](https://img.shields.io/badge/release-v1.2.9-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.9)
+[![Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.3.0)
 [![CI Matrix](https://img.shields.io/badge/CI-Linux%20%7C%20macOS%20%7C%20Windows-success.svg)](https://github.com/hadbilen/antigravity-harness/actions)
 [![Python Stdlib](https://img.shields.io/badge/dependencies-zero%20external-brightgreen.svg)](https://github.com/hadbilen/antigravity-harness)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20antislop-orange.svg)](DESIGN.md)
@@ -164,7 +164,7 @@ A purpose-built visual contract for software interfaces:
 antigravity-harness/
 ├── GEMINI.md                          # The Global Engineering & Behavioral Constitution
 ├── DESIGN.md                          # Global Baseline Design Contract
-├── CHANGELOG.md                       # Comprehensive changelog from v1.0.0 through v1.2.4
+├── CHANGELOG.md                       # Comprehensive changelog from v1.0.0 through v1.3.0
 ├── hooks.json                         # Pre-invocation lifecycle hooks
 ├── install.py                         # Universal cross-platform installer (Windows, Linux, macOS, BSD)
 ├── install.sh                         # POSIX Unix installer (Linux, macOS, FreeBSD)
@@ -175,22 +175,30 @@ antigravity-harness/
 ├── .github/
 │   └── workflows/ci.yml               # Multi-OS CI Matrix (Linux, macOS, Windows / Python 3.10-3.12)
 ├── .harness/
+│   ├── environments.json              # Multi-environment agent registry & policies
 │   └── manifest.json                  # Lossless machine-readable canonical manifest
 ├── bin/                               # Native OS launcher executables
 │   ├── agy-guard                      # POSIX shell executable (Linux / macOS)
 │   ├── agy-guard.bat                  # Windows CMD batch launcher
 │   └── agy-guard.ps1                  # Windows PowerShell launcher
 ├── installers/                        # System menu and desktop integration
-│   └── antigravity-guard.desktop      # Linux XDG Desktop Application entry
+│   ├── antigravity-guard.desktop      # Linux XDG Desktop Application entry
+│   └── packaging/                     # Native Linux package specifications
+│       ├── package_linux.py           # .deb (pure Python), .rpm, and Arch builder
+│       ├── PKGBUILD                   # Arch Linux / AUR package specification
+│       └── antigravity-guard.svg      # High-contrast scalable vector application icon
 ├── guard/                             # Antigravity Guard core engine
 │   ├── os_adapter.py                  # Cross-platform write protection (Linux, macOS, Windows)
+│   ├── environment.py                 # Multi-Environment Agent Governance & Registry
+│   ├── notifier.py                    # Low-Frequency Ergonomic Notification Engine
+│   ├── lease.py                       # Human-in-the-Loop Time-Bounded Lease Unlock
 │   ├── integrity.py                   # Cryptographic File Integrity Monitor (SHA-256)
 │   ├── test_boundary.py               # Deterministic Test & Config Trust Boundary Guard
 │   ├── provenance.py                  # Run Provenance & Execution Audit Trail Manifest
 │   ├── snapshot.py                    # Full-state snapshot and extraneous pruning engine
 │   ├── porter_bridge.py               # Bridge to Porter suitability & staging gate
 │   ├── upstream.py                    # Bridge to Upstream Auditor watchdog
-│   ├── cli.py                         # Rich command-line interface
+│   ├── cli.py                         # Rich command-line interface (23 subcommands)
 │   └── gui.py                         # Dark-mode desktop GUI (Tkinter / DESIGN.md compliant)
 ├── porter/                            # Universal transpiler & analyzer modules
 │   ├── analyzer.py                    # Pre-flight suitability and adaptability analyzer
@@ -198,16 +206,28 @@ antigravity-harness/
 │   ├── manifest.py                    # Canonical manifest compiler
 │   ├── parsers/                       # Format auto-detection (MDC, flat, generic)
 │   └── emitters/                      # Native generators (Claude, Cursor, Universal, Aider)
-├── agents/                            # 6 autonomous subagent specifications
+├── scripts/
+│   ├── meta_audit.py                  # Autonomous 5-pass harness self-auditor (Rule 17)
+│   ├── verify_invariants.py           # Deterministic constitutional invariant guard
+│   └── upstream_watcher.py            # Headless 72h community repository monitor
+├── agents/                            # 7 autonomous subagent specifications
 │   ├── build-error-resolver.md
 │   ├── consistency-auditor.md
+│   ├── meta-auditor.md
 │   ├── research.md
 │   ├── security-boundary-verifier.md
 │   ├── silent-failure-hunter.md
 │   └── specification-gap-auditor.md
 ├── skills/                            # 20 modular capability packages
-├── tests/                             # Automated multi-platform test suite
-│   └── test_guard.py                  # Unit tests for Guard, OS adapter, FIM, and Porter
+├── tests/                             # Automated multi-platform test suite (75 tests)
+│   ├── test_guard.py
+│   ├── test_environment.py
+│   ├── test_notifier.py
+│   ├── test_lease.py
+│   ├── test_meta_audit.py
+│   ├── test_packaging.py
+│   ├── test_provenance.py
+│   └── test_test_boundary.py
 └── templates/
     ├── HANDOFF.template.md            # Standardized cross-session handoff protocol
     └── config.example.json            # Sanitized user configuration template
@@ -280,25 +300,43 @@ agy-guard porter stage ./custom_rule.md
 # 10. Check tracked community repositories for upstream changes (zero token cost)
 agy-guard upstream check
 
-# 11. Enable Pre-Session Boot Sentinel (Runs before AI IDEs or models start)
+# 11. Multi-Environment Governance & Detection
+agy-guard env list
+agy-guard env detect --register
+agy-guard env policy claude-workspace enforced
+
+# 12. Human-in-the-Loop Time-Bounded Lease Unlock (Auto-Relock & Rebaseline)
+agy-guard request-unlock --env claude-workspace --duration 60 --reason "Rule migration"
+agy-guard lock-complete --env claude-workspace
+
+# 13. Multi-Environment Drift Analysis Matrix
+agy-guard drift
+
+# 14. Autonomous 5-Pass Self-Audit Gate (Rule 17)
+agy-guard self-audit
+
+# 15. Enable Pre-Session Boot Sentinel (Runs before AI IDEs or models start)
 agy-guard startup enable
 
-# 12. Inspect Boot Sentinel registration status
+# 16. Inspect Boot Sentinel registration status
 agy-guard startup status
 
-# 13. Snapshot workspace test & configuration trust boundary
+# 17. Snapshot workspace test & configuration trust boundary
 agy-guard test-boundary snapshot
 
-# 14. Verify test suite immutability (detect fixture, timeout, or mock tampering)
+# 18. Verify test suite immutability (detect fixture, timeout, or mock tampering)
 agy-guard test-boundary verify --mode bugfix
 
-# 15. Verify 2x isolated reproducibility for targeted tests (eliminate flakiness)
+# 19. Verify 2x isolated reproducibility for targeted tests (eliminate flakiness)
 agy-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py"
 
-# 16. Generate session execution provenance manifest (.harness/provenance.json)
+# 20. Generate session execution provenance manifest (.harness/provenance.json)
 agy-guard provenance generate
 
-# 17. Launch the Desktop GUI
+# 21. Build Native Linux Distribution Packages (.deb, .rpm, .pkg.tar.zst)
+python3 installers/packaging/package_linux.py --all --output-dir dist/packages
+
+# 22. Launch the Desktop GUI
 agy-guard gui
 ```
 
@@ -332,8 +370,11 @@ python3 porter.py manifest
 Every commit and pull request is automatically tested across **Linux, macOS, and Windows** on Python 3.10, 3.11, and 3.12:
 
 ```bash
-# Run 21 unit tests covering OS adapters, FIM, doctor, snapshots, and Porter
+# Run complete unit test suite (75 passing tests)
 python3 -m unittest discover -s tests -v
+
+# Run autonomous harness self-audit (Rule 17)
+python3 scripts/meta_audit.py --all
 
 # Run deterministic invariant verification
 python3 scripts/verify_invariants.py --all

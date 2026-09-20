@@ -1,0 +1,43 @@
+# Maintainer: Had Bilen <https://github.com/hadbilen>
+pkgname=antigravity-guard
+pkgver=1.3.0
+pkgrel=1
+pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
+arch=('x86_64' 'aarch64')
+url="https://github.com/hadbilen/antigravity-harness"
+license=('MIT')
+depends=('python>=3.10')
+optdepends=(
+    'libnotify: Desktop notifications via notify-send'
+    'python-gobject: Native Ayatana/AppIndicator system tray support'
+    'gtk3: Desktop GTK interface support'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/hadbilen/antigravity-harness/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/antigravity-harness-$pkgver"
+
+    # Install library files
+    install -dm755 "$pkgdir/usr/lib/$pkgname"
+    cp -r guard "$pkgdir/usr/lib/$pkgname/"
+    cp -r porter "$pkgdir/usr/lib/$pkgname/"
+    cp guard.py "$pkgdir/usr/lib/$pkgname/guard.py"
+
+    # Binary launcher
+    install -dm755 "$pkgdir/usr/bin"
+    cat << 'EOF' > "$pkgdir/usr/bin/agy-guard"
+#!/bin/sh
+exec python3 /usr/lib/antigravity-guard/guard.py "$@"
+EOF
+    chmod 755 "$pkgdir/usr/bin/agy-guard"
+
+    # Desktop entry & Icon
+    install -Dm644 installers/antigravity-guard.desktop "$pkgdir/usr/share/applications/antigravity-guard.desktop"
+    install -Dm644 installers/packaging/antigravity-guard.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/antigravity-guard.svg"
+
+    # Documentation & Governance Templates
+    install -dm755 "$pkgdir/usr/share/antigravity-harness"
+    cp GEMINI.md DESIGN.md MISTAKES.md "$pkgdir/usr/share/antigravity-harness/"
+    cp -r templates skills agents "$pkgdir/usr/share/antigravity-harness/"
+}

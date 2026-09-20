@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from guard import __version__
+from guard.environment import AgentEnvironment, EnvironmentRegistry
 from guard.integrity import FileIntegrityMonitor
+from guard.lease import LeaseManager
+from guard.notifier import GuardNotifier, NotificationSeverity
 from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
 from guard.provenance import RunProvenanceTracker
@@ -26,10 +29,12 @@ def cmd_status(args: argparse.Namespace) -> int:
     adapter = OSProtectionAdapter()
     monitor = FileIntegrityMonitor()
     upstream = UpstreamAuditorBridge()
+    registry = EnvironmentRegistry()
 
     is_locked = adapter.is_locked()
     report = monitor.verify()
     model_info = upstream.get_model_drift_status()
+    matrix = registry.get_status_matrix()
 
     lock_symbol = "[LOCKED]" if is_locked else "[UNLOCKED / MAINTENANCE]"
     status_color = "PROTECTED" if is_locked and report.is_intact else "ACTION REQUIRED"
@@ -43,11 +48,24 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"Integrity (FIM): {report.summary()}")
     print(f"Active Model   : {model_info['active_model']}")
     print(f"Overall State  : {status_color}")
+    print("-" * 64)
+    print("Multi-Environment Governance Matrix:")
+    for item in matrix:
+        env_lock = "[LOCKED]" if item["is_locked"] else "[UNLOCKED]"
+        print(f"  * {item['name']:<28} {env_lock:<10} ({item['policy']}, {item['file_count']} tracked)")
     print("=" * 64)
     return 0 if (is_locked and report.is_intact) else 1
 
 
 def cmd_lock(args: argparse.Namespace) -> int:
+    env_target = getattr(args, "env", None)
+    all_target = getattr(args, "all", False)
+    if env_target or all_target:
+        registry = EnvironmentRegistry()
+        success, msg = registry.lock(env_id=None if all_target else env_target)
+        print(msg)
+        return 0 if success else 1
+
     adapter = OSProtectionAdapter()
     success, msg = adapter.lock()
     print(f"[{'SUCCESS' if success else 'ERROR'}] {msg}")
@@ -55,6 +73,14 @@ def cmd_lock(args: argparse.Namespace) -> int:
 
 
 def cmd_unlock(args: argparse.Namespace) -> int:
+    env_target = getattr(args, "env", None)
+    all_target = getattr(args, "all", False)
+    if env_target or all_target:
+        registry = EnvironmentRegistry()
+        success, msg = registry.unlock(env_id=None if all_target else env_target)
+        print(msg)
+        return 0 if success else 1
+
     adapter = OSProtectionAdapter()
     success, msg = adapter.unlock()
     print(f"[{'SUCCESS' if success else 'ERROR'}] {msg}")
@@ -62,6 +88,24 @@ def cmd_unlock(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
+    env_target = getattr(args, "env", None)
+    all_target = getattr(args, "all", False)
+    if env_target or all_target:
+        registry = EnvironmentRegistry()
+        targets = registry.list_environments() if all_target else [registry.get_environment(env_target)]
+        any_failed = False
+        for env in targets:
+            if not env:
+                print(f"Error: Environment '{env_target}' not found.", file=sys.stderr)
+                return 1
+            paths = env.get_governance_paths(existing_only=True)
+            mon = FileIntegrityMonitor(target_dir=env.get_root(), target_paths=paths)
+            rep = mon.verify()
+            print(f"[{env.name}] {rep.summary()}")
+            if not rep.is_intact:
+                any_failed = True
+        return 1 if any_failed else 0
+
     monitor = FileIntegrityMonitor()
     report = monitor.verify()
     print(report.summary())
@@ -346,6 +390,174 @@ def cmd_provenance(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_env(args: argparse.Namespace) -> int:
+    registry = EnvironmentRegistry()
+    action = getattr(args, "action", "list") or "list"
+
+    if action == "list":
+        matrix = registry.get_status_matrix()
+        print("=" * 64)
+        print("          Antigravity Guard — Registered Environments          ")
+        print("=" * 64)
+        for item in matrix:
+            lock_str = "[LOCKED]" if item["is_locked"] else "[UNLOCKED]"
+            print(f"ID       : {item['id']}")
+            print(f"Name     : {item['name']}")
+            print(f"Platform : {item['platform']}")
+            print(f"Root     : {item['root']}")
+            print(f"Policy   : {item['policy']}")
+            print(f"Shield   : {lock_str}")
+            print(f"Tracked  : {item['file_count']} files")
+            print("-" * 64)
+        return 0
+
+    elif action == "detect":
+        discovered = registry.discover_environments(register=not getattr(args, "dry_run", False))
+        print(f"Discovered {len(discovered)} coding agent environment(s):")
+        for env in discovered:
+            paths = env.get_governance_paths(existing_only=True)
+            print(f"  - {env.name} (id: {env.id}, platform: {env.platform_type}) -> {len(paths)} governance files")
+        if not getattr(args, "dry_run", False):
+            print(f"\n[SAVED] Environments registered to {registry.config_path}")
+        return 0
+
+    elif action == "add":
+        name = getattr(args, "name", None)
+        path = getattr(args, "path", None)
+        if not name or not path:
+            print("Error: Specify environment name and path to add.", file=sys.stderr)
+            return 1
+        env = AgentEnvironment(
+            id=name.lower().replace(" ", "-"),
+            name=name,
+            platform_type=getattr(args, "type", "custom") or "custom",
+            root_path=str(Path(path).resolve()),
+            policy=getattr(args, "policy", "enforced") or "enforced",
+        )
+        registry.register_environment(env)
+        print(f"[REGISTERED] Environment '{env.id}' added -> {env.root_path}")
+        return 0
+
+    elif action == "remove":
+        name = getattr(args, "name", None)
+        if not name:
+            print("Error: Specify environment ID to remove.", file=sys.stderr)
+            return 1
+        if registry.unregister_environment(name):
+            print(f"[REMOVED] Environment '{name}' removed from registry.")
+            return 0
+        print(f"Environment '{name}' not found.", file=sys.stderr)
+        return 1
+
+    elif action == "policy":
+        name = getattr(args, "name", None)
+        policy_val = getattr(args, "policy_val", None)
+        if not name or not policy_val:
+            print("Error: Specify environment ID and policy value (enforced/monitored/disabled).", file=sys.stderr)
+            return 1
+        try:
+            if registry.set_policy(name, policy_val):
+                print(f"[POLICY UPDATED] '{name}' policy set to '{policy_val}'")
+                return 0
+            print(f"Environment '{name}' not found.", file=sys.stderr)
+            return 1
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    return 0
+
+
+def cmd_request_unlock(args: argparse.Namespace) -> int:
+    lease_manager = LeaseManager()
+    success, msg, lease = lease_manager.request_unlock(
+        env_id=getattr(args, "env", "antigravity") or "antigravity",
+        reason=getattr(args, "reason", "Agent maintenance operation") or "Agent maintenance operation",
+        duration_seconds=getattr(args, "duration", 60) or 60,
+        interactive=not getattr(args, "non_interactive", False),
+        auto_approve=getattr(args, "auto_approve", False),
+    )
+    print(f"[{'AUTHORIZED' if success else 'REJECTED'}] {msg}")
+    return 0 if success else 1
+
+
+def cmd_lock_complete(args: argparse.Namespace) -> int:
+    lease_manager = LeaseManager()
+    ok, msg = lease_manager.complete_lease(env_id=getattr(args, "env", None))
+    print(f"[{'LOCKED' if ok else 'ERROR'}] {msg}")
+    return 0 if ok else 1
+
+
+def cmd_drift(args: argparse.Namespace) -> int:
+    registry = EnvironmentRegistry()
+    target_id = getattr(args, "env", None)
+    targets = [registry.get_environment(target_id)] if target_id else registry.list_environments()
+    any_drift = False
+
+    print("=" * 64)
+    print("        Antigravity Guard — Multi-Environment Drift Analysis     ")
+    print("=" * 64)
+
+    for env in targets:
+        if not env:
+            continue
+        paths = env.get_governance_paths(existing_only=True)
+        mon = FileIntegrityMonitor(target_dir=env.get_root(), target_paths=paths)
+        report = mon.verify()
+
+        if not report.is_intact:
+            any_drift = True
+            print(f"\n🚨 [DRIFT DETECTED] {env.name} ({env.id}):")
+            if report.modified:
+                print("   Modified governance files:")
+                for f in report.modified:
+                    print(f"     ~ {f}")
+            if report.added:
+                print("   Unauthorized added files:")
+                for f in report.added:
+                    print(f"     + {f}")
+            if report.deleted:
+                print("   Deleted governance files:")
+                for f in report.deleted:
+                    print(f"     - {f}")
+        else:
+            print(f"✅ [INTACT] {env.name} ({env.id}): {report.total_files} governance files verified.")
+
+    print("=" * 64)
+    return 1 if any_drift else 0
+
+
+def cmd_self_audit(args: argparse.Namespace) -> int:
+    from scripts.meta_audit import MetaAuditEngine
+    engine = MetaAuditEngine()
+    findings = engine.run_all_passes()
+    criticals = [f for f in findings if f.severity == "CRITICAL"]
+
+    if getattr(args, "json", False):
+        import json
+        print(json.dumps({
+            "is_valid": len(criticals) == 0,
+            "total_findings": len(findings),
+            "findings": [f.to_dict() for f in findings],
+        }, indent=2))
+        return 0 if len(criticals) == 0 else 1
+
+    print("=" * 64)
+    print("    Antigravity Guard — Autonomous Self-Audit & Meta-Check      ")
+    print("=" * 64)
+    for f in findings:
+        prefix = "🚨 [CRITICAL]" if f.severity == "CRITICAL" else ("⚠️  [WARNING]" if f.severity == "WARNING" else "ℹ️  [INFO]")
+        print(f"{prefix} {f.pass_name} -> {f.target}")
+        print(f"   Message: {f.message}")
+        print(f"   Fix    : {f.suggested_fix}\n")
+    print("=" * 64)
+    if criticals:
+        print("❌ [FAIL] Critical self-audit violations detected.")
+        return 1
+    print("✅ [PASS] Harness self-consistency verified.")
+    return 0
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from guard.gui import launch_gui
     return launch_gui()
@@ -365,14 +577,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # lock
     p_lock = subparsers.add_parser("lock", help="Lock environment with OS write protection")
+    p_lock.add_argument("--env", "-e", help="Target environment ID (e.g. antigravity, claude, codex)")
+    p_lock.add_argument("--all", "-a", action="store_true", help="Lock all registered environments")
     p_lock.set_defaults(func=cmd_lock)
 
     # unlock
     p_unlock = subparsers.add_parser("unlock", help="Unlock environment for maintenance")
+    p_unlock.add_argument("--env", "-e", help="Target environment ID to unlock")
+    p_unlock.add_argument("--all", "-a", action="store_true", help="Unlock all registered environments")
     p_unlock.set_defaults(func=cmd_unlock)
 
     # verify
     p_verify = subparsers.add_parser("verify", help="Run File Integrity Monitor (FIM) check")
+    p_verify.add_argument("--env", "-e", help="Target environment ID to verify")
+    p_verify.add_argument("--all", "-a", action="store_true", help="Verify all registered environments")
     p_verify.set_defaults(func=cmd_verify)
 
     # rebaseline
@@ -437,6 +655,41 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_prov.add_argument("--test-cmd", help="Optional test command to check reproducibility")
     p_prov.add_argument("--passes", type=int, default=2, help="Reproducibility passes (default: 2)")
     p_prov.set_defaults(func=cmd_provenance)
+
+    # env
+    p_env = subparsers.add_parser("env", help="Manage multi-environment registration and policies")
+    p_env.add_argument("action", choices=["list", "detect", "add", "remove", "policy"], default="list", nargs="?", help="Environment action")
+    p_env.add_argument("--name", "-n", help="Environment ID or display name")
+    p_env.add_argument("--path", "-p", help="Target root path for env add")
+    p_env.add_argument("--type", "-t", choices=["antigravity", "claude", "codex", "cursor", "aider", "custom"], help="Platform type")
+    p_env.add_argument("--policy", choices=["enforced", "monitored", "disabled"], help="Policy setting for env add")
+    p_env.add_argument("--policy-val", choices=["enforced", "monitored", "disabled"], help="Policy setting for env policy")
+    p_env.add_argument("--dry-run", action="store_true", help="Preview discovery without saving to registry")
+    p_env.set_defaults(func=cmd_env)
+
+    # request-unlock
+    p_req = subparsers.add_parser("request-unlock", help="Request human-authorized temporary lease unlock for an agent")
+    p_req.add_argument("--env", "-e", default="antigravity", help="Target environment ID to unlock")
+    p_req.add_argument("--reason", "-r", default="Agent maintenance operation", help="Reason for requesting unlock")
+    p_req.add_argument("--duration", "-d", type=int, default=60, help="Lease duration in seconds (default: 60)")
+    p_req.add_argument("--non-interactive", action="store_true", help="Disallow interactive terminal prompt")
+    p_req.add_argument("--auto-approve", action="store_true", help="Auto-approve lease request (testing/automated CI)")
+    p_req.set_defaults(func=cmd_request_unlock)
+
+    # lock-complete
+    p_lc = subparsers.add_parser("lock-complete", help="Signal completion of maintenance lease and immediately re-lock")
+    p_lc.add_argument("--env", "-e", help="Target environment ID (optional)")
+    p_lc.set_defaults(func=cmd_lock_complete)
+
+    # drift
+    p_drift = subparsers.add_parser("drift", help="Analyze and display drift across multi-environment baselines")
+    p_drift.add_argument("--env", "-e", help="Target environment ID to inspect (defaults to all)")
+    p_drift.set_defaults(func=cmd_drift)
+
+    # self-audit
+    p_sa = subparsers.add_parser("self-audit", help="Run harness meta-consistency and schema self-audit")
+    p_sa.add_argument("--json", action="store_true", help="Output findings as structured JSON")
+    p_sa.set_defaults(func=cmd_self_audit)
 
     args = parser.parse_args(argv)
     if not args.command:

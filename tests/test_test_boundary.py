@@ -45,7 +45,7 @@ class TestTestBoundaryGuard(unittest.TestCase):
         self.assertEqual(count, 3)
         self.assertTrue(path.exists())
         data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["version"], "1.2.9")
+        self.assertEqual(data["version"], "1.3.0")
         self.assertEqual(data["total_files"], 3)
         self.assertIn("tests/test_example.py", data["files"])
 

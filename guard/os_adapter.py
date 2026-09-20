@@ -11,7 +11,9 @@ import platform
 import stat
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
+
+TargetInput = Optional[Union[Path, str, Sequence[Union[Path, str]]]]
 
 
 class OSProtectionAdapter:
@@ -22,7 +24,7 @@ class OSProtectionAdapter:
     - Windows: NTFS ACL denial (`icacls /deny`) + read-only attribute (`attrib +R`)
     """
 
-    def __init__(self, target_dir: Optional[Path] = None):
+    def __init__(self, target_dir: Optional[Union[Path, str]] = None):
         self.system = platform.system().lower()
         if target_dir is None:
             config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
@@ -39,9 +41,17 @@ class OSProtectionAdapter:
             return "Windows (NTFS Access Control Lists)"
         return f"Generic POSIX ({platform.system()})"
 
-    def is_locked(self, target: Optional[Path] = None) -> bool:
-        """Determines whether the target directory or file is currently write-protected."""
-        check_path = (target or self.target_dir).resolve()
+    def is_locked(self, target: TargetInput = None) -> bool:
+        """Determines whether the target directory, file, or collection of paths is currently write-protected."""
+        if isinstance(target, (list, tuple, set)):
+            paths = [Path(p).resolve() for p in target if Path(p).exists()]
+            if not paths:
+                return False
+            return all(self._is_single_locked(p) for p in paths)
+        check_path = (Path(target).resolve() if target else self.target_dir)
+        return self._is_single_locked(check_path)
+
+    def _is_single_locked(self, check_path: Path) -> bool:
         if not check_path.exists():
             return False
 
@@ -91,9 +101,25 @@ class OSProtectionAdapter:
 
         return False
 
-    def lock(self, target: Optional[Path] = None) -> Tuple[bool, str]:
-        """Locks the target directory, preventing write, create, or delete operations."""
-        lock_path = (target or self.target_dir).resolve()
+    def lock(self, target: TargetInput = None) -> Tuple[bool, str]:
+        """Locks the target directory, file, or collection of paths, preventing write, create, or delete operations."""
+        if isinstance(target, (list, tuple, set)):
+            paths = [Path(p).resolve() for p in target if Path(p).exists()]
+            if not paths:
+                return True, "Zero existing governance paths to lock."
+            all_ok = True
+            all_details = []
+            for p in paths:
+                ok, msg = self._lock_single(p)
+                if not ok:
+                    all_ok = False
+                all_details.append(f"{p.name}: {msg}")
+            return all_ok, "; ".join(all_details)
+
+        lock_path = (Path(target).resolve() if target else self.target_dir)
+        return self._lock_single(lock_path)
+
+    def _lock_single(self, lock_path: Path) -> Tuple[bool, str]:
         if not lock_path.exists():
             return False, f"Target path '{lock_path}' does not exist."
 
@@ -125,23 +151,23 @@ class OSProtectionAdapter:
         # 3. Linux / POSIX Permission Hardening (Universal user-space lock)
         # Recursively remove write permissions from all files and directories
         try:
-            for root, dirs, files in os.walk(lock_path):
-                for f in files:
-                    file_path = Path(root) / f
-                    try:
-                        current_mode = file_path.stat().st_mode
-                        file_path.chmod(current_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
-                    except (PermissionError, OSError):
-                        pass
-                for d in dirs:
-                    dir_path = Path(root) / d
-                    try:
-                        current_mode = dir_path.stat().st_mode
-                        dir_path.chmod(current_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
-                    except (PermissionError, OSError):
-                        pass
+            if lock_path.is_dir():
+                for root, dirs, files in os.walk(lock_path):
+                    for f in files:
+                        file_path = Path(root) / f
+                        try:
+                            current_mode = file_path.stat().st_mode
+                            file_path.chmod(current_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
+                        except (PermissionError, OSError):
+                            pass
+                    for d in dirs:
+                        dir_path = Path(root) / d
+                        try:
+                            current_mode = dir_path.stat().st_mode
+                            dir_path.chmod(current_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
+                        except (PermissionError, OSError):
+                            pass
 
-            # Finally lock top directory
             top_mode = lock_path.stat().st_mode
             lock_path.chmod(top_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
             details.append("Stripped write permissions (chmod a-w)")
@@ -159,9 +185,25 @@ class OSProtectionAdapter:
 
         return True, "Target locked successfully. " + "; ".join(details)
 
-    def unlock(self, target: Optional[Path] = None) -> Tuple[bool, str]:
-        """Unlocks the target directory to allow maintenance or vetted rule ingestion."""
-        unlock_path = (target or self.target_dir).resolve()
+    def unlock(self, target: TargetInput = None) -> Tuple[bool, str]:
+        """Unlocks the target directory, file, or collection of paths to allow maintenance or vetted rule ingestion."""
+        if isinstance(target, (list, tuple, set)):
+            paths = [Path(p).resolve() for p in target if Path(p).exists()]
+            if not paths:
+                return True, "Zero existing governance paths to unlock."
+            all_ok = True
+            all_details = []
+            for p in paths:
+                ok, msg = self._unlock_single(p)
+                if not ok:
+                    all_ok = False
+                all_details.append(f"{p.name}: {msg}")
+            return all_ok, "; ".join(all_details)
+
+        unlock_path = (Path(target).resolve() if target else self.target_dir)
+        return self._unlock_single(unlock_path)
+
+    def _unlock_single(self, unlock_path: Path) -> Tuple[bool, str]:
         if not unlock_path.exists():
             return False, f"Target path '{unlock_path}' does not exist."
 
@@ -200,25 +242,25 @@ class OSProtectionAdapter:
 
         # 4. Universal POSIX Permission Restoration
         try:
-            # Restore write permission on top directory first to allow traversal/changes
             top_mode = unlock_path.stat().st_mode
             unlock_path.chmod(top_mode | stat.S_IWUSR)
 
-            for root, dirs, files in os.walk(unlock_path):
-                for d in dirs:
-                    dir_path = Path(root) / d
-                    try:
-                        current_mode = dir_path.stat().st_mode
-                        dir_path.chmod(current_mode | stat.S_IWUSR)
-                    except (PermissionError, OSError):
-                        pass
-                for f in files:
-                    file_path = Path(root) / f
-                    try:
-                        current_mode = file_path.stat().st_mode
-                        file_path.chmod(current_mode | stat.S_IWUSR)
-                    except (PermissionError, OSError):
-                        pass
+            if unlock_path.is_dir():
+                for root, dirs, files in os.walk(unlock_path):
+                    for d in dirs:
+                        dir_path = Path(root) / d
+                        try:
+                            current_mode = dir_path.stat().st_mode
+                            dir_path.chmod(current_mode | stat.S_IWUSR)
+                        except (PermissionError, OSError):
+                            pass
+                    for f in files:
+                        file_path = Path(root) / f
+                        try:
+                            current_mode = file_path.stat().st_mode
+                            file_path.chmod(current_mode | stat.S_IWUSR)
+                        except (PermissionError, OSError):
+                            pass
 
             details.append("Restored owner write permissions (chmod u+w)")
         except Exception as e:
@@ -226,7 +268,7 @@ class OSProtectionAdapter:
 
         return True, "Target unlocked successfully. " + "; ".join(details)
 
-    def recover_stale_lock(self, target: Optional[Path] = None) -> Tuple[bool, str]:
+    def recover_stale_lock(self, target: TargetInput = None) -> Tuple[bool, str]:
         """
         Detects if the environment was left unlocked following an abnormal process exit
         or crash, and safely re-engages OS write protection.
@@ -235,3 +277,4 @@ class OSProtectionAdapter:
             return True, "Target is already write-protected; zero stale unlock detected."
         success, msg = self.lock(target)
         return success, f"Stale unlocked state recovered: {msg}"
+

@@ -3,12 +3,12 @@ name: audit
 description: >-
   Independent, self-calibrating structural, consistency, and security boundary audit engine for codebases, formal specifications,
   architectural documents, and schemas. Evaluates internal consistency, intent alignment, omissions, and state invariant violations
-  without mutating target files. Invoke with /audit, /audit --boundary, /audit --resilience, /audit --delta.
+  without mutating target files. Invoke with /audit, /audit --boundary, /audit --resilience, /audit --delta, /audit --meta, /audit --self.
 ---
 
 # Audit — Autonomous Structural, Consistency & Security Boundary Inspection Engine
 
-An independent, rigorous audit skill designed to inspect codebases, multi-volume specifications, architecture documents, schemas, or diffs. Evaluates truthfulness, internal consistency, missing boundaries, and resilience invariants.
+An independent, rigorous audit skill designed to inspect codebases, multi-volume specifications, architecture documents, schemas, diffs, or harness self-consistency. Evaluates truthfulness, internal consistency, missing boundaries, and resilience invariants.
 
 ---
 
@@ -32,8 +32,8 @@ This inspection is not an offensive cyberattack, penetration test, or unauthoriz
 
 * **EXPLICIT CALLS ONLY:** This skill runs ONLY when explicitly invoked. It MUST NOT trigger during routine queries, casual reviews, or quick questions.
 * **Recognized Triggers:**
-  * Slash commands: `/audit`, `/audit --boundary`, `/audit --resilience`, `/audit --delta`
-  * Explicit phrases: *"Audit this"*, *"Test boundary conditions and resilience"*, *"Perform consistency analysis"*, *"Inspect design and security boundaries"*.
+  * Slash commands: `/audit`, `/audit --boundary`, `/audit --resilience`, `/audit --delta`, `/audit --meta`, `/audit --self`
+  * Explicit phrases: *"Audit this"*, *"Test boundary conditions and resilience"*, *"Perform consistency analysis"*, *"Inspect design and security boundaries"*, *"Run harness meta-audit"*, *"Self-audit harness"*.
 
 ---
 
@@ -87,6 +87,11 @@ Validates input validation gaps, data boundaries, concurrency risks, and unexpec
 ### Mode 3: Differential / Delta Audit (`/audit --delta [ref]`)
 * Scans ONLY the latest git diff or recent commits.
 * Evaluates whether the change introduces regressions or violates historical decisions documented in `MISTAKES.md`, `ADR`, or established invariants.
+
+### Mode 4: Meta & Self-Audit (`/audit --meta`, `/audit --self`)
+* Audits the Antigravity Harness's own governance files (skills, agents, constitutions, and CLI contracts).
+* Executes `python3 scripts/meta_audit.py --json` or dispatches `meta-auditor` subagent.
+* Deterministically validates YAML frontmatter schemas, cross-reference links, mutual exclusion barriers, and Porter export parity.
 
 ---
 

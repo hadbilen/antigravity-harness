@@ -2,6 +2,17 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.3.0] - 2026-09-20
+### Added & Hardened
+- **Multi-Environment OS Write Protection & Governance Seams (`guard/environment.py`, `guard/os_adapter.py`, `guard/integrity.py`):** Extended OS protection adapter and cryptographic FIM tracking across multiple co-located agent runtimes (Antigravity, Claude Code, GPT Codex, Cursor, Aider). Protects discrete governance seam files (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.aider.conf.yml`, `GEMINI.md`) without locking developer project code. Added auto-discovery and persistence in `.harness/environments.json`.
+- **Architectural Boundary Enforcement:** Preserved absolute boundary between supervisor and model: Guard acts strictly as an immutable OS monitor, shield, and notification engine, while models and Porter manage their own rule transpilation and ingestion.
+- **Multi-Environment Drift Analysis & CLI Matrix (`guard/cli.py`):** Added `agy-guard env (list|detect|add|remove|policy)`, `agy-guard drift`, and `--env` / `--all` flags across `lock`, `unlock`, and `verify`.
+- **Low-Frequency Ergonomic Notification Engine (`guard/notifier.py`):** Implemented desktop and terminal notifications (`notify-send`, `osascript`, PowerShell, terminal bell) with persistent cooldown cache (`.notify_cache.json`), debouncing, and quiet mode.
+- **Human-in-the-Loop Time-Bounded Lease Unlock (`guard/lease.py`):** Added `agy-guard request-unlock` and `agy-guard lock-complete` providing time-bounded maintenance leases with operator approval, automated relock upon expiry, and cryptographic rebaselining.
+- **Autonomous Harness Self-Audit & Meta-Consistency Engine (`scripts/meta_audit.py`, `agents/meta-auditor.md`, `skills/audit/SKILL.md`):** Built 5-pass deterministic self-auditor verifying YAML frontmatter schemas, dead link/template cross-references, skill mutual exclusion barriers, Porter parity, and CLI sync. Integrated into `GEMINI.md` as **Rule 17**.
+- **Native Linux Distribution Packaging (`installers/packaging/package_linux.py`, `PKGBUILD`):** Added native package generators for Debian/Ubuntu (`.deb` via pure Python `ar` builder), Red Hat/Fedora (`.rpm`), and Arch Linux (`.pkg.tar.zst`).
+- **Comprehensive Unit Test Suite (`tests/test_*.py`):** Added 23 new unit tests across 5 new test files (`test_environment.py`, `test_notifier.py`, `test_lease.py`, `test_meta_audit.py`, `test_packaging.py`), bringing total passing unit tests to 75.
+
 ## [1.2.9] - 2026-09-20
 ### Added & Hardened
 - **Test & Configuration Trust Boundary Shield (`guard/test_boundary.py`, `guard/cli.py`):** Established test suites and runner configurations as an external immutable trust boundary. Computes SHA-256 tree hashes across tests (`tests/`, `spec/`) and runner/compiler configurations (`pytest.ini`, `setup.cfg`, `tsconfig.json`, `package.json`, `jest.config.*`, etc.). Supports dual verification modes (`bugfix` and `tdd`) and explicitly flags subtle Goodhart gaming (fixture tampering, threshold loosening, mock alterations). Added CLI subcommands `agy-guard test-boundary snapshot` and `agy-guard test-boundary verify`.

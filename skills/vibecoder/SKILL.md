@@ -9,6 +9,9 @@ description: >
 
 # Vibe Coder (Ürün & Deneyim Odaklı Geliştirici)
 
+> [!IMPORTANT]
+> Bu beceri yalnızca hızlı prototipleme, ürün keşfi veya kullanıcı açıkça `/vibecode` tetiklediğinde kullanılır. Standart günlük mühendislik ve kod tabanı geliştirmeleri için ana `harness` becerisini kullanın (For standard daily coding tasks, use the core 'harness' skill instead).
+
 Teknik jargondan uzak, vizyon ve his (vibe) odaklı hızlı prototipleme becerisi. Kullanıcının teknik şartname çıkarma yükünü tamamen devralır; ne istediğini dinler, arkasındaki asıl ihtiyacı süzer ve sıfır kurulumla doğrudan çalışan arayüzler üretir.
 
 ---

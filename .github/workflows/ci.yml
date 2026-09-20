@@ -51,6 +51,11 @@ jobs:
       run: |
         python scripts/verify_invariants.py --all
 
+    - name: Run autonomous harness self-audit (Rule 17)
+      shell: bash
+      run: |
+        python scripts/meta_audit.py --all
+
   build-binaries:
     name: Build Standalone Binary on ${{ matrix.os }}
     needs: [test-matrix]
@@ -99,5 +104,43 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
       run: |
-        gh release upload ${{ github.ref_name }} dist/* --clobber || gh release create ${{ github.ref_name }} dist/* --title "Antigravity Harness ${{ github.ref_name }}" --notes "Release ${{ github.ref_name }}: Pre-Session Boot Sentinel & Security Hardening"
+        gh release upload ${{ github.ref_name }} dist/* --clobber || gh release create ${{ github.ref_name }} dist/* --title "Antigravity Harness ${{ github.ref_name }}" --notes "Release ${{ github.ref_name }}: Multi-Environment Governance & Linux Packaging"
+
+  package-linux:
+    name: Build Linux Native Packages (.deb, .rpm, .pkg.tar.zst)
+    needs: [test-matrix]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install packaging tools
+      run: |
+        sudo apt-get update && sudo apt-get install -y rpm zstd binutils
+
+    - name: Build Linux Distribution Packages
+      shell: bash
+      run: |
+        python installers/packaging/package_linux.py --all --output-dir dist-packages
+
+    - name: Upload Linux Package Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: antigravity-guard-linux-packages
+        path: dist-packages/*
+
+    - name: Attach Linux Packages to GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: |
+        gh release upload ${{ github.ref_name }} dist-packages/* --clobber || true
 

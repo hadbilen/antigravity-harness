@@ -36,12 +36,12 @@ class TestRunProvenanceTracker(unittest.TestCase):
     def test_generate_manifest_basic(self):
         manifest = self.tracker.generate_manifest(mode="bugfix")
         self.assertIsInstance(manifest, RunProvenanceManifest)
-        self.assertEqual(manifest.version, "1.2.9")
+        self.assertEqual(manifest.version, "1.3.0")
         self.assertTrue(manifest.test_boundary_verified)
         self.assertTrue(self.tracker.output_file.exists())
 
         saved = json.loads(self.tracker.output_file.read_text(encoding="utf-8"))
-        self.assertEqual(saved["version"], "1.2.9")
+        self.assertEqual(saved["version"], "1.3.0")
         self.assertTrue(saved["test_boundary_verified"])
 
     def test_detect_environment_overrides(self):
