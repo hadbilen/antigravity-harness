@@ -160,7 +160,7 @@ class FileIntegrityMonitor:
         try:
             current_hashes = self.scan_directory()
             payload = {
-                "version": "1.2.8",
+                "version": "1.2.9",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "target_dir": str(self.target_dir),
                 "file_count": len(current_hashes),

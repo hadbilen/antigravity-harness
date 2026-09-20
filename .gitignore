@@ -7,6 +7,8 @@ staging/
 scratch/
 tasks.md
 HANDOFF.md
+.harness/test_boundary.json
+.harness/provenance.json
 
 # Environment and secrets
 .env

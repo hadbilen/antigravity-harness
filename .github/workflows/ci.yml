@@ -38,6 +38,14 @@ jobs:
       run: |
         python -m unittest discover -s tests -v
 
+    - name: Verify candidate code against immutable base tests (Trust Boundary Split)
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+        git checkout origin/${{ github.base_ref }} -- tests
+        python -m unittest discover -s tests -v
+
     - name: Run deterministic invariant verification
       shell: bash
       run: |

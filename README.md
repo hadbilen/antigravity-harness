@@ -1,6 +1,6 @@
 # Antigravity Harness
 
-[![Release](https://img.shields.io/badge/release-v1.2.8-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.8)
+[![Release](https://img.shields.io/badge/release-v1.2.9-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.2.9)
 [![CI Matrix](https://img.shields.io/badge/CI-Linux%20%7C%20macOS%20%7C%20Windows-success.svg)](https://github.com/hadbilen/antigravity-harness/actions)
 [![Python Stdlib](https://img.shields.io/badge/dependencies-zero%20external-brightgreen.svg)](https://github.com/hadbilen/antigravity-harness)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20antislop-orange.svg)](DESIGN.md)
@@ -185,6 +185,8 @@ antigravity-harness/
 ├── guard/                             # Antigravity Guard core engine
 │   ├── os_adapter.py                  # Cross-platform write protection (Linux, macOS, Windows)
 │   ├── integrity.py                   # Cryptographic File Integrity Monitor (SHA-256)
+│   ├── test_boundary.py               # Deterministic Test & Config Trust Boundary Guard
+│   ├── provenance.py                  # Run Provenance & Execution Audit Trail Manifest
 │   ├── snapshot.py                    # Full-state snapshot and extraneous pruning engine
 │   ├── porter_bridge.py               # Bridge to Porter suitability & staging gate
 │   ├── upstream.py                    # Bridge to Upstream Auditor watchdog
@@ -284,7 +286,19 @@ agy-guard startup enable
 # 12. Inspect Boot Sentinel registration status
 agy-guard startup status
 
-# 13. Launch the Desktop GUI
+# 13. Snapshot workspace test & configuration trust boundary
+agy-guard test-boundary snapshot
+
+# 14. Verify test suite immutability (detect fixture, timeout, or mock tampering)
+agy-guard test-boundary verify --mode bugfix
+
+# 15. Verify 2x isolated reproducibility for targeted tests (eliminate flakiness)
+agy-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py"
+
+# 16. Generate session execution provenance manifest (.harness/provenance.json)
+agy-guard provenance generate
+
+# 17. Launch the Desktop GUI
 agy-guard gui
 ```
 

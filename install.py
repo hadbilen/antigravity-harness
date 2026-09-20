@@ -114,11 +114,11 @@ def install_guard_binary(script_dir: Path, from_source: bool = False) -> str:
         return f"[STANDALONE] Installed agy-guard from local build -> {dest_bin}"
 
     # Try downloading the compiled binary from GitHub Releases
-    release_url = f"https://github.com/hadbilen/antigravity-harness/releases/download/v1.2.8/{binary_name}"
+    release_url = f"https://github.com/hadbilen/antigravity-harness/releases/download/v1.2.9/{binary_name}"
     print(f"[FETCH] Downloading standalone binary from GitHub Releases ({binary_name})...")
     try:
         import urllib.request
-        req = urllib.request.Request(release_url, headers={"User-Agent": "AntigravityHarness-Installer/1.2.8"})
+        req = urllib.request.Request(release_url, headers={"User-Agent": "AntigravityHarness-Installer/1.2.9"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             if resp.status == 200:
                 if dest_bin.is_symlink() or dest_bin.exists():

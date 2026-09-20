@@ -80,7 +80,7 @@ if [ "$FROM_SOURCE" = "false" ] && [ -n "$BINARY_NAME" ]; then
     INSTALLED_STANDALONE=true
   # 2.2 Download compiled standalone binary from GitHub Releases
   elif command -v curl >/dev/null 2>&1; then
-    RELEASE_URL="https://github.com/hadbilen/antigravity-harness/releases/download/v1.2.8/${BINARY_NAME}"
+    RELEASE_URL="https://github.com/hadbilen/antigravity-harness/releases/download/v1.2.9/${BINARY_NAME}"
     echo "[FETCH] Downloading standalone binary from GitHub Releases (${BINARY_NAME})..."
     if curl -fsSL "$RELEASE_URL" -o "${HOME}/.local/bin/agy-guard"; then
       chmod +x "${HOME}/.local/bin/agy-guard"

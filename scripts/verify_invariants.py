@@ -131,6 +131,8 @@ def main() -> int:
     )
     parser.add_argument("--diff", action="store_true", help="Inspect git diff")
     parser.add_argument("--all", action="store_true", help="Inspect entire repository tree")
+    parser.add_argument("--test-boundary", action="store_true", help="Explicitly verify test & config trust boundary")
+    parser.add_argument("--mode", choices=["bugfix", "tdd"], default="bugfix", help="Test boundary mode (bugfix/tdd)")
     parser.add_argument("--path", type=str, default=".", help="Base path to inspect")
     args = parser.parse_args()
 
@@ -146,6 +148,21 @@ def main() -> int:
     else:
         print(f"[MODE] Git Diff Invariant Check")
         violations = check_diff()
+
+    # Test boundary check if snapshot exists or requested
+    tb_snapshot = base_path / ".harness" / "test_boundary.json"
+    if args.test_boundary or tb_snapshot.exists():
+        try:
+            if str(base_path) not in sys.path:
+                sys.path.insert(0, str(base_path))
+            from guard.test_boundary import TestBoundaryGuard
+            tb_guard = TestBoundaryGuard(workspace_dir=base_path, state_file=tb_snapshot)
+            tb_report = tb_guard.verify(mode=args.mode)
+            if not tb_report.is_intact:
+                for v in tb_report.violations:
+                    violations.append((".harness/test_boundary.json", tb_report.summary(), v))
+        except Exception as e:
+            violations.append((".harness/test_boundary.json", str(e), "Failed to execute TestBoundaryGuard"))
 
     if not violations:
         print("\n✅ [PASS] All deterministic invariants satisfied.")

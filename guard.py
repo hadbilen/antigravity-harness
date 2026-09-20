@@ -14,6 +14,10 @@ Usage:
   python3 guard.py porter inspect <path/url>  # Inspect rule with Porter suitability gate
   python3 guard.py porter stage <path/url>    # Staging & atomic promotion gate
   python3 guard.py upstream check             # Check 7 tracked repos (zero LLM token cost)
+  python3 guard.py test-boundary snapshot     # Snapshot workspace test & config trust boundary
+  python3 guard.py test-boundary verify       # Verify test suite immutability (bugfix/tdd)
+  python3 guard.py test-boundary run-reproducible --cmd "<cmd>" # Verify 2x test reproducibility
+  python3 guard.py provenance generate        # Generate execution provenance manifest
   python3 guard.py gui                        # Launch desktop GUI
 """
 

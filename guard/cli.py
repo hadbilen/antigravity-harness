@@ -15,8 +15,10 @@ from guard import __version__
 from guard.integrity import FileIntegrityMonitor
 from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
+from guard.provenance import RunProvenanceTracker
 from guard.snapshot import SnapshotEngine
 from guard.startup import StartupManager
+from guard.test_boundary import TestBoundaryGuard
 from guard.upstream import UpstreamAuditorBridge
 
 
@@ -245,6 +247,105 @@ def cmd_boot_check(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_test_boundary(args: argparse.Namespace) -> int:
+    guard = TestBoundaryGuard(workspace_dir=getattr(args, "dir", None))
+    action = getattr(args, "action", "verify")
+
+    if action == "snapshot":
+        count, path = guard.snapshot(target_path=getattr(args, "output", None))
+        print(f"[TEST-BOUNDARY] Baseline snapshot captured for {count} test & config files -> {path}")
+        return 0
+
+    elif action == "verify":
+        mode = getattr(args, "mode", "bugfix") or "bugfix"
+        report = guard.verify(mode=mode, snapshot_path=getattr(args, "snapshot", None))
+        print("=" * 64)
+        print("      Antigravity Guard — Test & Config Boundary Verification     ")
+        print("=" * 64)
+        print(f"Workspace      : {report.workspace_dir}")
+        print(f"Mode           : {report.mode.upper()}")
+        print(f"Tracked Files  : {report.total_files}")
+        print(f"Status         : {report.summary()}")
+        print("=" * 64)
+
+        if report.violations:
+            print("\n🚨 Violations Detected:")
+            for v in report.violations:
+                print(f"  ❌ {v}")
+            if report.modified:
+                print("\n  Modified Files:")
+                for m in report.modified:
+                    print(f"    ~ {m}")
+            if report.fixture_modifications:
+                print("\n  Altered Fixtures / Test Data:")
+                for f in report.fixture_modifications:
+                    print(f"    ! {f}")
+            print("\n[BLOCKED] Delivery halted. Test or configuration mutation is prohibited.")
+            print("=" * 64)
+            return 1
+
+        print("✅ [PASS] Test trust boundary is intact. No unauthorized test mutations.")
+        print("=" * 64)
+        return 0
+
+    elif action == "run-reproducible":
+        if not getattr(args, "cmd", None):
+            print("Error: Specify test command using --cmd '<command>'")
+            return 1
+        passes = getattr(args, "passes", 2) or 2
+        print(f"[REPRODUCIBILITY-GATE] Running command across {passes} isolated runs: {args.cmd}")
+        success, msg, codes = guard.run_reproducible(command=args.cmd, passes=passes)
+        print(f"[{'PASS' if success else 'FAIL'}] {msg} (Exit Codes: {codes})")
+        return 0 if success else 1
+
+    return 0
+
+
+def cmd_provenance(args: argparse.Namespace) -> int:
+    tracker = RunProvenanceTracker(workspace_dir=getattr(args, "dir", None))
+    action = getattr(args, "action", "generate") or "generate"
+
+    if action == "generate":
+        mode = getattr(args, "mode", "bugfix") or "bugfix"
+        test_cmd = getattr(args, "test_cmd", None)
+        passes = getattr(args, "passes", 2) or 2
+        manifest = tracker.generate_manifest(
+            mode=mode,
+            test_command=test_cmd,
+            reproducibility_passes=passes,
+        )
+        print("=" * 64)
+        print("        Antigravity Guard — Run Provenance Manifest Generated     ")
+        print("=" * 64)
+        print(manifest.to_markdown())
+        print("=" * 64)
+        print(f"Manifest written -> {tracker.output_file}")
+        return 0
+
+    elif action == "status":
+        if not tracker.output_file.exists():
+            print("No provenance manifest found. Run 'provenance generate' first.")
+            return 1
+        try:
+            import json
+            data = json.loads(tracker.output_file.read_text(encoding="utf-8"))
+            print("=" * 64)
+            print("         Antigravity Guard — Active Provenance Manifest          ")
+            print("=" * 64)
+            print(f"Timestamp       : {data.get('session_timestamp')}")
+            print(f"Base Commit     : {data.get('git_base_commit')}")
+            print(f"Boundary Status : {'IN TACT' if data.get('test_boundary_verified') else 'UNVERIFIED / VIOLATED'}")
+            print(f"Reproducibility : {'VERIFIED' if data.get('reproducibility_verified') else 'UNVERIFIED'}")
+            print(f"Modified Files  : {len(data.get('files_modified', []))}")
+            print("=" * 64)
+            return 0
+        except Exception as e:
+            print(f"Error reading provenance manifest: {e}")
+            return 1
+
+    return 0
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from guard.gui import launch_gui
     return launch_gui()
@@ -316,6 +417,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_doc = subparsers.add_parser("doctor", help="Run comprehensive environment health check & auto-heal")
     p_doc.add_argument("--fix", "--recover", action="store_true", dest="fix", help="Automatically recover stale locks and missing baselines")
     p_doc.set_defaults(func=cmd_doctor)
+
+    # test-boundary
+    p_tb = subparsers.add_parser("test-boundary", help="Guard test suites and configurations as an immutable trust boundary")
+    p_tb.add_argument("action", choices=["snapshot", "verify", "run-reproducible"], help="Test boundary action")
+    p_tb.add_argument("--mode", choices=["bugfix", "tdd"], default="bugfix", help="Verification mode (default: bugfix)")
+    p_tb.add_argument("--dir", help="Target workspace root directory")
+    p_tb.add_argument("--output", help="Snapshot output path")
+    p_tb.add_argument("--snapshot", help="Custom snapshot path to verify against")
+    p_tb.add_argument("--cmd", help="Target test command for run-reproducible")
+    p_tb.add_argument("--passes", type=int, default=2, help="Number of reproducible passes required (default: 2)")
+    p_tb.set_defaults(func=cmd_test_boundary)
+
+    # provenance
+    p_prov = subparsers.add_parser("provenance", help="Generate and inspect execution provenance and audit trail")
+    p_prov.add_argument("action", choices=["generate", "status"], default="status", nargs="?", help="Provenance action")
+    p_prov.add_argument("--mode", choices=["bugfix", "tdd"], default="bugfix", help="Operating mode for boundary check")
+    p_prov.add_argument("--dir", help="Target workspace root directory")
+    p_prov.add_argument("--test-cmd", help="Optional test command to check reproducibility")
+    p_prov.add_argument("--passes", type=int, default=2, help="Reproducibility passes (default: 2)")
+    p_prov.set_defaults(func=cmd_provenance)
 
     args = parser.parse_args(argv)
     if not args.command:

@@ -112,7 +112,7 @@ class UniversalManifest:
     Lossless canonical machine-readable representation of the entire harness.
     Guarantees zero information decay across multi-hop migrations (A -> B -> C).
     """
-    version: str = "1.2.8"
+    version: str = "1.2.9"
     schema_version: str = "1.0.0"
     generated_at: str = ""
     constitution: Dict[str, Any] = field(default_factory=dict)

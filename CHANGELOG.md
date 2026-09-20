@@ -2,6 +2,15 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.2.9] - 2026-09-20
+### Added & Hardened
+- **Test & Configuration Trust Boundary Shield (`guard/test_boundary.py`, `guard/cli.py`):** Established test suites and runner configurations as an external immutable trust boundary. Computes SHA-256 tree hashes across tests (`tests/`, `spec/`) and runner/compiler configurations (`pytest.ini`, `setup.cfg`, `tsconfig.json`, `package.json`, `jest.config.*`, etc.). Supports dual verification modes (`bugfix` and `tdd`) and explicitly flags subtle Goodhart gaming (fixture tampering, threshold loosening, mock alterations). Added CLI subcommands `agy-guard test-boundary snapshot` and `agy-guard test-boundary verify`.
+- **Run Provenance & Execution Audit Trail Manifest (`guard/provenance.py`, `guard/cli.py`):** Implemented execution provenance tracking outputting `.harness/provenance.json`. Records base commit SHA, touched files, test boundary verification status, reproducibility confirmation, and environment variable overrides (`MOCK_*`, `SKIP_*`). Generates structured Markdown execution proofs for delivery gates. Added `agy-guard provenance generate` and `agy-guard provenance status`.
+- **Targeted Reproducibility Gate (`guard/test_boundary.py`, `guard/cli.py`):** Added `agy-guard test-boundary run-reproducible --cmd "<command>"` executing target unit tests across consecutive isolated runs (default: 2x) to eliminate flaky passes, timing jitter, and race conditions.
+- **Base-Commit CI Trust Boundary Split (`.github/workflows/ci.yml`):** Hardened CI matrix with a PR verification step that checks out test suites directly from the base branch (`git checkout origin/${{ github.base_ref }} -- tests/`), ensuring candidate pull requests are graded against trusted, unmodified tests.
+- **Invariant Guard Integration (`scripts/verify_invariants.py`):** Added automatic test boundary verification to the repository invariant scanner.
+- **Automated Unit Test Suite (`tests/test_test_boundary.py`, `tests/test_provenance.py`, `tests/test_guard.py`):** Added 14 unit tests validating snapshot creation, mode enforcement, fixture tampering detection, provenance generation, and version alignment across all modules.
+
 ## [1.2.8] - 2026-09-20
 ### Fixed
 - **GUI Crash on Launch (`guard/gui.py`, `guard/upstream.py`):** Resolved fatal `KeyError: 'tracked_ecosystems'` during `AntigravityGuardApp` tab construction. `UpstreamAuditorBridge.get_model_drift_status()` now dynamically calculates and returns `"tracked_ecosystems"` count from state, and `_build_tab_upstream()` accesses dictionary keys defensively using safe fallbacks.
