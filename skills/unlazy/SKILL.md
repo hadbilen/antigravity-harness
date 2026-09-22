@@ -3,7 +3,7 @@ name: unlazy
 description: >-
   Tier-3 deep completion and anti-laziness engine. Enforces completion discipline for massive
   multi-part autonomous work through acceptance gates, the Depth Tree, and reverification.
-  Use EXCLUSIVELY when facing massive multi-file refactoring (10+ files), multi-branch autonomous pipelines,
+  Use EXCLUSIVELY when facing massive multi-file refactoring (Tier 3: >8 files), multi-branch autonomous pipelines,
   work returning half-done, or explicit triggers like /unlazy, $unlazy, "tree N", and "do not stop until it is done".
   For standard daily coding tasks, use the core 'harness' skill instead.
 ---
@@ -11,7 +11,7 @@ description: >-
 # Unlazy
 
 ## Mutual Exclusion and Scope Rule
-* **Tier 3 Only:** Unlazy is reserved exclusively for tasks affecting 10+ files or major multi-branch architectural refactors. It must never be triggered for routine or minor edits.
+* **Tier 3 Only:** Unlazy is reserved exclusively for Tier 3 tasks (>8 files, as defined in GEMINI.md) or major multi-branch architectural refactors. It must never be triggered for routine or minor edits.
 * **Mode Precedence:** When the user invokes `/unlazy`, if `/chisle` mode is active, it is automatically deactivated to initialize depth tree architecture.
 
 Make incomplete work visible and make completion testable. Prove outcomes against a ledger instead of relying on a confident done report.

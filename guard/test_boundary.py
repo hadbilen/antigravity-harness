@@ -1,25 +1,44 @@
 """
-guard/test_boundary.py — Deterministic Test & Configuration Trust Boundary Guard
+guard/test_boundary.py — Test & Configuration Trust Boundary and Reproducibility Gate
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 
-Provides cryptographic (SHA-256) immutability boundaries for test suites and
-runner configurations, preventing agents from mutating tests, relaxing thresholds,
-altering fixtures, or tampering with runner configurations to fake passes.
+Semantics (aligned with GEMINI.md Rule 9):
+- New test files are always permitted (regression tests are encouraged).
+- 'bugfix' mode: existing test and runner-config files must stay byte-identical.
+- 'tdd' mode: existing test files may be EXTENDED (pure line additions) as long as the
+  added lines contain no skip/xfail/disable markers; any removed or changed line blocks.
+- Runner configuration and fixtures may never change without explicit authorization.
+The baseline lives in the per-user state directory or is computed from a git ref.
 """
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
 import re
-import shlex
 import subprocess
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
+
+from guard.paths import atomic_write_json, path_key, state_dir
+
+TEXT_SNAPSHOT_LIMIT = 256 * 1024
+
+WEAKENING_LINE_PATTERNS = [
+    re.compile(r"@pytest\.mark\.(skip|skipif|xfail)\b"),
+    re.compile(r"\b(unittest\.)?skip(If|Unless)?\s*\("),
+    re.compile(r"\b(it|test|describe)\.(skip|todo)\s*\("),
+    re.compile(r"\bx(it|describe|test)\s*\("),
+    re.compile(r"\bt\.Skip(Now|f)?\s*\("),
+    re.compile(r"@(Disabled|Ignore)\b"),
+    re.compile(r"^\s*(#|//)\s*(assert|expect|self\.assert)"),
+]
 
 
 @dataclass
@@ -35,24 +54,26 @@ class TestBoundaryReport:
     deleted: List[str] = field(default_factory=list)
     violations: List[str] = field(default_factory=list)
     fixture_modifications: List[str] = field(default_factory=list)
+    extended: List[str] = field(default_factory=list)
+    baseline_source: str = ""
 
     def to_dict(self) -> Dict:
         return asdict(self)
 
     def summary(self) -> str:
         if self.is_intact:
-            return f"[OK] Test & Config Boundary Verified ({self.total_files} files intact in '{self.mode}' mode)."
-        
+            extra = f", {len(self.added)} new" if self.added else ""
+            extra += f", {len(self.extended)} extended" if self.extended else ""
+            return f"[OK] Test & Config Boundary Verified ({self.total_files} files intact in '{self.mode}' mode{extra})."
         reasons = []
         if self.modified:
             reasons.append(f"{len(self.modified)} modified")
         if self.deleted:
             reasons.append(f"{len(self.deleted)} deleted")
-        if self.added and self.mode == "bugfix":
-            reasons.append(f"{len(self.added)} unexpected additions in bugfix mode")
         if self.fixture_modifications:
             reasons.append(f"{len(self.fixture_modifications)} fixtures/data altered")
-        
+        if not reasons and self.violations:
+            reasons.append(self.violations[0])
         return f"[BLOCKED] Test Boundary Violated: {', '.join(reasons)}."
 
 
@@ -64,232 +85,290 @@ class TestBoundaryGuard:
     __test__ = False
 
     KNOWN_CONFIG_NAMES: Set[str] = {
-        "pytest.ini",
-        "setup.cfg",
-        "pyproject.toml",
-        "tox.ini",
-        ".flake8",
-        "tsconfig.json",
-        "package.json",
-        "jest.config.js",
-        "jest.config.ts",
-        "jest.config.mjs",
-        "jest.config.cjs",
-        "jest.config.json",
-        ".eslintrc",
-        ".eslintrc.json",
-        ".eslintrc.js",
-        ".eslintrc.yaml",
-        ".eslintrc.yml",
-        "vitest.config.ts",
-        "vitest.config.js",
-        "Cargo.toml",
-        "go.mod",
-        "pom.xml",
-        "build.gradle",
+        "pytest.ini", "setup.cfg", "pyproject.toml", "tox.ini", ".flake8", "tsconfig.json", "package.json",
+        "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json",
+        ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.yaml", ".eslintrc.yml",
+        "vitest.config.ts", "vitest.config.js", "Cargo.toml", "go.mod", "pom.xml", "build.gradle",
     }
-
     TEST_DIR_NAMES: Set[str] = {"tests", "test", "__tests__", "spec", "specs"}
-    
+    TEST_FILE_PATTERNS = [
+        re.compile(r"^test_.*\.py$"),
+        re.compile(r"^.*_test\.py$"),
+        re.compile(r"^conftest\.py$"),
+        re.compile(r"^.*_test\.go$"),
+        re.compile(r"^.*\.(test|spec)\.[cm]?[jt]sx?$"),
+        re.compile(r"^.*_spec\.rb$"),
+        re.compile(r"^.*Tests?\.(java|kt|cs)$"),
+    ]
     EXCLUDED_PATTERNS: Set[str] = {
-        "__pycache__",
-        ".git",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        "node_modules",
-        ".harness",
-        ".guard_snapshots",
-        ".DS_Store",
+        "__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules",
+        ".harness", ".guard_snapshots", ".DS_Store", ".venv", "venv", "dist", "build",
     }
-
     FIXTURE_EXTENSIONS: Set[str] = {".json", ".yaml", ".yml", ".csv", ".tsv", ".xml", ".txt", ".sql"}
 
-    def __init__(
-        self,
-        workspace_dir: Optional[Path] = None,
-        state_file: Optional[Path] = None,
-    ):
+    def __init__(self, workspace_dir: Optional[Path] = None, state_file: Optional[Path] = None):
         self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd().resolve()
+        self.legacy_state_file = self.workspace_dir / ".harness" / "test_boundary.json"
         if state_file:
             self.state_file = Path(state_file).resolve()
         else:
-            self.state_file = self.workspace_dir / ".harness" / "test_boundary.json"
+            self.state_file = state_dir() / "test_boundary" / f"{path_key(self.workspace_dir)}.json"
+        self.last_commands: List[str] = []
 
-    def _hash_file(self, path: Path) -> str:
-        hasher = hashlib.sha256()
-        with open(path, "rb") as f:
-            while chunk := f.read(65536):
-                hasher.update(chunk)
-        return hasher.hexdigest()
+    # ------------------------------------------------------------------
+    # Discovery
+    # ------------------------------------------------------------------
+    def is_test_file(self, rel_path: str) -> bool:
+        parts = Path(rel_path).parts
+        name = parts[-1] if parts else rel_path
+        if any(part in self.TEST_DIR_NAMES for part in parts[:-1]):
+            return True
+        return any(p.match(name) for p in self.TEST_FILE_PATTERNS)
+
+    def _tracked(self, rel_path: str) -> bool:
+        parts = Path(rel_path).parts
+        if not parts or any(part in self.EXCLUDED_PATTERNS for part in parts):
+            return False
+        if len(parts) == 1 and parts[0] in self.KNOWN_CONFIG_NAMES:
+            return True
+        if parts[-1].startswith(".") or parts[-1].endswith(".pyc"):
+            return False
+        if any(part.startswith(".") for part in parts[:-1]):
+            return False
+        return self.is_test_file(rel_path)
+
+    @staticmethod
+    def _hash_bytes(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    @staticmethod
+    def _as_text(data: bytes) -> Optional[str]:
+        if len(data) > TEXT_SNAPSHOT_LIMIT:
+            return None
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+    def _discover(self) -> Tuple[Dict[str, str], Dict[str, str]]:
+        hashes: Dict[str, str] = {}
+        contents: Dict[str, str] = {}
+        for root, dirs, files in os.walk(self.workspace_dir):
+            dirs[:] = sorted(d for d in dirs if d not in self.EXCLUDED_PATTERNS and not d.startswith("."))
+            for f in sorted(files):
+                path = Path(root) / f
+                rel = path.relative_to(self.workspace_dir).as_posix()
+                if not self._tracked(rel) or not path.is_file():
+                    continue
+                data = path.read_bytes()
+                hashes[rel] = self._hash_bytes(data)
+                text = self._as_text(data)
+                if text is not None:
+                    contents[rel] = text
+        return hashes, contents
 
     def discover_files(self) -> Dict[str, str]:
-        """
-        Discovers all test files, test fixtures, and root configuration files.
-        Returns a mapping of relative path string -> SHA-256 hash.
-        """
-        tracked_files: Dict[str, str] = {}
+        """Returns relative path -> SHA-256 for tests, fixtures and root runner configs."""
+        return self._discover()[0]
 
-        # 1. Discover runner configuration files in workspace root
-        for config_name in self.KNOWN_CONFIG_NAMES:
-            cfg_path = self.workspace_dir / config_name
-            if cfg_path.is_file():
-                tracked_files[config_name] = self._hash_file(cfg_path)
-
-        # 2. Discover test directories and their contents (including fixtures)
-        for root, dirs, files in os.walk(self.workspace_dir):
-            # Prune ignored directories
-            dirs[:] = [d for d in dirs if d not in self.EXCLUDED_PATTERNS and not d.startswith(".")]
-
-            rel_root = Path(root).relative_to(self.workspace_dir)
-            is_in_test_dir = any(part in self.TEST_DIR_NAMES for part in rel_root.parts)
-
-            if not is_in_test_dir:
+    def baseline_from_git_ref(self, ref: str) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Computes the boundary baseline directly from a git ref (e.g. origin/main) — no stored state."""
+        listing = subprocess.run(
+            ["git", "-C", str(self.workspace_dir), "ls-tree", "-r", "--name-only", ref],
+            capture_output=True, text=True, check=True,
+        )
+        hashes: Dict[str, str] = {}
+        contents: Dict[str, str] = {}
+        for rel in listing.stdout.splitlines():
+            if not self._tracked(rel):
                 continue
+            blob = subprocess.run(
+                ["git", "-C", str(self.workspace_dir), "show", f"{ref}:{rel}"],
+                capture_output=True, check=True,
+            ).stdout
+            hashes[rel] = self._hash_bytes(blob)
+            text = self._as_text(blob)
+            if text is not None:
+                contents[rel] = text
+        return hashes, contents
 
-            for f in files:
-                if f.startswith(".") or f.endswith(".pyc"):
-                    continue
-                file_path = Path(root) / f
-                if file_path.is_file():
-                    rel_path = str(file_path.relative_to(self.workspace_dir)).replace("\\", "/")
-                    tracked_files[rel_path] = self._hash_file(file_path)
-
-        return tracked_files
-
+    # ------------------------------------------------------------------
+    # Snapshot
+    # ------------------------------------------------------------------
     def snapshot(self, target_path: Optional[Path] = None) -> Tuple[int, Path]:
-        """
-        Creates or updates cryptographic baseline snapshot of test/config tree.
-        """
-        dest = Path(target_path).resolve() if target_path else self.state_file
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        """Creates or updates the baseline snapshot of the test/config tree."""
+        from guard import __version__
 
-        files_map = self.discover_files()
+        dest = Path(target_path).resolve() if target_path else self.state_file
+        hashes, contents = self._discover()
         payload = {
-            "version": "1.3.0",
+            "version": __version__,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "workspace": str(self.workspace_dir),
-            "total_files": len(files_map),
-            "files": files_map,
+            "total_files": len(hashes),
+            "files": hashes,
+            "contents": contents,
         }
+        atomic_write_json(dest, payload)
+        return len(hashes), dest
 
-        temp_dest = dest.with_suffix(".tmp")
-        temp_dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        temp_dest.replace(dest)
-
-        return len(files_map), dest
+    def _snapshot_source(self, target_path: Optional[Path]) -> Path:
+        if target_path:
+            return Path(target_path).resolve()
+        if not self.state_file.exists() and self.legacy_state_file.exists():
+            return self.legacy_state_file
+        return self.state_file
 
     def load_snapshot(self, target_path: Optional[Path] = None) -> Optional[Dict[str, str]]:
-        dest = Path(target_path).resolve() if target_path else self.state_file
+        data = self._load_payload(target_path)
+        return data.get("files", {}) if data is not None else None
+
+    def _load_payload(self, target_path: Optional[Path] = None) -> Optional[Dict]:
+        dest = self._snapshot_source(target_path)
         if not dest.exists():
             return None
         try:
-            data = json.loads(dest.read_text(encoding="utf-8"))
-            return data.get("files", {})
-        except Exception:
+            return json.loads(dest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return None
+
+    # ------------------------------------------------------------------
+    # Verification
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _line_changes(old: str, new: str) -> Tuple[List[str], List[str]]:
+        removed, added = [], []
+        for line in difflib.ndiff(old.splitlines(), new.splitlines()):
+            if line.startswith("- "):
+                removed.append(line[2:])
+            elif line.startswith("+ "):
+                added.append(line[2:])
+        return removed, added
+
+    @staticmethod
+    def weakening_lines(lines: Sequence[str]) -> List[str]:
+        return [l for l in lines if any(p.search(l) for p in WEAKENING_LINE_PATTERNS)]
 
     def verify(
         self,
         mode: str = "bugfix",
         snapshot_path: Optional[Path] = None,
         authorized_modifications: Optional[Set[str]] = None,
+        base_ref: Optional[str] = None,
     ) -> TestBoundaryReport:
-        """
-        Verifies current test & config files against baseline snapshot.
-        Modes:
-          - 'bugfix': Zero changes allowed. Any modified, added, or deleted test/config is blocked.
-          - 'tdd': New test files permitted. Modified existing files blocked unless authorized.
-        """
-        dest = Path(snapshot_path).resolve() if snapshot_path else self.state_file
-        baseline = self.load_snapshot(dest)
-        current = self.discover_files()
+        """Verifies current test & config files against the stored snapshot or a git ref."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        current, current_contents = self._discover()
         authorized = authorized_modifications or set()
 
-        timestamp = datetime.now(timezone.utc).isoformat()
+        if base_ref:
+            try:
+                baseline, baseline_contents = self.baseline_from_git_ref(base_ref)
+                source = f"git:{base_ref}"
+            except (subprocess.CalledProcessError, OSError) as e:
+                return TestBoundaryReport(
+                    timestamp=timestamp, workspace_dir=str(self.workspace_dir), mode=mode,
+                    total_files=len(current), is_intact=False,
+                    violations=[f"BASELINE UNAVAILABLE: could not read git ref '{base_ref}' ({e})."],
+                )
+        else:
+            payload = self._load_payload(snapshot_path)
+            if payload is None:
+                return TestBoundaryReport(
+                    timestamp=timestamp, workspace_dir=str(self.workspace_dir), mode=mode,
+                    total_files=len(current), is_intact=False,
+                    violations=["BASELINE MISSING: No test boundary snapshot found. Run snapshot first."],
+                )
+            baseline = payload.get("files", {})
+            baseline_contents = payload.get("contents", {})
+            source = str(self._snapshot_source(snapshot_path))
 
-        if baseline is None:
-            return TestBoundaryReport(
-                timestamp=timestamp,
-                workspace_dir=str(self.workspace_dir),
-                mode=mode,
-                total_files=len(current),
-                is_intact=False,
-                violations=["BASELINE MISSING: No test boundary snapshot found. Run snapshot first."],
-            )
-
-        baseline_keys = set(baseline.keys())
-        current_keys = set(current.keys())
-
+        baseline_keys = set(baseline)
+        current_keys = set(current)
+        added = sorted(current_keys - baseline_keys)
+        deleted = sorted(baseline_keys - current_keys)
         modified: List[str] = []
+        extended: List[str] = []
         fixture_modifications: List[str] = []
-        added: List[str] = sorted(list(current_keys - baseline_keys))
-        deleted: List[str] = sorted(list(baseline_keys - current_keys))
+        weakening_notes: List[str] = []
+
+        for k in sorted(baseline_keys & current_keys):
+            if baseline[k] == current[k] or k in authorized:
+                continue
+            is_config = Path(k).name in self.KNOWN_CONFIG_NAMES and len(Path(k).parts) == 1
+            old, new = baseline_contents.get(k), current_contents.get(k)
+            if mode == "tdd" and not is_config and old is not None and new is not None:
+                removed, added_lines = self._line_changes(old, new)
+                weak = self.weakening_lines(added_lines)
+                if not removed and not weak:
+                    extended.append(k)
+                    continue
+                if not removed and weak:
+                    weakening_notes.append(f"{k}: added weakening lines {weak[:3]}")
+            modified.append(k)
+            if any(k.endswith(ext) for ext in self.FIXTURE_EXTENSIONS) or "fixture" in k.lower():
+                fixture_modifications.append(k)
+
         violations: List[str] = []
-
-        common_keys = baseline_keys & current_keys
-        for k in sorted(list(common_keys)):
-            if baseline[k] != current[k]:
-                if k not in authorized:
-                    modified.append(k)
-                    if any(k.endswith(ext) for ext in self.FIXTURE_EXTENSIONS) or "fixture" in k.lower():
-                        fixture_modifications.append(k)
-
-        # Evaluate violations based on mode
-        if mode == "bugfix":
-            if modified:
-                violations.append(f"Existing tests/configs modified without authorization: {modified}")
-            if added:
-                violations.append(f"New test/config files added in bugfix mode: {added}")
-            if deleted:
-                violations.append(f"Test/config files deleted: {deleted}")
-        else:  # tdd / feature mode
-            if modified:
-                violations.append(f"Existing tests/configs modified in TDD mode without authorization: {modified}")
-            if deleted:
-                violations.append(f"Test/config files deleted: {deleted}")
-
+        if modified:
+            label = "in TDD mode " if mode == "tdd" else ""
+            violations.append(f"Existing tests/configs modified {label}without authorization: {modified}")
+        if weakening_notes:
+            violations.append(f"Test weakening markers added: {weakening_notes}")
+        if deleted:
+            violations.append(f"Test/config files deleted: {deleted}")
         if fixture_modifications:
             violations.append(f"Critical test data/fixture altered (Goodhart Invariant): {fixture_modifications}")
-
-        is_intact = len(violations) == 0
 
         return TestBoundaryReport(
             timestamp=timestamp,
             workspace_dir=str(self.workspace_dir),
             mode=mode,
             total_files=len(current),
-            is_intact=is_intact,
+            is_intact=not violations,
             modified=modified,
             added=added,
             deleted=deleted,
             violations=violations,
             fixture_modifications=fixture_modifications,
+            extended=extended,
+            baseline_source=source,
         )
+
+    # ------------------------------------------------------------------
+    # Reproducibility
+    # ------------------------------------------------------------------
+    @staticmethod
+    def windows_command(command: Union[str, List[str]]) -> Union[str, List[str]]:
+        """Rewrites POSIX-style 'python3 ...' commands for Windows (python3 is not on PATH there)."""
+        if isinstance(command, str):
+            exec_cmd = command
+            if exec_cmd.startswith("python3 "):
+                exec_cmd = f'"{sys.executable}" ' + exec_cmd[8:]
+            if " -c '" in exec_cmd and exec_cmd.endswith("'"):
+                exec_cmd = exec_cmd.replace(" -c '", ' -c "')[:-1] + '"'
+            return exec_cmd
+        if command and command[0] == "python3":
+            return [sys.executable] + list(command[1:])
+        return command
 
     def run_reproducible(
         self,
-        command: str | List[str],
+        command: Union[str, List[str]],
         passes: int = 2,
         cwd: Optional[Path] = None,
     ) -> Tuple[bool, str, List[int]]:
         """
-        Executes a targeted test command across multiple isolated runs to ensure
-        reproducibility and eliminate stochastic / flaky passes.
+        Executes a test command `passes` consecutive times in the same working directory
+        and environment (not an isolated sandbox) and requires every run to exit 0.
         """
+        if not isinstance(passes, int) or passes < 1:
+            raise ValueError("passes must be a positive integer (use >= 2 to claim reproducibility).")
         work_dir = cwd or self.workspace_dir
         exit_codes: List[int] = []
 
-        exec_cmd = command
-        if os.name == "nt":
-            if isinstance(command, str):
-                if command.startswith("python3 "):
-                    exec_cmd = f'"{sys.executable}" ' + command[8:]
-                if " -c '" in exec_cmd and exec_cmd.endswith("'"):
-                    exec_cmd = exec_cmd.replace(" -c '", ' -c "')[:-1] + '"'
-            elif isinstance(command, list):
-                if command and command[0] == "python3":
-                    exec_cmd = [sys.executable] + command[1:]
+        exec_cmd = self.windows_command(command) if os.name == "nt" else command
+        self.last_commands.append(exec_cmd if isinstance(exec_cmd, str) else subprocess.list2cmdline(exec_cmd))
 
         for run_idx in range(1, passes + 1):
             try:
@@ -305,15 +384,11 @@ class TestBoundaryGuard:
                 exit_codes.append(proc.returncode)
                 if proc.returncode != 0:
                     err_snippet = (proc.stderr or proc.stdout)[-500:].strip()
-                    return (
-                        False,
-                        f"Run {run_idx}/{passes} failed with exit code {proc.returncode}: {err_snippet}",
-                        exit_codes,
-                    )
+                    return False, f"Run {run_idx}/{passes} failed with exit code {proc.returncode}: {err_snippet}", exit_codes
             except subprocess.TimeoutExpired:
                 exit_codes.append(-1)
                 return False, f"Run {run_idx}/{passes} timed out after 300s.", exit_codes
-            except Exception as e:
+            except OSError as e:
                 exit_codes.append(-1)
                 return False, f"Run {run_idx}/{passes} encountered execution error: {e}", exit_codes
 

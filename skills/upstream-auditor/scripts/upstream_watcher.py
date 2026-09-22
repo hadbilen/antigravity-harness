@@ -11,6 +11,7 @@ import os
 import json
 import hashlib
 import re
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,9 +19,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 CONFIG_DIR = os.path.expanduser(os.environ.get("ANTIGRAVITY_CONFIG_DIR", "~/.gemini/config"))
 SKILL_DIR = os.path.join(CONFIG_DIR, "skills", "upstream-auditor")
 CUSTOM_SKILLS_DIR = os.path.join(CONFIG_DIR, "skills")
-LEGACY_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
+SEED_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.seed.json")      # shipped, read-only
+LEGACY_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")         # pre-1.4 location, read-only
 
-DEFAULT_STATE_DIR = os.path.expanduser(os.environ.get("XDG_STATE_HOME", "~/.local/state/antigravity-harness"))
+DEFAULT_STATE_DIR = os.path.expanduser(
+    os.environ.get("AGY_GUARD_STATE_DIR")
+    or os.path.join(os.environ.get("XDG_STATE_HOME", "~/.local/state"), "antigravity-harness")
+)
 STATE_FILE = os.environ.get("UPSTREAM_STATE_FILE", os.path.join(DEFAULT_STATE_DIR, "upstream_state.json"))
 BUILTIN_DIR = os.path.expanduser("~/.gemini/antigravity/builtin/skills")
 PBTXT_FILE = os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt")
@@ -68,12 +73,13 @@ def compute_builtin_hash():
             full_path = os.path.join(root, f)
             rel_path = os.path.relpath(full_path, BUILTIN_DIR)
             hasher.update(rel_path.encode("utf-8"))
+            # Content hash (not mtime/size), so touching or re-checking-out files is not "drift".
             try:
-                stat = os.stat(full_path)
-                hasher.update(str(stat.st_mtime_ns).encode("utf-8"))
-                hasher.update(str(stat.st_size).encode("utf-8"))
+                with open(full_path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(65536), b""):
+                        hasher.update(chunk)
             except OSError:
-                pass
+                hasher.update(b"<unreadable>")
     return hasher.hexdigest()
 
 def get_pbtxt_model():
@@ -87,6 +93,19 @@ def get_pbtxt_model():
     except Exception:
         pass
     return ""
+
+def is_pro_flash_switch(old_m: str, new_m: str) -> bool:
+    """True only for a Pro <-> Flash toggle within the SAME model family and version."""
+    if not old_m or not new_m:
+        return False
+    def split(m: str):
+        tier = "pro" if "pro" in m else ("flash" if "flash" in m else "")
+        family = re.sub(r"\b(pro|flash|high|low|medium|thinking)\b|[()]", " ", m)
+        return tier, " ".join(family.split())
+    old_tier, old_family = split(old_m)
+    new_tier, new_family = split(new_m)
+    return bool(old_tier and new_tier) and old_family == new_family
+
 
 def check_tracked_skills(state: dict):
     """Checks tracked repositories every 72 hours (3 days) with zero LLM cost using parallel HTTP requests."""
@@ -108,14 +127,19 @@ def check_tracked_skills(state: dict):
         return []
 
     successful_checks = 0
+    failed_checks = 0
 
     def fetch_repo_status(name: str, info: dict):
-        nonlocal successful_checks
-        repo = info.get("repo")
-        branch = info.get("branch", "main")
-        recorded_sha = info.get("last_synced_commit", "").strip()
-        url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
-        req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.1"})
+        nonlocal successful_checks, failed_checks
+        repo = str(info.get("repo", ""))
+        branch = str(info.get("branch", "main"))
+        recorded_sha = str(info.get("last_synced_commit", "")).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+            failed_checks += 1
+            return None
+        query = urllib.parse.urlencode({"sha": branch, "per_page": 1})
+        url = f"https://api.github.com/repos/{repo}/commits?{query}"
+        req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.2"})
         try:
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 data = json.loads(resp.read().decode())
@@ -133,6 +157,7 @@ def check_tracked_skills(state: dict):
                     if recorded_sha and current_sha and not is_match:
                         return f"{name} ({recorded_sha[:7]}->{current_sha[:7]})"
         except Exception:
+            failed_checks += 1
             return None
         return None
 
@@ -152,18 +177,18 @@ def check_tracked_skills(state: dict):
 
     # Record timestamp and mark whether network checks succeeded or failed
     state["last_skills_audit_timestamp"] = now.isoformat()
-    state["last_audit_failed"] = (successful_checks == 0)
-    for target_path in [STATE_FILE, LEGACY_STATE_FILE]:
-        try:
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            with open(target_path, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=2, ensure_ascii=False)
-                f.write("\n")
-            break
-        except Exception:
-            continue
+    # Any failed repository triggers the short retry interval (partial failures are failures).
+    state["last_audit_failed"] = failed_checks > 0 or successful_checks < len(tracked)
+    # Runtime state is only ever written to the per-user state directory (never the skill tree).
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+    except Exception:
+        pass
 
-    return changed_repos
+    return sorted(changed_repos)
 
 def main():
     try:
@@ -177,11 +202,12 @@ def main():
     if invocation_num > 1:
         safe_exit_empty()
 
-    # Seed state file from legacy if absent
-    if not os.path.isfile(STATE_FILE) and os.path.isfile(LEGACY_STATE_FILE):
+    # Seed the per-user state file from the legacy file or the shipped seed if absent
+    seed_source = LEGACY_STATE_FILE if os.path.isfile(LEGACY_STATE_FILE) else SEED_STATE_FILE
+    if not os.path.isfile(STATE_FILE) and os.path.isfile(seed_source):
         try:
             os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-            with open(LEGACY_STATE_FILE, "r", encoding="utf-8") as f:
+            with open(seed_source, "r", encoding="utf-8") as f:
                 seed_data = json.load(f)
             with open(STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(seed_data, f, indent=2, ensure_ascii=False)
@@ -189,7 +215,7 @@ def main():
         except Exception:
             pass
 
-    state_path = STATE_FILE if os.path.isfile(STATE_FILE) else LEGACY_STATE_FILE
+    state_path = STATE_FILE if os.path.isfile(STATE_FILE) else seed_source
     if not os.path.isfile(state_path):
         safe_exit_empty()
 
@@ -236,12 +262,6 @@ def main():
     norm_recorded = normalize_model_name(recorded_model)
     norm_current_pbtxt = normalize_model_name(current_pbtxt_model)
     norm_recorded_pbtxt = normalize_model_name(recorded_pbtxt)
-
-    def is_pro_flash_switch(old_m: str, new_m: str) -> bool:
-        if not old_m or not new_m: return False
-        old_pf = "pro" in old_m or "flash" in old_m
-        new_pf = "pro" in new_m or "flash" in new_m
-        return old_pf and new_pf
 
     if norm_payload and norm_payload != "auto" and norm_recorded:
         if norm_payload != norm_recorded and not is_pro_flash_switch(norm_recorded, norm_payload):

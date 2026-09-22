@@ -1,28 +1,48 @@
 # Antigravity Harness
 
-[![Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases/tag/v1.3.0)
-[![CI Matrix](https://img.shields.io/badge/CI-Linux%20%7C%20macOS%20%7C%20Windows-success.svg)](https://github.com/hadbilen/antigravity-harness/actions)
-[![Python Stdlib](https://img.shields.io/badge/dependencies-zero%20external-brightgreen.svg)](https://github.com/hadbilen/antigravity-harness)
+[![Release](https://img.shields.io/badge/release-v1.3.1-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases)
+[![CI](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml)
+[![Runtime](https://img.shields.io/badge/core%20runtime-Python%20stdlib%20only-brightgreen.svg)](#dependencies)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20antislop-orange.svg)](DESIGN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **OS-level write protection, cryptographic integrity governance, and deterministic engineering harness for AI coding agents.**
+> **A behavioral constitution, auditor subagents, a rule transpiler, and a write-protection /
+> integrity-monitoring companion (`agy-guard`) for AI coding agents.**
 
-Antigravity Harness bridges the gap between raw LLM intelligence and deterministic production software engineering. While modern models provide powerful reasoning, autonomous agents left unshielded suffer from **environment mutation drift**, **sycophancy**, **test weakening (Goodhart's Curse)**, and **context bloat**.
+Autonomous coding agents suffer from **environment mutation drift**, **sycophancy**, **test weakening
+(Goodhart's Curse)**, **context bloat**, and **ecosystem fragmentation**. Antigravity Harness counters
+them with an engineering constitution (`GEMINI.md`), 20 modular skills, 7 independent auditor
+subagents, Porter (a rule importer/exporter for Claude Code, Cursor, Aider and `AGENTS.md` tools),
+and Antigravity Guard, which write-protects the governance files, detects drift, and gates changes
+behind human confirmation.
 
-Antigravity Harness resolves these vulnerabilities through operating system write protection, cryptographic file integrity monitoring, full-state snapshot rollbacks, an immutable behavioral constitution, independent auditor subagents, and a bidirectional ecosystem bridge across Google Antigravity, Claude Code, Cursor, Windsurf, Aider, and generic platforms.
+---
+
+## What Guard does and does not protect against (threat model)
+
+Guard runs as **your own OS user**. Read this before relying on it:
+
+| Protects against | Does NOT protect against |
+|---|---|
+| Accidental edits and tools that respect file permissions | A process running as your user that deliberately restores write bits (`chmod u+w`) |
+| Headless / unattended agents: administration commands (`unlock`, `rebaseline`, `snapshot restore`, `porter stage`, …) refuse without a human typing `yes` in a terminal or approving in the GUI | An agent that can drive an interactive terminal *and* chooses to ignore the constitution |
+| Silent drift: the SHA-256 baseline (outside the protected tree) reports modified, added, deleted and unreadable files | An attacker who can rewrite both the files **and** the per-user baseline (it is not signed) |
+| Forgotten maintenance windows: leases relock automatically when they expire | `root` / administrators, or kernel-level tampering |
+
+For a real boundary, make the policy files immutable with root (`sudo chattr +i`), keep them root-owned,
+or enforce policy on the host side (e.g. an Antigravity `PreToolUse` hook that denies writes to the
+governance tree). `agy-guard status` shows which protection kind is active
+(`USER-SPACE LOCK (advisory against the same OS user)` vs `IMMUTABLE (chattr +i, root)`).
 
 ---
 
 ## The Problem: Why This Exists
 
-Autonomous coding agents frequently encounter five systemic failure modes:
-
-1. **Environment Mutation Drift & Rogue Writes:** Hallucinating agents, rogue sub-processes, or third-party IDE extensions can quietly overwrite prompt contracts, disable linting gates, or inject unverified skills into `~/.gemini/config/`.
-2. **The Sycophancy Trap:** Models reflexively agree with user premises, gloss over critical architectural flaws, and bury actionable diagnosis under polite conversational filler.
-3. **Test Weakening (Goodhart's Curse):** When encountering a failing test, agents often edit the assertions, skip tests (`skip`), or weaken error boundaries just to manufacture a green exit code.
-4. **Context Bloat & Analysis Paralysis:** Reading megabytes of raw logs and entire codebases into the conversation window triggers attention degradation, looping regressions, and hallucinated fixes.
-5. **Ecosystem Fragmentation & Information Decay:** Directives configured for one tool cannot be ported without manual rewriting, causing severe specification decay across multi-hop migrations (A -> B -> C).
+1. **Environment Mutation Drift & Rogue Writes:** agents, sub-processes or IDE extensions quietly overwrite prompt contracts or inject unverified skills into `~/.gemini/config/`.
+2. **The Sycophancy Trap:** models reflexively agree with user premises and bury the diagnosis under polite filler.
+3. **Test Weakening (Goodhart's Curse):** when a test fails, agents are tempted to edit assertions or skip tests to manufacture a green exit code.
+4. **Context Bloat & Analysis Paralysis:** dumping megabytes of logs into the context window degrades attention and causes looping fixes.
+5. **Ecosystem Fragmentation:** directives written for one tool are rewritten by hand for the next and decay along the way.
 
 ---
 
@@ -40,136 +60,149 @@ Autonomous coding agents frequently encounter five systemic failure modes:
         ┌──────────────────┬──────────────────┼──────────────────┬──────────────────┐
         ▼                  ▼                  ▼                  ▼                  ▼
   ┌──────────────┐ ┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐
-  │  Autonomous  │ │  Modular Skill  │ │ Baseline UI  │ │ Universal Bridge │ │Antigravity Guard │
-  │  Subagents   │ │     System      │ │   Contract   │ │   & Porter CLI   │ │(agy-guard CLI/GUI│
-  │ (7 Auditors) │ │   (20 Skills)   │ │(Antislop UI) │ │ (Lossless Trans) │ │Write Protect/FIM)│
+  │   Auditor    │ │  Modular Skill  │ │ Baseline UI  │ │  Porter bridge   │ │Antigravity Guard │
+  │  Subagents   │ │     System      │ │   Contract   │ │ (verified export)│ │ (lock/FIM/lease) │
   └──────────────┘ └─────────────────┘ └──────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
 ---
 
-## 1. Flagship: Antigravity Guard (`agy-guard` CLI & GUI)
+## 1. Antigravity Guard (`agy-guard` CLI & GUI)
 
-`antigravity-guard` (`guard/`, `guard.py`, `bin/agy-guard`) is the **system-level shield and governance companion application** for your autonomous AI development environment. It guarantees tamper-resistance, deterministic rollbacks, and zero-token upstream drift detection.
+### Governance write shield (`guard/os_adapter.py`, `guard/environment.py`)
+Guard locks the **governance seams** of `~/.gemini/config/` — `GEMINI.md`, `AGENTS.md`, `DESIGN.md`,
+`MISTAKES.md`, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/` — plus the
+root directory entry itself (so top-level files cannot be deleted and replaced). Antigravity's own
+runtime state (`config.json`, `projects/`, `sidecars/`, `plugins/`, `cache`) stays writable.
+* **Linux:** strips write bits (user-space lock); adds `chattr +i` only when run as root.
+* **macOS:** BSD user-immutable flag (`chflags uchg` / `nouchg`) plus permission lockdown.
+* **Windows:** NTFS deny ACEs `(WD,AD,DE,DC)` plus `attrib +R`; status is read from the ACL, not by writing probe files.
+* Symlinks are **never followed**: a symlink pointing outside the tree is reported as *unprotected*
+  (install in copy mode to protect it). Original permission modes are recorded and restored exactly on unlock.
+* `lock` returns a non-zero exit code and lists the reasons whenever protection is only partial.
 
-### OS-Level Write Shield (`guard/os_adapter.py`)
-Locks configuration directories (`~/.gemini/config/`) against unauthorized modification using native operating system primitives:
-* **Linux:** POSIX permission lockdown (`chmod a-w` / `0555` user-space lock) paired with optional ext4/xfs immutable flags (`chattr -R +i`).
-* **macOS:** Native BSD user-immutable flags (`chflags -R uchg` / `nouchg`).
-* **Windows:** NTFS Access Control Lists (`icacls`) with granular specific rights `(WD,AD,DE,DC)` preventing file addition, modification, and deletion while strictly preserving `READ_CONTROL` for hashing under lock. Recursively strips inherited deny ACEs via `/t /c /q`.
+### Integrity baseline (`guard/integrity.py`)
+* A flat `path -> SHA-256` map per environment, stored in `~/.local/state/antigravity-harness/integrity/`
+  (outside the protected tree; `ANTIGRAVITY_INTEGRITY_FILE` overrides it for the global environment).
+* Records symlinks as links (retargeting is detected), reports unreadable files, ignores installer backups,
+  and archives the previous baseline on every rebaseline. It detects drift; it is not a signature.
 
-### Automated Health & Auto-Healing (`agy-guard doctor [--fix]`)
-A dedicated diagnostic routine that audits the health of the development harness:
-* Inspects write shield state, trust anchor placement, FIM integrity, and snapshot inventory.
-* Detects crash-induced unshielded environments (SIGKILL, abnormal exits) and automatically heals stale exposures via `--fix` / `--recover`.
+### Snapshots & verified restore (`guard/snapshot.py`)
+* Snapshots of the governance scope live in `~/.local/share/antigravity-harness/snapshots/` with a content manifest.
+* Restore verifies the snapshot, refuses to write through destination symlinks, always takes a pre-restore
+  backup first, swaps entries with a journal (rolled back on failure), and re-establishes the baseline.
+* `prune` keeps N snapshots **per kind** (manual, pre-restore, pre-ingest, boot forensics).
 
-### Full-State Snapshot Rollback & Extraneous Pruning (`guard/snapshot.py`)
-Standard backup utilities merely overwrite existing files, leaving rogue files introduced after the backup intact. Antigravity Guard performs **true bidirectional state synchronization**:
-* Computes complete filesystem diffs between the snapshot and current tree.
-* Recursively prunes extraneous files and rogue directories introduced after the snapshot was captured.
-* Preserves critical infrastructure (`.guard_snapshots`, `__pycache__`, `.git`, `.guard_integrity.json`, emergency backups).
+### Multi-environment registry (`guard/environment.py`)
+* Discovers Claude Code, Codex / `AGENTS.md`, Cursor and Aider workspaces; ids include a path hash so
+  two projects with the same folder name never collide; ambiguous ids are rejected.
+* Policies: `enforced`, `monitored`, `disabled` (`agy-guard env policy <id> <policy>`).
+* The registry lives in the per-user state directory, so results never depend on the current directory.
 
-### Isolated Cryptographic Trust Anchor (`guard/integrity.py`)
-* Computes deterministic SHA-256 Merkle baselines across all constitutional files, skills, subagents, and configurations.
-* Supports hosting the integrity baseline outside the protected directory via `ANTIGRAVITY_INTEGRITY_FILE` (or `~/.gemini/.guard_integrity.json`), physically decoupling the baseline from the target configuration to eliminate simultaneous tampering.
+### Human-approved, time-bounded leases (`guard/lease.py`)
+* `agy-guard request-unlock --duration 60` asks a human to approve in the terminal (or the GUI); headless
+  requests are rejected. There is no auto-approve flag.
+* The record is persisted **before** unlocking; a detached watcher relocks when the lease expires, and every
+  Guard command also expires overdue leases. Several environments can hold leases at the same time.
+* Closing relocks first; only a successful relock writes a change report
+  (`~/.local/state/antigravity-harness/lease_reports/<id>.json`) and a new baseline. A failed relock keeps
+  the lease record and raises a CRITICAL notification.
 
-### Multi-Environment Matrix & Governance (`guard/environment.py`)
-* Discovers, registers, and tracks foreign coding agent environments (Claude Code, GPT Codex, Cursor, Windsurf, Aider).
-* Enforces per-environment protection policies (`enforced`, `audit_only`, `exempt`) and tracks file mutations across toolchains.
-* Generates cross-environment drift matrices (`agy-guard drift`) to spot divergent prompt contracts or skill drift immediately.
+### Notifications (`guard/notifier.py`)
+* `notify-send` (Linux), `osascript` (macOS), PowerShell balloon tips (Windows); message text is passed as
+  data (argv / environment), never interpolated into code. Falls back to the terminal.
+* Cooldowns: `CRITICAL` none, `WARNING` 30 minutes, `INFO` 24 hours. `agy-guard notify quiet` passes
+  CRITICAL only; `agy-guard notify disable` silences everything (force never overrides it).
 
-### Human-in-the-Loop Time-Bounded Lease Unlock (`guard/lease.py`)
-* Eliminates permanent manual unshielded exposures: when an agent or user needs to edit configuration files, a time-bounded lease is issued (`agy-guard request-unlock --duration 60`).
-* Automatic relock and cryptographic rebaselining when the lease expires or when `agy-guard lock-complete` is executed.
-
-### Multi-Tier Ergonomic Notifications (`guard/notifier.py`)
-* Low-frequency, spam-resistant desktop alerts integrated with native OS systems (`notify-send` on Linux DBus, AppleScript on macOS, PowerShell Toast on Windows).
-* Strict priority tiers (`INFO` with 30-minute cooldown, `WARNING` with 15-minute cooldown, and `CRITICAL` with instant zero cooldown).
-* Optional `--quiet` / `--disabled` modes ensuring developers are never bombarded by noisy notifications during long coding sessions.
-
-### Dual Operational Interfaces (Ergonomic CLI + Dark GUI)
-* **Full CLI Workflow (`bin/agy-guard`):** `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `doctor`, `upstream`, `env`, `lease`, `drift`, `self-audit`, `test-boundary`, `provenance`, and `gui`.
-* **Zero-Dependency Desktop GUI (`guard/gui.py`):** Built strictly on Python's native standard library (`tkinter` / `ttk`). Follows `DESIGN.md` (ENERGY 2 / RHYTHM 2 / Dark Zinc palette) with verified WCAG AA contrast, real-time FIM auditing, and split-diff external rule staging.
+### Boot sentinel, doctor and GUI
+* `agy-guard startup enable` registers a systemd user unit / launchd agent / scheduled task that runs
+  `boot-check`: on drift it captures a forensic snapshot, keeps the scope locked, sends a CRITICAL
+  notification and never rebaselines. (Ordering before the graphical session is best-effort.)
+* `agy-guard doctor [--fix]` reports protection gaps, legacy baselines/snapshots inside the config tree,
+  world-writable sources, symlink installs and risky Antigravity permission grants (counts only).
+* **Full CLI Workflow (20 subcommands):** `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `upstream`, `startup`, `boot-check`, `gui`, `doctor`, `test-boundary`, `provenance`, `env`, `request-unlock`, `lock-complete`, `drift`, `self-audit`, `notify` (plus the internal `lease-tick` used by the lease watcher).
+* **Desktop GUI (`guard/gui.py`):** Tkinter/ttk, `DESIGN.md` dark palette; long operations run off the UI
+  thread, tray callbacks are marshalled onto the Tk loop, and unlock / rebaseline / lease actions ask for confirmation.
 
 ---
 
 ## 2. The Engineering Constitution (`GEMINI.md`)
 
-The core behavioral constitution eliminates context bloat, analysis paralysis, and AI sycophancy:
-
-* **Proportional Gate Escalation:** Eliminates excessive ceremony for small changes while strictly locking down large ones:
-  * *Tier 1 (1–2 files, <20 lines):* Direct edits, no planning artifacts, zero subagent dispatch.
-  * *Tier 2 (3–8 files):* Implementation plans, blast radius mapping, call-graph reachability, and persistent execution checklists.
-  * *Tier 3 (>8 files or auth/schema modifications):* Full harness workflow, trade-off interviews (`deep-grill`), ADR documentation, depth trees (`unlazy`), and pre-delivery independent auditor subagent dispatch.
-* **The Immutable Test Invariant (Goodhart's Invariant):** Agents are strictly forbidden from relaxing assertions, skipping tests (`skip`), or commenting out assertions to pass verification gates. Tests must target public interface seams—source code must fix the test, never the reverse.
-* **Think in Code Context Hygiene:** Agents must never dump raw multi-megabyte files into conversation context. They isolate streams, use targeted Unix pipelines (`grep`, `jq`, `awk`), and execute one-off inspection scripts in scratch directories.
-* **Circuit Breaker & Out-of-Band Meta-Diagnosis:** Caps modifications to ~10% blast radius per fix pass. If 3 consecutive iterations oscillate or repeat identical failures, the parent halts and dispatches an isolated diagnostic subagent (`Model: 'pro'`) with an unpolluted context.
-* **Popper's Falsification Gate (Rule 8):** Before claiming completion or asserting that no changes are needed (Null-Action), the agent must execute baseline falsification checks to actively challenge the working hypothesis.
-* **Session Boundary Protocol (`HANDOFF.md`):** Mandates fresh chat sessions following major deliveries or upon reaching ~25 turns to prevent attention degradation without losing architectural context.
-
----
-
-## 3. Autonomous Auditor Subagents (`/agents`)
-
-The primary model cannot objectively grade its own work. Specialized read-only subagents evaluate risk boundaries prior to delivery:
-
-* **`silent-failure-hunter`:** Scans code for swallowed exceptions (`catch {}`), missing logs, empty fallbacks, and unhandled promises.
-* **`security-boundary-verifier`:** Verifies authorization boundaries, IDOR, input validation, SSRF immunity, and race conditions (TOCTOU).
-* **`specification-gap-auditor`:** Detects unhandled edge cases, missing error branches, and ambiguous adjectives (*"fast"*, *"robust"*) in requirements.
-* **`consistency-auditor`:** Evaluates multi-volume specifications and schemas for axiomatic contradictions, circular dependencies, and broken cross-references.
-* **`meta-auditor`:** Meta-consistency and self-audit specialist. Executes the deterministic 5-pass harness self-audit (`meta_audit.py`), detecting broken cross-references, missing frontmatter schemas, mutual exclusion violations, and Porter parity loss across the governance core.
-* **`build-error-resolver`:** Analyzes compiler and TypeScript errors in an isolated context, producing minimal, non-architectural diffs.
-* **`research`:** Ingests large external documentation (>50 KB) and complex codebases in an isolated sandbox, returning distilled decision matrices without polluting the primary session context.
+* **Proportional Gate Escalation:** Tier 1 (1–2 files, <20 lines) direct edits; Tier 2 (3–8 files) plans,
+  blast-radius maps and checklists; Tier 3 (>8 files or auth/schema changes) the full workflow with
+  `deep-grill`, ADRs, `unlazy`/`procoder` and auditor subagents.
+* **The Immutable Test Invariant:** relaxing assertions or skipping tests to pass gates is forbidden; new
+  regression tests are always allowed.
+* **Think in Code:** filter with `grep`/`jq`/`awk` or small scripts instead of dumping raw files into context.
+* **Circuit Breaker & Out-of-Band Meta-Diagnosis**, **Popper's Falsification Gate**, and the
+  **Session Boundary Protocol** (`HANDOFF.md` after major deliveries or ~25 turns).
+* **Guard administration is human-only (Rule 12)** and upstream collisions are reported to the user
+  instead of being silently resolved (Rule 15).
 
 ---
 
-## 4. Universal Ecosystem Bridge & Transpiler (`porter.py` & `.harness/`)
+## 3. Auditor Subagents (`/agents`)
 
-A bidirectional bridge enabling lossless rule portability between Antigravity and any external AI coding platform:
+Seven role definitions whose read-only behavior is specified in their prompts (tool restrictions depend on the host platform):
 
-* **Pre-Flight Suitability & Adaptability Gate:** Analyzes external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`) before writing files, scoring them 0–100 on constitutional alignment and platform fit.
-* **Constitutional Sanitizer (`porter/sanitizer.py`):** Automatically strips conversational sycophancy, AI-slop, and test-weakening directives from imported rules.
-* **SSRF Protection:** Enforces strict RFC-1918, link-local metadata (`169.254.169.254`), loopback, and IPv6 DNS resolution validation during remote rule ingestion.
-* **Lossless Canonical Manifest (`.harness/manifest.json`):** Single-source compilation bundling all 20 skills, 7 subagents, and constitution rules across multi-hop migrations with zero information decay.
-* **Native Emitters:** Generates idiomatic configs for Claude Code (`CLAUDE.md` + `.claude/commands/`), Cursor (`.cursor/rules/*.mdc`), Universal Standard (`AGENTS.md`), Aider (`CONVENTIONS.md`), and generic environments.
+* **`silent-failure-hunter`:** swallowed exceptions, missing logs, empty fallbacks, unhandled promises.
+* **`security-boundary-verifier`:** authorization boundaries, IDOR, input validation, SSRF, TOCTOU.
+* **`specification-gap-auditor`:** unhandled edge cases, missing error branches, vague adjectives.
+* **`consistency-auditor`:** contradictions, circular dependencies, broken cross-references.
+* **`meta-auditor`:** runs the 6-pass harness self-audit (`scripts/meta_audit.py`).
+* **`build-error-resolver`:** isolates compiler/type failures and proposes minimal diffs.
+* **`research`:** digests large external documentation in an isolated context.
+
+---
+
+## 4. Porter: rule inspection, import and export (`porter.py`, `.harness/manifest.json`)
+
+* **Pre-flight gate:** scores external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`, …) 0–100 before anything is written.
+* **Negation-aware sanitizer (`porter/sanitizer.py`):** neutralises directives such as "skip the failing
+  tests" or "mark failing tests as xfail" while keeping protective rules such as "never skip tests"; it is a
+  pattern filter, so every result is shown for human review.
+* **SSRF-hardened fetcher (`porter/net.py`):** http/https only, globally routable destinations only
+  (CGNAT, link-local, private, 6to4/NAT64 and IPv4-mapped loopback are rejected), DNS pinning against
+  rebinding, per-redirect validation, proxies ignored, 10 MB cap.
+* **Canonical manifest:** all 20 skills with every support file and in-skill symlink, all 7 subagents, the
+  constitution and the design contract. CI fails if the committed manifest is stale (`porter.py manifest --check`).
+* **Verified export:** Claude Code (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`), Cursor
+  (`.cursor/rules/*.mdc` with valid YAML + `.cursor/skills/`), Universal (`AGENTS.md` + `.agents/`), Aider
+  (`CONVENTIONS.md`, `.aider.conf.yml`, `.aider/`), Generic (`RULES.md`, `skills/`, `agents/`). Skills,
+  support files and agents are exported verbatim and the self-audit checks parity by content. Existing
+  files are only overwritten with `--force`.
+* **Staging gate:** `agy-guard porter stage` binds the reviewed content hash to the written content, refuses
+  destination symlinks, snapshots first and re-locks afterwards; `porter.py import` only writes into this
+  source repository (review it with `git diff`).
 
 ---
 
 ## 5. Modular Skill Ecosystem (`/skills`)
 
-20 specialized capability packages providing focused execution modes:
+20 capability packages:
 
-* **`harness`:** Autonomous engineering harness, computational verification gates, task lifecycle.
-* **`porter`:** Ecosystem adapter, suitability analyzer, and transpiler.
-* **`vibecoder`:** Product-first, vibe-oriented rapid prototyping with zero-friction HTML delivery.
-* **`unlazy`:** Deep completion engine for massive 10+ file refactors using Depth Trees and ledger-based verification.
-* **`deep-grill`:** Socratic trade-off interviewer that rigorously probes edge cases before code is written.
-* **`chisle`:** Ultra-terse, zero-fluff development mode that optimizes for maximum signal per token.
-* **`procoder`:** Senior developer sprint scaffolding, specifications, and backlog tracking.
-* **`antislop` (Suite of 6):** Comprehensive design and copy quality filter:
-  * `antislop`: Core 38-rule filter and delivery gate.
-  * `antislop-ui`: UI layout, token systems, and component states.
-  * `antislop-code`: Intelligent comment hygiene.
-  * `antislop-copywriting`: Anti-hype, honest copywriting guidelines.
-  * `antislop-human`: Accessibility, WCAG AA contrast checker MCP tool.
-  * `antislop-layoutmobile`: Mobile reflow, zero horizontal overflow, touch targets.
-* **`diagnosing-bugs`:** Systematic seven-phase root-cause analysis preventing speculative code edits.
-* **`upstream-auditor`:** Background watchdog that tracks model updates, Antigravity runtime changes, and community skill commits every 72 hours.
-* **`database-migrations`:** Safe, zero-downtime database migration patterns and rollbacks.
-* **`security-review`:** OWASP and authorization boundary security review.
-* **`architecture-decision-records`:** Structured ADR recording and maintenance.
-* **`silk-design`:** Physics-based kinetic UI formulas for marketing heroes (MOTION 3 only).
-* **`audit`:** Self-calibrating structural, consistency, and boundary audit engine.
+* **`harness`:** engineering harness, verification gates, task lifecycle.
+* **`porter`:** ecosystem adapter, suitability analyzer, transpiler.
+* **`vibecoder`:** product-first rapid prototyping with zero-friction HTML delivery.
+* **`unlazy`:** Tier 3 (>8 files) deep completion engine with depth trees and ledger-based verification.
+* **`deep-grill`:** Socratic trade-off interviewer.
+* **`chisle`:** terse, zero-fluff development mode (presentation only; never bypasses gates).
+* **`procoder`:** sprint scaffolding for repositories that contain `.procoder/`.
+* **`antislop` suite (6):** `antislop` (core 38-rule filter), `antislop-ui`, `antislop-code`,
+  `antislop-copywriting`, `antislop-human` (WCAG contrast checker + MCP tool), `antislop-layoutmobile`.
+* **`diagnosing-bugs`**, **`upstream-auditor`**, **`database-migrations`**, **`security-review`**,
+  **`architecture-decision-records`**, **`silk-design`**, **`audit`**.
+
+Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ---
 
 ## 6. Baseline Design Contract (`DESIGN.md`)
 
-A purpose-built visual contract for software interfaces:
-* **Craftsmanship Standard:** Every shadow, icon, border, and color must pass a single-sentence functional justification test.
-* **WCAG AA Compliance:** Strict 4.5:1 text contrast and 3:1 input border contrast against calibrated zinc/slate neutral surfaces.
-* **Dial Configuration:** `ENERGY 2 / RHYTHM 2 / MOTION 2` (automatically steps down to `MOTION 1` if `prefers-reduced-motion` is active).
-* **5 Mandatory Component States:** Every data component must handle `Default`, `Loading`, `Empty`, `Error`, and `Success` explicitly.
+* Every visual element passes a one-sentence functional justification test.
+* WCAG AA: 4.5:1 text, 3:1 control borders and disabled text; the "Measured Contrast Pairs" table is
+  recomputed by the self-audit, so stated ratios cannot drift from reality.
+* Dials `ENERGY 2 / RHYTHM 2 / MOTION 2` (stepping down under `prefers-reduced-motion`) and five mandatory data states.
 
 ---
 
@@ -177,267 +210,189 @@ A purpose-built visual contract for software interfaces:
 
 ```text
 antigravity-harness/
-├── GEMINI.md                          # The Global Engineering & Behavioral Constitution
-├── DESIGN.md                          # Global Baseline Design Contract
-├── CHANGELOG.md                       # Comprehensive changelog from v1.0.0 through v1.3.0
-├── hooks.json                         # Pre-invocation lifecycle hooks
-├── install.py                         # Universal cross-platform installer (Windows, Linux, macOS, BSD)
-├── install.sh                         # POSIX Unix installer (Linux, macOS, FreeBSD)
-├── LICENSE                            # MIT License
-├── README.md                          # Complete architecture & documentation guide
-├── guard.py                           # Antigravity Guard CLI & GUI root launcher
-├── porter.py                          # Universal Bidirectional Bridge & Transpiler CLI
-├── .github/
-│   └── workflows/ci.yml               # Multi-OS CI Matrix (Linux, macOS, Windows / Python 3.10-3.12)
-├── .harness/
-│   ├── environments.json              # Multi-environment agent registry & policies
-│   └── manifest.json                  # Lossless machine-readable canonical manifest
-├── bin/                               # Native OS launcher executables
-│   ├── agy-guard                      # POSIX shell executable (Linux / macOS)
-│   ├── agy-guard.bat                  # Windows CMD batch launcher
-│   └── agy-guard.ps1                  # Windows PowerShell launcher
-├── installers/                        # System menu and desktop integration
-│   ├── antigravity-guard.desktop      # Linux XDG Desktop Application entry
-│   └── packaging/                     # Native Linux package specifications
-│       ├── package_linux.py           # .deb (pure Python), .rpm, and Arch builder
-│       ├── PKGBUILD                   # Arch Linux / AUR package specification
-│       └── antigravity-guard.svg      # High-contrast scalable vector application icon
-├── guard/                             # Antigravity Guard core engine
-│   ├── os_adapter.py                  # Cross-platform write protection (Linux, macOS, Windows)
-│   ├── environment.py                 # Multi-Environment Agent Governance & Registry
-│   ├── notifier.py                    # Low-Frequency Ergonomic Notification Engine
-│   ├── lease.py                       # Human-in-the-Loop Time-Bounded Lease Unlock
-│   ├── integrity.py                   # Cryptographic File Integrity Monitor (SHA-256)
-│   ├── test_boundary.py               # Deterministic Test & Config Trust Boundary Guard
-│   ├── provenance.py                  # Run Provenance & Execution Audit Trail Manifest
-│   ├── snapshot.py                    # Full-state snapshot and extraneous pruning engine
-│   ├── porter_bridge.py               # Bridge to Porter suitability & staging gate
-│   ├── upstream.py                    # Bridge to Upstream Auditor watchdog
-│   ├── cli.py                         # Rich command-line interface (23 subcommands)
-│   └── gui.py                         # Dark-mode desktop GUI (Tkinter / DESIGN.md compliant)
-├── porter/                            # Universal transpiler & analyzer modules
-│   ├── analyzer.py                    # Pre-flight suitability and adaptability analyzer
-│   ├── sanitizer.py                   # Constitutional de-slop & invariant filter
-│   ├── manifest.py                    # Canonical manifest compiler
-│   ├── parsers/                       # Format auto-detection (MDC, flat, generic)
-│   └── emitters/                      # Native generators (Claude, Cursor, Universal, Aider)
+├── GEMINI.md / DESIGN.md / MISTAKES.md   # Constitution, design contract, harness incident log
+├── CHANGELOG.md / THIRD_PARTY_NOTICES.md / LICENSE
+├── hooks.json                             # Reference PreInvocation hook (the installer writes an absolute path)
+├── install.py / install.sh                # Installer (install.sh is a POSIX wrapper around install.py)
+├── guard.py / porter.py                   # CLI entry points
+├── .github/workflows/ci.yml               # 3 OS x Python 3.10-3.14, lint, trusted-boundary, release
+├── .harness/manifest.json                 # Canonical manifest (checked by CI)
+├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
+├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
+├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
+│                                          #   notifier, approval, paths, startup, test_boundary, provenance,
+│                                          #   porter_bridge, upstream, cli, gui, tray
+├── porter/                                # analyzer, sanitizer, frontmatter, manifest, net, emitters/
 ├── scripts/
-│   ├── meta_audit.py                  # Autonomous 5-pass harness self-auditor (Rule 17)
-│   ├── verify_invariants.py           # Deterministic constitutional invariant guard
-│   └── upstream_watcher.py            # Headless 72h community repository monitor
-├── agents/                            # 7 autonomous subagent specifications
-│   ├── build-error-resolver.md
-│   ├── consistency-auditor.md
-│   ├── meta-auditor.md
-│   ├── research.md
-│   ├── security-boundary-verifier.md
-│   ├── silent-failure-hunter.md
-│   └── specification-gap-auditor.md
-├── skills/                            # 20 modular capability packages
-├── tests/                             # Automated multi-platform test suite (77 tests)
-│   ├── test_guard.py
-│   ├── test_environment.py
-│   ├── test_notifier.py
-│   ├── test_lease.py
-│   ├── test_meta_audit.py
-│   ├── test_packaging.py
-│   ├── test_provenance.py
-│   └── test_test_boundary.py
-└── templates/
-    ├── HANDOFF.template.md            # Standardized cross-session handoff protocol
-    └── config.example.json            # Sanitized user configuration template
+│   ├── meta_audit.py                      # 6-pass harness self-audit (Rule 17)
+│   └── verify_invariants.py               # Deterministic invariant scan
+├── agents/                                # 7 auditor subagent definitions
+├── skills/                                # 20 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
+├── tests/                                 # Hermetic unittest suite (173 tests)
+└── templates/                             # HANDOFF, MISTAKES and config templates
 ```
+
+Runtime state never lives in the repository: registry, baselines, leases, lock-mode records and the
+upstream ledger are in `~/.local/state/antigravity-harness/`; snapshots and the installed runtime in
+`~/.local/share/antigravity-harness/` (`XDG_STATE_HOME` / `XDG_DATA_HOME` are honoured).
 
 ---
 
 ## Quickstart & Installation
 
-### Option 1: Native Linux Distribution Packages (.deb, .rpm, .pkg.tar.zst)
-
-Download pre-built distribution packages directly from [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases/latest):
+### Recommended: install from a source checkout (all platforms)
 
 ```bash
-# Debian / Ubuntu / Mint / Pop!_OS (.deb)
-sudo apt install ./antigravity-guard_1.3.0_amd64.deb
-
-# Fedora / RHEL / AlmaLinux / openSUSE (.rpm)
-sudo dnf install ./antigravity-guard-1.3.0-1.x86_64.rpm
-
-# Arch Linux / Manjaro (.pkg.tar.zst)
-sudo pacman -U ./antigravity-guard-1.3.0-1-x86_64.pkg.tar.zst
+git clone https://github.com/hadbilen/antigravity-harness.git
+cd antigravity-harness
+python3 install.py          # Windows: python install.py   |   POSIX alternative: ./install.sh
 ```
 
-### Option 2: Pre-Built Standalone Binaries (Linux, macOS, Windows)
+The default **copy mode** installs real files into `~/.gemini/config` (so Guard can lock them), copies the
+Guard runtime to `~/.local/share/antigravity-harness/runtime`, writes `agy-guard` / `agy-porter` launchers
+to `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\antigravity-guard\*.cmd`), merges the upstream hook
+into `hooks.json` without dropping other hooks, backs replaced files up **outside** the config tree
+(together with snapshots, baselines and backups left inside it by 1.3.0 and earlier),
+establishes the integrity baseline and locks the governance scope. Re-running it over a locked scope asks
+a human to confirm. Options: `--link` (developer symlink mode, cannot be locked), `--binary` (also install
+the checksum-verified standalone binary), `--no-lock`, `--enable-startup`, `--dry-run`.
 
-No Python installation required. Download the single-file executable for your OS from [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases/latest):
-* **Linux:** `agy-guard-linux-x86_64` (move to `~/.local/bin/agy-guard` and `chmod +x`)
-* **macOS:** `agy-guard-macos-arm64` / `agy-guard-macos-x86_64`
-* **Windows:** `agy-guard-windows-x86_64.exe`
+### Linux packages and standalone binaries
 
-### Option 3: Unix Fast Path from Source (Linux, macOS, FreeBSD)
+Release assets (see [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases)) ship with a
+`.sha256` file each — verify before installing:
 
 ```bash
-git clone https://github.com/hadbilen/antigravity-harness.git ~/.gemini/antigravity-harness
-cd ~/.gemini/antigravity-harness
-chmod +x install.sh
-./install.sh
+sha256sum -c antigravity-guard_1.3.1_amd64.deb.sha256
+sudo apt install ./antigravity-guard_1.3.1_amd64.deb
 ```
 
-### Option 4: Windows & Universal Engine from Source (Python)
-
-Zero third-party dependencies. On Windows, it handles NTFS symlinks with automatic fallback to directory junctions (`mklink /J`) or copies:
-
-```bash
-git clone https://github.com/hadbilen/antigravity-harness.git ~/.gemini/antigravity-harness
-cd ~/.gemini/antigravity-harness
-
-# Windows (PowerShell or Command Prompt)
-python install.py
-
-# Unix / macOS / Linux
-python3 install.py
-```
+Binaries are built for `linux-x86_64`, `macos-arm64` and `windows-x86_64`; `install.py --binary` downloads
+the matching one only if its checksum matches. On other platforms (e.g. FreeBSD) the Python runtime is used.
 
 ---
 
 ## Antigravity Guard (`agy-guard`) Usage
 
-Once installed, `agy-guard` is globally available in your PATH:
-
 ```bash
-# 1. Run environment health check and auto-heal stale exposures
+# Health check (and re-lock / establish a missing baseline)
 agy-guard doctor --fix
 
-# 2. Check environment write shield and file integrity
+# Protection, integrity and lease status
 agy-guard status
 
-# 3. Lock environment against writes (chattr +i / chmod 0555 / icacls)
+# Lock the governance seams; verify integrity
 agy-guard lock
-
-# 4. Temporarily unlock for manual editing or maintenance
-agy-guard unlock
-
-# 5. Verify cryptographic SHA-256 baseline (detect modified/added/deleted files)
 agy-guard verify
 
-# 6. Capture a timestamped snapshot of your configuration
-agy-guard snapshot create --label "pre_experiment"
+# Maintenance: prefer a time-bounded lease (human approval, automatic relock)
+agy-guard request-unlock --duration 120 --reason "update skills"
+agy-guard lock-complete
 
-# 7. Restore snapshot with full state synchronization (prunes extraneous files)
-agy-guard snapshot restore <snapshot_id>
+# Permanent unlock and accepting the current state require human confirmation
+agy-guard unlock
+agy-guard rebaseline
 
-# 8. Inspect an external rule with the Porter Suitability Gate
+# Snapshots
+agy-guard snapshot create --label pre_experiment
+agy-guard snapshot list
+agy-guard snapshot restore --id <snapshot_id>
+
+# Porter gate
 agy-guard porter inspect https://example.com/some_rule.md
-
-# 9. Atomic Staging & Ingestion (Snapshots -> Unlocks -> Ingests -> Re-locks)
 agy-guard porter stage ./custom_rule.md
 
-# 10. Check tracked community repositories for upstream changes (zero token cost)
+# Upstream repositories (zero LLM tokens)
 agy-guard upstream check
 
-# 11. Multi-Environment Governance & Detection
+# Other environments
+agy-guard env detect --path ~/projects/my-app
 agy-guard env list
-agy-guard env detect --register
-agy-guard env policy claude-workspace enforced
-
-# 12. Human-in-the-Loop Time-Bounded Lease Unlock (Auto-Relock & Rebaseline)
-agy-guard request-unlock --env claude-workspace --duration 60 --reason "Rule migration"
-agy-guard lock-complete --env claude-workspace
-
-# 13. Multi-Environment Drift Analysis Matrix
+agy-guard env policy antigravity monitored
 agy-guard drift
 
-# 14. Autonomous 5-Pass Self-Audit Gate (Rule 17)
-agy-guard self-audit
-
-# 15. Enable Pre-Session Boot Sentinel (Runs before AI IDEs or models start)
-agy-guard startup enable
-
-# 16. Inspect Boot Sentinel registration status
-agy-guard startup status
-
-# 17. Snapshot workspace test & configuration trust boundary
+# Test trust boundary and reproducibility
 agy-guard test-boundary snapshot
-
-# 18. Verify test suite immutability (detect fixture, timeout, or mock tampering)
-agy-guard test-boundary verify --mode bugfix
-
-# 19. Verify 2x isolated reproducibility for targeted tests (eliminate flakiness)
-agy-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py"
-
-# 20. Generate session execution provenance manifest (.harness/provenance.json)
+agy-guard test-boundary verify --mode tdd
+agy-guard test-boundary verify --base-ref origin/main
+agy-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py" --passes 2
 agy-guard provenance generate
 
-# 21. Build Native Linux Distribution Packages (.deb, .rpm, .pkg.tar.zst)
-python3 installers/packaging/package_linux.py --all --output-dir dist/packages
-
-# 22. Launch the Desktop GUI
+# Boot sentinel, notifications, self-audit, GUI
+agy-guard startup enable
+agy-guard boot-check
+agy-guard notify quiet
+agy-guard self-audit --strict
 agy-guard gui
 ```
 
+Administration commands exit with code `3` when no human confirmation was given.
+
 ---
 
-## Universal Bridge CLI (`porter.py`) Usage
+## Porter CLI (`porter.py` / `agy-porter`) Usage
 
 ```bash
-# Pre-flight suitability inspection (read-only scoring 0-100)
+# Read-only suitability inspection
 python3 porter.py inspect path/to/external-rule.mdc
-python3 porter.py inspect https://raw.githubusercontent.com/.../conventions.md
 
-# Import and sanitize external rule into native skill or subagent
-python3 porter.py import path/to/tailwind-rules.mdc --as-skill tailwind-v4
+# Import into THIS repository (review with git diff, then deploy with install.py)
 python3 porter.py import path/to/rules.md --as-skill test-skill --dry-run
+python3 porter.py import path/to/tailwind-rules.mdc --as-skill tailwind-v4
 
-# Export configuration to target coding assistant
+# Export (refuses to overwrite existing files unless --force)
 python3 porter.py export --target claude --out ./export/claude
-python3 porter.py export --target cursor --out ./export/cursor
-python3 porter.py export --target universal --out ./export/universal
 python3 porter.py export --target all --out ./export/
 
-# Compile the lossless canonical manifest
+# Regenerate / check the canonical manifest
 python3 porter.py manifest
+python3 porter.py manifest --check
 ```
 
 ---
 
 ## Verification & Continuous Integration
 
-Every commit and pull request is automatically tested across **Linux, macOS, and Windows** on Python 3.10, 3.11, and 3.12:
+CI runs on Linux, macOS and Windows with Python 3.10–3.14 (all actions pinned to commit SHAs, build tools
+pinned to exact versions). Pull requests additionally run the **candidate code against the base branch's
+own tests and graders** in a clean worktree, and verify that existing tests were only extended, never edited.
 
 ```bash
-# Run complete unit test suite (77 passing tests)
+# Hermetic unit test suite (173 tests)
 python3 -m unittest discover -s tests -v
 
-# Run autonomous harness self-audit (Rule 17)
-python3 scripts/meta_audit.py --all
+# Harness self-audit (Rule 17); --strict also fails on warnings
+python3 scripts/meta_audit.py --all --strict
 
-# Run deterministic invariant verification
+# Deterministic invariant scan / diff check
 python3 scripts/verify_invariants.py --all
-
-# Verify active git diff against constitutional constraints
-python3 scripts/verify_invariants.py --diff
+python3 scripts/verify_invariants.py --diff --base-ref origin/main
 ```
+
+---
+
+## Dependencies
+
+The Guard, Porter and grader code uses only the Python standard library (3.10+). Optional extras: `tkinter`
+for the GUI, `pystray` + `Pillow` or PyGObject/AppIndicator for the tray icon, and PyYAML (used by the
+self-audit when present). The standalone binaries bundle `pystray` and `Pillow` via PyInstaller.
 
 ---
 
 ## Community Lineage & Acknowledgments
 
-Antigravity Harness synthesizes and hardens insights from real-world engineering debates and open-source projects:
-
-* **Reddit Communities:** Grounded in prompt failure post-mortems and workflow experiments from [r/ChatGPTCoding](https://www.reddit.com/r/ChatGPTCoding/), [r/ClaudeAI](https://www.reddit.com/r/ClaudeAI/), and [r/LocalLLaMA](https://www.reddit.com/r/LocalLLaMA/).
-* **Tracked Open-Source Projects:**
-  * `miqdadbadjuber/anti-slop` — Foundational anti-slop design concepts.
-  * `JayPokale/Chisle` — Terse, high-signal developer persona.
-  * `Leonxlnx/unlazy` — Depth tree task completion mechanics.
-  * `azrtydxb/procoder` — Senior developer backlog and sprint structures.
-  * `bendrape1-byte/silk-design` — Physics-based kinetic UI formulas.
-  * `affaan-m/everything-claude-code` — Architectural decisions and migration checklists.
-  * `mattpocock/skills` — Socratic interview and debugging methodologies.
+Grounded in prompt-failure post-mortems from [r/ChatGPTCoding](https://www.reddit.com/r/ChatGPTCoding/),
+[r/ClaudeAI](https://www.reddit.com/r/ClaudeAI/) and [r/LocalLLaMA](https://www.reddit.com/r/LocalLLaMA/),
+and on these open-source projects (licenses in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)):
+`miqdadbadjuber/anti-slop`, `JayPokale/Chisle`, `Leonxlnx/unlazy`, `azrtydxb/procoder`,
+`bendrape1-byte/silk-design`, `affaan-m/everything-claude-code`, `mattpocock/skills`.
 
 ---
 
 ## Contributing & License
 
-Contributions, boundary tests, and additional auditor subagents are welcome! Please ensure any submitted skill passes the `antislop` copy filter and adheres to the `Think in Code` context hygiene standard.
+Contributions, boundary tests and additional auditor subagents are welcome. Every change must pass
+`python3 -m unittest discover -s tests`, `python3 scripts/meta_audit.py --all --strict` and
+`python3 porter.py manifest --check`. Release tags are never moved and release assets are never replaced.
 
 Licensed under the [MIT License](LICENSE).

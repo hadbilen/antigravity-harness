@@ -1,5 +1,6 @@
 # Session Handoff Document
 
+**Status:** {{[COMPLETE] | [IN-PROGRESS / SATURATION-HALT]}}
 **Date & Time:** {{ISO_TIMESTAMP}}
 **Previous Conversation / Session ID:** {{CONVERSATION_ID_OR_LABEL}}
 **Git Branch / Commit:** {{BRANCH}} @ {{COMMIT_HASH}}

@@ -99,15 +99,17 @@ Findings are strictly classified into three categories:
    * Summary of upstream changes detected.
    * Categorized recommendations (Pruning, Drift, Opportunities).
    * Exact reviewable `diff` blocks.
-2. For multi-file updates, stage proposed changes in `~/.gemini/config/staging/<skill>-sync.md`.
-3. Apply updates to local skills only upon explicit user confirmation.
-4. Update target commit SHAs and timestamps in `~/.gemini/config/skills/upstream-auditor/upstream_state.json`.
+2. For multi-file updates, stage proposed changes in `~/.local/state/antigravity-harness/staging/<skill>-sync.md` (never inside the Guard-protected `~/.gemini/config`).
+3. Apply updates to local skills only upon explicit user confirmation, in the harness source repository, and deploy them with `python3 install.py` (the human operator approves the unlock).
+4. Update target commit SHAs and timestamps in the per-user ledger `~/.local/state/antigravity-harness/upstream_state.json` (`$XDG_STATE_HOME` is honoured) and, when releasing, in the shipped seed `skills/upstream-auditor/upstream_state.seed.json`.
 
 ---
 
 ## 3. State Ledger (`upstream_state.json`)
 
-Following synchronization, update the local state ledger:
+Runtime state lives in `~/.local/state/antigravity-harness/upstream_state.json`; the watcher seeds it from
+`upstream_state.seed.json` on first run and never writes into the skill directory. Following synchronization,
+update the local state ledger:
 
 ```json
 {

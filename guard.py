@@ -5,35 +5,31 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 
 Usage:
-  python3 guard.py status                     # View write-protection and multi-environment status
-  python3 guard.py lock [--env <id>|--all]    # Lock environment(s) with OS write protection
-  python3 guard.py unlock [--env <id>|--all]  # Unlock environment(s) for maintenance
-  python3 guard.py verify [--env <id>|--all]  # Check SHA-256 file integrity (FIM)
-  python3 guard.py rebaseline                 # Update trusted SHA-256 integrity baseline
-  python3 guard.py env list                   # List tracked agent environments and policies
-  python3 guard.py env detect                 # Auto-discover coding agent governance seams
-  python3 guard.py request-unlock --env <id>  # Request human-authorized temporary lease unlock
-  python3 guard.py lock-complete              # Signal maintenance completion and re-lock
-  python3 guard.py drift [--env <id>]         # Analyze drift across multi-environment baselines
-  python3 guard.py self-audit [--json]        # Run autonomous harness meta-consistency audit
-  python3 guard.py snapshot create --label X  # Create local state snapshot
-  python3 guard.py snapshot list              # List available snapshots
-  python3 guard.py porter inspect <path/url>  # Inspect rule with Porter suitability gate
-  python3 guard.py porter stage <path/url>    # Staging & atomic promotion gate
-  python3 guard.py upstream check             # Check 7 tracked repos (zero LLM token cost)
-  python3 guard.py test-boundary snapshot     # Snapshot workspace test & config trust boundary
-  python3 guard.py test-boundary verify       # Verify test suite immutability (bugfix/tdd)
-  python3 guard.py test-boundary run-reproducible --cmd "<cmd>" # Verify 2x test reproducibility
-  python3 guard.py provenance generate        # Generate execution provenance manifest
-  python3 guard.py startup status             # Manage Pre-Session Boot Sentinel startup
-  python3 guard.py boot-check                 # Headless boot verification and lock enforcement
-  python3 guard.py doctor [--fix]             # Environment health check & auto-healing
+  python3 guard.py status                     # Protection, integrity and lease status
+  python3 guard.py lock [--env <id>|--all]    # Write-protect governance seams
+  python3 guard.py unlock [--env <id>|--all]  # Remove protection (human confirmation)
+  python3 guard.py verify [--env <id>|--all]  # SHA-256 integrity check (FIM)
+  python3 guard.py rebaseline [--env <id>]    # Accept current state as trusted (human confirmation)
+  python3 guard.py env list|detect|add|remove|policy   # Multi-environment registry
+  python3 guard.py request-unlock --env <id>  # Time-bounded lease (human approval, auto-relock)
+  python3 guard.py lock-complete [--env <id>] # End a lease early and re-lock
+  python3 guard.py lease-tick                 # Internal: expire due leases (auto-relock watcher)
+  python3 guard.py drift [--env <id>]         # Drift across environments
+  python3 guard.py self-audit [--json|--strict] # Harness meta-consistency audit
+  python3 guard.py snapshot create|list|restore|prune  # Governance snapshots
+  python3 guard.py porter inspect|stage <path/url>     # Porter inspection and staging gate
+  python3 guard.py upstream check             # Tracked upstream repositories
+  python3 guard.py test-boundary snapshot|verify|run-reproducible  # Test trust boundary
+  python3 guard.py provenance generate|status # Execution provenance manifest
+  python3 guard.py startup enable|disable|status # Boot sentinel registration
+  python3 guard.py boot-check                 # Headless boot verification and lock
+  python3 guard.py doctor [--fix]             # Health check (permissions, legacy state, grants)
+  python3 guard.py notify status|enable|disable|quiet|normal  # Desktop notifications
   python3 guard.py gui                        # Launch desktop GUI
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 

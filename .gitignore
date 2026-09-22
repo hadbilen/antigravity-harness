@@ -9,12 +9,21 @@ tasks.md
 HANDOFF.md
 .harness/test_boundary.json
 .harness/provenance.json
+.harness/environments.json
+.harness/.active_lease.json
+skills/upstream-auditor/upstream_state.json
 
 # Environment and secrets
 .env
 .env.*
 *.key
 *.token
+
+# Build and export outputs
+dist/
+build/
+export/
+*.spec
 
 # Python & Node artifacts
 __pycache__/

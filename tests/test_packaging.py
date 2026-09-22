@@ -4,13 +4,17 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
+
 from __future__ import annotations
+
+import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)
 
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from guard import __version__
 from installers.packaging.package_linux import LinuxPackager, REPO_ROOT
 
 
@@ -20,7 +24,7 @@ class TestLinuxPackaging(unittest.TestCase):
         self.out_dir = Path(self.temp_dir.name) / "dist_test"
         self.packager = LinuxPackager(
             repo_root=REPO_ROOT,
-            version="1.3.0",
+            version=__version__,
             arch="amd64",
             out_dir=self.out_dir,
         )
@@ -31,7 +35,7 @@ class TestLinuxPackaging(unittest.TestCase):
     def test_prepare_payload_fhs_hierarchy(self):
         with tempfile.TemporaryDirectory() as stage_tmp:
             stage = Path(stage_tmp)
-            self.packager._prepare_payload(stage)
+            self.packager.prepare_payload(stage)
 
             # Assert FHS paths
             self.assertTrue((stage / "usr" / "bin" / "agy-guard").exists())
@@ -43,13 +47,13 @@ class TestLinuxPackaging(unittest.TestCase):
     def test_pure_python_deb_archive_generation(self):
         with tempfile.TemporaryDirectory() as tmp_stage:
             stage = Path(tmp_stage) / "stage"
-            self.packager._prepare_payload(stage)
+            self.packager.prepare_payload(stage)
             deb_dir = stage / "DEBIAN"
             deb_dir.mkdir(parents=True, exist_ok=True)
             (deb_dir / "control").write_text("Package: test\nVersion: 1.0\nArchitecture: all\nDescription: test\n", encoding="utf-8")
 
             target_deb = self.out_dir / "pure_test.deb"
-            deb_path = self.packager._build_deb_pure_python(stage, target_deb)
+            deb_path = self.packager.build_deb_archive(stage, target_deb)
             self.assertIsNotNone(deb_path)
             self.assertTrue(deb_path.exists())
 
@@ -97,7 +101,7 @@ class TestLinuxPackaging(unittest.TestCase):
         if result_path.suffix == ".spec":
             content = result_path.read_text(encoding="utf-8")
             self.assertIn("Name:           antigravity-guard", content)
-            self.assertIn("Version:        1.3.0", content)
+            self.assertIn(f"Version:        {__version__}", content)
             self.assertIn("/usr/bin/agy-guard", content)
 
     def test_arch_package_generation(self):
@@ -120,7 +124,7 @@ class TestLinuxPackaging(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0)
         self.assertIn("Packaging configuration valid:", res.stdout)
-        self.assertIn("Version: 1.3.0", res.stdout)
+        self.assertIn(f"Version: {__version__}", res.stdout)
         self.assertIn(self.out_dir.name, res.stdout)
 
 

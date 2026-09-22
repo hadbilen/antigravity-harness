@@ -36,7 +36,7 @@ For critical security audits, authentication/authorization overhauls, or multi-t
 - [ ] No hardcoded API keys, secrets, private keys, or tokens in source code or git history.
 - [ ] All credentials loaded strictly via environment variables or secret vaults.
 - [ ] `.env*` files explicitly listed in `.gitignore`.
-- [ ] Secret leaks scanned via computational check: `git grep -E -i "(api_key|secret|private_key|token)[[:space:]]*[:=]"`.
+- [ ] Secret leaks scanned via computational check that reports LOCATIONS only, never values: `git grep -n -I -E -i "(api_key|secret|private_key|token)[[:space:]]*[:=]" | cut -d: -f1,2`.
 
 ### 2. Input Validation & Boundaries
 - [ ] All inputs validated at system boundaries with strict typed schemas (e.g. Zod, Pydantic, Joi).
@@ -79,6 +79,7 @@ For critical security audits, authentication/authorization overhauls, or multi-t
 
 ## Pre-Deployment Verification Gate
 
-1. **Static Secret Scan:** Run `git diff origin/main | grep -iE "(key|secret|token|password)"` to confirm zero leaks.
-2. **Endpoint Auth Audit:** Verify every exported route / controller implements explicit auth guard.
-3. **Automated Security Tests:** Run integration tests verifying unauthorized access returns 401/403.
+1. **Static Secret Scan:** Run `git diff origin/main --name-only -G "(key|secret|token|password)[[:space:]]*[:=]"` to list files that add secret-like assignments (file names only; inspect them without echoing values).
+2. **Cloud & Infrastructure:** For deployments, IAM, logging/monitoring or CI/CD changes, also apply the checklist in `references/cloud-infrastructure-security.md`.
+3. **Endpoint Auth Audit:** Verify every exported route / controller implements explicit auth guard.
+4. **Automated Security Tests:** Run integration tests verifying unauthorized access returns 401/403.

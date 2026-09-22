@@ -14,6 +14,18 @@ Per Rule 10 of the Antigravity Constitution, each entry must contain the followi
 
 <!-- Entries are prepended below this line -->
 
+### 2026-09-22: Guard and Porter Claims Outran What the Code Enforced
+- **Date & Incident:** Five external audit reports (121 validated findings) showed that the live Guard install protected almost nothing (symlinked seams, lock followed links, 0777 source tree), that `--auto-approve` let an agent approve its own unlock, that baselines and snapshots lived inside the tree they protected (snapshots copied token-bearing `config.json`), that the lease never relocked on its own, and that "lossless" export dropped support files and agents. README/CHANGELOG stated tamper-resistance, Merkle trees and SSRF immunity that did not exist.
+- **Root Cause:**
+  1. Security properties were described from intent, not verified against a live install or an adversarial test.
+  2. Tests asserted exit codes like `(0, 1)` or hex literals instead of the behaviour, so regressions passed.
+  3. The self-audit checked the shape of files, not whether documented commands, counts and ratios were true.
+- **Impact:** Governance files were writable by any same-user process while the status output said PROTECTED; users could not trust the README, the self-audit or the release notes.
+- **Preventive Invariant:**
+  1. Every protection claim needs an end-to-end test against a real temporary tree (`tests/test_protection.py`), and the README must state the threat model (same-user lock is advisory).
+  2. Administration actions require a human (`guard/approval.py`); no flag may bypass it (GEMINI.md Rule 12).
+  3. `meta_audit --strict` parses every README `agy-guard` example, checks numeric claims, export parity by content and the DESIGN.md measured-contrast table; CI blocks on any warning.
+
 ### 2026-09-19: Porter Remote Fetch SSRF, Incomplete Manifest Subfiles, and Sanitizer Bypass
 - **Date & Incident:** GPT external architectural audit identified SSRF exposure in `porter.py fetch_target_content()`, loss of skill subfiles (scripts, references, assets) in `ManifestEngine`, incomplete sanitization leaving test-weakening directives intact, and platform-specific hardcoded `python3 ~/.gemini/config/...` in hooks.
 - **Root Cause:**

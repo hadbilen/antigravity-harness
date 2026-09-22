@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import os
 import platform
-import sys
 import threading
-from typing import Callable, Optional
+from typing import Callable
 
 # Attempt to load PIL for generating high-contrast status icons
 try:
@@ -30,8 +29,6 @@ def generate_shield_icon(is_locked: bool, size: int = 64):
         return None
 
     try:
-        from PIL import Image, ImageDraw
-
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
@@ -91,7 +88,7 @@ class AyatanaAdapter(BaseTrayAdapter):
         self.indicator = None
         self.is_locked = True
         self._gtk_thread = None
-        self._icon_file = "/tmp/antigravity_guard_tray.png"
+        self._icon_file = self._private_icon_path()
         self._appindicator = None
         self._gtk = None
         self._glib = None
@@ -119,19 +116,35 @@ class AyatanaAdapter(BaseTrayAdapter):
     def is_available(self) -> bool:
         return self._appindicator is not None and self._gtk is not None
 
+    @staticmethod
+    def _private_icon_path() -> str:
+        """Icon lives in a private 0700 per-user runtime directory (never a shared /tmp path)."""
+        try:
+            from guard.paths import runtime_dir
+            return str(runtime_dir() / "tray_icon.png")
+        except Exception:
+            return ""
+
     def _save_icon(self):
+        if not self._icon_file:
+            return
         img = generate_shield_icon(self.is_locked, size=32)
         if img:
+            tmp = f"{self._icon_file}.{os.getpid()}.tmp"
             try:
-                img.save(self._icon_file)
+                img.save(tmp, format="PNG")
+                os.replace(tmp, self._icon_file)
             except Exception:
-                pass
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
     def start(self):
         if not self.is_available:
             return
         self._save_icon()
-        icon_name = self._icon_file if os.path.isfile(self._icon_file) else "security-high"
+        icon_name = self._icon_file if self._icon_file and os.path.isfile(self._icon_file) else "security-high"
 
         def _run_gtk():
             try:
@@ -198,7 +211,7 @@ class AyatanaAdapter(BaseTrayAdapter):
 
     def _update_gtk_status(self):
         if self.indicator:
-            if os.path.isfile(self._icon_file):
+            if self._icon_file and os.path.isfile(self._icon_file):
                 self.indicator.set_icon_full(self._icon_file, "Antigravity Guard")
             self._update_gtk_menu()
         return False

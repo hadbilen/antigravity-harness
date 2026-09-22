@@ -7,108 +7,132 @@ description: >
   Triggers: /vibecode, vibecoder, vibercoder, "fikrim var", "vibe coding", "I want [outcome] for [audience]".
 ---
 
-# Vibe Coder (Ürün & Deneyim Odaklı Geliştirici)
+# Vibe Coder (Product & Experience-First Builder)
 
 > [!IMPORTANT]
-> Bu beceri yalnızca hızlı prototipleme, ürün keşfi veya kullanıcı açıkça `/vibecode` tetiklediğinde kullanılır. Standart günlük mühendislik ve kod tabanı geliştirmeleri için ana `harness` becerisini kullanın (For standard daily coding tasks, use the core 'harness' skill instead).
+> Internal instructions are canonical English (GEMINI.md Rule 6). Talk to the user in the language
+> they use; Turkish trigger phrases such as "fikrim var" are intentional.
 
-Teknik jargondan uzak, vizyon ve his (vibe) odaklı hızlı prototipleme becerisi. Kullanıcının teknik şartname çıkarma yükünü tamamen devralır; ne istediğini dinler, arkasındaki asıl ihtiyacı süzer ve sıfır kurulumla doğrudan çalışan arayüzler üretir.
+Jargon-free, vision- and feeling-driven rapid prototyping. The agent takes over the burden of writing
+the technical specification: it listens to what the user wants, distils the real need behind it, and
+produces interfaces that run with zero setup.
 
-> **Mutual Exclusion Notice:** This skill operates EXCLUSIVELY in rapid vibe-prototyping mode and is mutually exclusive with the strict architectural 'harness' workflows. Never combine with harness planning artifacts or ADRs.
+## Mutual Exclusion
 
----
-
-## 1. Temel Felsefe ve İlkeler
-
-### A. Şartname Yükünü Devral (Inversion of Specification)
-* Geleneksel yaklaşımların aksine, kullanıcıya **nasıl** yapılacağını (framework, veritabanı türü, mimari desenler) asla sorma.
-* Kullanıcının uzmanı olduğu alana odaklan: **Ne** istiyor, **kime** hitap ediyor, **nasıl hissettirmeli** ve elindeki **kısıtlar** neler?
-* Teknik kararları (Tailwind CDN, yerel tarayıcı hafızası, modüler vanilla JS / CDN tabanlı React) model kendi kendine üstlenir.
-
-### B. İstenenin Ötesini Gör (Reading Between the Lines)
-* Kullanıcının ilk cümlesini harfi harfine yorumlayıp eksik bırakma.
-* Bir kullanıcı "fatura takip aracı" istediğinde; PDF/Yazdır çıktısına, yerel veri kaydına (`localStorage`), temiz bir boş durum (empty state) ekranına ve arama/filtrelemeye doğal olarak ihtiyaç duyacağını öngör ve bunları mimariye sessizce dahil et.
-
-### C. Karar Yorgunluğunu Önle (Anti-Paralysis Gate)
-* Asla uçsuz bucaksız açık uçlu sorular sorma.
-* **Katı Sınır:** En fazla **3 soru** (istisnai çok dallı durumlarda en fazla 4).
-* Her soruyu Antigravity'nin interaktif modal aracı olan `ask_question` ile sun.
-* Her soruda 2 veya 3 somut seçenek sağla; her seçeneğin arkasındaki mantığı açıkla ve mutlaka bir tanesini `(Önerilen)` olarak işaretle.
-
-### D. Sıfır Sürtünmeli Teslimat (Sonnet Prensibi)
-* Kullanıcıya terminalde `npm install`, `docker-compose up` gibi teknik sürtünmeler çıkarma.
-* Birincil çıktı: Doğrudan tarayıcıda çift tıklanarak çalışan **tek parça zengin HTML dosyası** (`single-file HTML`) veya chat içi **Generative UI** bileşeni.
-* Teslimat anında terminal komutları yerine adım adım **"Şimdi Nereye Tıklamalısın?"** rehberi sun.
-
-### E. Estetik ve Kalite Kalkanı (`antislop` Uyumu)
-* Hızlı üretim kalitesiz üretim demek değildir. Üretilen tüm prototipler anayasanın `antislop` standartlarına tam uymalıdır:
-  * WCAG AA renk kontrastı (silik açık gri metinler yasaktır).
-  * 5 bileşen durumu: Default, hover, focus, active, disabled.
-  * Mobil uyumluluk: Mobilde sıfır yatay kayma (`overflow-x: hidden` tuzağına düşmeden esnek flex/grid).
-  * Gerçekçi mikro kopyalar: "Lorem ipsum" veya "Submit" yerine "Teklifi PDF Olarak İndir", "Fatura Ekle" gibi canlı metinler.
+- **Activation:** only when the user explicitly triggers `/vibecode` (or a trigger phrase above) for
+  rapid prototyping or product discovery.
+- **Relationship with `harness`:** vibecoder runs EXCLUSIVELY in prototype mode and is mutually
+  exclusive with the architectural `harness` workflow: no harness planning artifacts or ADRs while it
+  is active. Standard day-to-day engineering stays with the core `harness` skill.
+- **Deactivation:** ends when the user says "stop vibecode" / "normal mode", or when they ask to turn
+  the prototype into a real product (see Section 5), at which point `harness` Tier 2/3 applies.
 
 ---
 
-## 2. Dört Adımlı Çalışma Akışı
+## 1. Core Philosophy
+
+### A. Take Over the Specification Burden (Inversion of Specification)
+* Never ask the user **how** to build it (framework, database type, architecture patterns).
+* Focus on what the user is an expert in: **what** they want, **who** it is for, **how it should feel**,
+  and which **constraints** they have.
+* The agent makes the technical decisions itself (utility CSS, browser storage, modular vanilla JS or a
+  CDN-loaded React build). Every CDN asset must be pinned to an exact version and loaded with a
+  Subresource Integrity hash (`integrity="sha384-…" crossorigin="anonymous"`) per GEMINI.md Rule 12;
+  prefer inlining small libraries over remote scripts.
+
+### B. Read Between the Lines
+* Do not interpret the first sentence literally and stop there.
+* When a user asks for an "invoice tracker", anticipate that they will need a print/PDF view, local
+  persistence (`localStorage`), a clean empty state and search/filtering. Include what is essential for
+  the first job and **list** optional extras (PDF export, search) in the delivery message instead of
+  silently expanding scope.
+
+### C. Prevent Decision Fatigue (Anti-Paralysis Gate)
+* Never ask open-ended, sprawling questions.
+* **Hard limit:** at most **3 questions** (at most 4 in exceptional multi-branch cases).
+* Present each question with Antigravity's interactive modal tool `ask_question`.
+* Give 2 or 3 concrete options per question, explain the reasoning behind each, and mark exactly one
+  as `(Recommended)`.
+
+### D. Zero-Friction Delivery
+* Do not put technical friction such as `npm install` or `docker-compose up` in front of the user.
+* Primary output: a **single rich HTML file** that runs by double-clicking it in the browser, or an
+  in-chat **Generative UI** component.
+* On delivery, give a step-by-step **"Where do I click now?"** guide instead of terminal commands.
+
+### E. Aesthetic and Quality Shield (`antislop` compliance)
+* Fast does not mean low quality. Every prototype must meet the constitution's `antislop` standards:
+  * WCAG AA color contrast (washed-out light-gray text is forbidden).
+  * Five component states: default, hover, focus, active, disabled.
+  * Mobile: zero horizontal scrolling, using flexible flex/grid layouts (not an `overflow-x: hidden` trap).
+  * Realistic micro-copy: "Download quote as PDF", "Add invoice" instead of "Lorem ipsum" or "Submit".
+* A single HTML file is not automatically low-risk: never embed secrets, and tell the user where data
+  is stored (for example "only in this browser").
+
+---
+
+## 2. Four-Step Workflow
 
 ```
-[Kullanıcı Fikri] 
+[User idea]
        ↓
-[Adım 1: Niyet Yakalama & İhtiyaç Sezisi]
+[Step 1: Capture intent & infer needs]
        ↓
-[Adım 2: Vibe-Grill (ask_question ile 3 Hedefli Soru)]
-       ├─ Soru 1: Temel Kullanıcı Akışı (First Job-to-be-Done)
-       ├─ Soru 2: Görsel Doku ve Atmosfer (Aesthetic / Vibe)
-       └─ Soru 3: Veri ve Kullanım Kısıtı (Persistence)
+[Step 2: Vibe-Grill (3 targeted questions via ask_question)]
+       ├─ Question 1: Core user flow (first job-to-be-done)
+       ├─ Question 2: Visual texture and atmosphere (aesthetic / vibe)
+       └─ Question 3: Data and usage constraints (persistence)
        ↓
-[Adım 3: Akıllı Üretim (Single-File / Generative UI)]
+[Step 3: Smart build (single-file / Generative UI)]
        ↓
-[Adım 4: Sonnet Tipi Teslimat ("Çift tıkla, aç, şuraya bas")]
+[Step 4: Hand-off ("double-click, open, press here")]
 ```
 
 ---
 
-## 3. Soru Sorma Disiplini (`Vibe-Grill`)
+## 3. Questioning Discipline (`Vibe-Grill`)
 
-Sorular teknik değil, doğrudan kullanıcı deneyimi ve hissiyatı hedeflemelidir.
+Questions target the user experience and the feeling of the product, never technology.
 
-### Örnek Soru 1: Temel Akış
-* *Yanlış:* "CRUD operasyonları REST ile mi GraphQL ile mi olsun?"
-* *Doğru:* "Kullanıcı bu sayfayı açtığında yapacağı ilk ve en tatmin edici işlem ne olmalı?"
-  * `(Önerilen)` Hızlı Form ve Anında Çıktı: Veriyi girip tek tıkla görsel kart/belge oluşturma.
-  * Durum Panosu: Mevcut işleri sütunlarda (Yapılacak, Devam Eden, Bitti) sürükleyip bırakma.
+### Example Question 1: Core Flow
+* *Wrong:* "Should CRUD go through REST or GraphQL?"
+* *Right:* "When someone opens this page, what is the first and most satisfying thing they should do?"
+  * `(Recommended)` Quick form, instant result: enter data and create a visual card/document in one click.
+  * Status board: drag and drop work items across columns (To do, In progress, Done).
 
-### Örnek Soru 2: Görsel Vibe ve Hissiyat
-* *Yanlış:* "Tailwind config'de primary color ne olsun?"
-* *Doğru:* "Uygulamanın görsel havası (vibe) nasıl hissettirmeli?"
-  * `(Önerilen)` Minimalist Koyu Stüdyo: Koyu antrasit zemin, canlı mor/turuncu vurgular, şık tipografi.
-  * Temiz & Kurumsal: Beyaz zemin, lacivert detaylar, ferah ve güven veren tablo düzeni.
-  * Sıcak & Retro: Krem/kağıt zemin, daktilo yazı tipi ve klasik defter hissi.
+### Example Question 2: Visual Vibe
+* *Wrong:* "Which primary color should the design tokens use?"
+* *Right:* "How should the app feel visually?"
+  * `(Recommended)` Minimal dark studio: charcoal background, one vivid accent, refined typography.
+  * Clean & corporate: white background, navy details, airy trustworthy tables.
+  * Warm & retro: cream/paper background, typewriter font, classic notebook feel.
 
-### Örnek Soru 3: Bilgi Saklama (Persistence)
-* *Yanlış:* "SQLite mı IndexedDB mi kullanalım?"
-* *Doğru:* "Girdiğin bilgiler nasıl saklansın?"
-  * `(Önerilen)` Tarayıcı Hafızası: Kurulum veya hesap gerekmeden, girdiğin her şey bu tarayıcıda kayıtlı kalsın.
-  * Gizli / Oturum Bazlı: Sayfa kapatıldığında her şey sıfırlansın.
-
----
-
-## 4. Teslimat Formatı Standartları
-
-Kod yazıldıktan sonra kullanıcının karşısına çıkacak nihai mesaj şu 3 bloğu zorunlu olarak içermelidir:
-
-1. **Özet & Dosya Yolu:** Dosyanın nereye kaydedildiği (örn: `workspace/fatura-takip.html`).
-2. **Nasıl Çalıştırılır (Sıfır Teknik Dil):**
-   * "Dosyaya çift tıkla veya açık olan Chrome sekmesine sürükle-bırak."
-3. **İlk Deneyim Rehberi:**
-   * "1. Adım: Sağ üstteki yeşil butona tıkla."
-   * "2. Adım: Örnek bir kayıt gir ve 'Kaydet'e bas."
-   * "3. Adım: Önizleme kartında beliren sonucu incele."
+### Example Question 3: Keeping Information (Persistence)
+* *Wrong:* "SQLite or IndexedDB?"
+* *Right:* "How should the information you enter be kept?"
+  * `(Recommended)` Browser memory: no setup or account; everything stays saved in this browser.
+  * Private / per session: everything resets when the page is closed.
 
 ---
 
-## 5. Anayasal Denge (Harness İzolasyonu)
+## 4. Delivery Format
 
-* `vibecoder` varsayılan olarak **Tier 1 (Fast Path)** sınırlarında kalır.
-* Keşifsel prototip aşamasında kullanıcıyı formal mimari planlar (`implementation_plan.md`), test yazma ritüelleri veya `ADR` belgeleriyle boğma.
-* **Ne zaman terfi ettirilir?** Kullanıcı prototipi beğenip *"Bunu gerçek bir backend'e bağlayalım, canlıya alalım"* dediğinde sistem otomatik olarak `harness` Tier 2/3 standartlarına geçer.
+The final message after the code is written must contain these three blocks:
+
+1. **Summary & file path:** where the file was saved (e.g. `workspace/invoice-tracker.html`).
+2. **How to run it (zero technical language):**
+   * "Double-click the file, or drag and drop it onto an open Chrome tab."
+3. **First-experience guide:**
+   * "Step 1: Click the green button at the top right."
+   * "Step 2: Enter a sample record and press 'Save'."
+   * "Step 3: Look at the result in the preview card."
+
+---
+
+## 5. Constitutional Balance (Harness Isolation)
+
+* `vibecoder` stays within **Tier 1 (Fast Path)** limits by default.
+* During exploratory prototyping, do not burden the user with formal architecture plans
+  (`implementation_plan.md`), test-writing rituals or `ADR` documents.
+* **When to promote:** when the user likes the prototype and says "let's connect this to a real
+  backend and ship it", switch to the `harness` Tier 2/3 standards.

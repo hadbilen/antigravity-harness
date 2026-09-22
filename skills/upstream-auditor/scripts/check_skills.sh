@@ -6,22 +6,29 @@
 
 set -e
 
-CONFIG_DIR="${HOME}/.gemini/config"
-STATE_FILE="${CONFIG_DIR}/skills/upstream-auditor/upstream_state.json"
+CONFIG_DIR="${ANTIGRAVITY_CONFIG_DIR:-${HOME}/.gemini/config}"
+STATE_DIR="${AGY_GUARD_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/antigravity-harness}"
+STATE_FILE="${UPSTREAM_STATE_FILE:-${STATE_DIR}/upstream_state.json}"
+SEED_FILE="${CONFIG_DIR}/skills/upstream-auditor/upstream_state.seed.json"
 
 if [ ! -f "$STATE_FILE" ]; then
-  echo "[ERROR] State file not found: $STATE_FILE" >&2
+  STATE_FILE="$SEED_FILE"
+fi
+if [ ! -f "$STATE_FILE" ]; then
+  echo "[ERROR] No upstream state found (looked in the state directory and $SEED_FILE)" >&2
   exit 1
 fi
 
-python3 - <<'EOF'
+AGY_UPSTREAM_STATE="$STATE_FILE" python3 - <<'EOF'
 import json
 import os
+import re
 import sys
+import urllib.parse
 import urllib.request
 from datetime import datetime
 
-state_file = os.path.expanduser("~/.gemini/config/skills/upstream-auditor/upstream_state.json")
+state_file = os.environ["AGY_UPSTREAM_STATE"]
 
 try:
     with open(state_file, "r", encoding="utf-8") as f:
@@ -46,7 +53,10 @@ for name, info in tracked.items():
     branch = info.get("branch", "main")
     recorded_sha = info.get("last_synced_commit", "")[:7]
     
-    url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", str(repo)):
+        print(f"{name:<22} | {'-':<11} | {'-':<11} | {'INVALID REPO':<15}")
+        continue
+    url = f"https://api.github.com/repos/{repo}/commits?" + urllib.parse.urlencode({"sha": branch, "per_page": 1})
     req = urllib.request.Request(url, headers={"User-Agent": "UpstreamAuditor-Watchdog/1.0"})
     
     current_sha = "UNKNOWN"

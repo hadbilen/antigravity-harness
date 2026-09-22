@@ -3,6 +3,8 @@ tests/test_provenance.py — Unit Tests for RunProvenanceTracker
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 """
 
+import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)
+
 import json
 import os
 import shutil
@@ -31,17 +33,18 @@ class TestRunProvenanceTracker(unittest.TestCase):
         self.tracker = RunProvenanceTracker(workspace_dir=self.test_dir)
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_generate_manifest_basic(self):
         manifest = self.tracker.generate_manifest(mode="bugfix")
         self.assertIsInstance(manifest, RunProvenanceManifest)
-        self.assertEqual(manifest.version, "1.3.0")
+        from guard import __version__
+        self.assertEqual(manifest.version, __version__)
         self.assertTrue(manifest.test_boundary_verified)
         self.assertTrue(self.tracker.output_file.exists())
 
         saved = json.loads(self.tracker.output_file.read_text(encoding="utf-8"))
-        self.assertEqual(saved["version"], "1.3.0")
+        self.assertEqual(saved["version"], __version__)
         self.assertTrue(saved["test_boundary_verified"])
 
     def test_detect_environment_overrides(self):

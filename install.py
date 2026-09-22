@@ -1,282 +1,469 @@
 #!/usr/bin/env python3
 """
 install.py — Antigravity Harness Cross-Platform Installer
-Compatible with Windows, Linux, macOS, and FreeBSD.
 Zero-dependency: uses strictly the Python standard library.
 
-Installs the clean AI workspace configuration (constitution, design contracts,
-autonomous subagents, modular skills) into ~/.gemini/config/
-Installs the standalone Antigravity Guard (agy-guard) binary into ~/.local/bin/
+Default (copy mode): governance files (constitution, design contract, agents, skills,
+templates, manifest, hooks) are COPIED into ~/.gemini/config as real files so Antigravity
+Guard can actually write-protect them. Guard's runtime code is copied into the per-user data
+directory and small launchers are placed in ~/.local/bin (or %LOCALAPPDATA% on Windows).
+
+--link (developer mode): governance entries are symlinked to this checkout instead. Guard
+cannot lock symlinked entries; `agy-guard status` reports them as unprotected.
+
+The installer is Guard-aware: if the governance scope is locked it asks a human to confirm,
+unlocks, installs, re-establishes the integrity baseline and locks again. Existing files are
+moved to a timestamped backup OUTSIDE the configuration tree; nothing is deleted.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
-from datetime import datetime
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict, List, Optional
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from guard import __version__  # noqa: E402
+from guard.approval import refusal_message, request_approval  # noqa: E402
+from guard.environment import EnvironmentRegistry  # noqa: E402
+from guard.integrity import FileIntegrityMonitor  # noqa: E402
+from guard.paths import atomic_write_json, data_dir, state_dir  # noqa: E402
 
 IS_WINDOWS = platform.system().lower() == "windows"
+SYSTEM = platform.system()
+GOVERNANCE_FILES = ["GEMINI.md", "DESIGN.md", "MISTAKES.md"]
+RUNTIME_ENTRIES = ["guard", "porter", "scripts", "guard.py", "porter.py"]
+LAUNCHER_MARKER = "antigravity-harness launcher"
+RELEASE_BASE = "https://github.com/hadbilen/antigravity-harness/releases/download"
 
 
-def make_symlink_or_copy(src: Path, dest: Path, backup_dir: Path) -> str:
-    """Creates a symlink with automatic Windows junction/copy fallback."""
-    # Backup non-symlink existing file/directory
-    if dest.exists() and not dest.is_symlink():
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        backup_target = backup_dir / dest.name
-        print(f"[BACKUP] Existing {dest.name} -> {backup_dir.name}/")
-        if dest.is_dir():
-            shutil.move(str(dest), str(backup_target))
-        else:
-            shutil.move(str(dest), str(backup_target))
+def _ignore(src: str, names: List[str]) -> List[str]:
+    return [n for n in names if n in ("__pycache__", ".pytest_cache", ".DS_Store") or n.endswith((".pyc", ".pyo"))]
 
-    # Remove existing link or broken symlink
-    if dest.is_symlink() or dest.exists():
-        if dest.is_dir() and not dest.is_symlink():
-            shutil.rmtree(dest)
-        else:
-            dest.unlink(missing_ok=True)
 
-    # Attempt symlink creation
-    try:
-        dest.symlink_to(src.resolve(), target_is_directory=src.is_dir())
-        return f"[LINKED] {dest.name} -> {src}"
-    except (OSError, NotImplementedError):
-        # Windows without Developer Mode or SeCreateSymbolicLinkPrivilege
-        if IS_WINDOWS and src.is_dir():
+class Installer:
+    def __init__(self, target_dir: Path, mode: str, dry_run: bool = False):
+        self.target_dir = target_dir
+        self.mode = mode  # "copy" | "link"
+        self.dry_run = dry_run
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.backup_dir = state_dir() / "backups" / f"install_{stamp}"
+        self.installed: List[str] = []
+
+    # ------------------------------------------------------------------
+    def log(self, msg: str) -> None:
+        print(msg)
+
+    def backup(self, dest: Path) -> None:
+        """Moves an existing entry (file, dir or symlink) into the external backup directory."""
+        if not os.path.lexists(dest):
+            return
+        rel = dest.relative_to(self.target_dir) if dest.is_relative_to(self.target_dir) else Path(dest.name)
+        target = self.backup_dir / rel
+        self.log(f"{'[DRY-RUN] backup' if self.dry_run else '[BACKUP]'} {rel} -> {target}")
+        if self.dry_run:
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(dest), str(target))
+
+    def place(self, src: Path, dest: Path) -> None:
+        """Copies (or links) src to dest after backing up whatever was there."""
+        if self.dry_run:
+            self.log(f"[DRY-RUN] {'link' if self.mode == 'link' else 'copy'} {src} -> {dest}")
+            return
+        if self.mode == "copy" and os.path.lexists(dest) and not os.path.islink(dest) and dest.is_file() and src.is_file():
+            if dest.read_bytes() == src.read_bytes():
+                self.installed.append(str(dest))
+                return
+        self.backup(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if self.mode == "link":
             try:
-                import _winapi
+                dest.symlink_to(src.resolve(), target_is_directory=src.is_dir())
+                self.log(f"[LINKED] {dest.name} -> {src}")
+                self.installed.append(str(dest))
+                return
+            except (OSError, NotImplementedError):
+                if IS_WINDOWS and src.is_dir():
+                    try:
+                        import _winapi
 
-                _winapi.CreateJunction(str(src.resolve()), str(dest))
-                return f"[JUNCTION] {dest.name} -> {src}"
-            except Exception:
-                pass
-
-        # Fallback to copy mode
+                        _winapi.CreateJunction(str(src.resolve()), str(dest))
+                        self.log(f"[JUNCTION] {dest.name} -> {src}")
+                        self.installed.append(str(dest))
+                        return
+                    except Exception:
+                        pass
+                self.log(f"[NOTICE] Symlink not permitted for {dest.name}; copying instead.")
         if src.is_dir():
-            shutil.copytree(src, dest, dirs_exist_ok=True)
-            return f"[COPIED (Fallback)] {dest.name} (directory copy)"
+            shutil.copytree(src, dest, symlinks=True, ignore=_ignore)
         else:
             shutil.copy2(src, dest)
-            return f"[COPIED (Fallback)] {dest.name} (file copy)"
+        self.log(f"[COPIED] {dest.relative_to(self.target_dir) if dest.is_relative_to(self.target_dir) else dest}")
+        self.installed.append(str(dest))
 
+    # ------------------------------------------------------------------
+    def install_governance(self) -> None:
+        for name in GOVERNANCE_FILES:
+            src = SCRIPT_DIR / name
+            if src.is_file():
+                self.place(src, self.target_dir / name)
+        manifest = SCRIPT_DIR / ".harness" / "manifest.json"
+        if manifest.is_file():
+            if os.path.islink(self.target_dir / ".harness"):
+                self.backup(self.target_dir / ".harness")
+            self.place(manifest, self.target_dir / ".harness" / "manifest.json")
+        for sub in ("agents",):
+            for agent in sorted((SCRIPT_DIR / sub).glob("*.md")):
+                self.place(agent, self.target_dir / sub / agent.name)
+        skills_src = SCRIPT_DIR / "skills"
+        if os.path.islink(self.target_dir / "skills"):
+            self.backup(self.target_dir / "skills")
+        for skill in sorted(p for p in skills_src.iterdir() if p.is_dir()):
+            self.place(skill, self.target_dir / "skills" / skill.name)
+        templates = SCRIPT_DIR / "templates"
+        if templates.is_dir():
+            for tmpl in sorted(templates.iterdir()):
+                if tmpl.is_file() and tmpl.name != "config.example.json":
+                    self.place(tmpl, self.target_dir / "templates" / tmpl.name)
 
-def install_guard_binary(script_dir: Path, from_source: bool = False) -> str:
-    """
-    Installs the agy-guard standalone binary into ~/.local/bin/ (POSIX) or local app data (Windows).
-    Falls back gracefully to the Python launcher if offline or in developer mode.
-    """
-    system = platform.system()
-    raw_machine = platform.machine().lower()
-    machine = "x86_64" if raw_machine in ("amd64", "x86_64") else ("arm64" if raw_machine in ("arm64", "aarch64") else raw_machine)
-
-    if IS_WINDOWS:
-        local_bin = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard"
-        dest_bin = local_bin / "agy-guard.exe"
-        binary_name = f"agy-guard-windows-{machine}.exe"
-    else:
-        local_bin = Path.home() / ".local" / "bin"
-        dest_bin = local_bin / "agy-guard"
-        if system == "Darwin":
-            binary_name = f"agy-guard-macos-{machine}"
-        else:
-            binary_name = f"agy-guard-linux-{machine}"
-
-    local_bin.mkdir(parents=True, exist_ok=True)
-
-    # Developer / source mode: Link the script directly
-    if from_source:
-        guard_bin = script_dir / "bin" / ("agy-guard.bat" if IS_WINDOWS else "agy-guard")
-        if guard_bin.is_file():
-            if not IS_WINDOWS:
-                guard_bin.chmod(guard_bin.stat().st_mode | 0o755)
-            if dest_bin.is_symlink() or dest_bin.exists():
-                dest_bin.unlink(missing_ok=True)
+    def install_hooks(self) -> None:
+        """Merges the upstream watchdog hook into hooks.json (other hooks are preserved)."""
+        hooks_path = self.target_dir / "hooks.json"
+        watcher = self.target_dir / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
+        existing: Dict = {}
+        if hooks_path.is_file():  # reading through a legacy symlink is fine; writing never is
             try:
-                dest_bin.symlink_to(guard_bin.resolve())
-                return f"[LAUNCHER (Source Mode)] Linked agy-guard -> {dest_bin}"
-            except Exception:
-                shutil.copy2(guard_bin, dest_bin)
-                return f"[LAUNCHER (Source Mode)] Copied agy-guard -> {dest_bin}"
+                existing = json.loads(hooks_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                existing = {}
+        python_bin = sys.executable or ("python" if IS_WINDOWS else "python3")
+        command = subprocess.list2cmdline([python_bin, str(watcher)]) if IS_WINDOWS else f'"{python_bin}" "{watcher}"'
+        merged = dict(existing)
+        merged["upstream-watchdog"] = {"PreInvocation": [{"type": "command", "command": command, "timeout": 15}]}
+        if self.dry_run:
+            self.log(f"[DRY-RUN] hooks.json -> {command}")
+            return
+        if merged == existing:
+            return
+        self.backup(hooks_path)
+        hooks_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+        self.installed.append(str(hooks_path))
+        self.log(f"[CONFIGURED] hooks.json (upstream-watchdog -> {watcher})")
 
-    # Production mode: Try local dist/ binary first
-    local_dist_binary = script_dir / "dist" / binary_name
-    if local_dist_binary.is_file():
-        if dest_bin.is_symlink() or dest_bin.exists():
-            dest_bin.unlink(missing_ok=True)
-        shutil.copy2(local_dist_binary, dest_bin)
-        if not IS_WINDOWS:
-            dest_bin.chmod(dest_bin.stat().st_mode | 0o755)
-        return f"[STANDALONE] Installed agy-guard from local build -> {dest_bin}"
-
-    # Try downloading the compiled binary from GitHub Releases
-    release_url = f"https://github.com/hadbilen/antigravity-harness/releases/download/v1.3.0/{binary_name}"
-    print(f"[FETCH] Downloading standalone binary from GitHub Releases ({binary_name})...")
-    try:
-        import urllib.request
-        req = urllib.request.Request(release_url, headers={"User-Agent": "AntigravityHarness-Installer/1.3.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            if resp.status == 200:
-                if dest_bin.is_symlink() or dest_bin.exists():
-                    dest_bin.unlink(missing_ok=True)
-                with open(dest_bin, "wb") as f:
-                    shutil.copyfileobj(resp, f)
-                if not IS_WINDOWS:
-                    dest_bin.chmod(dest_bin.stat().st_mode | 0o755)
-                return f"[STANDALONE] Downloaded & installed standalone binary -> {dest_bin}"
-    except Exception as e:
-        print(f"[NOTICE] Could not download standalone binary ({e}). Falling back to Python launcher.")
-
-    # Graceful fallback to Python launcher
-    guard_bin = script_dir / "bin" / ("agy-guard.bat" if IS_WINDOWS else "agy-guard")
-    if guard_bin.is_file():
-        if not IS_WINDOWS:
-            guard_bin.chmod(guard_bin.stat().st_mode | 0o755)
-        if dest_bin.is_symlink() or dest_bin.exists():
-            dest_bin.unlink(missing_ok=True)
+    def migrate_mcp_config(self) -> None:
+        """Repoints MCP server scripts that live in a skill of this harness to the installed copy."""
+        mcp = self.target_dir / "mcp_config.json"
+        if not mcp.is_file():
+            return
         try:
-            dest_bin.symlink_to(guard_bin.resolve())
-            return f"[LAUNCHER (Fallback)] Linked Python launcher -> {dest_bin}"
-        except Exception:
-            shutil.copy2(guard_bin, dest_bin)
-            return f"[LAUNCHER (Fallback)] Copied Python launcher -> {dest_bin}"
+            data = json.loads(mcp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        changed = False
+        for server in (data.get("mcpServers") or {}).values():
+            args = server.get("args") or []
+            for i, arg in enumerate(args):
+                parts = Path(str(arg)).parts
+                if "skills" in parts and parts.index("skills") > 0 and parts[parts.index("skills") - 1] == "antigravity-harness":
+                    rel = Path(*parts[parts.index("skills"):])
+                    candidate = self.target_dir / rel
+                    if candidate.exists() and str(candidate) != arg:
+                        args[i] = str(candidate)
+                        changed = True
+        if changed and not self.dry_run:
+            self.backup(mcp)
+            mcp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            self.log("[CONFIGURED] mcp_config.json now points to the protected skill copies")
 
-    return "[WARN] Could not install agy-guard executable."
+    @staticmethod
+    def _release_legacy_tree(path: Path) -> None:
+        """Pre-1.3.1 Guard locked whole trees read-only; moving a directory needs write access to it."""
+        if os.path.islink(path) or not path.is_dir():
+            return
+        for root, dirs, _files in os.walk(path):
+            for d in [root] + [os.path.join(root, n) for n in dirs]:
+                if not os.path.islink(d):
+                    mode = os.lstat(d).st_mode
+                    if not mode & 0o200:
+                        os.chmod(d, (mode & 0o7777) | 0o200)
+
+    def _move_out(self, src: Path, dest: Path, label: str, note: str = "") -> None:
+        """Moves a legacy entry out of the configuration tree; failures are reported, never fatal."""
+        if self.dry_run:
+            self.log(f"[DRY-RUN] move {label} {src.name} -> {dest}")
+            return
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not IS_WINDOWS:
+                os.chmod(dest.parent, 0o700)
+            self._release_legacy_tree(src)
+            shutil.move(str(src), str(dest))
+            self.log(f"[MOVED] {label} {src.name} -> {dest}{note}")
+        except OSError as e:
+            self.log(f"[WARN] Could not move {label} {src}: {e}. Move it out of the config tree manually.")
+
+    def move_legacy_backups(self) -> None:
+        for legacy in sorted(self.target_dir.glob("backup_*")):
+            if legacy.is_dir() and not legacy.is_symlink():
+                self._move_out(legacy, state_dir() / "backups" / legacy.name, "legacy installer backup")
+
+    def move_legacy_guard_state(self) -> None:
+        """Pre-1.3.1 baselines and snapshots lived inside the protected tree (snapshots copied config.json)."""
+        stamp = self.backup_dir.name.replace("install_", "config_")
+        for name in (".guard_snapshots", ".guard_integrity.json"):
+            src = self.target_dir / name
+            if os.path.lexists(src):
+                self._move_out(src, state_dir() / "legacy" / stamp / name, "legacy Guard data",
+                               " (may contain copies of config.json with tokens; delete it once reviewed)")
+
+    def move_legacy_runtime_links(self) -> None:
+        """Earlier link-mode installs placed runtime symlinks (guard, porter, ...) into the config root."""
+        for name in RUNTIME_ENTRIES:
+            link = self.target_dir / name
+            if not os.path.islink(link):
+                continue
+            checkout = Path(os.path.realpath(link)).parent
+            if (checkout / "guard" / "__init__.py").is_file() and (checkout / "porter.py").is_file():
+                if self.dry_run:
+                    self.log(f"[DRY-RUN] backup legacy runtime link {name}")
+                    continue
+                self.backup(link)
+
+    # ------------------------------------------------------------------
+    def install_runtime(self) -> Path:
+        """Copies Guard/Porter code to the data directory (copy mode) or uses this checkout (link mode)."""
+        if self.mode == "link":
+            return SCRIPT_DIR
+        runtime = data_dir() / "runtime"
+        if self.dry_run:
+            self.log(f"[DRY-RUN] runtime -> {runtime}")
+            return runtime
+        staging = runtime.with_name("runtime.new")
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True)
+        for name in RUNTIME_ENTRIES:
+            src = SCRIPT_DIR / name
+            if src.is_dir():
+                shutil.copytree(src, staging / name, ignore=_ignore)
+            elif src.is_file():
+                shutil.copy2(src, staging / name)
+        previous = runtime.with_name("runtime.prev")
+        if previous.exists():
+            shutil.rmtree(previous)
+        if runtime.exists():
+            os.replace(runtime, previous)
+        os.replace(staging, runtime)
+        self.log(f"[RUNTIME] Guard {__version__} runtime installed -> {runtime}")
+        return runtime
+
+    def _write_launcher(self, path: Path, content: str, executable: bool = True) -> None:
+        if os.path.lexists(path):
+            try:
+                existing = path.read_text(encoding="utf-8", errors="ignore") if path.is_file() else ""
+            except OSError:
+                existing = ""
+            if LAUNCHER_MARKER not in existing and not os.path.islink(path):
+                self._backup_external(path)
+            else:
+                path.unlink()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        if executable and not IS_WINDOWS:
+            path.chmod(0o755)
+        self.log(f"[LAUNCHER] {path}")
+
+    def _backup_external(self, path: Path) -> None:
+        target = self.backup_dir / "launchers" / path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(path), str(target))
+        self.log(f"[BACKUP] {path} -> {target}")
+
+    def install_launchers(self, runtime: Path) -> None:
+        python_bin = sys.executable or ("python" if IS_WINDOWS else "python3")
+        if self.dry_run:
+            self.log("[DRY-RUN] launchers agy-guard / agy-porter")
+            return
+        if IS_WINDOWS:
+            bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard"
+            for name, script in (("agy-guard", "guard.py"), ("agy-porter", "porter.py")):
+                body = f'@echo off\r\nrem {LAUNCHER_MARKER}\r\n"{python_bin}" "{runtime / script}" %*\r\n'
+                self._write_launcher(bin_dir / f"{name}.cmd", body, executable=False)
+            self.log(f"[PATH] Add {bin_dir} to your PATH to use agy-guard / agy-porter.")
+            return
+        bin_dir = Path.home() / ".local" / "bin"
+        for name, script in (("agy-guard", "guard.py"), ("agy-porter", "porter.py")):
+            body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec "{python_bin}" "{runtime / script}" "$@"\n'
+            self._write_launcher(bin_dir / name, body)
+        porter_alias = bin_dir / "porter"
+        if not os.path.lexists(porter_alias) or LAUNCHER_MARKER in (porter_alias.read_text(errors="ignore") if porter_alias.is_file() else "") or os.path.islink(porter_alias):
+            body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec "{python_bin}" "{runtime / "porter.py"}" "$@"\n'
+            self._write_launcher(porter_alias, body)
+        else:
+            self.log(f"[NOTICE] {porter_alias} belongs to another tool; use 'agy-porter'.")
+        if str(bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
+            self.log(f"[PATH] {bin_dir} is not on PATH; add it to use agy-guard.")
+
+    def install_binary(self) -> bool:
+        """Installs a standalone binary ONLY after verifying it against its published .sha256 file."""
+        machine = platform.machine().lower()
+        machine = "x86_64" if machine in ("amd64", "x86_64") else ("arm64" if machine in ("arm64", "aarch64") else machine)
+        names = {"Linux": f"agy-guard-linux-{machine}", "Darwin": f"agy-guard-macos-{machine}", "Windows": f"agy-guard-windows-{machine}.exe"}
+        binary_name = names.get(SYSTEM)
+        if not binary_name:
+            self.log(f"[NOTICE] No standalone binary is published for {SYSTEM}; using the Python runtime.")
+            return False
+        dest = (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard" / "agy-guard.exe") if IS_WINDOWS \
+            else Path.home() / ".local" / "bin" / "agy-guard"
+        local = SCRIPT_DIR / "dist" / binary_name
+        try:
+            if local.is_file():
+                data = local.read_bytes()
+                sums_file = SCRIPT_DIR / "dist" / f"{binary_name}.sha256"
+                sums = sums_file.read_text(encoding="utf-8") if sums_file.is_file() else ""
+            else:
+                base = f"{RELEASE_BASE}/v{__version__}"
+                headers = {"User-Agent": f"AntigravityHarness-Installer/{__version__}"}
+                with urllib.request.urlopen(urllib.request.Request(f"{base}/{binary_name}.sha256", headers=headers), timeout=15) as r:
+                    sums = r.read().decode("utf-8")
+                with urllib.request.urlopen(urllib.request.Request(f"{base}/{binary_name}", headers=headers), timeout=60) as r:
+                    data = r.read()
+        except Exception as e:
+            self.log(f"[NOTICE] Standalone binary unavailable ({e}); using the Python runtime.")
+            return False
+        expected = next((l.split()[0] for l in sums.splitlines() if l.strip().endswith(binary_name)), None)
+        actual = hashlib.sha256(data).hexdigest()
+        if not expected or expected.lower() != actual:
+            self.log(f"[SECURITY] Checksum verification failed for {binary_name}; binary NOT installed.")
+            return False
+        if self.dry_run:
+            self.log(f"[DRY-RUN] verified binary {binary_name} -> {dest}")
+            return True
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_bytes(data)
+        if not IS_WINDOWS:
+            tmp.chmod(0o755)
+        os.replace(tmp, dest)
+        self.log(f"[STANDALONE] Verified (sha256 {actual[:12]}…) binary installed -> {dest}")
+        return True
+
+    def write_receipt(self) -> None:
+        commit, dirty = "", False
+        try:
+            commit = subprocess.check_output(["git", "-C", str(SCRIPT_DIR), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+            dirty = bool(subprocess.check_output(["git", "-C", str(SCRIPT_DIR), "status", "--porcelain"], text=True, stderr=subprocess.DEVNULL).strip())
+        except (OSError, subprocess.CalledProcessError):
+            pass
+        if not self.dry_run:
+            atomic_write_json(state_dir() / "install_receipt.json", {
+                "version": __version__,
+                "installed_at": datetime.now(timezone.utc).isoformat(),
+                "source": str(SCRIPT_DIR),
+                "source_commit": commit,
+                "source_dirty": dirty,
+                "mode": self.mode,
+                "target": str(self.target_dir),
+                "backup_dir": str(self.backup_dir) if self.backup_dir.exists() else None,
+            })
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Antigravity Harness Setup & Installer")
-    parser.add_argument("--from-source", "--dev", action="store_true", dest="from_source", help="Use Python source code launcher instead of standalone binary")
-    parser.add_argument("--enable-startup", action="store_true", help="Automatically register Pre-Session Boot Sentinel service")
-    args = parser.parse_args()
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Antigravity Harness installer")
+    parser.add_argument("--link", "--dev", action="store_true", dest="link",
+                        help="Developer mode: symlink governance files to this checkout (cannot be locked)")
+    parser.add_argument("--from-source", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--binary", action="store_true", help="Also install the checksum-verified standalone agy-guard binary")
+    parser.add_argument("--no-lock", action="store_true", help="Do not lock the governance scope after installing")
+    parser.add_argument("--enable-startup", action="store_true", help="Register the boot sentinel")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing")
+    args = parser.parse_args(argv)
 
-    script_dir = Path(__file__).resolve().parent
-    target_dir = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config"))
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dir = target_dir / f"backup_{timestamp}"
+    target_dir = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
+    mode = "link" if args.link else "copy"
+    installer = Installer(target_dir, mode, dry_run=args.dry_run)
 
-    print("=" * 56)
-    print("      Antigravity Harness Setup & Installer (Python)    ")
-    print("=" * 56)
-    print(f"Platform : {platform.system()} ({platform.release()})")
-    print(f"Source   : {script_dir}")
+    print("=" * 60)
+    print(f"      Antigravity Harness {__version__} Installer ({mode} mode)")
+    print("=" * 60)
+    print(f"Platform : {SYSTEM} ({platform.release()})")
+    print(f"Source   : {SCRIPT_DIR}")
     print(f"Target   : {target_dir}")
-    print("-" * 56)
+    print("-" * 60)
 
     target_dir.mkdir(parents=True, exist_ok=True)
+    registry = EnvironmentRegistry()
+    env = registry.get_environment("antigravity")
+    was_locked = registry.is_locked("antigravity").get("antigravity", False)
+    # Anything already write-protected (fully or partially) must be released first.
+    has_locked_parts = any(not os.access(p, os.W_OK) for p in [target_dir] + env.get_governance_paths(existing_only=True)
+                           if not os.path.islink(p))
+    if (was_locked or has_locked_parts) and not args.dry_run:
+        if not request_approval("install", "The governance scope is write-protected. Unlock it to install?",
+                                [str(target_dir), "It is re-locked and re-baselined after installation."]):
+            print(f"[APPROVAL REQUIRED] {refusal_message('install')}", file=sys.stderr)
+            return 3
+        ok, msg = registry.unlock("antigravity")
+        if not ok:
+            print(f"[ERROR] Could not unlock the governance scope: {msg}", file=sys.stderr)
+            return 1
 
-    # 1. Clean Policy Plane: Core constitution, design contracts, mistakes
-    core_files = ["GEMINI.md", "DESIGN.md", "MISTAKES.md"]
-    for file_name in core_files:
-        src = script_dir / file_name
-        if src.is_file():
-            status = make_symlink_or_copy(src, target_dir / file_name, backup_dir)
-            print(status)
-
-    # 1.1 Canonical manifest
-    harness_manifest = script_dir / ".harness"
-    if harness_manifest.is_dir():
-        status = make_symlink_or_copy(harness_manifest, target_dir / ".harness", backup_dir)
-        print(status)
-
-    # 1.2 Control Plane: Standalone binary or launcher installation
-    guard_status = install_guard_binary(script_dir, from_source=args.from_source)
-    print(guard_status)
-
-    # 1.3 Porter CLI launcher in ~/.local/bin
-    if not IS_WINDOWS:
-        dest_porter = Path.home() / ".local" / "bin" / "porter"
-        porter_src = script_dir / "porter.py"
-        if porter_src.is_file():
-            try:
-                if dest_porter.is_symlink() or dest_porter.exists():
-                    dest_porter.unlink(missing_ok=True)
-                dest_porter.symlink_to(porter_src.resolve())
-                print(f"[LAUNCHER] Linked porter -> {dest_porter}")
-            except Exception:
-                pass
-
-    # 1.4 Cross-platform hook configuration with absolute path and platform Python binary
-    import json
-    watcher_target = (target_dir / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py").resolve()
-    python_bin = "python" if IS_WINDOWS else "python3"
-    hooks_payload = {
-        "upstream-watchdog": {
-            "PreInvocation": [
-                {
-                    "type": "command",
-                    "command": f"{python_bin} \"{watcher_target}\"",
-                    "timeout": 15
-                }
-            ]
-        }
-    }
-    target_hooks = target_dir / "hooks.json"
-    with open(target_hooks, "w", encoding="utf-8") as f:
-        json.dump(hooks_payload, f, indent=2)
-        f.write("\n")
-    print(f"[CONFIGURED] hooks.json -> {python_bin} \"{watcher_target}\"")
-
-    # 2. Autonomous subagents
-    agents_src_dir = script_dir / "agents"
-    agents_target_dir = target_dir / "agents"
-    agents_target_dir.mkdir(parents=True, exist_ok=True)
-
-    if agents_src_dir.is_dir():
-        for agent_path in sorted(agents_src_dir.glob("*.md")):
-            status = make_symlink_or_copy(agent_path, agents_target_dir / agent_path.name, backup_dir)
-            print(status)
-
-    # 3. Modular skills
-    skills_src_dir = script_dir / "skills"
-    skills_target_dir = target_dir / "skills"
-    skills_target_dir.mkdir(parents=True, exist_ok=True)
-
-    if skills_src_dir.is_dir():
-        for skill_path in sorted(skills_src_dir.iterdir()):
-            if skill_path.is_dir():
-                status = make_symlink_or_copy(skill_path, skills_target_dir / skill_path.name, backup_dir)
-                print(status)
-
-    # 4. Initialize config.json from template if absent
-    config_file = target_dir / "config.json"
-    template_config = script_dir / "templates" / "config.example.json"
-    if not config_file.exists() and template_config.is_file():
-        shutil.copy2(template_config, config_file)
-        print(f"[CREATED] Initialized {config_file.name} from template.")
-
-    # 5. Make watcher scripts executable on POSIX platforms
-    if not IS_WINDOWS:
-        watcher_py = target_dir / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
-        watcher_sh = target_dir / "skills" / "upstream-auditor" / "scripts" / "check_skills.sh"
-        for script in [watcher_py, watcher_sh]:
-            if script.exists():
-                try:
+    try:
+        installer.install_governance()
+        installer.install_hooks()
+        installer.migrate_mcp_config()
+        installer.move_legacy_backups()
+        installer.move_legacy_guard_state()
+        installer.move_legacy_runtime_links()
+        config_file = target_dir / "config.json"
+        template_config = SCRIPT_DIR / "templates" / "config.example.json"
+        if not config_file.exists() and template_config.is_file() and not args.dry_run:
+            shutil.copy2(template_config, config_file)
+            print(f"[CREATED] Initialized {config_file.name} from template.")
+        if not IS_WINDOWS and not args.dry_run:
+            for script in (target_dir / "skills" / "upstream-auditor" / "scripts").glob("*"):
+                if script.suffix in (".py", ".sh") and script.is_file() and not script.is_symlink():
                     script.chmod(script.stat().st_mode | 0o755)
-                except OSError:
-                    pass
+        runtime = installer.install_runtime()
+        installer.install_launchers(runtime)
+        if args.binary:
+            installer.install_binary()
+        installer.write_receipt()
+    finally:
+        if not args.dry_run:
+            monitor = FileIntegrityMonitor.for_environment(env, os_adapter=registry.os_adapter)
+            count, path = monitor.save_baseline()
+            print(f"[BASELINE] Integrity baseline established for {count} governance entries -> {path}")
+            if not args.no_lock:
+                ok, msg = registry.lock("antigravity")
+                print(f"[{'LOCKED' if ok else 'LOCK WARNING'}] {msg.splitlines()[0] if msg else ''}")
 
-    # 6. Optional Pre-Session Boot Sentinel registration
-    if args.enable_startup:
-        print("\n[STARTUP] Enabling Pre-Session Boot Sentinel...")
-        try:
-            from guard.startup import StartupManager
-            mgr = StartupManager(target_dir=target_dir)
-            ok, msg = mgr.enable()
-            print(f"[{'SUCCESS' if ok else 'FAILED'}] {msg}")
-        except Exception as e:
-            print(f"[WARN] Could not configure startup sentinel: {e}")
+    if args.enable_startup and not args.dry_run:
+        from guard.startup import StartupManager
 
-    print("=" * 56)
-    print("[SUCCESS] Antigravity Harness successfully installed!")
-    print(f"Target directory: {target_dir}")
-    if backup_dir.exists():
-        print(f"Previous files backed up at: {backup_dir}")
-    print("=" * 56)
+        ok, msg = StartupManager(target_dir=target_dir).enable()
+        print(f"[{'SUCCESS' if ok else 'FAILED'}] {msg}")
+
+    print("=" * 60)
+    print("[SUCCESS] Antigravity Harness installed." + (" (dry run: nothing was written)" if args.dry_run else ""))
+    if installer.backup_dir.exists():
+        print(f"Replaced files were backed up to: {installer.backup_dir}")
+    if mode == "link":
+        print("[NOTICE] Developer link mode: symlinked entries cannot be write-protected by Guard.")
+    print("=" * 60)
     return 0
 
 

@@ -4,7 +4,10 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
+
 from __future__ import annotations
+
+import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)
 
 import tempfile
 import unittest

@@ -2,7 +2,7 @@
 
 Use the tree to expose natural work boundaries and integration points. Do not treat depth as an arithmetic promise about effort or tokens.
 
-The original v1 method claimed that each binary split multiplied effort. A small maintainer-run comparison later suggested that agents treated depth as a thoroughness cue rather than following that arithmetic. The repository does not contain the raw artifacts needed to reproduce those historical figures, so treat them as design history, not benchmark evidence. See [../research/validation-protocol.md](../research/validation-protocol.md).
+The original v1 method claimed that each binary split multiplied effort. A small maintainer-run comparison later suggested that agents treated depth as a thoroughness cue rather than following that arithmetic. The repository does not contain the raw artifacts needed to reproduce those historical figures, so treat them as design history, not benchmark evidence. The upstream validation protocol (`research/validation-protocol.md` in the unlazy repository, Leonxlnx/unlazy) is not vendored into this harness.
 
 ## Rules
 

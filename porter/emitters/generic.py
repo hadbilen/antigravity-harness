@@ -1,31 +1,31 @@
 """
-porter/emitters/generic.py — Emitter for generic/unknown agent environments.
-Produces clean, tool-agnostic RULES.md and CONVENTIONS.md.
+porter/emitters/generic.py — Generic emitter for any model or coding assistant.
+Generates RULES.md plus verbatim `skills/` and `agents/` directories.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Tuple
+
+from porter.emitters.common import Plan, commit, index_section, plan_support_tree
 from porter.models import UniversalManifest
 from porter.sanitizer import ConstitutionalSanitizer
 
 
 class GenericEmitter:
-    """Exports Antigravity Harness as universal clean markdown rules."""
+    """Exports Antigravity Harness as generic Markdown rules."""
+
+    TARGET = "generic"
+    SKILLS_DIR = "skills"
+    AGENTS_DIR = "agents"
 
     @classmethod
-    def emit(cls, manifest: UniversalManifest, output_dir: Path) -> List[Path]:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        rules_path = output_dir / "RULES.md"
-
-        const_raw = manifest.constitution.get("raw", "")
-        sanitized_const = ConstitutionalSanitizer.sanitize_for_export(const_raw, target="generic")
-
-        design_raw = manifest.design_contract.get("raw", "")
-        sanitized_design = ConstitutionalSanitizer.sanitize_for_export(design_raw, target="generic")
-
-        content = f"""# Engineering Rules & Behavioral Invariants
+    def plan(cls, manifest: UniversalManifest, output_dir: Path) -> Tuple[Plan, Dict[Path, str]]:
+        plan, links = plan_support_tree(manifest, output_dir / cls.SKILLS_DIR, output_dir / cls.AGENTS_DIR)
+        const = ConstitutionalSanitizer.sanitize_for_export(manifest.constitution.get("raw", ""), target=cls.TARGET)
+        design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
+        plan[output_dir / "RULES.md"] = f"""# Engineering Rules & Behavioral Invariants
 
 > Exported from Antigravity Harness v{manifest.version}
 > Universal instructions applicable to any model or coding assistant.
@@ -34,13 +34,21 @@ class GenericEmitter:
 
 ## Constitution & Engineering Discipline
 
-{sanitized_const}
+{const}
 
 ---
 
 ## Design Contract & Quality Standards
 
-{sanitized_design}
+{design}
+
+---
+
+{index_section(manifest, cls.SKILLS_DIR, cls.AGENTS_DIR)}
 """
-        rules_path.write_text(content, encoding="utf-8")
-        return [rules_path]
+        return plan, links
+
+    @classmethod
+    def emit(cls, manifest: UniversalManifest, output_dir: Path, force: bool = False) -> List[Path]:
+        plan, links = cls.plan(manifest, Path(output_dir))
+        return commit(plan, links, force=force)

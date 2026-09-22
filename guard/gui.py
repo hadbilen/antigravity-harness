@@ -11,20 +11,17 @@ import queue
 import subprocess
 import sys
 import threading
-import time
-from pathlib import Path
-from typing import Optional
 
 # Safe tkinter imports
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 from guard import __version__
-from guard.environment import AgentEnvironment, EnvironmentRegistry
+from guard.approval import ApprovalRequest
+from guard.environment import EnvironmentRegistry
 from guard.integrity import FileIntegrityMonitor
 from guard.lease import LeaseManager
 from guard.notifier import GuardNotifier
-from guard.os_adapter import OSProtectionAdapter
 from guard.porter_bridge import PorterBridge
 from guard.snapshot import SnapshotEngine
 from guard.startup import StartupManager
@@ -54,25 +51,28 @@ class AntigravityGuardApp:
         self.root.minsize(920, 620)
         self.root.configure(bg=BG_CANVAS)
 
-        self.adapter = OSProtectionAdapter()
-        self.monitor = FileIntegrityMonitor()
-        self.snapshot_engine = SnapshotEngine()
+        self.env_registry = EnvironmentRegistry()
+        self.env = self.env_registry.get_environment("antigravity")
+        self.adapter = self.env_registry.os_adapter
+        self.monitor = FileIntegrityMonitor.for_environment(self.env, os_adapter=self.adapter)
+        self.snapshot_engine = SnapshotEngine.for_environment(self.env, self.env_registry, integrity_monitor=self.monitor)
         self.porter_bridge = PorterBridge()
         self.upstream_bridge = UpstreamAuditorBridge()
-        self.startup_mgr = StartupManager(self.adapter.target_dir)
-        self.env_registry = EnvironmentRegistry()
+        self.startup_mgr = StartupManager(self.env.get_root(), registry=self.env_registry)
         self.lease_manager = LeaseManager(registry=self.env_registry)
         self.notifier = GuardNotifier()
+        self.current_porter_report = None
 
         self.var_minimize_to_tray = tk.BooleanVar(value=True)
         st_info = self.startup_mgr.status()
         self.var_early_startup = tk.BooleanVar(value=st_info.get("installed", False))
 
-        # Cross-Platform System Tray Integration
+        # Cross-Platform System Tray Integration. Tray callbacks run on the tray backend's
+        # thread; Tkinter is not thread-safe, so every callback is marshalled onto the Tk loop.
         self.tray_adapter = create_tray_adapter(
-            self.show_window,
-            self.toggle_lock,
-            self.quit_app,
+            lambda: self.root.after(0, self.show_window),
+            lambda: self.root.after(0, self.toggle_lock),
+            lambda: self.root.after(0, self.quit_app),
         )
         if self.tray_adapter.is_available:
             self.tray_adapter.start()
@@ -83,8 +83,47 @@ class AntigravityGuardApp:
         self._build_header()
         self._build_tabs()
 
-        # Initial background state load
+        # Initial background state load and periodic lease housekeeping (auto-relock backstop)
         self.refresh_status()
+        self.root.after(5000, self._lease_tick)
+
+    # --- Background execution helpers ---
+    def _run_background(self, work, on_done):
+        """Runs `work` off the Tk thread and delivers (ok, value) to `on_done` on the Tk thread."""
+        q: queue.Queue = queue.Queue()
+
+        def worker():
+            try:
+                q.put((True, work()))
+            except Exception as e:  # surfaced to the user by on_done
+                q.put((False, e))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def poll():
+            try:
+                ok, value = q.get_nowait()
+            except queue.Empty:
+                self.root.after(100, poll)
+                return
+            on_done(ok, value)
+
+        self.root.after(100, poll)
+
+    def _is_protected(self) -> bool:
+        return self.env_registry.is_locked("antigravity").get("antigravity", False)
+
+    def _lease_tick(self):
+        try:
+            if self.lease_manager.check_and_expire_leases():
+                self.refresh_status()
+        except Exception:
+            pass
+        self.root.after(5000, self._lease_tick)
+
+    def _gui_approver(self, request: ApprovalRequest) -> bool:
+        body = request.summary + "\n\n" + "\n".join(request.details)
+        return messagebox.askyesno(f"Approve: {request.action}", body)
 
     def _configure_styles(self):
         style = ttk.Style(self.root)
@@ -430,7 +469,7 @@ class AntigravityGuardApp:
                 messagebox.showinfo("Startup Sentinel", msg)
 
     def refresh_status(self):
-        is_locked = self.adapter.is_locked()
+        is_locked = self._is_protected()
         if is_locked:
             self.badge_status.config(text="🔒 PROTECTED", bg=ACCENT_GREEN, fg="#09090B")
             self.btn_toggle_lock.config(text="Unlock for Maintenance")
@@ -491,7 +530,7 @@ class AntigravityGuardApp:
             reason="GUI operator manual lease request",
             duration_seconds=60,
             interactive=False,
-            auto_approve=True,
+            approver=self._gui_approver,
         )
         if success:
             messagebox.showinfo("Lease Granted", f"{msg}\nTarget: {env_id}")
@@ -506,52 +545,82 @@ class AntigravityGuardApp:
             env = self.env_registry.get_environment(item["id"])
             if not env:
                 continue
-            mon = FileIntegrityMonitor(target_dir=env.get_root(), target_paths=env.get_governance_paths(existing_only=True))
+            mon = FileIntegrityMonitor.for_environment(env, os_adapter=self.env_registry.os_adapter)
             rep = mon.verify()
             if not rep.is_intact:
-                drift_items.append(f"{env.name}: {len(rep.modified)} modified, {len(rep.added)} added, {len(rep.deleted)} deleted")
+                drift_items.append(f"{env.name}: {rep.summary()}")
         if drift_items:
             messagebox.showwarning("Drift Detected", "\n".join(drift_items))
         else:
             messagebox.showinfo("Integrity Verified", "All tracked environments match their cryptographic baselines perfectly!")
 
     def toggle_lock(self):
-        if self.adapter.is_locked():
-            success, msg = self.adapter.unlock()
+        if self._is_protected():
+            if not messagebox.askyesno(
+                "Confirm Unlock",
+                "Remove write protection from the governance files WITHOUT an automatic relock?\n\n"
+                "Prefer 'Request 60s Lease' for a time-bounded window.",
+            ):
+                return
+            success, msg = self.env_registry.unlock("antigravity")
             if success:
-                messagebox.showinfo("Maintenance Mode", "Environment unlocked for maintenance. Remember to re-lock when finished!")
+                messagebox.showinfo("Maintenance Mode", "Governance files unlocked. Remember to re-lock when finished!")
+            else:
+                messagebox.showerror("Unlock Failed", msg)
         else:
-            success, msg = self.adapter.lock()
+            success, msg = self.env_registry.lock("antigravity")
             if success:
-                messagebox.showinfo("Shield Engaged", "Environment write-protection active. Files are immutable/read-only.")
+                messagebox.showinfo("Shield Engaged", "Governance files are write-protected (user-space lock).")
+            else:
+                messagebox.showerror("Lock Incomplete", msg)
         self.refresh_status()
 
     def verify_integrity(self):
-        report = self.monitor.verify()
-        self.lbl_fim_summary.config(text=report.summary())
+        self.lbl_fim_summary.config(text="Verifying integrity...")
 
-        for row in self.tree_fim.get_children():
-            self.tree_fim.delete(row)
+        def done(ok, report):
+            if not ok:
+                self.lbl_fim_summary.config(text=f"Verification failed: {report}")
+                return
+            self.lbl_fim_summary.config(text=report.summary())
+            for row in self.tree_fim.get_children():
+                self.tree_fim.delete(row)
+            if report.is_intact:
+                self.tree_fim.insert("", "end", values=("✅ INTACT", f"All {report.total_files} tracked entries match the SHA-256 baseline."))
+            else:
+                for f in report.modified:
+                    self.tree_fim.insert("", "end", values=("⚠️ MODIFIED", f))
+                for f in report.added:
+                    self.tree_fim.insert("", "end", values=("➕ UNAUTHORIZED", f))
+                for f in (report.deleted if report.baseline_status == "ok" else []):
+                    self.tree_fim.insert("", "end", values=("❌ DELETED", f))
+                if report.baseline_status != "ok":
+                    self.tree_fim.insert("", "end", values=("⚠️ NO BASELINE", report.summary()))
+                for f in report.unreadable:
+                    self.tree_fim.insert("", "end", values=("⛔ UNREADABLE", f))
 
-        if report.is_intact:
-            self.tree_fim.insert("", "end", values=("✅ INTACT", f"All {report.total_files} tracked files verified via SHA-256 baseline."))
-        else:
-            for f in report.modified:
-                self.tree_fim.insert("", "end", values=("⚠️ MODIFIED", f))
-            for f in report.added:
-                self.tree_fim.insert("", "end", values=("➕ UNAUTHORIZED", f))
-            for f in report.deleted:
-                self.tree_fim.insert("", "end", values=("❌ DELETED", f))
+        self._run_background(self.monitor.verify, done)
 
     def rebaseline(self):
+        report = self.monitor.verify()
+        if not messagebox.askyesno(
+            "Confirm Re-baseline",
+            f"Accept the CURRENT state as trusted?\n\n{report.summary()}",
+        ):
+            return
         count, path = self.monitor.save_baseline()
-        messagebox.showinfo("Baseline Saved", f"Established trusted SHA-256 baseline across {count} files.")
+        messagebox.showinfo("Baseline Saved", f"Established trusted SHA-256 baseline across {count} entries.")
         self.verify_integrity()
 
     def create_snapshot(self):
-        snap_id, _ = self.snapshot_engine.create_snapshot(label="User GUI Snapshot")
-        messagebox.showinfo("Snapshot Created", f"Snapshot '{snap_id}' saved successfully.")
-        self.refresh_snapshots()
+        def done(ok, value):
+            if ok:
+                messagebox.showinfo("Snapshot Created", f"Snapshot '{value[0]}' saved successfully.")
+            else:
+                messagebox.showerror("Snapshot Failed", str(value))
+            self.refresh_snapshots()
+
+        self._run_background(lambda: self.snapshot_engine.create_snapshot(label="User GUI Snapshot"), done)
 
     def refresh_snapshots(self):
         for row in self.tree_snaps.get_children():
@@ -607,16 +676,10 @@ class AntigravityGuardApp:
         ttk.Button(bottom_bar, text="Close", style="Action.TButton", command=win.destroy).pack(side="right")
 
     def _open_external_file_by_path(self, snap_id: str, rel_path: str):
-        snap_path = (self.snapshot_engine.snapshots_dir / snap_id / rel_path).resolve()
-        if not snap_path.is_file():
-            messagebox.showerror("Error", "File does not exist.")
+        snap_path = self.snapshot_engine.resolve_snapshot_file(snap_id, rel_path)
+        if snap_path is None:
+            messagebox.showerror("Error", "File does not exist inside the selected snapshot.")
             return
-
-        # Ensure snapshot file is read-only
-        try:
-            os.chmod(snap_path, 0o444)
-        except Exception:
-            pass
 
         try:
             if sys.platform == "win32":
@@ -651,7 +714,7 @@ class AntigravityGuardApp:
         snap_id = item["values"][0]
         if messagebox.askyesno("Confirm Rollback", f"Restore environment to snapshot '{snap_id}'? Current state will be backed up."):
             success, msg = self.snapshot_engine.restore_snapshot(snap_id)
-            messagebox.showinfo("Rollback Result", msg)
+            (messagebox.showinfo if success else messagebox.showerror)("Rollback Result", msg)
             self.refresh_status()
 
     def prune_snapshots(self):
@@ -702,7 +765,8 @@ class AntigravityGuardApp:
         if not src:
             return
         if messagebox.askyesno("Confirm Ingestion", "Ingest this rule into your environment? An atomic snapshot will be taken first."):
-            success, msg = self.porter_bridge.stage_and_ingest(src)
+            expected = (self.current_porter_report or {}).get("content_sha256")
+            success, msg = self.porter_bridge.stage_and_ingest(src, expected_sha256=expected)
             if success:
                 messagebox.showinfo("Ingested Successfully", msg)
                 self.refresh_status()

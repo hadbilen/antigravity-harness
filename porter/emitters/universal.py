@@ -1,58 +1,55 @@
 """
-porter/emitters/universal.py — Emitter for open-standard AGENTS.md.
-Compatible with OpenAI, Codex, DeepSeek, Copilot, and open-source models.
+porter/emitters/universal.py — Universal AGENTS.md emitter (Codex, Copilot and others).
+Writes AGENTS.md plus a verbatim `.agents/` support tree (skills with support files, agents).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Tuple
+
+from porter.emitters.common import Plan, commit, index_section, plan_support_tree
 from porter.models import UniversalManifest
 from porter.sanitizer import ConstitutionalSanitizer
 
 
 class UniversalEmitter:
-    """Exports Antigravity Harness as an open-standard AGENTS.md."""
+    """Exports Antigravity Harness as a universal AGENTS.md workspace."""
+
+    TARGET = "universal"
+    SKILLS_DIR = ".agents/skills"
+    AGENTS_DIR = ".agents/agents"
 
     @classmethod
-    def emit(cls, manifest: UniversalManifest, output_dir: Path) -> List[Path]:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        agents_md_path = output_dir / "AGENTS.md"
+    def plan(cls, manifest: UniversalManifest, output_dir: Path) -> Tuple[Plan, Dict[Path, str]]:
+        plan, links = plan_support_tree(manifest, output_dir / cls.SKILLS_DIR, output_dir / cls.AGENTS_DIR)
+        const = ConstitutionalSanitizer.sanitize_for_export(manifest.constitution.get("raw", ""), target=cls.TARGET)
+        design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
+        plan[output_dir / "AGENTS.md"] = f"""# Universal Engineering Harness (AGENTS.md)
 
-        const_raw = manifest.constitution.get("raw", "")
-        sanitized_const = ConstitutionalSanitizer.sanitize_for_export(const_raw, target="universal")
-
-        design_raw = manifest.design_contract.get("raw", "")
-        sanitized_design = ConstitutionalSanitizer.sanitize_for_export(design_raw, target="universal")
-
-        content = f"""# Universal Engineering Harness (AGENTS.md)
-
-> **Exported from Antigravity Universal Harness v{manifest.version}**
-> A deterministic engineering harness enforcing execution discipline, immutable test invariants, and zero context bloat.
+> Exported from Antigravity Harness v{manifest.version}. Load a skill from `{cls.SKILLS_DIR}/`
+> when its description matches the task; run the auditor roles in `{cls.AGENTS_DIR}/` as
+> independent reviews (separate context where the platform supports it) before delivery.
 
 ---
 
 ## 1. Behavioral & Engineering Constitution
 
-{sanitized_const}
+{const}
 
 ---
 
 ## 2. Baseline Design Contract & Quality Filter
 
-{sanitized_design}
+{design}
 
 ---
 
-## 3. Autonomous Auditor Roles
-
-All models and subagents working in this workspace must self-evaluate against these audit roles before claiming task completion:
-
-- **Silent Failure Hunter:** Disallow empty catch blocks, unlogged error handling, or speculative fallbacks.
-- **Security Boundary Verifier:** Proactively test authorization boundaries, injection vectors, and concurrency race conditions.
-- **Specification Gap Auditor:** Identify unhandled edge cases, omitted requirements, and vague adjectives.
-- **Consistency Auditor:** Check for internal architectural contradictions, broken links, or circular dependencies.
-- **Build Error Resolver:** Proactively isolate TypeScript/compiler breaks with surgical diffs.
+{index_section(manifest, cls.SKILLS_DIR, cls.AGENTS_DIR)}
 """
-        agents_md_path.write_text(content, encoding="utf-8")
-        return [agents_md_path]
+        return plan, links
+
+    @classmethod
+    def emit(cls, manifest: UniversalManifest, output_dir: Path, force: bool = False) -> List[Path]:
+        plan, links = cls.plan(manifest, Path(output_dir))
+        return commit(plan, links, force=force)

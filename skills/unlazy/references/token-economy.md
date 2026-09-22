@@ -45,4 +45,4 @@ Do not orchestrate a task that one focused session can implement and verify clea
 
 ## Measurement claims
 
-Earlier unlazy documentation gave exact token and effort ratios from a six-run exploratory comparison. The raw prompts, traces, outputs, and scoring records are not present in this repository, so those numbers are not reproducible here. Do not use them as product guarantees. A protocol for a future reproducible rerun is in [../research/validation-protocol.md](../research/validation-protocol.md).
+Earlier unlazy documentation gave exact token and effort ratios from a six-run exploratory comparison. The raw prompts, traces, outputs, and scoring records are not present in this repository, so those numbers are not reproducible here. Do not use them as product guarantees. The upstream validation protocol (`research/validation-protocol.md` in the unlazy repository, Leonxlnx/unlazy) is not vendored into this harness.

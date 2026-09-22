@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 class UpstreamAuditorBridge:
@@ -29,18 +33,23 @@ class UpstreamAuditorBridge:
         else:
             self.target_dir = Path(target_dir).resolve()
 
-        xdg_env = os.environ.get("XDG_STATE_HOME")
-        default_state_dir = Path(xdg_env).expanduser() / "antigravity-harness" if xdg_env else Path.home() / ".local" / "state" / "antigravity-harness"
+        from guard.paths import state_dir
+
+        default_state_dir = state_dir()
         state_file_env = os.environ.get("UPSTREAM_STATE_FILE")
         if state_file_env:
             self.state_file = Path(state_file_env).resolve()
         else:
             candidate_state = (default_state_dir / "upstream_state.json").resolve()
-            legacy_state = (self.target_dir / "skills" / "upstream-auditor" / "upstream_state.json").resolve()
+            skill_dir = self.target_dir / "skills" / "upstream-auditor"
+            legacy_state = (skill_dir / "upstream_state.json").resolve()
+            seed_state = (skill_dir / "upstream_state.seed.json").resolve()
             if candidate_state.is_file():
                 self.state_file = candidate_state
             elif legacy_state.is_file():
                 self.state_file = legacy_state
+            elif seed_state.is_file():
+                self.state_file = seed_state
             else:
                 self.state_file = candidate_state
 
@@ -83,12 +92,18 @@ class UpstreamAuditorBridge:
             except Exception:
                 pass
 
+        from guard import __version__
+
         def query_repo(name: str, info: dict) -> Dict[str, Any]:
-            repo = info.get("repo", "")
-            branch = info.get("branch", "main")
-            local_sha = info.get("last_synced_commit", "")[:7]
-            url = f"https://api.github.com/repos/{repo}/commits?sha={branch}&per_page=1"
-            headers = {"User-Agent": "AntigravityGuard-Watchdog/1.2"}
+            repo = str(info.get("repo", ""))
+            branch = str(info.get("branch", "main"))
+            local_sha = str(info.get("last_synced_commit", ""))[:7]
+            if not REPO_RE.match(repo):
+                return {"name": name, "repo": repo, "branch": branch, "local_sha": local_sha,
+                        "remote_sha": "", "status": "Invalid repository id", "commit_message": ""}
+            query = urllib.parse.urlencode({"sha": branch, "per_page": 1})
+            url = f"https://api.github.com/repos/{repo}/commits?{query}"
+            headers = {"User-Agent": f"AntigravityGuard-Watchdog/{__version__}"}
             if token:
                 headers["Authorization"] = f"token {token}"
             req = urllib.request.Request(url, headers=headers)
@@ -133,14 +148,20 @@ class UpstreamAuditorBridge:
         return results
 
     def get_model_drift_status(self) -> Dict[str, str]:
-        """Detects active model environment status."""
-        active_model = os.environ.get("ANTIGRAVITY_MODEL", "Gemini 3.8 Flash (High)")
+        """Reports the active model ONLY when it is actually known; nothing here is inferred."""
+        env_model = os.environ.get("ANTIGRAVITY_MODEL")
         state = self.load_state()
+        recorded = state.get("last_audited_model")
+        if env_model:
+            active_model, source = env_model, "ANTIGRAVITY_MODEL environment variable"
+        elif recorded:
+            active_model, source = str(recorded), "last value recorded by the upstream watcher"
+        else:
+            active_model, source = "Unknown (not detected)", "none"
         tracked_count = len(state.get("tracked_repositories", {}))
         return {
             "active_model": active_model,
-            "architecture": "Google DeepMind Multimodal Foundation Engine",
-            "tier_support": "Tier 1 (Fast Path), Tier 2 (Harness/ADR), Tier 3 (Auditor Enforced)",
-            "context_saturation_guard": "Enforced at 25 turns",
+            "model_source": source,
+            "context_saturation_guard": "Constitution rule (turn count is not measured by Guard)",
             "tracked_ecosystems": str(tracked_count),
         }

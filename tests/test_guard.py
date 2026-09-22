@@ -3,12 +3,15 @@ tests/test_guard.py — Comprehensive Unit Test Suite for Antigravity Guard
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 """
 
+import hermetic  # noqa: F401  (must be imported before guard: isolates HOME/state)
+
 import json
 import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from guard import __version__
 from guard.cli import main as cli_main
@@ -31,16 +34,7 @@ class TestFileIntegrityMonitor(unittest.TestCase):
         (skills_dir / "SKILL.md").write_text("# Demo Skill", encoding="utf-8")
 
     def tearDown(self):
-        # Restore permissions in case test left it read-only
-        try:
-            for root, dirs, files in os.walk(self.test_dir):
-                for d in dirs:
-                    os.chmod(os.path.join(root, d), 0o777)
-                for f in files:
-                    os.chmod(os.path.join(root, f), 0o666)
-            shutil.rmtree(self.test_dir, ignore_errors=True)
-        except Exception:
-            pass
+        hermetic.force_rmtree(self.test_dir)
 
     def test_baseline_and_verify_clean(self):
         count, path = self.monitor.save_baseline()
@@ -100,7 +94,7 @@ class TestFileIntegrityMonitor(unittest.TestCase):
             rep = custom_monitor.verify()
             self.assertTrue(rep.is_intact)
         finally:
-            shutil.rmtree(isolated_dir, ignore_errors=True)
+            hermetic.force_rmtree(isolated_dir)
 
 
 class TestSnapshotEngine(unittest.TestCase):
@@ -110,11 +104,7 @@ class TestSnapshotEngine(unittest.TestCase):
         (self.test_dir / "config.json").write_text('{"state": "original"}', encoding="utf-8")
 
     def tearDown(self):
-        try:
-            OSProtectionAdapter(target_dir=self.test_dir).unlock()
-        except Exception:
-            pass
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_create_and_restore_snapshot(self):
         snap_id, snap_path = self.engine.create_snapshot(label="test_snap")
@@ -194,12 +184,7 @@ class TestOSProtectionAdapter(unittest.TestCase):
         (self.test_dir / "test.txt").write_text("protected content", encoding="utf-8")
 
     def tearDown(self):
-        # Always unlock before rmtree
-        try:
-            self.adapter.unlock(self.test_dir)
-        except Exception:
-            pass
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_lock_and_unlock_cycle(self):
         self.assertFalse(self.adapter.is_locked(self.test_dir))
@@ -226,11 +211,7 @@ class TestPorterBridge(unittest.TestCase):
         self.bridge = PorterBridge(target_dir=self.test_dir)
 
     def tearDown(self):
-        try:
-            self.bridge.os_adapter.unlock()
-        except Exception:
-            pass
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_inspect_clean_rule(self):
         content = """---
@@ -264,21 +245,15 @@ class TestCLICommands(unittest.TestCase):
         self.old_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
         os.environ["ANTIGRAVITY_CONFIG_DIR"] = str(self.test_dir)
         (self.test_dir / "GEMINI.md").write_text("# Test", encoding="utf-8")
+        hermetic.approve_all()
 
     def tearDown(self):
+        hermetic.reset_approver()
         if self.old_env is not None:
             os.environ["ANTIGRAVITY_CONFIG_DIR"] = self.old_env
         else:
             os.environ.pop("ANTIGRAVITY_CONFIG_DIR", None)
-        try:
-            for root, dirs, files in os.walk(self.test_dir):
-                for d in dirs:
-                    os.chmod(os.path.join(root, d), 0o777)
-                for f in files:
-                    os.chmod(os.path.join(root, f), 0o666)
-            shutil.rmtree(self.test_dir, ignore_errors=True)
-        except Exception:
-            pass
+        hermetic.force_rmtree(self.test_dir)
 
     def test_version_flag(self):
         with self.assertRaises(SystemExit) as cm:
@@ -286,8 +261,27 @@ class TestCLICommands(unittest.TestCase):
         self.assertEqual(cm.exception.code, 0)
 
     def test_status_command(self):
-        exit_code = cli_main(["status"])
-        self.assertIn(exit_code, (0, 1))
+        # Fresh environment: unlocked and without baseline -> action required.
+        self.assertEqual(cli_main(["status"]), 1)
+        self.assertEqual(cli_main(["rebaseline"]), 0)
+        self.assertEqual(cli_main(["lock"]), 0)
+        self.assertEqual(cli_main(["status"]), 0)
+
+    def test_admin_commands_require_approval(self):
+        hermetic.deny_all()
+        self.assertEqual(cli_main(["rebaseline"]), 3)
+        self.assertEqual(cli_main(["lock"]), 0)
+        self.assertEqual(cli_main(["unlock"]), 3)
+        self.assertEqual(cli_main(["request-unlock", "--non-interactive"]), 1)
+
+    def test_auto_approve_flag_removed(self):
+        with self.assertRaises(SystemExit):
+            cli_main(["request-unlock", "--auto-approve"])
+
+    def test_env_policy_positional_syntax(self):
+        self.assertEqual(cli_main(["env", "policy", "antigravity", "monitored"]), 0)
+        self.assertEqual(cli_main(["env", "policy", "antigravity", "enforced"]), 0)
+        self.assertEqual(cli_main(["env", "policy", "antigravity", "exempt"]), 1)
 
     def test_verify_and_rebaseline_command(self):
         code_rebase = cli_main(["rebaseline"])
@@ -311,8 +305,11 @@ class TestCLICommands(unittest.TestCase):
         self.assertEqual(exit_code, 0)
 
     def test_upstream_check_cli(self):
-        exit_code = cli_main(["upstream", "status"])
+        fake = [{"name": "x", "local_sha": "abc1234", "remote_sha": "abc1234", "status": "Up-to-date"}]
+        with mock.patch("guard.cli.UpstreamAuditorBridge.check_repositories", return_value=fake) as check:
+            exit_code = cli_main(["upstream", "status"])
         self.assertEqual(exit_code, 0)
+        check.assert_called_once()
 
     def test_doctor_command(self):
         cli_main(["rebaseline"])
@@ -326,7 +323,7 @@ class TestTrayAndSnapshotEnhancements(unittest.TestCase):
         (self.temp_dir / "sample.txt").write_text("Hello Snapshot World", encoding="utf-8")
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.temp_dir)
 
     def test_tray_adapter_factory(self):
         from guard.tray import create_tray_adapter, BaseTrayAdapter
@@ -336,14 +333,23 @@ class TestTrayAndSnapshotEnhancements(unittest.TestCase):
 
     def test_shield_icon_generation(self):
         from guard.tray import generate_shield_icon, PIL_AVAILABLE
-        if PIL_AVAILABLE:
-            img = generate_shield_icon(True, size=64)
-            self.assertIsNotNone(img)
-            self.assertEqual(img.size, (64, 64))
+        if not PIL_AVAILABLE:
+            self.skipTest("Pillow is not installed")
+        img = generate_shield_icon(True, size=64)
+        self.assertIsNotNone(img)
+        self.assertEqual(img.size, (64, 64))
 
-            img_unlocked = generate_shield_icon(False, size=32)
-            self.assertIsNotNone(img_unlocked)
-            self.assertEqual(img_unlocked.size, (32, 32))
+        img_unlocked = generate_shield_icon(False, size=32)
+        self.assertIsNotNone(img_unlocked)
+        self.assertEqual(img_unlocked.size, (32, 32))
+
+    def test_tray_icon_is_not_a_shared_tmp_path(self):
+        from guard.tray import AyatanaAdapter
+        path = AyatanaAdapter._private_icon_path()
+        self.assertTrue(path)
+        self.assertNotEqual(os.path.dirname(path), "/tmp")
+        if os.name != "nt":
+            self.assertEqual(os.stat(os.path.dirname(path)).st_mode & 0o077, 0)
 
     def test_snapshot_inspection_and_traversal_guard(self):
         engine = SnapshotEngine(self.temp_dir)
@@ -359,11 +365,13 @@ class TestTrayAndSnapshotEnhancements(unittest.TestCase):
         traversal = engine.read_snapshot_file(snap_id, "../../../etc/passwd")
         self.assertIsNone(traversal)
 
-    def test_gui_design_disabled_tokens(self):
-        from guard.gui import BG_DISABLED, TEXT_MUTED, TEXT_DISABLED
-        self.assertEqual(BG_DISABLED, "#27272A")
-        self.assertEqual(TEXT_MUTED, "#A1A1AA")
-        self.assertEqual(TEXT_DISABLED, "#71717A")
+    def test_gui_tokens_meet_design_contract(self):
+        from scripts.meta_audit import contrast_ratio
+        from guard import gui
+        self.assertGreaterEqual(contrast_ratio(gui.TEXT_PRIMARY, gui.BG_SURFACE), 4.5)
+        self.assertGreaterEqual(contrast_ratio(gui.TEXT_MUTED, gui.BG_SURFACE), 4.5)
+        self.assertGreaterEqual(contrast_ratio(gui.TEXT_MUTED, gui.BG_DISABLED), 4.5)
+        self.assertGreaterEqual(contrast_ratio(gui.TEXT_DISABLED, gui.BG_DISABLED), 3.0)
 
 
 class TestV126HardeningAndStartup(unittest.TestCase):
@@ -371,15 +379,22 @@ class TestV126HardeningAndStartup(unittest.TestCase):
         self.test_dir = Path(tempfile.mkdtemp(prefix="test_guard_v126_"))
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_version_alignment(self):
+        import re
         import guard
         import porter
         from porter.models import UniversalManifest
-        self.assertEqual(guard.__version__, "1.3.0")
-        self.assertEqual(porter.__version__, "1.3.0")
-        self.assertEqual(UniversalManifest.version, "1.3.0")
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(porter.__version__, guard.__version__)
+        self.assertEqual(UniversalManifest().version, guard.__version__)
+        pkgbuild = (root / "installers" / "packaging" / "PKGBUILD").read_text(encoding="utf-8")
+        self.assertIn(f"pkgver={guard.__version__}\n", pkgbuild)
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn(f"release-v{guard.__version__}-", readme)
+        changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertRegex(changelog, rf"## \[{re.escape(guard.__version__)}\]")
 
     def test_agent_classification_routing(self):
         bridge = PorterBridge(target_dir=self.test_dir)
@@ -480,7 +495,7 @@ class TestV126Bugfixes(unittest.TestCase):
         self.test_dir = Path(tempfile.mkdtemp(prefix="test_v126_fixes_"))
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_porter_import_re_no_name_error(self):
         import subprocess
@@ -568,7 +583,8 @@ class TestV126Bugfixes(unittest.TestCase):
         from porter.manifest import ManifestEngine
         engine = ManifestEngine()
         manifest = engine.build_manifest()
-        self.assertEqual(manifest.version, "1.3.0")
+        import porter
+        self.assertEqual(manifest.version, porter.__version__)
 
     def test_rapid_snapshot_same_second_no_collision(self):
         engine = SnapshotEngine(target_dir=self.test_dir)

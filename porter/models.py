@@ -6,7 +6,7 @@ Zero-dependency: strictly uses Python standard library dataclasses.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -109,17 +109,22 @@ class SuitabilityReport:
 @dataclass
 class UniversalManifest:
     """
-    Lossless canonical machine-readable representation of the entire harness.
-    Guarantees zero information decay across multi-hop migrations (A -> B -> C).
+    Canonical machine-readable representation of the entire harness: constitution, design
+    contract, agents, and skills with every support file and in-skill symlink.
     """
-    version: str = "1.3.0"
-    schema_version: str = "1.0.0"
+    version: str = ""
+    schema_version: str = "1.1.0"
     generated_at: str = ""
     constitution: Dict[str, Any] = field(default_factory=dict)
     design_contract: Dict[str, Any] = field(default_factory=dict)
     skills: List[Dict[str, Any]] = field(default_factory=list)
     agents: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.version:
+            from porter import __version__
+            self.version = __version__
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

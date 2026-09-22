@@ -4,7 +4,10 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
+
 from __future__ import annotations
+
+import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)
 
 import json
 import tempfile
@@ -55,10 +58,12 @@ class TestLeaseManager(unittest.TestCase):
         (self.root / "test_rule.md").write_text("# Test Rule", encoding="utf-8")
 
         self.notifier = GuardNotifier(cache_file=self.notify_cache, enabled=False)
+        self.scheduled = []
         self.manager = LeaseManager(
             registry=self.registry,
             notifier=self.notifier,
             lease_file=self.lease_file,
+            scheduler=lambda lease, manager: (self.scheduled.append(lease.lease_id) or True, "test scheduler"),
         )
 
     def tearDown(self):
@@ -70,7 +75,6 @@ class TestLeaseManager(unittest.TestCase):
             reason="Testing rejection",
             duration_seconds=30,
             interactive=False,
-            auto_approve=False,
         )
         self.assertFalse(ok)
         self.assertIsNone(lease)
@@ -82,7 +86,7 @@ class TestLeaseManager(unittest.TestCase):
             env_id="test_env",
             reason="Automated test pass",
             duration_seconds=60,
-            auto_approve=True,
+            approver=lambda request: True,
         )
         self.assertTrue(ok)
         self.assertIsNotNone(lease)
@@ -90,6 +94,7 @@ class TestLeaseManager(unittest.TestCase):
         self.assertEqual(lease.duration_seconds, 60)
         self.assertTrue(lease.is_active)
         self.mock_adapter.unlock.assert_called()
+        self.assertEqual(self.scheduled, [lease.lease_id])
 
         # Check persistence
         active = self.manager.get_active_lease()
@@ -101,7 +106,7 @@ class TestLeaseManager(unittest.TestCase):
             env_id="test_env",
             reason="Early complete test",
             duration_seconds=60,
-            auto_approve=True,
+            approver=lambda request: True,
         )
         self.assertTrue(ok)
 

@@ -16,12 +16,15 @@ Maximum signal. Minimum noise. Write less. Ship less. Mean more.
 ## Persistence
 
 ACTIVE EVERY RESPONSE. No drift back to verbose over-building. Still active if unsure.
-Off only: "stop chisle" / "normal mode" / `/chisle off`. One mode — no levels to pick.
+Off only when one of the deactivation triggers in the next section occurs. One mode — no levels to pick.
 
 ## Mutual Exclusion and Mode Precedence
-- **Explicit Priority:** When the user triggers `/chisle` or chisle keywords, this mode assumes highest priority.
+- **Activation (Trigger):** `/chisle` or the chisle keywords in the description.
+- **Scope of priority:** chisle has priority over *presentation* (prose length, diff minimality). It never
+  overrides the `harness` verification gates, the Tier requirements of GEMINI.md, or Rule 2's demand for
+  depth on architectural and root-cause questions.
 - **Suspend Scaffolding Ceremony:** While `chisle` is active, `unlazy` (Depth Tree) and `procoder` sprint ceremonies are suspended. Heavy documentation artifacts are skipped; produce the minimal working diff.
-- **Deactivation:** Deactivates only upon "stop chisle", "normal mode", or explicit `/unlazy` invocation.
+- **Deactivation (single definition):** "stop chisle", "normal mode", `/chisle off`, or an explicit `/unlazy` invocation (unlazy supersedes chisle).
 
 ## Relationship with Engineering Harness
 Chisle is an efficiency, terse communication, and YAGNI code filter; it is NOT an execution scaffold that replaces verification gates.

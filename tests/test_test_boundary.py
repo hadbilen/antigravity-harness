@@ -3,6 +3,8 @@ tests/test_test_boundary.py — Unit Tests for TestBoundaryGuard
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 """
 
+import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)
+
 import json
 import shutil
 import sys
@@ -31,7 +33,7 @@ class TestTestBoundaryGuard(unittest.TestCase):
         self.guard = TestBoundaryGuard(workspace_dir=self.test_dir)
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        hermetic.force_rmtree(self.test_dir)
 
     def test_discover_files(self):
         files = self.guard.discover_files()
@@ -45,7 +47,8 @@ class TestTestBoundaryGuard(unittest.TestCase):
         self.assertEqual(count, 3)
         self.assertTrue(path.exists())
         data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["version"], "1.3.0")
+        from guard import __version__
+        self.assertEqual(data["version"], __version__)
         self.assertEqual(data["total_files"], 3)
         self.assertIn("tests/test_example.py", data["files"])
 
@@ -77,15 +80,14 @@ class TestTestBoundaryGuard(unittest.TestCase):
         self.assertIn("tests/fixtures.json", report.fixture_modifications)
         self.assertTrue(any("Goodhart Invariant" in v for v in report.violations))
 
-    def test_verify_bugfix_added_file_blocked(self):
+    def test_verify_bugfix_added_regression_test_permitted(self):
+        # GEMINI.md Rule 9: authoring new test files is always permitted (regression tests).
         self.guard.snapshot()
-        # Add new test in bugfix mode
         (self.tests_dir / "test_new.py").write_text("def test_new(): pass\n", encoding="utf-8")
 
         report = self.guard.verify(mode="bugfix")
-        self.assertFalse(report.is_intact)
+        self.assertTrue(report.is_intact, report.violations)
         self.assertIn("tests/test_new.py", report.added)
-        self.assertTrue(any("New test/config files added in bugfix mode" in v for v in report.violations))
 
     def test_verify_tdd_added_file_permitted(self):
         self.guard.snapshot()

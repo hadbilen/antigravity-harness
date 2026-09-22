@@ -9,7 +9,7 @@ Bundles `pystray` and `Pillow` for native system tray integration on Linux, macO
 
 from __future__ import annotations
 
-import os
+import hashlib
 import platform
 import shutil
 import subprocess
@@ -20,7 +20,6 @@ from pathlib import Path
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     dist_dir = repo_root / "dist"
-    build_dir = repo_root / "build"
 
     system = platform.system()
     raw_machine = platform.machine().lower()
@@ -49,22 +48,19 @@ def main() -> int:
         print("Please install PyInstaller: pip install pyinstaller pystray pillow", file=sys.stderr)
         return 1
 
-    entry_point = repo_root / "guard" / "cli.py"
+    entry_point = repo_root / "guard.py"
+    exe_name = binary_name[:-4] if binary_name.endswith(".exe") else binary_name
 
     cmd = [
         pyinstaller,
         "--noconfirm",
         "--clean",
         "--onefile",
-        "--name", binary_name,
-        "--hidden-import", "guard",
-        "--hidden-import", "guard.gui",
-        "--hidden-import", "guard.tray",
-        "--hidden-import", "guard.integrity",
-        "--hidden-import", "guard.os_adapter",
-        "--hidden-import", "guard.snapshot",
-        "--hidden-import", "guard.upstream",
-        "--hidden-import", "guard.porter_bridge",
+        "--name", exe_name,
+        "--paths", str(repo_root),
+        "--collect-submodules", "guard",
+        "--collect-submodules", "porter",
+        "--hidden-import", "scripts.meta_audit",
         "--hidden-import", "pystray",
         "--hidden-import", "PIL",
         "--hidden-import", "PIL.Image",
@@ -79,7 +75,12 @@ def main() -> int:
         return res.returncode
 
     out_file = dist_dir / binary_name
-    print(f"[SUCCESS] Binary built successfully: {out_file}")
+    if not out_file.is_file():
+        print(f"[ERROR] Expected build output {out_file} is missing.", file=sys.stderr)
+        return 1
+    digest = hashlib.sha256(out_file.read_bytes()).hexdigest()
+    (dist_dir / f"{binary_name}.sha256").write_text(f"{digest}  {binary_name}\n", encoding="utf-8")
+    print(f"[SUCCESS] Binary built successfully: {out_file} (sha256 {digest})")
     return 0
 
 

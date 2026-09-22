@@ -9,11 +9,11 @@ description: 'Human and accessibility skill for antislop. Contrast, keyboard, fo
 
 > Anti Slop: Rules for AI Coding Agents. Human skill
 
-> Part of the antislop system. Read together with `antislop.md` (the core). This skill deep-dives the human concern: the UI must stay usable by people with different eyes, hands, and setups. Contrast, keyboard, focus, states, and the mobile details that exclude people.
+> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the human concern: the UI must stay usable by people with different eyes, hands, and setups. Contrast, keyboard, focus, states, and the mobile details that exclude people.
 
 ## How to use this skill
 
-- Load together with `antislop.md` whenever the task builds or edits UI. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds the human-side depth: the parts of a UI that exclude people with different eyes, hands, and setups.
+- Load together with the `antislop` core skill (`skills/antislop/SKILL.md`) whenever the task builds or edits UI. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds the human-side depth: the parts of a UI that exclude people with different eyes, hands, and setups.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (who it excludes, and why it reads as unfinished), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - Accessibility is not a checklist of extras bolted on at the end. It is part of the core promise that "the UI holds up" (C-4). The Delivery Gate in the core remains the gate; the "Human Skill Checklist" at the end of this file is the supplement to run alongside it.
 - The contrast checker (formula + reference table + script) lives in this skill. Use it for every color pairing you cannot verify by eye.
@@ -25,7 +25,7 @@ description: 'Human and accessibility skill for antislop. Contrast, keyboard, fo
 
 - **Tell:** light grey text on a white or near-white background, thin body text, muted labels chosen because they look "elegant" but are hard to read.
 - **Why:** it excludes low-vision users and everyone in bright light. It is a visual choice made without checking the standard, which is exactly the kind of default the filter exists to catch.
-- **Fix:** meet WCAG AA minimums (R-25): 4.5:1 for normal text, 3:1 for large text (18px+). Compute the ratio; do not eyeball it.
+- **Fix:** meet WCAG AA minimums (R-25): 4.5:1 for normal text, 3:1 for large text (at least 24px / 18pt regular, or 18.67px / 14pt bold). Compute the ratio; do not eyeball it.
 
 ### Text Over a Photo or Gradient
 
@@ -64,7 +64,7 @@ If the `${CLAUDE_SKILL_DIR}` variable is not available in this agent, point the 
 1. Contrast ratio = (L1 + 0.05) / (L2 + 0.05), where L1 is the lighter relative luminance and L2 the darker.
 2. Relative luminance L of one color: convert each channel to 0-1 (`c = hex / 255`), then linearize: if `c <= 0.03928`, `c_lin = c / 12.92`; otherwise `c_lin = ((c + 0.055) / 1.055)^2.4`.
 3. `L = 0.2126*R + 0.7152*G + 0.0722*B`.
-4. Round the ratio to two decimals and compare: 4.5:1 for normal text, 3:1 for large text (18px+, per R-25). The maximum ratio is 21.0 (black on white).
+4. Compare the UNROUNDED ratio (round only for display): 4.5:1 for normal text, 3:1 for large text (24px+ regular or 18.67px+ bold, per R-25). The maximum ratio is 21.0 (black on white).
 
 **The reference table** (common pairings, computed with the formula):
 

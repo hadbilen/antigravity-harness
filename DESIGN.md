@@ -32,7 +32,7 @@ Dial: ENERGY 2 / RHYTHM 2 / MOTION 2
 Direction: Modern Zinc/Slate neutral surfaces with a focused Cobalt Blue accent.
 
 ### Rules
-- All text must meet at least **4.5:1** contrast against its background (WCAG AA). Large text (18px+ bold or 24px+) must meet at least **3:1**.
+- All text must meet at least **4.5:1** contrast against its background (WCAG AA). Large text (WCAG: at least 24px / 18pt regular, or 18.67px / 14pt bold) must meet at least **3:1**.
 - Form input borders, icons, and status indicators must meet at least **3:1**.
 - Never hardcode arbitrary hex color codes; use CSS variables or semantic design tokens.
 - Gradients are permitted exclusively for state transitions or data visualization; full-page background gradients and decorative radial glows are banned.
@@ -40,33 +40,56 @@ Direction: Modern Zinc/Slate neutral surfaces with a focused Cobalt Blue accent.
 
 ### Light Theme
 
-| Role | Value | Measured Contrast / Standard |
+| Role | Value | Usage |
 |---|---|---|
 | Background Canvas | `#FFFFFF` | Main canvas |
 | Card / Surface | `#F8FAFC` | Subtle border: `#E2E8F0` |
 | Secondary Surface | `#F1F5F9` | Section divider or neutral panel |
-| Divider Line | `#E2E8F0` | Structural separator |
-| Input Border | `#94A3B8` | 3.10:1 on card surface (passes WCAG AA) |
-| Primary Text | `#0F172A` | 15.54:1 against canvas |
-| Secondary / Placeholder | `#475569` | 6.21:1 against canvas, 5.80:1 on card |
-| Accent Text | `#1D4ED8` | 7.34:1 against canvas |
-| Primary Button | Background `#2563EB`, Text `#FFFFFF` | 4.60:1 |
-| Disabled Control | Background `#E2E8F0`, Text `#94A3B8` | 3.10:1 (Neutral disabled surface) |
+| Divider Line | `#E2E8F0` | Structural separator (decorative, not a control boundary) |
+| Input Border | `#64748B` | Form control boundary on card surface |
+| Primary Text | `#0F172A` | Body and headings |
+| Secondary / Placeholder | `#475569` | Supporting text, placeholders |
+| Accent Text | `#1D4ED8` | Links and emphasis |
+| Primary Button | Background `#2563EB`, Text `#FFFFFF` | Primary action |
+| Disabled Control | Background `#E2E8F0`, Text `#64748B` | Neutral disabled surface |
 
 ### Dark Theme
 
-| Role | Value | Measured Contrast / Standard |
+| Role | Value | Usage |
 |---|---|---|
 | Background Canvas | `#09090B` | Main canvas (deep zinc rather than pitch black) |
 | Card / Surface | `#18181B` | Subtle border: `#27272A` |
 | Secondary Surface | `#27272A` | Section divider or neutral panel |
-| Divider Line | `#27272A` | Structural separator |
-| Input Border | `#52525B` | 3.22:1 on card surface (passes WCAG AA) |
-| Primary Text | `#F4F4F5` | 16.12:1 against card surface |
-| Secondary / Placeholder | `#A1A1AA` | 6.34:1 against card surface |
-| Accent Text | `#60A5FA` | 8.42:1 against card surface |
-| Primary Button | Background `#2563EB`, Text `#FFFFFF` | 5.17:1 (or Bg `#3B82F6`, Text `#09090B`: 8.12:1) |
-| Disabled Control | Background `#27272A`, Text `#A1A1AA` | 5.81:1 on neutral dark surface (passes WCAG AA) |
+| Divider Line | `#27272A` | Structural separator (decorative, not a control boundary) |
+| Input Border | `#71717A` | Form control boundary on card surface |
+| Primary Text | `#F4F4F5` | Body and headings |
+| Secondary / Placeholder | `#A1A1AA` | Supporting text, placeholders |
+| Accent Text | `#60A5FA` | Links and emphasis |
+| Primary Button | Background `#2563EB`, Text `#FFFFFF` (or Bg `#3B82F6`, Text `#09090B`) | Primary action |
+| Disabled Control | Background `#27272A`, Text `#A1A1AA` | Neutral disabled surface |
+
+### Measured Contrast Pairs
+
+Computed with the WCAG 2.x relative-luminance formula (`skills/antislop-human/contrast-check.py`).
+The harness self-audit (`scripts/meta_audit.py`, Pass 6) recomputes every row; a stated ratio that
+differs from the measurement, or a pair below its minimum, fails the audit.
+
+| Pair | Foreground | Background | Ratio | Minimum |
+|---|---|---|---|---|
+| Light · Primary text on canvas | `#0F172A` | `#FFFFFF` | 17.85:1 | 4.5:1 |
+| Light · Secondary text on canvas | `#475569` | `#FFFFFF` | 7.58:1 | 4.5:1 |
+| Light · Secondary text on card | `#475569` | `#F8FAFC` | 7.24:1 | 4.5:1 |
+| Light · Accent text on canvas | `#1D4ED8` | `#FFFFFF` | 6.70:1 | 4.5:1 |
+| Light · Input border on card | `#64748B` | `#F8FAFC` | 4.55:1 | 3:1 |
+| Light · Primary button text | `#FFFFFF` | `#2563EB` | 5.17:1 | 4.5:1 |
+| Light · Disabled control text | `#64748B` | `#E2E8F0` | 3.86:1 | 3:1 |
+| Dark · Primary text on card | `#F4F4F5` | `#18181B` | 16.12:1 | 4.5:1 |
+| Dark · Secondary text on card | `#A1A1AA` | `#18181B` | 6.91:1 | 4.5:1 |
+| Dark · Accent text on card | `#60A5FA` | `#18181B` | 6.97:1 | 4.5:1 |
+| Dark · Input border on card | `#71717A` | `#18181B` | 3.67:1 | 3:1 |
+| Dark · Primary button text | `#FFFFFF` | `#2563EB` | 5.17:1 | 4.5:1 |
+| Dark · Alternate button text | `#09090B` | `#3B82F6` | 5.41:1 | 4.5:1 |
+| Dark · Disabled control text | `#A1A1AA` | `#27272A` | 5.81:1 | 3:1 |
 
 ### Status Colors (Semantic)
 - **Success:** Green (`#16A34A` light / `#22C55E` dark)

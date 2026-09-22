@@ -39,7 +39,7 @@ This inspection is not an offensive cyberattack, penetration test, or unauthoriz
 
 ## 3. Phase 0: Self-Calibration
 
-Before performing any analysis, the agent inspects the target structure and declares its detected paradigm and standard on the very first line of output:
+Before performing any analysis, the agent inspects the target structure and declares its detected paradigm and standard in the report header (the line directly after the one-line verdict required by GEMINI.md Rule 1):
 
 ### A. Artifact Classification
 1. **Formal Specification & Protocol Lens:**
@@ -55,8 +55,8 @@ Before performing any analysis, the agent inspects the target structure and decl
 ### B. Contract Grounding
 The agent reads existing local governance files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `GATES.md`, `MISTAKES.md`) to anchor the audit to the project's real non-negotiable constraints without asking the user for repetitive context.
 
-### C. Top-Line Header Declaration
-Every audit report MUST begin with:
+### C. Header Declaration
+Every audit report MUST begin with a one-line verdict (GEMINI.md Rule 1), immediately followed by:
 `Lens: [<Selected Lens>] · Standard: [<Applied Standard>] · Scope: [<Target>]`
 
 ---

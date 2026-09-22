@@ -1,6 +1,12 @@
 ---
 name: porter
-description: Universal bidirectional ecosystem adapter, suitability analyzer, and rule transpiler between Antigravity and any external AI coding agent, IDE assistant, model framework, or autonomous environment (whether established or emerging, such as Cursor, Claude Code, Hermes, Cline, Aider, Windsurf, or any other agentic system). Invoke when: the user requests porting, exporting, importing, converting, adapting, evaluating, or syncing rules, instructions, conventions, system prompts, constitutions, or skills across different AI tools or platforms, regardless of whether the target platform is explicitly named or newly released.
+description: >-
+  Universal bidirectional ecosystem adapter, suitability analyzer, and rule transpiler between
+  Antigravity and any external AI coding agent, IDE assistant, model framework, or autonomous
+  environment (Cursor, Claude Code, Hermes, Cline, Aider, Windsurf, or any other agentic system).
+  Invoke when the user requests porting, exporting, importing, converting, adapting, evaluating,
+  or syncing rules, instructions, conventions, system prompts, constitutions, or skills across
+  AI tools or platforms, whether or not the target platform is explicitly named or newly released.
 ---
 
 # Porter: Universal AI Agent Bridge & Suitability Transpiler
@@ -32,7 +38,7 @@ When a user provides an external file (e.g. `.mdc`, `.cursorrules`, `CLAUDE.md`,
    Output the formatted report to the user detailing:
    - Detected format and proposed classification (`skill`, `agent`, or project rule).
    - Constitutional score (0-100) and any flagged test-weakening or sycophantic directives.
-   - Overlap check against existing 18 skills and 6 subagents.
+   - Overlap check against every existing skill and subagent in the harness.
    - Clean preview of sanitized content.
 3. **Interactive Decision Gate:**
    Ask the user how they wish to proceed:

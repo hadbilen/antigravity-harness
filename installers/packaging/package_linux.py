@@ -16,16 +16,14 @@ import argparse
 import hashlib
 import io
 import os
-import platform
 import shutil
-import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -60,6 +58,27 @@ class LinuxPackager:
     def ensure_out_dir(self) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def changelog_date(self) -> str:
+        """RPM changelog date for this build (honours SOURCE_DATE_EPOCH for reproducible builds)."""
+        epoch = int(os.environ.get("SOURCE_DATE_EPOCH", time.time()))
+        t = time.gmtime(epoch)
+        days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        return f"{days[t.tm_wday]} {months[t.tm_mon - 1]} {t.tm_mday:02d} {t.tm_year}"
+
+    @staticmethod
+    def _payload_size(stage: Path) -> int:
+        return sum(p.stat().st_size for p in stage.rglob("*") if p.is_file() and p.name != ".PKGINFO")
+
+    def prepare_payload(self, staging_dir: Path) -> None:
+        """Public seam: populate a staging directory with the package's FHS payload."""
+        self._prepare_payload(staging_dir)
+
+    def build_deb_archive(self, stage: Path, target_deb: Path) -> Path:
+        """Public seam: write a .deb (ar archive) from an already prepared stage."""
+        return self._build_deb_pure_python(stage, target_deb)
+
     def _prepare_payload(self, staging_dir: Path) -> None:
         """Populates staging directory with standard Linux FHS hierarchy."""
         bin_dir = staging_dir / "usr" / "bin"
@@ -80,9 +99,10 @@ class LinuxPackager:
             lib_dir = staging_dir / "usr" / "lib" / "antigravity-guard"
             lib_dir.mkdir(parents=True, exist_ok=True)
 
-            shutil.copytree(self.repo_root / "guard", lib_dir / "guard", dirs_exist_ok=True)
-            if (self.repo_root / "porter").exists():
-                shutil.copytree(self.repo_root / "porter", lib_dir / "porter", dirs_exist_ok=True)
+            ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+            for pkg in ("guard", "porter", "scripts"):
+                if (self.repo_root / pkg).exists():
+                    shutil.copytree(self.repo_root / pkg, lib_dir / pkg, dirs_exist_ok=True, ignore=ignore)
             shutil.copy2(self.repo_root / "guard.py", lib_dir / "guard.py")
 
             dest_bin.write_text(
@@ -107,7 +127,7 @@ class LinuxPackager:
             shutil.copy2(icon_src, icons_dir / "antigravity-guard.svg")
 
         # 4. Governance Docs & Templates
-        for name in ("GEMINI.md", "DESIGN.md", "MISTAKES.md", "README.md", "LICENSE"):
+        for name in ("GEMINI.md", "DESIGN.md", "MISTAKES.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"):
             f_path = self.repo_root / name
             if f_path.exists():
                 shutil.copy2(f_path, docs_dir / name)
@@ -115,13 +135,14 @@ class LinuxPackager:
         for folder in ("templates", "skills", "agents"):
             f_dir = self.repo_root / folder
             if f_dir.exists():
-                shutil.copytree(f_dir, docs_dir / folder, dirs_exist_ok=True)
+                shutil.copytree(f_dir, docs_dir / folder, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
 
         # 5. Bash completion
         comp_content = """# Bash completion for agy-guard
 _agy_guard_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
-    local commands="status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor gui"
+    local commands="status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify gui"
     COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
 }
 complete -F _agy_guard_completions agy-guard
@@ -232,7 +253,7 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
 Version:        {self.version}
 Release:        1%{{?dist}}
 Summary:        OS-Level AI Governance Shield & Multi-Environment Integrity Suite
-License:        MIT
+License:        MIT AND Apache-2.0
 URL:            https://github.com/hadbilen/antigravity-harness
 BuildArch:      {rpm_arch}
 Requires:       python3 >= 3.10
@@ -264,11 +285,8 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
 %endif
 
 %changelog
-* Sun Sep 20 2026 Had Bilen <hadbilen@users.noreply.github.com> - {self.version}-1
-- Multi-environment write protection & registry
-- Low-frequency ergonomic notification engine
-- Lease-based human-in-the-loop interactive unlock
-- Autonomous self-audit & meta-consistency engine
+* {self.changelog_date} Had Bilen <hadbilen@users.noreply.github.com> - {self.version}-1
+- Release {self.version}; see CHANGELOG.md for details
 """
         spec_path = self.out_dir / "antigravity-guard.spec"
         spec_path.write_text(spec_content, encoding="utf-8")
@@ -318,11 +336,12 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
 pkgver = {self.version}-1
 pkgdesc = OS-Level AI Governance Shield & Multi-Environment Integrity Suite
 url = https://github.com/hadbilen/antigravity-harness
-builddate = {int(time.time())}
+builddate = {int(os.environ.get("SOURCE_DATE_EPOCH", time.time()))}
 packager = Had Bilen <https://github.com/hadbilen/antigravity-harness>
-size = 2048000
+size = {self._payload_size(stage)}
 arch = {arch_name}
 license = MIT
+license = Apache-2.0
 depend = python>=3.10
 optdepend = libnotify: Desktop notifications
 """
@@ -332,9 +351,6 @@ optdepend = libnotify: Desktop notifications
             has_zstd = shutil.which("zstd") is not None
             if not has_zstd:
                 target_pkg = self.out_dir / f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
-                mode = "w:xz"
-            else:
-                mode = "w:gz"  # Will convert or wrap if tar --zstd supported
 
             tar_cmd = shutil.which("tar")
             if tar_cmd and has_zstd:

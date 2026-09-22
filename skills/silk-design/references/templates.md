@@ -26,7 +26,7 @@ always applies underneath — see `SKILL.md`. The referenced site only decides t
 the **Signature** effects worth stealing. Type is **Inter** (body) + **Inter Tight**
 (headings) unless a row says *"Inter Tight throughout"* (a tighter, more editorial feel).
 Every row is self-contained. For the full 9-token palette and the exact card/button CSS behind a
-row's skin, read `templates/ReferenceN/theme.css` — a palette, a font, and three CSS recipes.
+row's skin, read `templates/Reference<N>/theme.css` — a palette, a font, and three CSS recipes.
 All compositions assume React + Vite + Tailwind v4 + motion + GSAP + Lenis.
 
 ---

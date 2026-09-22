@@ -1,146 +1,217 @@
-name: Antigravity Harness CI
+name: CI
+
+# Supply-chain policy (GEMINI.md Rule 12): every third-party action is pinned to a full
+# commit SHA (tag in the trailing comment), Python build/lint tools are pinned to exact
+# versions, and runner images are pinned. apt packages come from the pinned runner image.
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AGY_GUARD_NOTIFY: "off"
+  PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
-  test-matrix:
-    name: Test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.10', '3.11', '3.12']
-
-    env:
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: "utf-8"
-
+        os: [ubuntu-24.04, macos-14, windows-2022]
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile all sources
+        run: python -m compileall -q guard porter installers tests scripts install.py porter.py guard.py
+      - name: Unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Deterministic invariant verification
+        run: python scripts/verify_invariants.py --all
+      - name: Harness self-audit (Rule 17, warnings fail)
+        run: python scripts/meta_audit.py --all --strict
+      - name: Canonical manifest is current
+        run: python porter.py manifest --check
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
+  lint:
+    name: Lint (syntax errors and undefined names)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install ruff (pinned)
+        run: python -m pip install ruff==0.16.8
+      - name: Ruff (E9, F63, F7, F82)
+        run: ruff check --select E9,F63,F7,F82 --output-format github .
 
-    - name: Validate Python syntax and bytecode compilation
-      run: |
-        python -m compileall guard porter installers tests scripts
-
-    - name: Run unit test suite
-      run: |
-        python -m unittest discover -s tests -v
-
-    - name: Verify candidate code against immutable base tests (Trust Boundary Split)
-      if: github.event_name == 'pull_request'
-      shell: bash
-      run: |
-        git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
-        git checkout origin/${{ github.base_ref }} -- tests
-        python -m unittest discover -s tests -v
-
-    - name: Run deterministic invariant verification
-      shell: bash
-      run: |
-        python scripts/verify_invariants.py --all
-
-    - name: Run autonomous harness self-audit (Rule 17)
-      shell: bash
-      run: |
-        python scripts/meta_audit.py --all
+  trusted-boundary:
+    # Runs the CANDIDATE product code against the BASE branch's tests and graders.
+    # A fresh worktree of the base commit is used, so candidate-only test files, shadow
+    # modules (tests/guard.py, sitecustomize.py) and edited graders cannot influence the run.
+    name: Candidate code vs trusted base tests & graders
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install grader dependency (pinned)
+        run: python -m pip install pyyaml==6.0.3
+      - name: Build trusted worktree with candidate product code
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_REF"
+          base_sha="$(git rev-parse "origin/$BASE_REF")"
+          echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"
+          trusted="$RUNNER_TEMP/trusted"
+          git worktree add --detach "$trusted" "$base_sha"
+          git worktree add --detach "$RUNNER_TEMP/pristine-base" "$base_sha"
+          for p in guard porter guard.py porter.py skills agents templates installers bin \
+                   GEMINI.md DESIGN.md MISTAKES.md README.md CHANGELOG.md hooks.json .harness; do
+            rm -rf "${trusted:?}/$p"
+            if [ -e "$p" ]; then cp -R "$p" "$trusted/$p"; fi
+          done
+      - name: Trusted tests and graders against candidate code
+        shell: bash
+        working-directory: ${{ runner.temp }}/trusted
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -v
+          python scripts/verify_invariants.py --all
+          python scripts/meta_audit.py --all
+      - name: Test boundary (existing tests may only be extended, never edited)
+        shell: bash
+        run: |
+          set -euo pipefail
+          verifier="$RUNNER_TEMP/pristine-base/guard.py"
+          if python "$verifier" test-boundary --help 2>/dev/null | grep -q -- '--base-ref'; then
+            python "$verifier" test-boundary verify --mode tdd --dir "$GITHUB_WORKSPACE" --base-ref "$BASE_SHA"
+          else
+            echo "::warning::Base branch predates 'test-boundary --base-ref'; using the candidate verifier for this run."
+            python guard.py test-boundary verify --mode tdd --base-ref "$BASE_SHA"
+          fi
 
   build-binaries:
-    name: Build Standalone Binary on ${{ matrix.os }}
-    needs: [test-matrix]
+    name: Standalone binary (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [test, lint]
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            artifact-name: agy-guard-linux-x86_64
-          - os: macos-latest
-            artifact-name: agy-guard-macos-x86_64
-          - os: windows-latest
-            artifact-name: agy-guard-windows-x86_64.exe
-
+        os: [ubuntu-24.04, macos-14, windows-2022]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller pystray pillow
-
-    - name: Build Standalone Executable
-      shell: bash
-      run: |
-        python installers/build_binaries.py
-
-    - name: Upload Standalone Release Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.artifact-name }}
-        path: dist/*
-
-    - name: Attach Binary to GitHub Release
-      if: startsWith(github.ref, 'refs/tags/v')
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: bash
-      run: |
-        gh release upload ${{ github.ref_name }} dist/* --clobber || gh release create ${{ github.ref_name }} dist/* --title "Antigravity Harness ${{ github.ref_name }}" --notes "Release ${{ github.ref_name }}: Multi-Environment Governance & Linux Packaging"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies (pinned)
+        run: python -m pip install pyinstaller==6.22.3 pystray==0.19.5 pillow==12.3.0
+      - name: Build binary and .sha256
+        run: python installers/build_binaries.py
+      - name: Smoke test the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$(ls dist/agy-guard-* | grep -v '\.sha256$' | head -1)"
+          "$bin" --version
+          "$bin" self-audit --root . --json > /dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binary-${{ runner.os }}-${{ runner.arch }}
+          path: dist/agy-guard-*
+          if-no-files-found: error
 
   package-linux:
-    name: Build Linux Native Packages (.deb, .rpm, .pkg.tar.zst)
-    needs: [test-matrix]
-    runs-on: ubuntu-latest
+    name: Linux packages (.deb, .rpm, .pkg.tar.zst, PKGBUILD)
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [test, lint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install packaging tools (from the pinned runner image)
+        run: sudo apt-get update && sudo apt-get install -y rpm zstd binutils
+      - name: Build packages
+        run: python installers/packaging/package_linux.py --all --out-dir dist-packages
+      - name: Render PKGBUILD with the real source checksum
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          curl -fsSL "https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz" -o source.tar.gz
+          sum="$(sha256sum source.tar.gz | cut -d' ' -f1)"
+          sed -e "s/^pkgver=.*/pkgver=$version/" -e "s/@SHA256@/$sum/" installers/packaging/PKGBUILD > dist-packages/PKGBUILD
+          grep -q "$sum" dist-packages/PKGBUILD
+      - name: Checksums
+        shell: bash
+        run: cd dist-packages && for f in *; do [ -f "$f" ] && sha256sum "$f" > "$f.sha256"; done; ls -la
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-packages
+          path: dist-packages/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release assets (tags only, never overwrites)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-binaries, package-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install packaging tools
-      run: |
-        sudo apt-get update && sudo apt-get install -y rpm zstd binutils
-
-    - name: Build Linux Distribution Packages
-      shell: bash
-      run: |
-        python installers/packaging/package_linux.py --all --output-dir dist-packages
-
-    - name: Upload Linux Package Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: antigravity-guard-linux-packages
-        path: dist-packages/*
-
-    - name: Attach Linux Packages to GitHub Release
-      if: startsWith(github.ref, 'refs/tags/v')
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: bash
-      run: |
-        gh release upload ${{ github.ref_name }} dist-packages/* --clobber || true
-
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Create release and upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -la assets
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --repo "$REPO"
+          else
+            gh release create "$TAG" assets/* --repo "$REPO" --title "Antigravity Harness $TAG" --notes "See CHANGELOG.md. Verify downloads with the accompanying .sha256 files."
+          fi

@@ -2,6 +2,97 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.3.1] - 2026-09-22
+Remediation release for the five external audit reports (121 validated findings). Guard's claims now
+match what it enforces; see the threat-model section of `README.md`.
+
+### Breaking changes
+- **`--auto-approve` removed** from `request-unlock`. `unlock`, `rebaseline`, `snapshot restore`,
+  `porter stage`, `test-boundary snapshot` (overwrite), `startup disable` and `doctor --fix` (baseline)
+  require a human to type `yes` in a TTY or confirm in the GUI; otherwise they exit with code `3`
+  (`guard/approval.py`, GEMINI.md Rule 12).
+- **State moved out of the protected tree and the repository:** registry, integrity baselines, leases,
+  lock-mode records, notifier settings, lease reports and the upstream ledger live in
+  `~/.local/state/antigravity-harness/`; snapshots and the runtime in `~/.local/share/antigravity-harness/`
+  (`XDG_STATE_HOME` / `XDG_DATA_HOME` / `AGY_GUARD_STATE_DIR` honoured; same layout on every OS). Legacy
+  `~/.gemini/.environments.json` and `.guard_integrity.json` are read once and reported by `doctor`.
+- **Installer defaults to copy mode** (`--link` keeps the old symlink behaviour for development);
+  backups go outside the config tree; `hooks.json` is merged instead of replaced; the `--full` flag
+  mentioned in 1.2.7 never existed and is not needed.
+- **Lock scope is the governance seams only** (`GEMINI.md`, `AGENTS.md`, `DESIGN.md`, `MISTAKES.md`,
+  `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/` plus the root entry);
+  Antigravity runtime state (`config.json`, `projects/`, `sidecars/`, …) is no longer locked.
+- **Test boundary, bugfix mode:** new test files are allowed (Rule 9 regression tests); existing tests,
+  runner configuration and fixtures must stay byte-identical. TDD mode allows pure appends only.
+- The committed upstream ledger was renamed to `skills/upstream-auditor/upstream_state.seed.json` and is
+  only read as a seed; the live ledger is written to the state directory.
+- Porter's `porter/parsers/` package (unused) was removed.
+
+### Security & integrity
+- Locking never follows symlinks, reports external symlinks as unprotected, records and restores the
+  original permission modes, returns failure on partial locks, and reads Windows directory state from the
+  ACL instead of writing probe files.
+- Leases: persisted before unlocking, detached `lease-tick` watcher relocks on expiry, several concurrent
+  leases, relock before rebaseline, change report per lease, `close_failed` state + CRITICAL notification.
+- FIM baseline records symlinks as links, reports unreadable files, archives history and no longer lives
+  inside the tree it protects.
+- Snapshots exclude `config.json` (no token copies), verify content before restore, refuse destination
+  symlinks, always take a pre-restore backup, use a journaled swap and rebaseline afterwards; pruning is per kind.
+- Boot sentinel quarantines drift (forensic snapshot, CRITICAL notification, no rebaseline); systemd and
+  launchd files are quoted/escaped.
+- Porter staging binds the reviewed content hash, refuses destination symlinks, writes with `O_NOFOLLOW`
+  and always relocks. `porter.py import` refuses to write into the live config; `--force` needs a human.
+- SSRF: DNS pinning against rebinding, `is_global` plus 6to4/NAT64/site-local blocks, proxies ignored.
+- Notifier passes text as data (argv / environment) to `osascript` and PowerShell, `--` for `notify-send`;
+  disable is absolute; cooldown cache pruned. Tray icon lives in a private runtime directory.
+- Sanitizer is negation-aware (protective rules such as "never skip tests" are kept), matches across line
+  breaks, covers Turkish phrasing and is applied on export as well as import.
+- Provenance parses `git status -z` correctly and redacts secret-like environment values.
+- A missing baseline is reported as `BASELINE MISSING` (not as a deleted file); the GUI's all-environment
+  check uses each environment's own baseline; `startup disable` on Windows reports `schtasks` failures.
+
+### Porter & self-audit
+- Lossless export: every skill support file, in-skill symlink and all 7 agents for Claude, Cursor,
+  Universal, Aider and Generic targets; valid Cursor `.mdc` YAML; no overwrite without `--force`.
+- Strict standard-library YAML frontmatter parser/dumper (`porter/frontmatter.py`); manifest schema 1.1.0
+  with content digest and `porter.py manifest --check`.
+- `scripts/meta_audit.py` rewritten with six real passes (frontmatter, references, mutual exclusion and
+  tier thresholds, export parity, CLI/README sync, measured contrast), `--strict`, `--pass`, `--json`, `--root`.
+- `scripts/verify_invariants.py` detects `bash <(curl …)` / `source <(…)`, checks Markdown only inside
+  code fences, supports `--base-ref` and exits `2` when a check cannot run.
+
+### CI & packaging
+- Actions pinned to commit SHAs, least-privilege permissions, Python 3.10–3.14 on Linux/macOS/Windows,
+  lint job, `meta_audit --strict`, manifest freshness check.
+- Trusted-boundary job runs the candidate code against the base branch's tests and graders in a clean worktree.
+- Release assets get individual `.sha256` files and are never clobbered; PKGBUILD checksum is rendered by CI.
+- Linux packages ship `LICENSE` and `THIRD_PARTY_NOTICES.md` and declare `MIT` and `Apache-2.0` (bundled
+  `procoder` skill); build caches are no longer packaged.
+- Upgrading from 1.3.0: the installer moves in-tree snapshots/baselines (`.guard_snapshots`,
+  `.guard_integrity.json`), read-only `backup_*` folders and old runtime symlinks out of `~/.gemini/config`
+  (to `~/.local/state/antigravity-harness/`, mode 0700); nothing is deleted and failures never abort the install.
+
+### Content
+- README rewritten with an explicit threat model and corrected commands, counts and policies.
+- GEMINI.md Rules 8/10/12/13/15/17 clarified; DESIGN.md colours `#64748B` (light border / disabled text)
+  and `#71717A` (dark border) with a measured contrast table.
+- `vibecoder` translated to English with a mutual-exclusion section and SRI-pinned CDN assets; dead
+  references fixed across skills; unified prompt-defence baseline for all agents; `THIRD_PARTY_NOTICES.md` added.
+
+### Authorized test modifications
+Existing tests were changed only where this release intentionally changed a contract:
+- `test_guard.py`: hermetic HOME/state isolation (`tests/hermetic.py`) and `force_rmtree` clean-up;
+  `test_status_command` now asserts the exact exit codes (1 → rebaseline → lock → 0) instead of `(0, 1)`;
+  `test_upstream_check_cli` mocks the network; the Pillow test skips instead of passing vacuously;
+  `test_gui_design_disabled_tokens` → `test_gui_tokens_meet_design_contract` (checks contrast, not hex
+  literals); version tests assert single-sourcing instead of the literal `1.3.0`.
+- `test_lease.py`: `auto_approve=` replaced by an explicit `approver=` and an injected scheduler (flag removed).
+- `test_test_boundary.py`: `test_verify_bugfix_added_file_blocked` →
+  `test_verify_bugfix_added_regression_test_permitted` (decision 7: new regression tests are allowed).
+- `test_packaging.py`, `test_provenance.py`, `test_environment.py`, `test_meta_audit.py`,
+  `test_notifier.py`: hermetic import, version via `__version__`, public packaging seams.
+- New suites: `test_protection.py`, `test_porter.py`, `test_tooling.py` (plus 4 new tests in `test_guard.py`).
+
 ## [1.3.0] - 2026-09-20
 ### Added & Hardened
 - **Multi-Environment OS Write Protection & Governance Seams (`guard/environment.py`, `guard/os_adapter.py`, `guard/integrity.py`):** Extended OS protection adapter and cryptographic FIM tracking across multiple co-located agent runtimes (Antigravity, Claude Code, GPT Codex, Cursor, Aider). Protects discrete governance seam files (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.aider.conf.yml`, `GEMINI.md`) without locking developer project code. Added auto-discovery and persistence in `.harness/environments.json`.
@@ -11,7 +102,7 @@ All notable changes to Antigravity Harness are documented in this file.
 - **Human-in-the-Loop Time-Bounded Lease Unlock (`guard/lease.py`):** Added `agy-guard request-unlock` and `agy-guard lock-complete` providing time-bounded maintenance leases with operator approval, automated relock upon expiry, and cryptographic rebaselining.
 - **Autonomous Harness Self-Audit & Meta-Consistency Engine (`scripts/meta_audit.py`, `agents/meta-auditor.md`, `skills/audit/SKILL.md`):** Built 5-pass deterministic self-auditor verifying YAML frontmatter schemas, dead link/template cross-references, skill mutual exclusion barriers, Porter parity, and CLI sync. Integrated into `GEMINI.md` as **Rule 17**.
 - **Native Linux Distribution Packaging (`installers/packaging/package_linux.py`, `PKGBUILD`):** Added native package generators for Debian/Ubuntu (`.deb` via pure Python `ar` builder), Red Hat/Fedora (`.rpm`), and Arch Linux (`.pkg.tar.zst`).
-- **Comprehensive Unit Test Suite (`tests/test_*.py`):** Added 23 new unit tests across 5 new test files (`test_environment.py`, `test_notifier.py`, `test_lease.py`, `test_meta_audit.py`, `test_packaging.py`), bringing total passing unit tests to 75.
+- **Comprehensive Unit Test Suite (`tests/test_*.py`):** Added 25 new unit tests across 5 new test files (`test_environment.py`, `test_notifier.py`, `test_lease.py`, `test_meta_audit.py`, `test_packaging.py`), bringing total passing unit tests to 77.
 
 ## [1.2.9] - 2026-09-20
 ### Added & Hardened
@@ -29,7 +120,7 @@ All notable changes to Antigravity Harness are documented in this file.
 
 ## [1.2.7] - 2026-09-20
 ### Fixed & Hardened
-- **Decoupled Control Plane & Policy Workspace (`install.py`, `install.sh`):** Separated standalone control plane binary (`agy-guard`) from config/policy workspace installation. Installers download or link compiled binary to `~/.local/bin/agy-guard` without altering underlying policy configuration unless `--full` is specified.
+- **Decoupled Control Plane & Policy Workspace (`install.py`, `install.sh`):** Separated standalone control plane binary (`agy-guard`) from config/policy workspace installation. Installers download or link compiled binary to `~/.local/bin/agy-guard` without altering underlying policy configuration. (Correction: no `--full` flag was ever implemented.)
 - **Top-Level Regex Dependency Fix (`porter.py`):** Added top-level `import re` required by `clean_name = re.sub(...)` in `cmd_import()`, resolving `NameError` during CLI rule and skill import.
 - **Upstream Auditor State Resolution (`guard/upstream.py`):** Synchronized state file resolution with `upstream_watcher.py`, prioritizing `UPSTREAM_STATE_FILE` and `$XDG_STATE_HOME/antigravity-harness/upstream_state.json` with fallback to legacy path, ensuring seamless watchdog status queries under lock.
 - **Atomic Re-Lock Verification (`guard/porter_bridge.py`):** Captured return value of `self.os_adapter.lock()` during post-ingest relock; marks operation as failed if relock fails, eliminating unshielded exposure states.

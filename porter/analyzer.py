@@ -5,20 +5,24 @@ Zero-dependency: strictly uses Python standard library.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from porter.models import SuitabilityIssue, SuitabilityReport
+from porter.frontmatter import FrontmatterError, frontmatter_description, parse_frontmatter
+from porter.models import SuitabilityReport
 from porter.sanitizer import ConstitutionalSanitizer
+
+_AGENT_NAME_RE = re.compile(r"(?i)\b([a-z0-9_]+(?:-[a-z0-9_]+)*-(?:auditor|verifier|hunter|agent|resolver|reviewer))\b")
+_PERSONA_RE = re.compile(r"(?i)\byou\s+are\s+(?:an?\s+)?(?:autonomous\s+|expert\s+|independent\s+|read-only\s+)*"
+                         r"(?:sub-?agent|auditor|verifier|reviewer|agent)\b")
 
 
 class SuitabilityAnalyzer:
     """Evaluates external rules for compatibility, safety, and ecosystem fit before any file is written."""
 
     def __init__(self, harness_root: Optional[Path] = None):
-        self.harness_root = harness_root or Path(__file__).resolve().parent.parent
+        self.harness_root = Path(harness_root) if harness_root else Path(__file__).resolve().parent.parent
         self.known_skills = self._load_known_skills()
         self.known_agents = self._load_known_agents()
 
@@ -33,11 +37,8 @@ class SuitabilityAnalyzer:
                     desc = ""
                     if skill_file.is_file():
                         try:
-                            content = skill_file.read_text(encoding="utf-8", errors="ignore")
-                            match = re.search(r"description:\s*([^\n\r]+)", content)
-                            if match:
-                                desc = match.group(1).strip()
-                        except Exception:
+                            desc = frontmatter_description(skill_file.read_text(encoding="utf-8", errors="ignore"))
+                        except OSError:
                             pass
                     skills[item.name.lower()] = desc
         return skills
@@ -50,11 +51,8 @@ class SuitabilityAnalyzer:
             for item in agents_dir.glob("*.md"):
                 desc = ""
                 try:
-                    content = item.read_text(encoding="utf-8", errors="ignore")
-                    match = re.search(r"description:\s*([^\n\r]+)", content)
-                    if match:
-                        desc = match.group(1).strip()
-                except Exception:
+                    desc = frontmatter_description(item.read_text(encoding="utf-8", errors="ignore"))
+                except OSError:
                     pass
                 agents[item.stem.lower()] = desc
         return agents
@@ -80,14 +78,23 @@ class SuitabilityAnalyzer:
         return "generic_markdown"
 
     def classify_target_type(self, content: str, filename: str) -> Tuple[str, str]:
-        """Decides whether content should be a skill, subagent, or project rule."""
-        lower = content.lower() + " " + filename.lower()
-
-        # Check if it defines a persona / subagent / auditor
-        if any(term in lower for term in ["subagent", "auditor", "verifier", "hunter", "you are an agent"]):
-            name_match = re.search(r"(?i)\b([a-z0-9_-]+)-(auditor|verifier|hunter|agent|resolver)\b", lower)
-            name = name_match.group(0) if name_match else Path(filename).stem or "imported-agent"
-            return "agent", name
+        """
+        Decides whether content should be a skill, subagent, or project rule. A document is
+        an agent only if it DEFINES a persona near its top ("You are an ... auditor") or its
+        frontmatter/file name says so — merely mentioning "auditor" is not enough.
+        """
+        head = "\n".join(content.splitlines()[:25])
+        declared_kind = ""
+        try:
+            meta, _ = parse_frontmatter(content)
+            declared_kind = str(meta.get("kind") or meta.get("type") or "").lower()
+        except FrontmatterError:
+            meta = {}
+        stem = Path(filename).stem.lower()
+        name_hit = _AGENT_NAME_RE.search(stem) or _AGENT_NAME_RE.search(head)
+        if declared_kind in ("agent", "subagent") or _PERSONA_RE.search(head) or _AGENT_NAME_RE.fullmatch(stem or "-"):
+            name = (name_hit.group(1).lower() if name_hit else "") or str(meta.get("name") or "") or stem or "imported-agent"
+            return "agent", re.sub(r"[^a-z0-9_-]", "-", name).strip("-") or "imported-agent"
 
         # Default to modular skill
         base_name = Path(filename).stem or "imported-rule"
@@ -101,30 +108,32 @@ class SuitabilityAnalyzer:
                 base_name = "custom-skill"
         return "skill", base_name
 
+    @staticmethod
+    def _references(content: str, name: str) -> bool:
+        """True when `name` is referenced as an identifier (heading, `code`, /command, skills/<name>)."""
+        n = re.escape(name)
+        patterns = [
+            rf"(?im)^#+\s.*\b{n}\b",
+            rf"`{n}`",
+            rf"(?<![\w/])/{n}\b",
+            rf"\b(?:skills|agents)/{n}\b",
+        ]
+        if "-" in name:
+            patterns.append(rf"\b{n}\b")
+        return any(re.search(p, content) for p in patterns)
+
     def find_redundancies(self, content: str, name: str) -> List[Dict[str, str]]:
-        """Identifies any overlap with our existing modular skills and autonomous subagents."""
+        """Identifies overlap with existing skills/subagents (identifier references, not plain words)."""
         redundancies = []
-        lower_content = content.lower()
         lower_name = name.lower()
-
-        # Check skills
-        for s_name, s_desc in self.known_skills.items():
-            if s_name in lower_name or (len(s_name) > 4 and s_name in lower_content):
-                redundancies.append({
-                    "name": s_name,
-                    "type": "Skill",
-                    "reason": f"Semantic overlap with existing skill `{s_name}` ({s_desc[:60]}...)"
-                })
-
-        # Check agents
-        for a_name, a_desc in self.known_agents.items():
-            if a_name in lower_name or (len(a_name) > 4 and a_name in lower_content):
-                redundancies.append({
-                    "name": a_name,
-                    "type": "Agent",
-                    "reason": f"Role overlap with existing subagent `{a_name}`"
-                })
-
+        for kind, known, label in (("Skill", self.known_skills, "skill"), ("Agent", self.known_agents, "subagent")):
+            for k_name, k_desc in known.items():
+                if k_name == lower_name or self._references(content, k_name):
+                    redundancies.append({
+                        "name": k_name,
+                        "type": kind,
+                        "reason": f"Overlap with existing {label} `{k_name}` ({k_desc[:60]}...)",
+                    })
         return redundancies
 
     def analyze(self, content: str, source_identifier: str = "unnamed_source") -> SuitabilityReport:

@@ -54,7 +54,10 @@ Never rename columns in-place in production. Follow the four-step expand-contrac
 
 ### 4. Batched Data Migrations (Prevent Table Locks)
 ```sql
--- Batch updates to prevent holding exclusive row locks or filling WAL:
+-- Batch updates to prevent holding exclusive row locks or filling WAL.
+-- PostgreSQL 11+: COMMIT inside DO is allowed ONLY when the DO block is not itself running
+-- inside an explicit transaction (many migration runners wrap each file in BEGIN/COMMIT;
+-- in that case use a PROCEDURE + CALL outside the transaction, or drive batches from the client).
 DO $$
 DECLARE
   batch_size INT := 5000;
@@ -66,14 +69,18 @@ BEGIN
     WHERE id IN (
       SELECT id FROM users
       WHERE normalized_email IS NULL
+        AND email IS NOT NULL          -- NULL emails would stay NULL and be re-selected forever
       LIMIT batch_size
       FOR UPDATE SKIP LOCKED
     );
     GET DIAGNOSTICS rows_updated = ROW_COUNT;
-    EXIT WHEN rows_updated = 0;
+    EXIT WHEN rows_updated = 0;        -- may also mean "all remaining rows were locked by others"
     COMMIT;
   END LOOP;
 END $$;
+
+-- Completion check (SKIP LOCKED can exit early): must return 0 before the contract phase.
+SELECT count(*) FROM users WHERE normalized_email IS NULL AND email IS NOT NULL;
 ```
 
 ---

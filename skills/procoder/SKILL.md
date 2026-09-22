@@ -22,6 +22,15 @@ that gives AI coders the tools and discipline of a senior developer. The
 back, and a file it could not check is never reported as clean.
 (For general day-to-day coding tasks outside `.procoder/`, use the core `harness` skill).
 
+## Mutual Exclusion
+
+- **Activation:** EXCLUSIVELY when the repository contains a `.procoder/` directory, an `AGENTS.md`
+  mandates procoder, or the user explicitly invokes `/procoder`.
+- **Relationship with `harness`:** procoder replaces the harness Tier 3 scaffolding (sprint chain instead
+  of depth tree) but keeps every harness verification gate; it is never combined with `unlazy`.
+- **Deactivation:** ends when the work leaves the `.procoder/` repository or the user says "stop procoder";
+  an active `chisle` mode suspends procoder ceremonies.
+
 ## The contract
 
 - Before calling any work finished, run `procoder check` — the commit
