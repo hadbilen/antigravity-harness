@@ -25,6 +25,11 @@ EXCLUDED_DIR_NAMES = {"__pycache__", "node_modules", ".git"}
 EXCLUDED_SUFFIXES = (".pyc", ".pyo")
 
 
+
+def _link_target(path: Path) -> str:
+    """Symlink target with '/' separators (Windows checkouts store them with backslashes)."""
+    return os.readlink(path).replace(os.sep, "/")
+
 def content_digest(manifest_dict: Dict[str, Any]) -> str:
     """Stable digest of manifest content (ignores generated_at and the digest itself)."""
     payload = {k: v for k, v in manifest_dict.items() if k not in ("generated_at",)}
@@ -56,14 +61,14 @@ class ManifestEngine:
             base = Path(dirpath)
             for d in list(dirnames):
                 if (base / d).is_symlink():
-                    links[(base / d).relative_to(skill_dir).as_posix()] = os.readlink(base / d)
+                    links[(base / d).relative_to(skill_dir).as_posix()] = _link_target(base / d)
             for name in sorted(filenames):
                 path = base / name
                 rel = path.relative_to(skill_dir).as_posix()
                 if path == skill_file or name in EXCLUDED_SUBFILE_NAMES or name.endswith(EXCLUDED_SUFFIXES):
                     continue
                 if path.is_symlink():
-                    links[rel] = os.readlink(path)
+                    links[rel] = _link_target(path)
                     continue
                 subfiles[rel] = self._read_subfile(path)
         return {"subfiles": subfiles, "links": links}

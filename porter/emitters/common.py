@@ -91,7 +91,8 @@ def _same(path: Path, content: Content) -> bool:
 
 def commit(plan: Plan, links: Dict[Path, str], force: bool = False) -> List[Path]:
     conflicts = [p for p, c in plan.items() if os.path.lexists(p) and not _same(p, c)]
-    conflicts += [p for p, t in links.items() if os.path.lexists(p) and not (os.path.islink(p) and os.readlink(p) == t)]
+    conflicts += [p for p, t in links.items()
+                  if os.path.lexists(p) and not (os.path.islink(p) and os.readlink(p).replace(os.sep, "/") == t)]
     if conflicts and not force:
         raise EmitterConflictError(sorted(conflicts))
     written: List[Path] = []
@@ -106,7 +107,7 @@ def commit(plan: Plan, links: Dict[Path, str], force: bool = False) -> List[Path
         written.append(path)
     for path, target in sorted(links.items()):
         path.parent.mkdir(parents=True, exist_ok=True)
-        if os.path.islink(path) and os.readlink(path) == target:
+        if os.path.islink(path) and os.readlink(path).replace(os.sep, "/") == target:
             written.append(path)
             continue
         if os.path.lexists(path):
@@ -114,7 +115,7 @@ def commit(plan: Plan, links: Dict[Path, str], force: bool = False) -> List[Path
                 continue  # never delete a real directory to create a link
             path.unlink()
         try:
-            os.symlink(target, path, target_is_directory=True)
+            os.symlink(target.replace("/", os.sep), path, target_is_directory=True)
             written.append(path)
         except (OSError, NotImplementedError):
             pass  # platforms without symlink support: the link target is exported separately

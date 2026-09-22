@@ -113,7 +113,10 @@ def default_antigravity_environment(root: Optional[Path] = None) -> AgentEnviron
         policy="enforced",
         is_global=True,
         enabled=True,
-        protect_root=True,
+        # The root stays writable: Antigravity saves config.json by atomic replace (new file +
+        # rename) in this directory, which a read-only root would break. Top-level governance
+        # files are still protected against in-place edits; replacing one is detected by FIM.
+        protect_root=False,
     )
 
 
@@ -165,7 +168,7 @@ class EnvironmentRegistry:
             # governance scope is upgraded with any seams introduced by newer releases.
             existing.root_path = default_global.root_path
             existing.is_global = True
-            existing.protect_root = True
+            existing.protect_root = default_global.protect_root
             for seam in ANTIGRAVITY_GOVERNANCE_SEAMS:
                 if seam not in existing.governance_paths:
                     existing.governance_paths.append(seam)

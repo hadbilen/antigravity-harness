@@ -20,8 +20,10 @@ match what it enforces; see the threat-model section of `README.md`.
   backups go outside the config tree; `hooks.json` is merged instead of replaced; the `--full` flag
   mentioned in 1.2.7 never existed and is not needed.
 - **Lock scope is the governance seams only** (`GEMINI.md`, `AGENTS.md`, `DESIGN.md`, `MISTAKES.md`,
-  `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/` plus the root entry);
-  Antigravity runtime state (`config.json`, `projects/`, `sidecars/`, …) is no longer locked.
+  `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/`). Antigravity runtime
+  state (`config.json`, `projects/`, `sidecars/`, …) and the root directory are no longer locked, because
+  Antigravity saves `config.json` by atomic replace; replacing a top-level file is detected by FIM. When
+  upgrading, the installer restores owner write access on runtime state frozen by the 1.3.0 lock.
 - **Test boundary, bugfix mode:** new test files are allowed (Rule 9 regression tests); existing tests,
   runner configuration and fixtures must stay byte-identical. TDD mode allows pure appends only.
 - The committed upstream ledger was renamed to `skills/upstream-auditor/upstream_state.seed.json` and is
@@ -66,6 +68,12 @@ match what it enforces; see the threat-model section of `README.md`.
   lint job, `meta_audit --strict`, manifest freshness check.
 - Trusted-boundary job runs the candidate code against the base branch's tests and graders in a clean worktree.
 - Release assets get individual `.sha256` files and are never clobbered; PKGBUILD checksum is rendered by CI.
+- Cross-platform: snapshots of a locked tree no longer inherit macOS immutable flags or read-only bits;
+  in-skill directory symlinks are recreated with the right type on Windows; Windows lock detection reads
+  the ACL instead of `os.access()`; state paths keep symlinked ancestors (`/var`, 8.3 names) as configured;
+  `.gitattributes` checks text out with LF everywhere so the manifest is byte-identical on every OS.
+- Snapshot ids stay unique when the clock does not advance between snapshots (Windows ~15 ms ticks);
+  pruning only counts snapshots that were actually removed; `verify_invariants` output survives cp1252 consoles.
 - Linux packages ship `LICENSE` and `THIRD_PARTY_NOTICES.md` and declare `MIT` and `Apache-2.0` (bundled
   `procoder` skill); build caches are no longer packaged.
 - Upgrading from 1.3.0: the installer moves in-tree snapshots/baselines (`.guard_snapshots`,
@@ -92,6 +100,8 @@ Existing tests were changed only where this release intentionally changed a cont
 - `test_packaging.py`, `test_provenance.py`, `test_environment.py`, `test_meta_audit.py`,
   `test_notifier.py`: hermetic import, version via `__version__`, public packaging seams.
 - New suites: `test_protection.py`, `test_porter.py`, `test_tooling.py` (plus 4 new tests in `test_guard.py`).
+- `test_tooling.py::test_paths_with_spaces_are_quoted` (new in this release) expects systemd's backslash
+  escaping, so the same assertion also holds for Windows paths.
 
 ## [1.3.0] - 2026-09-20
 ### Added & Hardened

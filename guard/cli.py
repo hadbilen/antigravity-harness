@@ -284,6 +284,8 @@ def cmd_upstream(args: argparse.Namespace) -> int:
 
 
 def _world_writable_ancestors(path: Path, depth: int = 3) -> List[str]:
+    if os.name == "nt":
+        return []  # st_mode carries no ACL information on Windows; every path would look world-writable
     found = []
     current = Path(os.path.realpath(path))
     for _ in range(depth + 1):

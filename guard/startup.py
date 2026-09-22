@@ -49,9 +49,9 @@ class StartupManager:
     def __init__(self, target_dir: Optional[Path] = None, registry: Optional[EnvironmentRegistry] = None):
         if target_dir is None:
             config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
-            self.target_dir = Path(config_env).resolve() if config_env else Path.home() / ".gemini" / "config"
+            self.target_dir = Path(os.path.abspath(config_env)) if config_env else Path.home() / ".gemini" / "config"
         else:
-            self.target_dir = Path(target_dir).resolve()
+            self.target_dir = Path(os.path.abspath(target_dir))
 
         self.os_adapter = OSProtectionAdapter(self.target_dir)
         self.registry = registry or EnvironmentRegistry(os_adapter=self.os_adapter)

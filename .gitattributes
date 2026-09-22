@@ -1,0 +1,11 @@
+# Check out text files with LF on every platform: the canonical manifest and the skill
+# scripts are byte-compared across Linux, macOS and Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary

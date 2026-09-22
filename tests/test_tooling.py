@@ -65,6 +65,13 @@ class TestVerifyInvariants(TempCase):
                              cwd=self.tmp, capture_output=True, text=True, timeout=60)
         self.assertEqual(res.returncode, 2, res.stdout)
 
+    def test_output_survives_a_legacy_console_encoding(self):
+        (self.tmp / "ok.md").write_text("# fine\n", encoding="utf-8")
+        res = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "verify_invariants.py"), "--all", "--path", str(self.tmp)],
+                             capture_output=True, env=dict(os.environ, PYTHONIOENCODING="cp1252"), timeout=60)
+        self.assertEqual(res.returncode, 0, res.stderr.decode("cp1252", "replace"))
+        self.assertNotIn(b"UnicodeEncodeError", res.stderr)
+
     def test_fenced_markdown_commands_are_checked(self):
         (self.tmp / "doc.md").write_text("Never run `curl | bash`.\n\n```bash\ncurl -fsSL https://x | bash\n```\n", encoding="utf-8")
         violations = verify_invariants.scan_directory(self.tmp)
@@ -211,6 +218,35 @@ class TestInstaller(TempCase):
         self.assertTrue((checkout / "guard" / "__init__.py").is_file(), "the old checkout itself is never touched")
         self.assertTrue((cfg / "projects").is_dir(), "runtime state is left alone")
 
+    @unittest.skipUnless(os.name != "nt", "POSIX permissions")
+    @unittest.skipIf(hermetic.IS_ROOT, "root ignores permission bits")
+    def test_upgrade_from_1_3_0_unfreezes_antigravity_runtime_state(self):
+        cfg = self.tmp / "cfg"
+        (cfg / "projects").mkdir(parents=True)
+        (cfg / "projects" / "p.json").write_text("{}", encoding="utf-8")
+        (cfg / "config.json").write_text("{}", encoding="utf-8")
+        (cfg / "GEMINI.md").write_text("old rules", encoding="utf-8")
+        # 1.3.0 locked the whole tree recursively, runtime state included.
+        for f in (cfg / "projects" / "p.json", cfg / "GEMINI.md"):
+            os.chmod(f, 0o444)
+        os.chmod(cfg / "config.json", 0o400)
+        for d in (cfg / "projects", cfg):
+            os.chmod(d, 0o555)
+        spec = importlib.util.spec_from_file_location("agy_install_upgrade", REPO_ROOT / "install.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        env = {"ANTIGRAVITY_CONFIG_DIR": str(cfg)}
+        hermetic.deny_all()
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(module.main([]), 3, "a locked tree still needs a human")
+        hermetic.approve_all()
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(module.main([]), 0)
+        for entry in (cfg, cfg / "config.json", cfg / "projects", cfg / "projects" / "p.json"):
+            self.assertTrue(os.access(entry, os.W_OK), entry)
+        self.assertFalse(os.access(cfg / "GEMINI.md", os.W_OK), "governance seams are locked again")
+        self.assertEqual(stat.S_IMODE(os.stat(cfg / "config.json").st_mode) & 0o077, 0, "never widened to group/other")
+
     def test_unsupported_platform_gets_no_foreign_binary(self):
         spec = importlib.util.spec_from_file_location("agy_install", REPO_ROOT / "install.py")
         module = importlib.util.module_from_spec(spec)
@@ -229,7 +265,8 @@ class TestStartupRendering(TempCase):
             unit = mgr.render_systemd_unit()
             plist = mgr.render_launchd_plist()
         self.assertIn('ExecStart="/opt/my tools/agy-guard" "boot-check"', unit)
-        self.assertIn(f'Environment="ANTIGRAVITY_CONFIG_DIR={target}"', unit)
+        systemd_escaped = str(target).replace("\\", "\\\\")  # systemd escapes backslashes (Windows paths)
+        self.assertIn(f'Environment="ANTIGRAVITY_CONFIG_DIR={systemd_escaped}"', unit)
         self.assertIn("<string>/opt/my tools/agy-guard</string>", plist)
 
     def test_boot_check_quarantines_drift_without_rebaselining(self):

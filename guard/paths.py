@@ -14,10 +14,11 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import stat
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, List, Optional
 
 APP_NAME = "antigravity-harness"
 IS_WINDOWS = platform.system().lower() == "windows"
@@ -34,6 +35,12 @@ def config_dir() -> Path:
     return (override or Path.home() / ".gemini" / "config").resolve()
 
 
+def _absolute(path: Path) -> Path:
+    # Absolute and normalised, but symlinks are kept (macOS /var -> /private/var, Windows 8.3
+    # names): the directory is reported and compared exactly as the user configured it.
+    return Path(os.path.abspath(path))
+
+
 def state_dir() -> Path:
     """
     Per-user mutable state: baselines, leases, registry, lock-mode records.
@@ -42,18 +49,18 @@ def state_dir() -> Path:
     """
     override = _env_path("AGY_GUARD_STATE_DIR")
     if override:
-        return override.resolve()
+        return _absolute(override)
     xdg = _env_path("XDG_STATE_HOME")
-    return ((xdg or Path.home() / ".local" / "state") / APP_NAME).resolve()
+    return _absolute((xdg or Path.home() / ".local" / "state") / APP_NAME)
 
 
 def data_dir() -> Path:
     """Per-user persistent data (snapshots, installed runtime): AGY_GUARD_DATA_DIR > XDG_DATA_HOME > ~/.local/share."""
     override = _env_path("AGY_GUARD_DATA_DIR")
     if override:
-        return override.resolve()
+        return _absolute(override)
     xdg = _env_path("XDG_DATA_HOME")
-    return ((xdg or Path.home() / ".local" / "share") / APP_NAME).resolve()
+    return _absolute((xdg or Path.home() / ".local" / "share") / APP_NAME)
 
 
 def runtime_dir() -> Path:
@@ -115,6 +122,56 @@ def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> Path:
 
 def atomic_write_json(path: Path, payload: Any, mode: int = 0o600) -> Path:
     return atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", mode=mode)
+
+
+def _clear_copy_restrictions(path: Path) -> None:
+    """A copy is an ordinary owner-writable file: drop BSD flags (macOS uchg) and read-only bits."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return
+    if stat.S_ISLNK(st.st_mode):
+        return
+    if getattr(st, "st_flags", 0) and hasattr(os, "chflags"):
+        try:
+            os.chflags(path, 0)
+        except OSError:
+            pass
+    if not st.st_mode & stat.S_IWUSR:
+        try:
+            os.chmod(path, stat.S_IMODE(st.st_mode) | stat.S_IWUSR)
+        except OSError:
+            pass
+
+
+def copy_entry(src: Path, dst: Path, ignore: Optional[Callable[[str, List[str]], Any]] = None) -> None:
+    """
+    Copies a file, directory or symlink. Symlinks stay symlinks, created with the right
+    file/directory type on Windows (shutil.copytree does not), or are copied by content when
+    the platform refuses to create them. Copies never inherit lock state: no macOS immutable
+    flags and no read-only bits, so they can be moved, pruned and re-locked like any file.
+    """
+    src, dst = Path(src), Path(dst)
+    if os.path.islink(src):
+        try:
+            os.symlink(os.readlink(src), dst, target_is_directory=os.path.isdir(src))
+            return
+        except (OSError, NotImplementedError):
+            real = Path(os.path.realpath(src))
+            if not real.exists():
+                raise
+            src = real
+    if src.is_dir():
+        dst.mkdir(parents=True, exist_ok=True)
+        names = os.listdir(src)
+        skipped = set(ignore(str(src), names)) if ignore else set()
+        for name in sorted(names):
+            if name not in skipped:
+                copy_entry(src / name, dst / name, ignore)
+        shutil.copystat(src, dst)
+    else:
+        shutil.copy2(src, dst)
+    _clear_copy_restrictions(dst)
 
 
 def read_json(path: Path, default: Any = None) -> Any:

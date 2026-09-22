@@ -25,6 +25,7 @@ Guard runs as **your own OS user**. Read this before relying on it:
 | Protects against | Does NOT protect against |
 |---|---|
 | Accidental edits and tools that respect file permissions | A process running as your user that deliberately restores write bits (`chmod u+w`) |
+| In-place edits of top-level files (`GEMINI.md`, `hooks.json`, …) and any change inside `skills/`, `agents/`, `templates/` | Deleting and recreating a top-level file: the config root stays writable for Antigravity's own saves, so this is only *detected* (FIM), not blocked |
 | Headless / unattended agents: administration commands (`unlock`, `rebaseline`, `snapshot restore`, `porter stage`, …) refuse without a human typing `yes` in a terminal or approving in the GUI | An agent that can drive an interactive terminal *and* chooses to ignore the constitution |
 | Silent drift: the SHA-256 baseline (outside the protected tree) reports modified, added, deleted and unreadable files | An attacker who can rewrite both the files **and** the per-user baseline (it is not signed) |
 | Forgotten maintenance windows: leases relock automatically when they expire | `root` / administrators, or kernel-level tampering |
@@ -71,9 +72,11 @@ governance tree). `agy-guard status` shows which protection kind is active
 
 ### Governance write shield (`guard/os_adapter.py`, `guard/environment.py`)
 Guard locks the **governance seams** of `~/.gemini/config/` — `GEMINI.md`, `AGENTS.md`, `DESIGN.md`,
-`MISTAKES.md`, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/` — plus the
-root directory entry itself (so top-level files cannot be deleted and replaced). Antigravity's own
-runtime state (`config.json`, `projects/`, `sidecars/`, `plugins/`, `cache`) stays writable.
+`MISTAKES.md`, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/`. Antigravity's
+own runtime state (`config.json`, `projects/`, `sidecars/`, `plugins/`, `cache`) stays writable, and so does
+the root directory: Antigravity saves `config.json` by atomic replace (new file + rename), which a read-only
+root would break. Top-level files therefore resist in-place edits, but a process that deletes and recreates
+one is not stopped; the integrity baseline reports it.
 * **Linux:** strips write bits (user-space lock); adds `chattr +i` only when run as root.
 * **macOS:** BSD user-immutable flag (`chflags uchg` / `nouchg`) plus permission lockdown.
 * **Windows:** NTFS deny ACEs `(WD,AD,DE,DC)` plus `attrib +R`; status is read from the ACL, not by writing probe files.
@@ -228,7 +231,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 7 auditor subagent definitions
 ├── skills/                                # 20 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
-├── tests/                                 # Hermetic unittest suite (173 tests)
+├── tests/                                 # Hermetic unittest suite (179 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -358,7 +361,7 @@ pinned to exact versions). Pull requests additionally run the **candidate code a
 own tests and graders** in a clean worktree, and verify that existing tests were only extended, never edited.
 
 ```bash
-# Hermetic unit test suite (173 tests)
+# Hermetic unit test suite (179 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

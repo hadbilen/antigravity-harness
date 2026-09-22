@@ -37,9 +37,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from guard import __version__  # noqa: E402
 from guard.approval import refusal_message, request_approval  # noqa: E402
-from guard.environment import EnvironmentRegistry  # noqa: E402
+from guard.environment import ANTIGRAVITY_RUNTIME_ENTRIES, EnvironmentRegistry  # noqa: E402
 from guard.integrity import FileIntegrityMonitor  # noqa: E402
-from guard.paths import atomic_write_json, data_dir, state_dir  # noqa: E402
+from guard.paths import atomic_write_json, copy_entry, data_dir, state_dir  # noqa: E402
 
 IS_WINDOWS = platform.system().lower() == "windows"
 SYSTEM = platform.system()
@@ -47,6 +47,13 @@ GOVERNANCE_FILES = ["GEMINI.md", "DESIGN.md", "MISTAKES.md"]
 RUNTIME_ENTRIES = ["guard", "porter", "scripts", "guard.py", "porter.py"]
 LAUNCHER_MARKER = "antigravity-harness launcher"
 RELEASE_BASE = "https://github.com/hadbilen/antigravity-harness/releases/download"
+
+
+def _write_protected(adapter, path: Path) -> bool:
+    """os.access() ignores NTFS deny ACEs on directories, so directories are also asked via the adapter."""
+    if not os.access(path, os.W_OK):
+        return True
+    return IS_WINDOWS and path.is_dir() and adapter.is_locked(path, recursive=False)
 
 
 def _ignore(src: str, names: List[str]) -> List[str]:
@@ -107,10 +114,7 @@ class Installer:
                     except Exception:
                         pass
                 self.log(f"[NOTICE] Symlink not permitted for {dest.name}; copying instead.")
-        if src.is_dir():
-            shutil.copytree(src, dest, symlinks=True, ignore=_ignore)
-        else:
-            shutil.copy2(src, dest)
+        copy_entry(src, dest, _ignore)
         self.log(f"[COPIED] {dest.relative_to(self.target_dir) if dest.is_relative_to(self.target_dir) else dest}")
         self.installed.append(str(dest))
 
@@ -381,6 +385,32 @@ class Installer:
             })
 
 
+def release_runtime_state(adapter, target_dir: Path, dry_run: bool = False) -> List[str]:
+    """
+    Guard 1.3.0 and earlier locked the whole configuration tree, which also froze Antigravity's
+    own state (config.json, projects/, ...). Restores owner write access on the root directory
+    entry and on those runtime entries only; governance seams are handled by the registry.
+    """
+    released: List[str] = []
+    candidates = [(target_dir, False)] + [(target_dir / n, True) for n in ANTIGRAVITY_RUNTIME_ENTRIES]
+    for entry, recursive in candidates:
+        if not os.path.lexists(entry) or os.path.islink(entry):
+            continue
+        frozen = _write_protected(adapter, entry) or (IS_WINDOWS and recursive and entry.is_dir())
+        if not frozen and recursive and entry.is_dir():
+            frozen = any(not os.access(os.path.join(root, n), os.W_OK)
+                         for root, dirs, files in os.walk(entry) for n in dirs + files
+                         if not os.path.islink(os.path.join(root, n)))
+        if not frozen:
+            continue
+        if dry_run:
+            released.append(f"[DRY-RUN] restore write access: {entry}")
+            continue
+        ok, msg = adapter.unlock(entry, recursive=recursive)
+        released.append(f"[{'RELEASED' if ok else 'WARN'}] runtime state {entry.name or entry}: {msg}")
+    return released
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Antigravity Harness installer")
     parser.add_argument("--link", "--dev", action="store_true", dest="link",
@@ -409,8 +439,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     env = registry.get_environment("antigravity")
     was_locked = registry.is_locked("antigravity").get("antigravity", False)
     # Anything already write-protected (fully or partially) must be released first.
-    has_locked_parts = any(not os.access(p, os.W_OK) for p in [target_dir] + env.get_governance_paths(existing_only=True)
-                           if not os.path.islink(p))
+    has_locked_parts = any(_write_protected(registry.os_adapter, Path(p))
+                           for p in [target_dir] + env.get_governance_paths(existing_only=True) if not os.path.islink(p))
     if (was_locked or has_locked_parts) and not args.dry_run:
         if not request_approval("install", "The governance scope is write-protected. Unlock it to install?",
                                 [str(target_dir), "It is re-locked and re-baselined after installation."]):
@@ -420,6 +450,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not ok:
             print(f"[ERROR] Could not unlock the governance scope: {msg}", file=sys.stderr)
             return 1
+
+    for line in release_runtime_state(registry.os_adapter, target_dir, dry_run=args.dry_run):
+        print(line)
 
     try:
         installer.install_governance()

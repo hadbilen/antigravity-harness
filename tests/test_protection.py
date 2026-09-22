@@ -168,6 +168,28 @@ class TestRegistry(TempDirCase):
             reg.unlock("antigravity")
             hermetic.force_rmtree(cfg)
 
+    @posix_only
+    @not_root
+    def test_locked_global_environment_still_allows_atomic_config_saves(self):
+        # Antigravity replaces config.json atomically (new file + rename in the root directory).
+        cfg = Path(os.environ["ANTIGRAVITY_CONFIG_DIR"])
+        cfg.mkdir(parents=True, exist_ok=True)
+        (cfg / "GEMINI.md").write_text("rules", encoding="utf-8")
+        (cfg / "config.json").write_text("{}", encoding="utf-8")
+        reg = self._registry()
+        try:
+            ok, msg = reg.lock("antigravity")
+            self.assertTrue(ok, msg)
+            tmp = cfg / "config.json.tmp"
+            tmp.write_text('{"saved": true}', encoding="utf-8")
+            os.replace(tmp, cfg / "config.json")
+            self.assertEqual((cfg / "config.json").read_text(encoding="utf-8"), '{"saved": true}')
+            with self.assertRaises(PermissionError):
+                (cfg / "GEMINI.md").write_text("tampered", encoding="utf-8")
+        finally:
+            reg.unlock("antigravity")
+            hermetic.force_rmtree(cfg)
+
 
 class TestIntegrity(TempDirCase):
     def test_baseline_lives_outside_the_target(self):
@@ -266,6 +288,49 @@ class TestSnapshots(TempDirCase):
         engine = SnapshotEngine(self.target)
         _, path = engine.create_snapshot()
         self.assertFalse(str(path).startswith(str(self.target)))
+
+    def test_snapshots_taken_within_one_clock_tick_get_distinct_ids(self):
+        import guard.snapshot as snapshot_module
+
+        class FrozenClock(snapshot_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return snapshot_module.datetime(2026, 9, 22, 11, 15, 54, 358078, tzinfo=tz)
+
+        engine = SnapshotEngine(self.target)
+        with mock.patch.object(snapshot_module, "datetime", FrozenClock):
+            ids = [engine.create_snapshot(kind="pre_rollback")[0] for _ in range(3)]
+        self.assertEqual(len(set(ids)), 3)
+
+    def test_snapshot_of_a_locked_tree_does_not_inherit_the_lock(self):
+        (self.target / "skills" / "demo").mkdir(parents=True)
+        (self.target / "skills" / "demo" / "SKILL.md").write_text("x", encoding="utf-8")
+        adapter = OSProtectionAdapter(self.target)
+        engine = SnapshotEngine(self.target, os_adapter=adapter)
+        self.assertTrue(adapter.lock(self.target)[0])
+        try:
+            snap_id, path = engine.create_snapshot(label="locked")
+            for entry in (path / "skills" / "demo", path / "skills" / "demo" / "SKILL.md", path / "GEMINI.md"):
+                self.assertTrue(os.stat(entry).st_mode & stat.S_IWUSR, entry)
+                self.assertEqual(getattr(os.stat(entry), "st_flags", 0), 0, entry)
+            ok, msg = engine.restore_snapshot(snap_id)
+            self.assertTrue(ok, msg)
+            self.assertTrue(adapter.is_locked(self.target))
+        finally:
+            adapter.unlock(self.target)
+        self.assertEqual(engine.prune_snapshots(keep=0), 2)
+
+    @posix_only
+    def test_directory_symlinks_inside_skills_are_copied_as_links(self):
+        from guard.paths import copy_entry
+        src = self.root / "suite"
+        (src / "sibling").mkdir(parents=True)
+        (src / "bundle" / "skills").mkdir(parents=True)
+        (src / "bundle" / "skills" / "sibling").symlink_to(Path("..") / ".." / "sibling", target_is_directory=True)
+        copy_entry(src, self.root / "copy")
+        link = self.root / "copy" / "bundle" / "skills" / "sibling"
+        self.assertTrue(os.path.islink(link))
+        self.assertTrue(link.is_dir())
 
     @posix_only
     def test_restore_refuses_to_write_through_destination_symlink(self):

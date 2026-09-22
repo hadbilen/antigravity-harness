@@ -87,6 +87,10 @@ class FileIntegrityMonitor:
         env_id: Optional[str] = None,
     ):
         self.target_dir = Path(target_dir).resolve() if target_dir is not None else config_dir()
+        # Paths may reach the target through a symlinked ancestor (macOS /var): accept both spellings.
+        self._key_roots = [self.target_dir]
+        if target_dir is not None and Path(os.path.abspath(target_dir)) != self.target_dir:
+            self._key_roots.append(Path(os.path.abspath(target_dir)))
         self.target_paths = [Path(os.path.abspath(p)) for p in target_paths] if target_paths is not None else None
         self.env_id = env_id
         self.legacy_state_file: Optional[Path] = None
@@ -131,10 +135,13 @@ class FileIntegrityMonitor:
         )
 
     def _key(self, path: Path) -> str:
-        try:
-            return Path(os.path.abspath(path)).relative_to(self.target_dir).as_posix()
-        except ValueError:
-            return Path(os.path.abspath(path)).as_posix()
+        absolute = Path(os.path.abspath(path))
+        for root in self._key_roots:
+            try:
+                return absolute.relative_to(root).as_posix()
+            except ValueError:
+                continue
+        return absolute.as_posix()
 
     @staticmethod
     def _hash_file(path: Path) -> str:
@@ -229,7 +236,13 @@ class FileIntegrityMonitor:
 
         parent = self.state_file.parent
         relock_parent = False
-        if is_within(self.state_file, self.target_dir) and parent.exists() and not os.access(parent, os.W_OK):
+        # os.access() ignores NTFS deny ACEs on directories, so ask the adapter as well.
+        parent_locked = parent.exists() and (
+            not os.access(parent, os.W_OK) or (os.name == "nt" and self.os_adapter.is_locked(parent, recursive=False))
+        )
+        children_locked = False
+        if is_within(self.state_file, self.target_dir) and parent_locked:
+            children_locked = self.os_adapter.is_locked(parent, recursive=True)
             ok, msg = self.os_adapter.unlock(parent, recursive=False)
             if not ok:
                 raise PermissionError(f"Cannot write baseline inside locked directory {parent}: {msg}")
@@ -239,7 +252,9 @@ class FileIntegrityMonitor:
         finally:
             if relock_parent:
                 self.os_adapter.lock(self.state_file)
-                self.os_adapter.lock(parent, recursive=False)
+                # On Windows the parent's inheritable deny ACE also covered its children and
+                # removing it dropped their inherited copies: re-lock a locked tree recursively.
+                self.os_adapter.lock(parent, recursive=children_locked)
 
         return len(current_hashes), self.state_file.as_posix()
 

@@ -171,6 +171,12 @@ def scan_directory(base_path: Path) -> List[Tuple[str, str, str]]:
 
 
 def main() -> int:
+    # Windows consoles default to cp1252: never let a status glyph crash the grader.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(
         prog="verify_invariants",
         description="Deterministic Verification Guard for Constitutional Invariants"

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from guard.os_adapter import OSProtectionAdapter
-from guard.paths import atomic_write_json, config_dir, data_dir, is_within, path_key
+from guard.paths import atomic_write_json, config_dir, copy_entry, data_dir, is_within, path_key
 
 SNAP_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -109,13 +109,10 @@ class SnapshotEngine:
 
     @staticmethod
     def _copy_entry(src: Path, dst: Path, ignore: Callable) -> None:
+        # Snapshots of a locked tree must not inherit the lock (macOS uchg flags, read-only
+        # bits): restore moves these copies into place and prune deletes them.
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if os.path.islink(src):
-            os.symlink(os.readlink(src), dst)
-        elif src.is_dir():
-            shutil.copytree(src, dst, symlinks=True, ignore=ignore)
-        else:
-            shutil.copy2(src, dst, follow_symlinks=False)
+        copy_entry(src, dst, ignore)
 
     @staticmethod
     def _remove_entry(path: Path) -> None:
@@ -176,9 +173,19 @@ class SnapshotEngine:
         timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
         safe_label = ("_" + "".join(c for c in label if c.isalnum() or c in "-_")) if label else ""
         prefix = "pre_rollback" if kind == "pre_rollback" else "snap"
-        snap_id = f"{prefix}_{timestamp}{safe_label if kind != 'pre_rollback' else ''}"
-        dest_dir = self.snapshots_dir / snap_id
-        dest_dir.mkdir(parents=True, exist_ok=False)
+        base_id = f"{prefix}_{timestamp}{safe_label if kind != 'pre_rollback' else ''}"
+        # The Windows clock ticks in ~15 ms steps, so back-to-back snapshots can share a timestamp.
+        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        for attempt in range(1, 1000):
+            snap_id = base_id if attempt == 1 else f"{base_id}-{attempt}"
+            dest_dir = self.snapshots_dir / snap_id
+            try:
+                dest_dir.mkdir(exist_ok=False)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise FileExistsError(f"Could not allocate a unique snapshot id for {base_id}")
         try:
             entries = []
             for name in self._scope_entries():
@@ -337,7 +344,8 @@ class SnapshotEngine:
                 path = Path(snap["path"])
                 if path.exists() and is_within(path, self.snapshots_dir):
                     shutil.rmtree(path, ignore_errors=True)
-                    pruned += 1
+                    if not path.exists():
+                        pruned += 1
         return pruned
 
     def get_snapshot_files(self, snap_id: str) -> List[str]:
