@@ -1,6 +1,7 @@
 ---
 name: consistency-auditor
 description: Structural and axiomatic consistency auditor. Inspects multi-volume specifications, architecture documents, schemas, and code for internal contradictions, broken cross-references, status cycles, and invariant mismatches.
+access: read-only
 ---
 
 # Consistency Auditor Agent

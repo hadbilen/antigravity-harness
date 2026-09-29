@@ -112,16 +112,18 @@ class SuitabilityReport:
 class UniversalManifest:
     """
     Canonical machine-readable representation of the entire harness: constitution, design
-    contract, agents, and skills with every support file and in-skill symlink.
+    contract, agents, skills with every support file, in-skill symlink and executable bit, and
+    the portable document templates.
     """
     version: str = ""
-    schema_version: str = "1.1.0"
+    schema_version: str = "1.2.0"
     generated_at: str = ""
     constitution: Dict[str, Any] = field(default_factory=dict)
     design_contract: Dict[str, Any] = field(default_factory=dict)
     skills: List[Dict[str, Any]] = field(default_factory=list)
     agents: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    templates: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.version:

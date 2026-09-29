@@ -1,6 +1,7 @@
 ---
 name: specification-gap-auditor
 description: Specification gap and ambiguity auditor. Detects unhandled edge cases, missing error states (omissions), and unverifiable/vague adjectives across specifications and architectures.
+access: read-only
 ---
 
 # Specification Gap Auditor Agent

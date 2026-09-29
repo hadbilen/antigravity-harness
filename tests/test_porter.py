@@ -475,5 +475,133 @@ class TestSSRFHardening(unittest.TestCase):
             self.assertEqual(net.safe_fetch_url(f"http://127.0.0.1:{port}/", timeout=5.0, deadline=10.0), "hello from stub")
 
 
+# ----------------------------------------------------------------------------------------------
+# Export parity: executable bits, LF newlines, templates, hooks.json note, agent tool scopes
+# ----------------------------------------------------------------------------------------------
+class TestExportParityExtended(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.manifest = ManifestEngine(harness_root=REPO_ROOT).build_manifest(deterministic=True)
+
+    def test_executable_support_files_are_recorded_and_restored(self):
+        watcher = next(s for s in self.manifest.skills if s["name"] == "upstream-auditor")
+        self.assertIn("scripts/upstream_watcher.py", watcher["executables"])
+        self.assertIn("scripts/check_skills.sh", watcher["executables"])
+        for target, emitter in EMITTERS.items():
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                emitter.emit(self.manifest, out)
+                for skill in self.manifest.skills:
+                    for rel in skill.get("executables") or []:
+                        path = out / emitter.SKILLS_DIR / skill["name"] / rel
+                        self.assertTrue(path.is_file(), path)
+                        if os.name != "nt":
+                            self.assertTrue(os.stat(path).st_mode & 0o100, f"{target}: {path} lost its exec bit")
+
+    def test_exec_bit_round_trip_in_a_scratch_harness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "harness"
+            (root / "skills" / "demo" / "scripts").mkdir(parents=True)
+            (root / "skills" / "demo" / "SKILL.md").write_text("---\nname: demo\ndescription: Demo skill.\n---\nBody\n",
+                                                               encoding="utf-8")
+            script = root / "skills" / "demo" / "scripts" / "run.sh"
+            script.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+            (root / "skills" / "demo" / "scripts" / "data.txt").write_text("plain\n", encoding="utf-8")
+            if os.name != "nt":
+                script.chmod(0o755)
+                manifest = ManifestEngine(harness_root=root).build_manifest(deterministic=True)
+                self.assertEqual(manifest.skills[0]["executables"], ["scripts/run.sh"])
+                out = Path(tmp) / "out"
+                EMITTERS["generic"].emit(manifest, out)
+                self.assertTrue(os.stat(out / "skills/demo/scripts/run.sh").st_mode & 0o100)
+                self.assertFalse(os.stat(out / "skills/demo/scripts/data.txt").st_mode & 0o111)
+
+    def test_manifest_without_new_fields_still_loads_and_exports(self):
+        import json
+        data = json.loads((REPO_ROOT / ".harness" / "manifest.json").read_text(encoding="utf-8"))
+        data.pop("templates", None)
+        for skill in data["skills"]:
+            skill.pop("executables", None)
+        data["schema_version"] = "1.1.0"
+        data["some_future_field"] = {"x": 1}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "old.json"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            manifest = ManifestEngine(harness_root=REPO_ROOT).load_manifest(path)
+            self.assertEqual(manifest.templates, {})
+            out = Path(tmp) / "out"
+            written = EMITTERS["universal"].emit(manifest, out)
+            self.assertTrue(written)
+            self.assertFalse((out / "templates").exists())
+
+    def test_text_is_written_with_lf_and_reexport_is_conflict_free(self):
+        for target, emitter in EMITTERS.items():
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                emitter.emit(self.manifest, out)
+                for path in [p for p in out.rglob("*") if p.is_file() and p.suffix in (".md", ".mdc", ".yml")]:
+                    self.assertNotIn(b"\r\n", path.read_bytes(), path)
+                emitter.emit(self.manifest, out)  # identical content: must not raise EmitterConflictError
+
+    def test_templates_are_exported_and_runtime_config_is_not(self):
+        self.assertEqual(sorted(self.manifest.templates), ["HANDOFF.template.md", "MISTAKES.template.md"])
+        for target, emitter in EMITTERS.items():
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                emitter.emit(self.manifest, out)
+                for name in ("HANDOFF.template.md", "MISTAKES.template.md"):
+                    self.assertEqual((out / "templates" / name).read_bytes(), (REPO_ROOT / "templates" / name).read_bytes())
+                self.assertEqual(list(out.rglob("config.example.json")), [])
+
+    def test_hooks_json_is_not_exported_but_noted(self):
+        index_files = {"claude": "CLAUDE.md", "cursor": ".cursor/rules/99-harness-index.mdc", "universal": "AGENTS.md",
+                       "aider": "CONVENTIONS.md", "generic": "RULES.md"}
+        for target, emitter in EMITTERS.items():
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                emitter.emit(self.manifest, out)
+                self.assertEqual(list(out.rglob("hooks.json")), [])
+                text = (out / index_files[target]).read_text(encoding="utf-8")
+                self.assertIn("`hooks.json`", text)
+                self.assertIn("not portable", text)
+                self.assertIn("templates/HANDOFF.template.md", text)
+
+    def test_claude_subagents_get_a_tools_line_from_access(self):
+        expected = {
+            "research": "Read, Grep, Glob, WebFetch, WebSearch",
+            "consistency-auditor": "Read, Grep, Glob",
+            "specification-gap-auditor": "Read, Grep, Glob",
+            "silent-failure-hunter": "Read, Grep, Glob",
+            "security-boundary-verifier": "Read, Grep, Glob",
+            "meta-auditor": "Read, Grep, Glob, Bash",
+            "build-error-resolver": "Read, Grep, Glob, Bash",
+        }
+        emitter = EMITTERS["claude"]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            emitter.emit(self.manifest, out)
+            for agent in self.manifest.agents:
+                with self.subTest(agent=agent["name"]):
+                    meta, _ = parse_frontmatter(agent["raw"])
+                    self.assertIn(meta.get("access"), ("read-only", "read-exec"))
+                    native = (out / ".claude" / "agents" / f"{agent['name']}.md").read_text(encoding="utf-8")
+                    native_meta, native_body = parse_frontmatter(native)
+                    self.assertEqual(native_meta.get("tools"), expected[agent["name"]])
+                    self.assertEqual(native_body, parse_frontmatter(agent["raw"])[1])
+                    self.assertEqual(native.replace(f"tools: {expected[agent['name']]}\n", "", 1), agent["raw"])
+            claude_md = (out / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertIn("templates/HANDOFF.template.md", claude_md)
+            self.assertNotIn("~/.gemini/config/templates", claude_md)
+
+    def test_other_targets_ignore_access(self):
+        for target in ("cursor", "universal", "aider", "generic"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                EMITTERS[target].emit(self.manifest, out)
+                for agent in self.manifest.agents:
+                    text = (out / EMITTERS[target].AGENTS_DIR / f"{agent['name']}.md").read_text(encoding="utf-8")
+                    self.assertNotIn("\ntools:", text)
+
+
 if __name__ == "__main__":
     unittest.main()

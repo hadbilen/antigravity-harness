@@ -1,7 +1,8 @@
 """
 porter/emitters/cursor.py — Emitter for Cursor and Windsurf environments.
-Generates .cursor/rules/*.mdc files with valid YAML frontmatter, plus a verbatim support
-tree (.cursor/skills, .cursor/agents) so skill scripts, references and assets survive.
+Generates .cursor/rules/*.mdc files with valid YAML frontmatter (including an index rule), a
+verbatim support tree (.cursor/skills, .cursor/agents) so skill scripts, references and assets
+survive, and the portable templates (templates/).
 """
 
 from __future__ import annotations
@@ -9,7 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from porter.emitters.common import Plan, commit, plan_support_tree, sanitized_body, skill_body
+from porter.emitters.common import (
+    Plan, commit, index_section, plan_support_tree, plan_templates, sanitized_body, skill_body, support_executables,
+)
 from porter.frontmatter import dump_frontmatter
 from porter.models import UniversalManifest
 from porter.sanitizer import ConstitutionalSanitizer
@@ -42,6 +45,7 @@ class CursorEmitter:
     @classmethod
     def plan(cls, manifest: UniversalManifest, output_dir: Path) -> Tuple[Plan, Dict[Path, str]]:
         plan, links = plan_support_tree(manifest, output_dir / cls.SKILLS_DIR, output_dir / cls.AGENTS_DIR)
+        plan.update(plan_templates(manifest, output_dir))
         rules = output_dir / cls.RULES_DIR
         const = ConstitutionalSanitizer.sanitize_for_export(manifest.constitution.get("raw", ""), target=cls.TARGET)
         plan[rules / "00-constitution.mdc"] = cls._mdc(
@@ -72,9 +76,15 @@ class CursorEmitter:
                 {"description": " ".join(str(agent.get("description", "")).split()), "globs": "", "alwaysApply": False},
                 f"Auditor Role: {name}", body,
             )
+        plan[rules / "99-harness-index.mdc"] = cls._mdc(
+            {"description": "Index of the exported harness skills, auditor roles, templates and non-portable files",
+             "globs": "", "alwaysApply": False},
+            "Harness Export Index", index_section(manifest, cls.SKILLS_DIR, cls.AGENTS_DIR),
+        )
         return plan, links
 
     @classmethod
     def emit(cls, manifest: UniversalManifest, output_dir: Path, force: bool = False) -> List[Path]:
-        plan, links = cls.plan(manifest, Path(output_dir))
-        return commit(plan, links, force=force)
+        output_dir = Path(output_dir)
+        plan, links = cls.plan(manifest, output_dir)
+        return commit(plan, links, force=force, executables=support_executables(manifest, output_dir / cls.SKILLS_DIR))

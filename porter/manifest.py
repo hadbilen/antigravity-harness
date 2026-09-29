@@ -1,20 +1,28 @@
 """
 porter/manifest.py — Universal Canonical Manifest engine.
-Captures the constitution, design contract, every agent and every skill with all of its
-support files (text verbatim, binaries base64) and in-skill symlinks, so emitters can
-reproduce the harness without content loss. Runtime state files are excluded.
+Captures the constitution, design contract, every agent, every skill with all of its
+support files (text verbatim, binaries base64), in-skill symlinks and executable bits, and
+the portable document templates, so emitters can reproduce the harness without content loss.
+Runtime state files and runtime configuration are excluded.
+
+Schema 1.2.0 (additive over 1.1.0): skills[].executables lists the support files that carry
+an executable bit; `templates` maps each portable templates/<name> to its content. Manifests
+without these fields still load.
 """
 
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import json
 import os
 import re
+import stat
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from porter.frontmatter import frontmatter_description
 from porter.models import UniversalManifest
@@ -23,7 +31,10 @@ from porter.models import UniversalManifest
 EXCLUDED_SUBFILE_NAMES = {"upstream_state.json", ".DS_Store"}
 EXCLUDED_DIR_NAMES = {"__pycache__", "node_modules", ".git"}
 EXCLUDED_SUFFIXES = (".pyc", ".pyo")
-
+# templates/ entries that are Antigravity/Guard runtime configuration, not portable documents.
+EXCLUDED_TEMPLATE_NAMES = {"config.example.json"}
+SCHEMA_VERSION = "1.2.0"
+_EXEC_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
 
 
 def _link_target(path: Path) -> str:
@@ -44,6 +55,44 @@ class ManifestEngine:
 
     def __init__(self, harness_root: Optional[Path] = None):
         self.harness_root = Path(harness_root) if harness_root else Path(__file__).resolve().parent.parent
+        self._index_executables: Optional[Set[str]] = None
+        self._index_loaded = False
+
+    def _git_index_executables(self) -> Optional[Set[str]]:
+        """Paths (root-relative, '/'-separated) recorded with mode 100755 in the git index, or None."""
+        if not self._index_loaded:
+            self._index_loaded = True
+            try:
+                out = subprocess.run(["git", "-C", str(self.harness_root), "ls-files", "-s", "-z", "--", "skills"],
+                                     capture_output=True, timeout=30, check=True).stdout
+            except (OSError, subprocess.SubprocessError):
+                return None
+            found: Set[str] = set()
+            for entry in out.split(b"\0"):
+                meta, _, path = entry.partition(b"\t")
+                if meta.startswith(b"100755"):
+                    found.add(path.decode("utf-8", errors="surrogateescape"))
+            self._index_executables = found
+        return self._index_executables
+
+    def _recorded_executables(self) -> Set[str]:
+        """Executables recorded by the committed manifest (last resort where the OS has no exec bit)."""
+        try:
+            data = json.loads((self.harness_root / ".harness" / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return set()
+        return {f"skills/{s.get('name')}/{rel}" for s in data.get("skills") or [] for rel in s.get("executables") or []}
+
+    def _is_executable(self, path: Path) -> bool:
+        """
+        POSIX: the file's own mode. Windows has no exec bit, so the git index (or, without git,
+        the committed manifest) is consulted: the manifest content must not depend on the OS.
+        """
+        if os.name != "nt":
+            return bool(path.stat().st_mode & _EXEC_BITS)
+        rel = path.relative_to(self.harness_root).as_posix()
+        index = self._git_index_executables()
+        return rel in (index if index is not None else self._recorded_executables())
 
     @staticmethod
     def _read_subfile(path: Path) -> str:
@@ -56,6 +105,7 @@ class ManifestEngine:
     def _collect_skill_files(self, skill_dir: Path, skill_file: Path) -> Dict[str, Any]:
         subfiles: Dict[str, str] = {}
         links: Dict[str, str] = {}
+        executables: List[str] = []
         for dirpath, dirnames, filenames in os.walk(skill_dir, followlinks=False):
             dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDED_DIR_NAMES)
             base = Path(dirpath)
@@ -71,7 +121,20 @@ class ManifestEngine:
                     links[rel] = _link_target(path)
                     continue
                 subfiles[rel] = self._read_subfile(path)
-        return {"subfiles": subfiles, "links": links}
+                if self._is_executable(path):
+                    executables.append(rel)
+        return {"subfiles": subfiles, "links": links, "executables": sorted(executables)}
+
+    def _collect_templates(self) -> Dict[str, str]:
+        """Portable document templates (templates/*), excluding runtime configuration and symlinks."""
+        templates: Dict[str, str] = {}
+        tdir = self.harness_root / "templates"
+        if tdir.is_dir():
+            for path in sorted(tdir.iterdir()):
+                if path.name in EXCLUDED_TEMPLATE_NAMES or path.is_symlink() or not path.is_file():
+                    continue
+                templates[path.name] = self._read_subfile(path)
+        return templates
 
     def build_manifest(self, deterministic: bool = False) -> UniversalManifest:
         """Inspects all local harness assets and compiles the manifest."""
@@ -79,7 +142,7 @@ class ManifestEngine:
 
         manifest = UniversalManifest(
             version=PORTER_VERSION,
-            schema_version="1.1.0",
+            schema_version=SCHEMA_VERSION,
             generated_at="" if deterministic else datetime.now(timezone.utc).isoformat(),
             metadata={
                 "name": "antigravity-harness",
@@ -130,8 +193,10 @@ class ManifestEngine:
                     "raw": content,
                     "subfiles": files["subfiles"],
                     "links": files["links"],
+                    "executables": files["executables"],
                 })
 
+        manifest.templates = self._collect_templates()
         manifest.metadata["content_digest"] = content_digest(manifest.to_dict())
         return manifest
 
@@ -140,16 +205,17 @@ class ManifestEngine:
         target = Path(output_path) if output_path else (self.harness_root / ".harness" / "manifest.json")
         target.parent.mkdir(parents=True, exist_ok=True)
         manifest = self.build_manifest(deterministic=deterministic)
-        with open(target, "w", encoding="utf-8") as f:
+        with open(target, "w", encoding="utf-8", newline="\n") as f:
             json.dump(manifest.to_dict(), f, indent=2, ensure_ascii=False)
             f.write("\n")
         return target
 
     def load_manifest(self, path: Path) -> UniversalManifest:
-        """Loads and parses a canonical manifest from disk."""
+        """Loads a canonical manifest (older schemas load; unknown top-level keys are ignored)."""
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return UniversalManifest(**data)
+        known = {f.name for f in dataclasses.fields(UniversalManifest)}
+        return UniversalManifest(**{k: v for k, v in data.items() if k in known})
 
     def is_up_to_date(self, path: Optional[Path] = None) -> bool:
         """True when the committed manifest matches a fresh build (ignoring generated_at)."""

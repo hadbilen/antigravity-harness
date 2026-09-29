@@ -1,6 +1,7 @@
 ---
 name: research
 description: Research and heavy documentation extraction specialist with read-only tools. Explores external documentation, complex codebases, and web resources in an isolated context, returning concise decision matrices and architectural contracts without polluting primary session context.
+access: read-only
 ---
 
 # Research & Heavy Ingestion Agent

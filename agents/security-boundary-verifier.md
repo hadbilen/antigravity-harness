@@ -1,6 +1,7 @@
 ---
 name: security-boundary-verifier
 description: Security boundary and resilience verification agent. Rigorous defensive inspection of code, endpoints, schemas, and state logic for authorization boundaries, race conditions, and input parsing integrity.
+access: read-only
 ---
 
 # Security Boundary Verifier Agent

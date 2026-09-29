@@ -149,7 +149,7 @@ def cmd_import(args: argparse.Namespace) -> int:
         print(f"Error: refusing to write through symlink {dest_file}.", file=sys.stderr)
         return 1
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_file.write_text(output_content, encoding="utf-8")
+    dest_file.write_bytes(output_content.encode("utf-8"))  # LF on every OS
     print(f"[IMPORTED] Successfully created: {dest_file} (review with 'git diff' before deploying)")
     return 0
 

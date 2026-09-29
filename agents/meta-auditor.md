@@ -1,6 +1,7 @@
 ---
 name: meta-auditor
 description: Specialized meta-consistency auditor for Antigravity Harness. Inspects internal skills, agents, constitutions, and CLI contracts for broken cross-references, YAML schema errors, directive collisions, and Porter parity loss.
+access: read-exec
 ---
 
 # Meta Auditor Agent (Harness Self-Consistency Specialist)

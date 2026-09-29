@@ -595,6 +595,8 @@ class ConstitutionalSanitizer:
         text = re.sub(r"</RULE\[[^\]]+\]>", "", text)
         text = re.sub(r"<appDataDir>/brain/<conversation-id>/", ".harness/artifacts/", text)
         text = re.sub(r"<appDataDir>/brain/[^/\s`]+/", ".harness/artifacts/", text)
+        # Templates are exported to <output>/templates/, not the Antigravity config directory.
+        text = re.sub(r"~/\.gemini/config/templates/", "templates/", text)
 
         if target == "claude":
             text = re.sub(r"invoke_subagent\b", "a Claude Code subagent (.claude/agents/)", text)

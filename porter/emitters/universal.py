@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from porter.emitters.common import Plan, commit, index_section, plan_support_tree
+from porter.emitters.common import Plan, commit, index_section, plan_support_tree, plan_templates, support_executables
 from porter.models import UniversalManifest
 from porter.sanitizer import ConstitutionalSanitizer
 
@@ -23,6 +23,7 @@ class UniversalEmitter:
     @classmethod
     def plan(cls, manifest: UniversalManifest, output_dir: Path) -> Tuple[Plan, Dict[Path, str]]:
         plan, links = plan_support_tree(manifest, output_dir / cls.SKILLS_DIR, output_dir / cls.AGENTS_DIR)
+        plan.update(plan_templates(manifest, output_dir))
         const = ConstitutionalSanitizer.sanitize_for_export(manifest.constitution.get("raw", ""), target=cls.TARGET)
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
         plan[output_dir / "AGENTS.md"] = f"""# Universal Engineering Harness (AGENTS.md)
@@ -51,5 +52,6 @@ class UniversalEmitter:
 
     @classmethod
     def emit(cls, manifest: UniversalManifest, output_dir: Path, force: bool = False) -> List[Path]:
-        plan, links = cls.plan(manifest, Path(output_dir))
-        return commit(plan, links, force=force)
+        output_dir = Path(output_dir)
+        plan, links = cls.plan(manifest, output_dir)
+        return commit(plan, links, force=force, executables=support_executables(manifest, output_dir / cls.SKILLS_DIR))

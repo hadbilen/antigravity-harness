@@ -1,6 +1,7 @@
 ---
 name: build-error-resolver
 description: TypeScript and build error diagnostic specialist. Analyzes compiler and type failures, producing surgical, minimal diff recommendations for the parent agent to apply.
+access: read-exec
 ---
 
 # Build Error Resolver

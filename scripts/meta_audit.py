@@ -5,13 +5,14 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Uses the Python standard library; uses PyYAML for frontmatter when it is installed.
 
 Passes:
-  1  Frontmatter schema: every skill/agent parses as YAML (what Antigravity needs to load it)
+  1  Frontmatter schema: every skill/agent parses as YAML (what Antigravity needs to load it);
+     an agent's optional `access` key is one of AGENT_ACCESS_LEVELS
   2  Cross-references: agents/templates named in GEMINI.md, relative Markdown links,
      backticked repository paths and bare *.md references resolve
   3  Mode isolation: mode skills declare an explicit mutual-exclusion section; tier
      thresholds agree across GEMINI.md and skills
   4  Porter parity: every emitter reproduces every skill, support file, link and agent
-     verbatim; emitted frontmatter is valid YAML; committed manifest is current; the
+     verbatim (plus executable bits on POSIX and the portable templates); emitted frontmatter is valid YAML; committed manifest is current; the
      harness passes its own constitutional sanitizer
   5  CLI & documentation sync: README commands exist, README examples parse, numeric
      claims (subcommands, tests, skills, subagents) and policy names match the code
@@ -49,6 +50,8 @@ KNOWN_EXTERNAL_MD = {
 }
 # `.claude` holds local agent worktrees (full repository copies) and is never harness content.
 SKIP_DIRS = {".git", "node_modules", "export", "__pycache__", "dist", "build", ".harness", ".claude"}
+# Optional agent frontmatter key: tool scope an exporter maps to the target's allow-list.
+AGENT_ACCESS_LEVELS = ("read-only", "read-exec")
 
 
 @dataclass
@@ -177,6 +180,9 @@ class MetaAuditEngine:
             if not isinstance(desc, str) or not desc.strip():
                 self._add("WARNING", name, target, "Frontmatter has missing or empty 'description' field",
                           "Provide a descriptive summary of when to use it.")
+            if "access" in data and str(data["access"]).strip() not in AGENT_ACCESS_LEVELS:
+                self._add("WARNING", name, target, f"Unknown 'access' value '{data['access']}' (exporters cannot map it to a tool allow-list)",
+                          f"Use one of: {', '.join(AGENT_ACCESS_LEVELS)}.")
 
     # ------------------------------------------------------------------
     # Pass 2
@@ -315,6 +321,12 @@ class MetaAuditEngine:
                     for rel in skill.get("links", {}):
                         if not os.path.lexists(base / rel):
                             losses.append(f"{skill['name']}/{rel} (link)")
+                    for rel in skill.get("executables", []) if os.name != "nt" else []:
+                        if (base / rel).is_file() and not os.access(base / rel, os.X_OK):
+                            losses.append(f"{skill['name']}/{rel} (executable bit)")
+                for tmpl in getattr(manifest, "templates", {}) or {}:
+                    if not (out / "templates" / tmpl).is_file():
+                        losses.append(f"templates/{tmpl}")
                 for agent in manifest.agents:
                     p = out / emitter.AGENTS_DIR / f"{agent['name']}.md"
                     if not p.is_file() or p.read_text(encoding="utf-8") != agent["raw"]:
