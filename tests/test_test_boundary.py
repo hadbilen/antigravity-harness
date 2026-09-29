@@ -134,5 +134,166 @@ class TestTestBoundaryGuard(unittest.TestCase):
         self.assertIn("failed with exit code 1", msg)
 
 
+def _code(text: str) -> str:
+    """Sample sources carry '~' inside trigger words so this file's own lines stay plain; strip it."""
+    return text.replace("~", "")
+
+
+_SUITE_BASE = (
+    "import unittest\n"
+    "\n"
+    "\n"
+    "class T(unittest.TestCase):\n"
+    "    def setUp(self):\n"
+    "        self.value = 2\n"
+    "\n"
+    "    def test_x(self):\n"
+    "        self.assertEqual(self.value, 2)\n"
+    "        self.assertGreater(self.value, 1)\n"
+    "\n"
+    "    def test_y(self):\n"
+    "        self.assertTrue(self.value)\n"
+    "\n"
+    "\n"
+    "def helper():\n"
+    "    return 1\n"
+    "\n"
+    "\n"
+    "def test_module_level():\n"
+    "    assert helper() == 1\n"
+)
+_TEST_X_HEAD = "    def test_x(self):\n"
+_TEST_Y_BODY = "        self.assertTrue(self.value)\n"
+_SUITE_END = "    assert helper() == 1\n"
+
+
+def _insert_after(anchor: str, text: str) -> str:
+    cut = _SUITE_BASE.index(anchor) + len(anchor)
+    return _SUITE_BASE[:cut] + _code(text) + _SUITE_BASE[cut:]
+
+
+class TestTddExtendOnlyBypasses(unittest.TestCase):
+    """B-05: pure line additions that neuter existing tests are weakening, never 'extended'."""
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp(prefix="agy_tdd_bypass_"))
+        (self.work / "tests").mkdir()
+        self.suite = self.work / "tests" / "test_suite.py"
+        self.suite.write_text(_SUITE_BASE, encoding="utf-8")
+        self.boundary = TestBoundaryGuard(workspace_dir=self.work)
+        self.boundary.snapshot()
+
+    def tearDown(self):
+        hermetic.force_rmtree(self.work)
+
+    def expect_weakening(self, new_source: str) -> TestBoundaryReport:
+        self.assertNotEqual(new_source, _SUITE_BASE)
+        removed, _ = TestBoundaryGuard._line_changes(_SUITE_BASE, new_source)
+        self.assertEqual(removed, [], "the sample must be a pure line addition")
+        self.suite.write_text(new_source, encoding="utf-8")
+        report = self.boundary.verify(mode="tdd")
+        self.assertFalse(report.is_intact, "bypass was accepted as an extension")
+        self.assertNotIn("tests/test_suite.py", report.extended)
+        self.assertIn("tests/test_suite.py", report.modified)
+        self.assertTrue(any("weakening" in v for v in report.violations), report.violations)
+        return report
+
+    def expect_extended(self, new_source: str) -> TestBoundaryReport:
+        self.suite.write_text(new_source, encoding="utf-8")
+        report = self.boundary.verify(mode="tdd")
+        self.assertTrue(report.is_intact, report.violations)
+        self.assertEqual(report.extended, ["tests/test_suite.py"])
+        return report
+
+    # -- bypasses that must now be reported --------------------------------
+    def test_lambda_replacing_an_existing_test(self):
+        self.expect_weakening(_insert_after(_SUITE_END, "\n\nT.test_x = lambda self: None\n"))
+
+    def test_skiptest_call_inside_an_existing_test(self):
+        self.expect_weakening(_insert_after(_TEST_X_HEAD, "        self.sk~ipTest('no')\n"))
+
+    def test_bare_return_at_the_top_of_an_existing_test(self):
+        self.expect_weakening(_insert_after(_TEST_X_HEAD, "        return\n"))
+
+    def test_return_none_between_existing_assertions(self):
+        self.expect_weakening(_insert_after("        self.assertEqual(self.value, 2)\n", "        return None\n"))
+
+    def test_raising_unittest_skiptest(self):
+        self.expect_weakening(_insert_after(_TEST_X_HEAD, "        raise unittest.Sk~ipTest('later')\n"))
+
+    def test_pytest_runtime_skip_call(self):
+        self.expect_weakening(_insert_after(_TEST_X_HEAD, "        import pytest\n        pytest.sk~ip('no')\n"))
+
+    def test_redefining_an_existing_test_class(self):
+        self.expect_weakening(_insert_after(
+            _SUITE_END, "\n\nclass T(unittest.TestCase):\n    def test_x(self):\n        pass\n"))
+
+    def test_redefining_an_existing_test_method(self):
+        self.expect_weakening(_insert_after(_TEST_Y_BODY, "\n    def test_x(self):\n        pass\n"))
+
+    def test_redefining_an_existing_test_function(self):
+        self.expect_weakening(_insert_after(_SUITE_END, "\n\ndef test_module_level():\n    pass\n"))
+
+    def test_monkeypatching_testcase_assertions(self):
+        self.expect_weakening(_insert_after(
+            _SUITE_END, "\n\nunittest.Test~Case.ass~ertEqual = lambda *a, **k: None\n"))
+
+    def test_replacing_the_test_runner_method(self):
+        self.expect_weakening(_insert_after(_SUITE_END, "\n\nT.r~un = lambda self, result=None: None\n"))
+
+    def test_replacing_a_test_via_setattr(self):
+        self.expect_weakening(_insert_after(_SUITE_END, "\n\nset~attr(T, 'test_y', None)\n"))
+
+    def test_overriding_an_assertion_method_in_the_class(self):
+        self.expect_weakening(_insert_after(
+            "        self.value = 2\n", "\n    def ass~ertEqual(self, *args, **kwargs):\n        pass\n"))
+
+    def test_sys_exit_added_to_the_module(self):
+        self.expect_weakening(_insert_after(_SUITE_END, "\n\nimport sys\nsys.ex~it(0)\n"))
+
+    def test_os_exit_hidden_in_a_one_line_block(self):
+        self.expect_weakening(_insert_after(_SUITE_END, "\n\nimport os\nif True: os._ex~it(0)\n"))
+
+    def test_unparsable_python_falls_back_to_line_patterns(self):
+        broken = _SUITE_BASE + "print 'python 2 syntax'\n"
+        self.suite.write_text(broken, encoding="utf-8")
+        self.boundary.snapshot()
+        self.suite.write_text(broken.replace(_TEST_X_HEAD, _TEST_X_HEAD + "        return\n"), encoding="utf-8")
+        report = self.boundary.verify(mode="tdd")
+        self.assertFalse(report.is_intact)
+        self.assertTrue(any("weakening" in v for v in report.violations), report.violations)
+
+    # -- legitimate extensions stay accepted -------------------------------
+    def test_new_test_method_is_still_an_extension(self):
+        self.expect_extended(_insert_after(
+            _TEST_Y_BODY, "\n    def test_z(self):\n        self.assertEqual(1 + 1, 2)\n"))
+
+    def test_new_assertion_in_an_existing_test_is_still_an_extension(self):
+        self.expect_extended(_insert_after(
+            "        self.assertEqual(self.value, 2)\n", "        self.assertLess(self.value, 3)\n"))
+
+    def test_new_test_class_with_helpers_is_still_an_extension(self):
+        self.expect_extended(_insert_after(_SUITE_END, (
+            "\n\nclass TestMore(unittest.TestCase):\n"
+            "    def setUp(self):\n"
+            "        self.test_dir = 'workspace'\n"
+            "        self.script = 'import sys; sys.exit(3)'\n"
+            "\n"
+            "    def test_more(self):\n"
+            "        self.assertIn('work', self.test_dir)\n"
+            "        self.assertIn('3', self.script)\n"
+            "\n"
+            "\n"
+            "def other_helper(value):\n"
+            "    if not value:\n"
+            "        return None\n"
+            "    return value\n"
+            "\n"
+            "\n"
+            "def test_other_helper():\n"
+            "    assert other_helper(2) == 2\n"
+        )))
+
+
 if __name__ == "__main__":
     unittest.main()

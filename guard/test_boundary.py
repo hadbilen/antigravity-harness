@@ -8,12 +8,16 @@ Semantics (aligned with GEMINI.md Rule 9):
 - 'bugfix' mode: existing test and runner-config files must stay byte-identical.
 - 'tdd' mode: existing test files may be EXTENDED (pure line additions) as long as the
   added lines contain no skip/xfail/disable markers; any removed or changed line blocks.
+  Additions that weaken existing tests in other ways also block: runtime skips, early
+  returns, process exits, monkeypatched assertions or TestCase machinery and, for Python
+  (compared on the syntax tree), redefinitions shadowing an existing class, function or test.
 - Runner configuration and fixtures may never change without explicit authorization.
 The baseline lives in the per-user state directory or is computed from a git ref.
 """
 
 from __future__ import annotations
 
+import ast
 import difflib
 import hashlib
 import json
@@ -21,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import unittest
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,7 +43,255 @@ WEAKENING_LINE_PATTERNS = [
     re.compile(r"\bt\.Skip(Now|f)?\s*\("),
     re.compile(r"@(Disabled|Ignore)\b"),
     re.compile(r"^\s*(#|//)\s*(assert|expect|self\.assert)"),
+    # Runtime skips requested from inside a test (unittest and pytest helpers).
+    re.compile(r"\bskipTest\s*\("),
+    re.compile(r"\bSkipTest\b"),
+    re.compile(r"\bpytest\.(skip|xfail|exit|importorskip)\s*\("),
+    # Neutralising the unittest base class itself, or ending the process before results are reported.
+    re.compile(r"\bTestCase\s*\.\s*\w+\s*=(?!=)"),
+    re.compile(r"\bpatch(\.object|\.multiple)?\s*\(\s*['\"]?[\w.]*TestCase\b"),
+    re.compile(r"\bos\._exit\s*\("),
 ]
+
+# Python additions that are ambiguous on a single line (a fake runner may define `run`, a string may
+# hold `sys.exit(0)`). For Python test files that parse, the syntax-tree comparison in
+# TestBoundaryGuard.python_weakening decides; these patterns apply only when parsing fails.
+UNPARSABLE_PYTHON_LINE_PATTERNS = [
+    re.compile(r"^\s*return\s*(None\s*)?(#.*)?$"),
+    re.compile(r"^\s*[A-Z]\w*(\.\w+)*\.test\w*\s*=(?!=)"),
+    re.compile(r"^\s*del\s+[A-Z]\w*(\.\w+)*\.test\w*"),
+    re.compile(r"\b(setattr|delattr)\s*\([^,()]+,\s*['\"](test|assert|fail)\w*['\"]"),
+    re.compile(r"\.\s*(assert[A-Z_]\w*|fail[A-Z]\w*|fail|failureException)\s*=(?!=)"),
+    re.compile(r"\b(self|cls|[A-Z]\w*)\.(run|debug|__call__)\s*=(?!=)"),
+    re.compile(r"^\s*(sys\.exit|exit|quit)\s*\("),
+    re.compile(r"^\s*raise\s+SystemExit\b"),
+]
+
+# unittest.TestCase machinery that a test module must never replace or monkeypatch.
+_ASSERTION_NAMES = frozenset(
+    {n for n in dir(unittest.TestCase) if n.startswith(("assert", "fail"))}
+    | {
+        "assertAlmostEqual", "assertCountEqual", "assertDictEqual", "assertEndsWith", "assertEqual", "assertFalse",
+        "assertGreater", "assertGreaterEqual", "assertHasAttr", "assertIn", "assertIs", "assertIsInstance",
+        "assertIsNone", "assertIsNot", "assertIsNotNone", "assertIsSubclass", "assertLess", "assertLessEqual",
+        "assertListEqual", "assertLogs", "assertMultiLineEqual", "assertNoLogs", "assertNotAlmostEqual",
+        "assertNotEndsWith", "assertNotEqual", "assertNotHasAttr", "assertNotIn", "assertNotIsInstance",
+        "assertNotIsSubclass", "assertNotRegex", "assertNotStartsWith", "assertRaises", "assertRaisesRegex",
+        "assertRegex", "assertSequenceEqual", "assertSetEqual", "assertStartsWith", "assertTrue", "assertTupleEqual",
+        "assertWarns", "assertWarnsRegex", "fail", "failureException",
+        # Deprecated aliases (removed in newer Pythons, still honoured by older ones).
+        "assertEquals", "assertNotEquals", "assertAlmostEquals", "assertNotAlmostEquals", "assert_",
+        "assertRaisesRegexp", "assertRegexpMatches", "assertNotRegexpMatches", "assertDictContainsSubset",
+        "failUnless", "failIf", "failUnlessEqual", "failIfEqual", "failUnlessAlmostEqual", "failIfAlmostEqual",
+        "failUnlessRaises",
+    }
+)
+_RUNNER_HOOKS = frozenset({
+    "run", "debug", "__call__", "skipTest", "subTest", "doCleanups", "defaultTestResult",
+    "_callTestMethod", "_callSetUp", "_callTearDown", "_callCleanup", "_addSkip",
+})
+_TESTCASE_MACHINERY = _ASSERTION_NAMES | _RUNNER_HOOKS
+_EXIT_CALLS = frozenset({"sys.exit", "os._exit", "_exit", "exit", "quit", "pytest.exit"})
+_SKIP_CALLS = frozenset({"pytest.skip", "pytest.xfail", "pytest.importorskip", "skip", "xfail", "importorskip"})
+# "Skip" "Test" is split on purpose: this module's name matches test_*.py, so its own added
+# lines are graded by WEAKENING_LINE_PATTERNS too.
+_ABORT_EXCEPTIONS = frozenset({"Skip" "Test", "SystemExit"})
+
+
+def _dotted_name(node: Optional[ast.AST]) -> str:
+    parts: List[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+        return ".".join(reversed(parts))
+    return ""
+
+
+def _flatten_targets(targets: Sequence[ast.AST]) -> List[ast.AST]:
+    flat: List[ast.AST] = []
+    for target in targets:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            flat.extend(_flatten_targets(target.elts))
+        elif isinstance(target, ast.Starred):
+            flat.extend(_flatten_targets([target.value]))
+        else:
+            flat.append(target)
+    return flat
+
+
+def _count_returns(body: Sequence[ast.stmt]) -> int:
+    """Return statements of a function body, not counting nested functions, lambdas or classes."""
+    count = 0
+    stack: List[ast.AST] = list(body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Return):
+            count += 1
+        stack.extend(ast.iter_child_nodes(node))
+    return count
+
+
+def _is_abort_statement(stmt: ast.stmt) -> bool:
+    """return / skip / exit as a statement: nothing after it in the test body runs."""
+    if isinstance(stmt, ast.Return):
+        return True
+    if isinstance(stmt, ast.Raise) and stmt.exc is not None:
+        exc = stmt.exc.func if isinstance(stmt.exc, ast.Call) else stmt.exc
+        return _dotted_name(exc).split(".")[-1] in _ABORT_EXCEPTIONS
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        name = _dotted_name(stmt.value.func)
+        return name.split(".")[-1] == "skipTest" or name in _EXIT_CALLS or name in _SKIP_CALLS
+    return False
+
+
+def _starts_by_aborting(body: Sequence[ast.stmt]) -> bool:
+    for stmt in body:
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+            continue  # docstring
+        return _is_abort_statement(stmt)
+    return False
+
+
+def _is_test_like_name(name: str) -> bool:
+    return name.startswith("Test") or name.endswith(("Test", "Tests", "TestCase"))
+
+
+class _PythonTestFacts:
+    """Structural facts of a Python test module, compared before/after to catch weakening additions."""
+
+    def __init__(self, tree: ast.Module):
+        self.defined: Set[str] = set()          # qualified names of classes/functions/methods
+        self.test_classes: Set[str] = set()     # classes that are (or derive from) test cases
+        self.test_names: Set[str] = set()       # bare names of test functions/methods
+        self.bindings: Dict[str, int] = {}      # qualified name -> how often it is (re)bound
+        self.returns: Dict[str, int] = {}       # test qualified name -> return statements in its body
+        self.aborting: Set[str] = set()         # tests whose first statement returns/skips/exits
+        self.overrides: Set[str] = set()        # test-class members replacing TestCase machinery
+        self.tampering: Dict[str, int] = {}     # "how owner.attr" -> count
+        self.exits = 0
+        self._scope(tree.body, "", test_class=None)
+        self._scan(tree, in_test_class=False)
+
+    def _bind(self, qualname: str) -> None:
+        self.bindings[qualname] = self.bindings.get(qualname, 0) + 1
+
+    def _bind_targets(self, targets: Sequence[ast.AST], prefix: str, test_class: Optional[bool]) -> None:
+        for target in _flatten_targets(targets):
+            if isinstance(target, ast.Name):
+                self._bind(prefix + target.id)
+                if test_class and target.id in _TESTCASE_MACHINERY:
+                    self.overrides.add(prefix + target.id)
+
+    def _scope(self, stmts: Sequence[ast.stmt], prefix: str, test_class: Optional[bool]) -> None:
+        """Walks module/class-level statements (not function bodies). test_class is None outside classes."""
+        for stmt in stmts:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualname = prefix + stmt.name
+                self.defined.add(qualname)
+                self._bind(qualname)
+                if test_class and stmt.name in _TESTCASE_MACHINERY:
+                    self.overrides.add(qualname)
+                if stmt.name.startswith("test"):
+                    self.test_names.add(stmt.name)
+                    self.returns[qualname] = self.returns.get(qualname, 0) + _count_returns(stmt.body)
+                    if _starts_by_aborting(stmt.body):
+                        self.aborting.add(qualname)
+            elif isinstance(stmt, ast.ClassDef):
+                qualname = prefix + stmt.name
+                bases = [_dotted_name(b).split(".")[-1] for b in stmt.bases]
+                is_test = _is_test_like_name(stmt.name) or any(
+                    _is_test_like_name(b) or b in self.test_classes for b in bases)
+                if is_test:
+                    self.test_classes.add(stmt.name)
+                self.defined.add(qualname)
+                self._bind(qualname)
+                self._scope(stmt.body, qualname + ".", test_class=is_test)
+            elif isinstance(stmt, ast.Assign):
+                self._bind_targets(stmt.targets, prefix, test_class)
+            elif isinstance(stmt, (ast.AugAssign, ast.AnnAssign)):
+                if not isinstance(stmt, ast.AnnAssign) or stmt.value is not None:
+                    self._bind_targets([stmt.target], prefix, test_class)
+            elif isinstance(stmt, ast.Delete):
+                self._bind_targets(stmt.targets, prefix, test_class)
+            elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                for alias in stmt.names:
+                    if alias.name != "*":
+                        self._bind(prefix + (alias.asname or alias.name.split(".")[0]))
+            else:
+                if isinstance(stmt, (ast.For, ast.AsyncFor)):
+                    self._bind_targets([stmt.target], prefix, test_class)
+                if isinstance(stmt, (ast.With, ast.AsyncWith)):
+                    self._bind_targets([i.optional_vars for i in stmt.items if i.optional_vars is not None],
+                                       prefix, test_class)
+                for block_name in ("body", "orelse", "finalbody"):
+                    block = getattr(stmt, block_name, None)
+                    if isinstance(block, list):
+                        self._scope(block, prefix, test_class)
+                for handler in getattr(stmt, "handlers", None) or []:
+                    self._scope(handler.body, prefix, test_class)
+                for case in getattr(stmt, "cases", None) or []:
+                    self._scope(case.body, prefix, test_class)
+
+    def _tamper(self, how: str, owner_expr: str, attr: str, in_test_class: bool) -> None:
+        """Records assignments/patches that replace tests or TestCase machinery on a test class."""
+        owner = owner_expr.split(".")[-1] if owner_expr else ""
+        if owner in ("self", "cls"):
+            on_test_class = in_test_class
+            replaces_test = attr in self.test_names       # self.test_dir = ... is just data
+        else:
+            on_test_class = owner in self.test_classes or _is_test_like_name(owner)
+            replaces_test = attr.startswith("test")
+        if on_test_class and (attr in _TESTCASE_MACHINERY or replaces_test or attr == "*"):
+            key = f"{how} {owner_expr or '<expr>'}.{attr}"
+            self.tampering[key] = self.tampering.get(key, 0) + 1
+
+    def _tamper_dotted_string(self, how: str, node: ast.AST, in_test_class: bool) -> None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and "." in node.value:
+            owner_expr, attr = node.value.rsplit(".", 1)
+            self._tamper(how, owner_expr, attr, in_test_class)
+
+    def _scan(self, node: ast.AST, in_test_class: bool) -> None:
+        """Walks every node, tracking whether `self`/`cls` refer to a test class."""
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                self._scan(child, child.name in self.test_classes)
+                continue
+            self._inspect(child, in_test_class)
+            self._scan(child, in_test_class)
+
+    def _inspect(self, node: ast.AST, in_test_class: bool) -> None:
+        if isinstance(node, ast.Call):
+            name = _dotted_name(node.func)
+            last = name.split(".")[-1]
+            args = node.args
+            if name in _EXIT_CALLS:
+                self.exits += 1
+            elif last in ("setattr", "delattr") and args:
+                if len(args) >= 2 and isinstance(args[1], ast.Constant) and isinstance(args[1].value, str):
+                    self._tamper(last, _dotted_name(args[0]), args[1].value, in_test_class)
+                else:  # monkeypatch.setattr("pkg.Class.attr", value)
+                    self._tamper_dotted_string(last, args[0], in_test_class)
+            elif last == "patch" and args:
+                self._tamper_dotted_string("patch", args[0], in_test_class)
+            elif name.endswith("patch.object") and len(args) >= 2 \
+                    and isinstance(args[1], ast.Constant) and isinstance(args[1].value, str):
+                self._tamper("patch", _dotted_name(args[0]), args[1].value, in_test_class)
+            elif name.endswith("patch.multiple") and args:
+                self._tamper("patch", _dotted_name(args[0]), "*", in_test_class)
+        elif isinstance(node, ast.Raise) and node.exc is not None:
+            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if _dotted_name(exc).split(".")[-1] == "SystemExit":
+                self.exits += 1
+        elif isinstance(node, (ast.Assign, ast.Delete, ast.AugAssign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+            how = "del" if isinstance(node, ast.Delete) else "assignment"
+            for target in _flatten_targets(targets):
+                if isinstance(target, ast.Attribute):
+                    self._tamper(how, _dotted_name(target.value), target.attr, in_test_class)
 
 
 @dataclass
@@ -249,6 +502,38 @@ class TestBoundaryGuard:
     def weakening_lines(lines: Sequence[str]) -> List[str]:
         return [l for l in lines if any(p.search(l) for p in WEAKENING_LINE_PATTERNS)]
 
+    @staticmethod
+    def python_weakening(old: str, new: str, added_lines: Sequence[str] = ()) -> List[str]:
+        """
+        Syntax-tree comparison of a Python test file before/after a pure-addition change.
+        Reports shadowing redefinitions, tests that now return/skip first, returns added inside
+        existing tests, replaced TestCase machinery, monkeypatched tests/assertions and new process
+        exits. Falls back to line patterns when either version cannot be parsed.
+        """
+        try:
+            before = _PythonTestFacts(ast.parse(old))
+            after = _PythonTestFacts(ast.parse(new))
+        except (SyntaxError, ValueError, RecursionError):
+            return [l for l in added_lines if any(p.search(l) for p in UNPARSABLE_PYTHON_LINE_PATTERNS)]
+        notes: List[str] = []
+        for name in sorted(before.defined):
+            if after.bindings.get(name, 0) > before.bindings.get(name, 0):
+                notes.append(f"redefines existing '{name}' (shadowing)")
+        newly_aborting = after.aborting - before.aborting
+        for name in sorted(newly_aborting):
+            notes.append(f"test '{name}' returns or skips before running")
+        for name, count in sorted(after.returns.items()):
+            if name in before.returns and name not in newly_aborting and count > before.returns[name]:
+                notes.append(f"'return' added inside existing test '{name}'")
+        for name in sorted(after.overrides - before.overrides):
+            notes.append(f"replaces unittest machinery '{name}'")
+        for key, count in sorted(after.tampering.items()):
+            if count > before.tampering.get(key, 0):
+                notes.append(f"monkeypatches tests or assertions ({key})")
+        if after.exits > before.exits:
+            notes.append("adds a process exit (sys.exit / os._exit / SystemExit)")
+        return notes
+
     def verify(
         self,
         mode: str = "bugfix",
@@ -300,6 +585,8 @@ class TestBoundaryGuard:
             if mode == "tdd" and not is_config and old is not None and new is not None:
                 removed, added_lines = self._line_changes(old, new)
                 weak = self.weakening_lines(added_lines)
+                if not removed and k.endswith(".py"):
+                    weak += [n for n in self.python_weakening(old, new, added_lines) if n not in weak]
                 if not removed and not weak:
                     extended.append(k)
                     continue
