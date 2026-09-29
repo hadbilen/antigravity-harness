@@ -219,7 +219,17 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _robust_console() -> None:
+    """Never crash on a console that cannot encode a character (Windows cp1252 pipes): replace it."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 def main() -> int:
+    _robust_console()
     parser = argparse.ArgumentParser(
         prog="porter",
         description="Universal AI Agent Bridge, Suitability Analyzer, and Transpiler.",

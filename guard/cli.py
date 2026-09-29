@@ -857,7 +857,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+
+def _robust_console() -> None:
+    """Never crash on a console that cannot encode a character (Windows cp1252 pipes): replace it."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 def main(argv: Optional[List[str]] = None) -> int:
+    _robust_console()
     parser = build_parser()
     raw_args = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(raw_args)

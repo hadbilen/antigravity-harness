@@ -108,30 +108,41 @@ class _DeadlineMixin:
     _agy_deadline: Optional[float] = None
     _agy_per_op: Optional[float] = None
 
-    def _agy_arm(self) -> None:
+    def _agy_arm(self) -> bool:
+        """Sets the socket timeout; True when the overall deadline (not the per-op timeout) bounds it."""
         per_op = self._agy_per_op
+        capped = False
         if self._agy_deadline is not None:
             remaining = self._agy_deadline - time.monotonic()
             if remaining <= 0:
                 raise FetchDeadlineExceeded("Remote fetch exceeded its overall deadline.")
+            capped = per_op is None or remaining <= per_op
             per_op = remaining if per_op is None else min(per_op, remaining)
         self.settimeout(per_op)
+        return capped
+
+    def _agy_io(self, call, *args, **kwargs):
+        capped = self._agy_arm()
+        try:
+            return call(*args, **kwargs)
+        except socket.timeout as e:
+            # When the deadline set this call's timeout, running out of it IS the deadline being
+            # exceeded (the exact moment depends on the platform's timer resolution).
+            if capped:
+                raise FetchDeadlineExceeded("Remote fetch exceeded its overall deadline.") from e
+            raise
 
     def recv_into(self, *args, **kwargs):
-        self._agy_arm()
-        return super().recv_into(*args, **kwargs)
+        return self._agy_io(super().recv_into, *args, **kwargs)
 
     def recv(self, *args, **kwargs):
-        self._agy_arm()
-        return super().recv(*args, **kwargs)
+        return self._agy_io(super().recv, *args, **kwargs)
 
     def send(self, *args, **kwargs):
-        self._agy_arm()
-        return super().send(*args, **kwargs)
+        return self._agy_io(super().send, *args, **kwargs)
 
     def sendall(self, *args, **kwargs):
-        self._agy_arm()
-        return super().sendall(*args, **kwargs)
+        return self._agy_io(super().sendall, *args, **kwargs)
 
 
 class _DeadlineSocket(_DeadlineMixin, socket.socket):

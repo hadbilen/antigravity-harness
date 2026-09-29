@@ -193,6 +193,15 @@ class TestInspectCLI(ArchiveTestCase):
         self.assertIn("PATH_TRAVERSAL", res.stdout)
         self.assertEqual(_listing(self.tmp), sorted(before + ["hostile.zip"]))
 
+    def test_report_survives_a_console_that_cannot_encode_it(self):
+        # Windows pipes default to cp1252; the Markdown report contains non-Latin-1 symbols.
+        hostile = self.build("hostile.zip", [("../evil.md", CLEAN_RULE)])
+        env = dict(os.environ, PYTHONIOENCODING="cp1252")
+        res = subprocess.run([sys.executable, str(REPO_ROOT / "porter.py"), "inspect", str(hostile)],
+                             capture_output=True, stdin=subprocess.DEVNULL, timeout=60, env=env)
+        self.assertEqual(res.returncode, 2, res.stderr.decode("utf-8", "replace"))
+        self.assertIn(b"PATH_TRAVERSAL", res.stdout)
+
     def test_zip_urls_are_refused(self):
         res = self.run_porter("inspect", "https://example.invalid/rules.zip")
         self.assertEqual(res.returncode, 1)

@@ -79,6 +79,9 @@ forensic audit of the code base. Fewer always-on rules, more mechanical enforcem
   no hide-to-tray when the tray is not running.
 - Porter export keeps executable bits, writes LF on every OS and exports `templates/`; the manifest now
   parses the constitution's rule list (the pattern never matched the `**Title:**` form).
+- Windows: `porter.py` and `agy-guard` no longer crash on consoles that cannot encode a character
+  (cp1252 pipes); a read cut short by the fetch deadline is reported as a deadline error even when the
+  platform timer fires early.
 
 ### Known limitations
 - New test files are always allowed by the test boundary, so a new file could still patch `TestCase` at

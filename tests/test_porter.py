@@ -603,5 +603,42 @@ class TestExportParityExtended(unittest.TestCase):
                     self.assertNotIn("\ntools:", text)
 
 
+class TestDeadlineTimeoutMapping(unittest.TestCase):
+    """A read whose timeout the deadline cut short must report the DEADLINE on every OS, even when
+    the platform timer fires a few milliseconds early (Windows) and the clock is not yet past it."""
+
+    @staticmethod
+    def _socket(deadline_in: float, per_op: float):
+        import socket as _socket
+        from porter import net
+
+        class _EarlyTimeout:
+            def settimeout(self, value):
+                self.timeout_set = value
+
+            def recv(self, *args, **kwargs):
+                raise _socket.timeout("timed out")
+
+        class _Sock(net._DeadlineMixin, _EarlyTimeout):
+            pass
+
+        sock = _Sock()
+        sock._agy_deadline = time.monotonic() + deadline_in
+        sock._agy_per_op = per_op
+        return sock
+
+    def test_deadline_bounded_timeout_is_a_deadline_error(self):
+        from porter import net
+        with self.assertRaises(net.FetchDeadlineExceeded):
+            self._socket(deadline_in=5.0, per_op=30.0).recv(10)
+
+    def test_per_operation_timeout_stays_a_plain_timeout(self):
+        import socket as _socket
+        from porter import net
+        with self.assertRaises(_socket.timeout) as ctx:
+            self._socket(deadline_in=60.0, per_op=1.0).recv(10)
+        self.assertNotIsInstance(ctx.exception, net.FetchDeadlineExceeded)
+
+
 if __name__ == "__main__":
     unittest.main()
