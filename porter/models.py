@@ -41,7 +41,9 @@ class HarnessAgent:
 class SuitabilityIssue:
     """An issue detected during constitutional and suitability analysis."""
     severity: str  # "CRITICAL", "WARNING", "INFO"
-    category: str  # "TEST_INVARIANT", "SYCOPHANCY", "AI_SLOP", "TOOL_LEAK", "OVERLAP"
+    # "TEST_INVARIANT", "SYCOPHANCY", "PROMPT_INJECTION", "NEEDS_REVIEW" (ambiguous directive kept for a
+    # human decision), "AI_SLOP", "TOOL_LEAK", "OVERLAP"
+    category: str
     message: str
     suggested_fix: str
 

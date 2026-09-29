@@ -108,6 +108,11 @@ def cmd_import(args: argparse.Namespace) -> int:
         if not args.dry_run and not _confirm("Import content that FAILED the constitutional gate?"):
             print("[BLOCKED] --force requires interactive human confirmation.", file=sys.stderr)
             return 3
+    review = [i for i in report.issues if i.category == "NEEDS_REVIEW"]
+    if review and report.is_safe_to_import:
+        print("[REVIEW] Ambiguous directives were kept unchanged and need a human decision:", file=sys.stderr)
+        for issue in review:
+            print(f"  - {issue.message}", file=sys.stderr)
 
     target_type = "agent" if args.as_agent else "skill"
     raw_name = args.as_agent or args.as_skill or report.recommended_name
