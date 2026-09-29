@@ -1,13 +1,23 @@
 name: CI
 
-# Supply-chain policy (GEMINI.md Rule 12): every third-party action is pinned to a full
-# commit SHA (tag in the trailing comment), Python build/lint tools are pinned to exact
-# versions, and runner images are pinned. apt packages come from the pinned runner image.
+# Supply-chain policy (GEMINI.md Rule 12), stated as it actually is:
+# - Every third-party action is pinned to a full commit SHA (tag in the trailing comment).
+# - pip installs name exact versions (==) but are NOT hash-locked; transitive dependencies
+#   (e.g. of pyinstaller, pystray, pillow) are resolved from PyPI at install time.
+# - Runner images are selected by OS version label (ubuntu-24.04, macos-14, windows-2022);
+#   GitHub updates their contents, so they are not immutable.
+# - apt packages are NOT pinned: `apt-get install` takes whatever the runner image's
+#   configured repositories serve on the day of the run.
 
 on:
   push:
     branches: [main]
     tags: ['v*']
+  # Threat model for pull requests: workflows from fork PRs only run after a maintainer
+  # approves them (Settings > Actions > General: require approval for all outside collaborators).
+  # For external PRs every result here, including the trusted-boundary job, is advisory:
+  # the maintainer reviews the diff (especially tests/, .github/, scripts/ and
+  # guard/__init__.py) before approving a run and again before merging.
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -69,6 +79,9 @@ jobs:
     # Runs the CANDIDATE product code against the BASE branch's tests and graders.
     # A fresh worktree of the base commit is used, so candidate-only test files, shadow
     # modules (tests/guard.py, sitecustomize.py) and edited graders cannot influence the run.
+    # It narrows, but does not remove, what a hostile PR can do: candidate product code still
+    # executes here, so for external PRs the verdict is advisory and the maintainer's review
+    # of the diff (see the pull_request trigger above) is the actual gate.
     name: Candidate code vs trusted base tests & graders
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
@@ -111,13 +124,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Always the BASE branch's (trusted) verifier: the candidate never grades itself,
+          # and there is deliberately no fallback to the candidate's guard.py.
           verifier="$RUNNER_TEMP/pristine-base/guard.py"
-          if python "$verifier" test-boundary --help 2>/dev/null | grep -q -- '--base-ref'; then
-            python "$verifier" test-boundary verify --mode tdd --dir "$GITHUB_WORKSPACE" --base-ref "$BASE_SHA"
-          else
-            echo "::warning::Base branch predates 'test-boundary --base-ref'; using the candidate verifier for this run."
-            python guard.py test-boundary verify --mode tdd --base-ref "$BASE_SHA"
+          help_text="$(python "$verifier" test-boundary --help 2>/dev/null || true)"
+          if ! grep -q -- '--base-ref' <<<"$help_text"; then
+            echo "::error::The base branch's trusted test-boundary verifier is unavailable (missing, broken, or without --base-ref); refusing to fall back to the candidate's verifier."
+            exit 1
           fi
+          python "$verifier" test-boundary verify --mode tdd --dir "$GITHUB_WORKSPACE" --base-ref "$BASE_SHA"
 
   build-binaries:
     name: Standalone binary (${{ matrix.os }})
