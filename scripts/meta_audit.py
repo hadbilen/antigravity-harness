@@ -34,7 +34,7 @@ import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -234,6 +234,58 @@ class MetaAuditEngine:
                 elif re.fullmatch(r"[\w.-]+\.md", clean) and clean not in KNOWN_EXTERNAL_MD and clean not in basenames:
                     self._add("WARNING", name, target, f"Referenced file `{clean}` does not exist anywhere in the repository",
                               "Reference the real file path (e.g. skills/<name>/SKILL.md).")
+
+        self._check_slash_commands(name)
+
+    _SECTION_DECLARES = re.compile(r"(?i)invocation|trigger|slash|command")
+    _LINE_DECLARES = re.compile(r"(?i)slash commands?|triggers?:|invoke with")
+
+    @staticmethod
+    def _code_spans(line: str) -> List[str]:
+        """Inline code spans, paired left to right (so text between two spans is never taken as code)."""
+        return re.findall(r"`([^`\n]*)`", line)
+
+    def _declared_slash_commands(self) -> Set[str]:
+        """Commands a skill declares: its own name, its frontmatter, and its invocation/trigger lines."""
+        declared: Set[str] = set()
+        for skill_md in sorted((self.repo_root / "skills").glob("*/SKILL.md")):
+            declared.add("/" + skill_md.parent.name)
+            text = skill_md.read_text(encoding="utf-8", errors="ignore")
+            if text.startswith("---"):
+                declared |= set(re.findall(r"(?<![\w/.])(/[a-z][a-z0-9-]*)", text.split("---", 2)[1]))
+            in_section = False
+            for line in text.splitlines():
+                if line.startswith("#"):
+                    in_section = bool(self._SECTION_DECLARES.search(line))
+                    continue
+                if in_section or self._LINE_DECLARES.search(line):
+                    for span in self._code_spans(line):
+                        m = re.match(r"(/[a-z][a-z0-9-]*)(?![/\w.])", span)
+                        if m:
+                            declared.add(m.group(1))
+        return declared
+
+    def _check_slash_commands(self, name: str) -> None:
+        """Instructions must not point the agent or the user at slash commands no skill provides."""
+        declared = self._declared_slash_commands()
+        sources = [self.repo_root / "GEMINI.md"] + sorted((self.repo_root / "agents").glob("*.md")) \
+            + sorted((self.repo_root / "templates").glob("*.md")) + sorted((self.repo_root / "skills").rglob("*.md"))
+        for md in sources:
+            if not md.is_file() or SKIP_DIRS.intersection(md.relative_to(self.repo_root).parts):
+                continue
+            in_fence = False
+            for number, line in enumerate(md.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if line.lstrip().startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    continue
+                for span in self._code_spans(line):
+                    m = re.match(r"(/[a-z][a-z0-9-]*)(?![/\w.])", span)
+                    if m and m.group(1) not in declared:
+                        self._add("WARNING", name, f"{self._rel(md)}:{number}",
+                                  f"Slash command `{m.group(1)}` is not provided by any skill",
+                                  "Point to an existing skill/command or declare it in a skill's invocation section.")
 
     # ------------------------------------------------------------------
     # Pass 3

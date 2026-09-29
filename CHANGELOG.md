@@ -2,6 +2,90 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [1.4.0] - 2026-09-30
+Governance-quality release driven by a staged review of a master integration spec and a fresh
+forensic audit of the code base. Fewer always-on rules, more mechanical enforcement.
+
+### Breaking changes
+- **Constitution pruned (GEMINI.md 18.5 KB -> 10.4 KB).** Rule numbers 1-17 are unchanged; procedures
+  moved to `skills/harness` and `skills/diagnosing-bugs`, UI detail to `DESIGN.md`. The "~25 turns /
+  noticeable context degradation" saturation guard is replaced by observable handoff triggers (Rule 13).
+- **Lease changes are no longer trusted automatically.** An unattended expiry records the window's
+  changes as *pending review* (`[REVIEW]` in `status`/`verify`) until an approved `rebaseline`;
+  `agy-guard lock-complete` asks the human whether to accept them.
+- **New approval gates:** lowering an environment policy, `notify disable`, `startup enable` and
+  `snapshot prune` now require a human (exit code 3 otherwise), and Rule 12 lists them as human-only.
+- **Other agents' environments** are discovered through rule files only (`CLAUDE.md`,
+  `.claude/agents|commands|skills`, `.cursor/rules`, ...) and start as `monitored`; whole `.claude` /
+  `.cursor` / `.codex` seams from 1.3.x are migrated on load. The home directory is never a workspace.
+- **Locking one specific non-enforced environment returns failure** instead of reporting success.
+- **Snapshots without a readable content manifest are no longer restored.**
+- Canonical manifest schema 1.2.0 (executable bits, templates); the Claude export writes `tools:` from the
+  new agent `access:` key and keeps verbatim agent copies in `.claude/harness/agents/`.
+
+### Security & integrity
+- Home-directory discovery no longer registers `~/.gemini`, `~/.claude` and `~/.cursor` wholesale (a
+  launcher-started GUI ran there and "Lock All" froze those tools' runtime state).
+- Leases: records are removed only by the close of the same lease id (a concurrent grant could be erased
+  and leave the tree open with no record), grants re-check under the store lock, closes are claimed,
+  failed relocks are retried (5 x 60 s), the watcher logs to `logs/lease-watcher.log` instead of
+  `/dev/null`, and a corrupt lease store fails closed (set aside, every enforced environment re-locked).
+- FIM: `backup_` / `.guard_` prefixes are excluded at the top level only (a `SKILL.md` inside a `skills/backup_*` folder
+  used to be invisible); malformed baselines are reported as corrupt; the boot sentinel locks before it
+  verifies, so a broken baseline can no longer skip the lock.
+- Boot sentinel: forensic snapshots are deduplicated (newest 3 kept), systemctl/launchctl failures are
+  reported, control characters are rejected in unit values (an injected `ExecStartPre=` line was
+  accepted), `$` is escaped in `ExecStart=`, and the Windows task runs with `LIMITED` instead of `HIGHEST`.
+- A symlinked config root is refused instead of locking the link target; the lock-mode store is
+  serialised across processes and never restores a world-write bit; Windows `icacls` DENY parsing uses
+  whole rights (`"de"` inside `"(deny)"` used to count as a write deny).
+- Test boundary (TDD "extend only"): pure additions that disable tests (`skipTest`, early `return`,
+  assert/TestCase monkeypatching, shadowing redefinitions, `os._exit`) are now weakening.
+- Porter: the sanitizer classifies matches as prohibited / affirmative / uncertain with clause-scoped
+  negation; uncertain lines are kept and flagged instead of deleted; `--no-verify` and "ignore previous
+  instructions" are caught. The SSRF fetcher blocks IPv4-compatible/-translated IPv6, enforces an overall
+  deadline and no longer registers file/ftp/data handlers.
+- Upstream watchdog: the PreInvocation notice is operator-only (it used to tell the agent to "recommend
+  running /audit-upstream" on every turn, and agents copied it into task prompts), shown once per change,
+  silenced with `--ack`, with a hard network deadline, atomic state writes and re-seeding of a corrupt ledger.
+- CI: the trusted-boundary job never falls back to the candidate's own verifier; supply-chain comment made
+  accurate; fork pull-request runs require maintainer approval (see `CONTRIBUTING.md`).
+- Installer: a corrupt `hooks.json` is left untouched instead of being overwritten; hook and launcher
+  commands are shell-quoted.
+
+### Added
+- `guard/audit_log.py`: rotating JSON-lines audit log of approvals, locks, leases, baselines, snapshots,
+  boot checks and every WARNING/CRITICAL notification.
+- `agy-guard notify send` (used by hooks), `lock` shows unreviewed changes before sealing,
+  `guard/doctor.py` (headless checks, watcher-log errors).
+- `porter.py inspect <file.zip>`: read-only archive inspection (`porter/archive.py`).
+- `skills/antislop-copywriting/scripts/check_synthetic_markers.py`: deterministic scanner for signs of
+  AI-written prose (39 signs incl. Turkish, prose/technical profiles, R-02 em-dash policy).
+- `skills/visualizer`: lens/abstraction/medium decisions for diagrams, rendering delegated to
+  Mermaid or the built-in `generative_ui`.
+- Skill updates: `deep-grill` (scope parking, paraphrase check-ins, product lens, decision ledger),
+  `diagnosing-bugs` (multi-label failure classification, hypothesis-bound scripts, measured
+  optimization path), `audit` (byte-based scope sizing, Mode 4 `--forensics` / `--cognitive`),
+  `vibecoder` (goal + acceptance criteria), `harness` (quad classification, staged artifacts),
+  agents `research`, `consistency-auditor`, `meta-auditor`; ADR weighted criteria.
+- `HANDOFF.template.md`: authoritative goal, exit criteria, progress as criteria met, where to continue.
+- `meta_audit`: slash commands referenced by the instruction set must be provided by a skill (found a
+  dangling `/boost`); `.claude/` worktrees are skipped; agent `access:` values are validated.
+- `CONTRIBUTING.md`.
+
+### Fixed
+- GUI: long operations off the Tk thread, lock failures shown as errors, lease-tick failures logged,
+  approvals through the shared gate, snapshot files opened as read-only `.txt` copies (never executed),
+  no hide-to-tray when the tray is not running.
+- Porter export keeps executable bits, writes LF on every OS and exports `templates/`; the manifest now
+  parses the constitution's rule list (the pattern never matched the `**Title:**` form).
+
+### Known limitations
+- New test files are always allowed by the test boundary, so a new file could still patch `TestCase` at
+  import time; the maintainer review of external pull requests covers this.
+- Entries that were already read-only before a lock come back owner-writable on unlock (recording them
+  would make a lost mode store permanently freeze the tree).
+
 ## [1.3.1] - 2026-09-22
 Remediation release for the five external audit reports (121 validated findings). Guard's claims now
 match what it enforces; see the threat-model section of `README.md`.

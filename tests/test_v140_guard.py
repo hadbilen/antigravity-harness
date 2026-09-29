@@ -18,7 +18,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from guard import approval
 from guard.audit_log import log_path
 from guard.cli import main as cli_main
 from guard.doctor import diagnose

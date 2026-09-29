@@ -231,7 +231,8 @@ class ManifestEngine:
     def _extract_rules_from_markdown(self, content: str) -> List[Dict[str, str]]:
         """Parses numbered sections or rules from GEMINI.md."""
         rules = []
-        pattern = re.compile(r"^(\d+)\.\s+\*\*([^*]+)\*\*:\s*(.+)$", re.MULTILINE)
+        # Accepts both "1. **Title**: text" and the constitution's "1. **Title:** text" form.
+        pattern = re.compile(r"^\s*(\d+)\.\s+\*\*([^*]+?):?\*\*:?\s*(.+)$", re.MULTILINE)
         for match in pattern.finditer(content):
             rules.append({
                 "number": match.group(1),

@@ -138,7 +138,7 @@ Lens: [Formal Specification | Application Code | Contract] · Standard: [Axioms 
 
 ## 7. Subagent Orchestration
 
-For large multi-volume audits or `/boost` workflows, the lead auditor can delegate across inspection dimensions to three specialized subagents:
+For large multi-volume audits, the lead auditor can delegate across inspection dimensions to three specialized subagents:
 1. **`consistency-auditor`:** Scans axiomatic contradictions, broken references, and counter mismatches.
 2. **`security-boundary-verifier`:** Executes negative test cases for access boundaries, data isolation, and race conditions.
 3. **`specification-gap-auditor`:** Uncovers omissions, unhandled edge cases, and unverifiable adjectives.
