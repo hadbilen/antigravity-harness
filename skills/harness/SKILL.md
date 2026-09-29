@@ -22,10 +22,10 @@ To eliminate over-engineering, latency, and context bloat, tasks are partitioned
     *   *Procedure:* Heavy `tasks.md` or multi-agent pipelines are bypassed. Execute relevant syntax/type checks (`tsc`, `mypy`) and targeted unit tests directly before delivery.
 *   **Tier 2 (Standard Production - Default Harness Engine):**
     *   *Scope:* 3–8 files, feature additions, bug fixes, API endpoint development, database queries, and UI components.
-    *   *Procedure:* Full harness lifecycle: Artifact tracking (`tasks.md` / `plan.md`), Blast Radius Mapping on symbol/type modifications, the sequential Verification Pipeline (Section 3), and approval from auditor subagents (`silent-failure-hunter`, `security-boundary-verifier`) on critical data/security boundaries.
+    *   *Procedure:* Implementation plan artifact (Section 4A) and `tasks.md`, Blast Radius Mapping on symbol/type modifications (more than 8 affected files escalates to Tier 3), the sequential Verification Pipeline (Section 3), and auditor subagents (`silent-failure-hunter`, `security-boundary-verifier`) on critical data/security boundaries.
 *   **Tier 3 (High-Volume / Architectural Refactoring):**
     *   *Scope:* >8 files, cross-system architectural migrations, schema redesigns, or authentication protocol overhauls.
-    *   *Procedure:* Automatically transitions beyond standard harness boundaries to `unlazy` (Depth Tree) or `procoder` (Sprint / Backlog) scaffolding.
+    *   *Procedure:* Everything in Tier 2 plus the `deep-grill` trade-off interview, an ADR, call-graph reachability verification and independent auditor subagents before delivery; large efforts are decomposed with `unlazy` (Depth Tree) or `procoder` (Sprint / Backlog).
 *   **Vertical Slices Discipline:**
     *   Construct narrow, end-to-end, demoable vertical paths cutting through all affected architectural layers (schema -> API -> UI) within a single context window. Avoid wide, half-broken horizontal refactors that cannot be validated incrementally.
 
@@ -37,10 +37,10 @@ Language models exhibit natural optimism regarding code they produce (inferentia
 * **Inferential Trust is Prohibited:** The model's claim that "code is complete and should work" holds zero evidentiary weight.
 * **Computational Sensors are Mandatory:** Task completion is proven exclusively when deterministic terminal tools (compiler, type checker, linter, unit test suites) exit with zero errors (`exit code 0`).
 * **Strict Gate Rule:** An agent cannot complete a delivery while compiler or test errors remain active. The feedback loop continues until resolved or escalated.
-* **Immutable Test Invariant (Goodhart & Seams Protection):** Weakening test assertions, skipping checks (`skip`), commenting out assertions, or loosening validation boundaries solely to pass verification gates is strictly forbidden. When a test fails, the source code must be corrected. Modifying or deleting existing test assertions requires explicit user authorization.
-* **Test Mutation & Assertion Guard (Popper & Goodhart Invariant):** During bugfix, regression, and verification loops, the agent must never silently mutate or delete assertions in existing test files. Inspecting test diffs (`git diff HEAD -- ':(glob)**/tests/**' ':(glob)**/__tests__/**' ':(glob)**/spec/**' ':(glob)**/*test*' ':(glob)**/*spec*'`) is a mandatory verification step. Any unauthorized modification or assertion deletion in existing tests immediately trips the gate (`BLOCKED: Unconfirmed Test Mutation Detected`). If a contract update is legitimately requested by the user, document it in `tasks.md` under `## Authorized Test Modifications: [<file_path>: <reason>]`. Authoring new test files or appending new test cases for new features, edge cases, and TDD specifications is fully permitted.
-* **Test at Seams:** Tests target public interfaces, exported functions, and API boundaries—never internal volatile private methods. Exported pure logic functions represent contract seams and are testable. Refactoring internal implementation must leave seam tests green and unmodified.
-* **Legacy Test Transition Exception:** If a test breaks because it is tightly bound to superseded private implementation details rather than a public contract, test weakening remains prohibited. Present an explicit `[Legacy Test Transition Request]` to elevate the test to an interface seam or retire it upon user approval.
+* **Immutable Test Invariant:** Constitution Rule 9 governs tests (no weakening, fix the source, test at seams, legacy transition requests). The procedural parts live here:
+  * **Test diff inspection** before declaring completion: `git diff HEAD -- ':(glob)**/tests/**' ':(glob)**/__tests__/**' ':(glob)**/spec/**' ':(glob)**/*test*' ':(glob)**/*spec*'`. Any unauthorized change to an existing assertion trips the gate (`BLOCKED: Unconfirmed Test Mutation Detected`).
+  * **Authorized contract changes** are recorded in `tasks.md` as `## Authorized Test Modifications: [<file_path>: <reason>]`.
+  * Deterministic backstop: `agy-guard test-boundary verify` / `python3 scripts/verify_invariants.py --test-boundary`.
 
 ---
 
@@ -74,7 +74,7 @@ Upon writing or editing code, the agent sequentially executes and evaluates outp
     6. Verification Gap Declaration (Gap-Round: explicit declaration of unverified boundaries)
           │  (Critical unverified gap blocks delivery; requests user review)
           ▼
-    7. Session Boundary Advisory (Tier 2/3: prompt user to start fresh session)
+    7. Delivery Block (Rule 5: verified / not verified, next step only at phase ends or handoffs)
           │
           ▼
 [User Delivery]
@@ -91,16 +91,25 @@ For medium and large tasks, maintain aligned platform artifacts and disk trackin
 1. **`implementation_plan.md` (Design Document & Review Gate):** Created in the Antigravity artifact directory (`<appDataDir>/brain/<conversation-id>/implementation_plan.md`) with `ArtifactMetadata` (`request_feedback: true`, `user_facing: true`) to trigger the platform's interactive "Proceed" review UI.
 2. **`tasks.md` (Execution Checklist):** Checkable milestones (`[ ]` / `[x]`) maintained at the workspace root as a persistent ledger.
 3. **`walkthrough.md` (Delivery Walkthrough):** Summary of verified changes, automated gate outputs, and verification gap declarations upon task completion.
-4. **Continuity & Handoff Ledger (`tasks.md`):** For multi-session workflows, append a structured `## Continuity & Handoff` section to `tasks.md` recording: Last Verified State, Active Invariants, Next Milestones, and Exact File Links. This enables new chat sessions to resume immediately with zero context decay.
+4. **`HANDOFF.md` (Session Handoff):** The single handoff mechanism for multi-session work, written from `~/.gemini/config/templates/HANDOFF.template.md` when a Rule 13 handoff trigger fires. It carries the authoritative goal and exit criteria; `tasks.md` stays the execution checklist and is not a second handoff ledger.
 
 ### B. Context Preservation Discipline
 * Update `tasks.md` on disk immediately upon completing each sub-step.
 * Even if conversation history undergoes compaction, read `tasks.md` from disk to resume execution deterministically.
 
-### C. Think in Code
+### C. Think in Code (Constitution Rule 11)
 * Avoid using the model as a raw data processor; generate code to let the operating system compute.
 * When scanning more than 3 files, run targeted shell one-liners (`grep`, `jq`, `awk`) via `run_command` instead of dumping whole files into context.
-* For broad codebase exploration, dispatch the read-only `research` subagent to return synthesized summaries without polluting main conversation context.
+* **Bulk Inspection Barrier:** when analyzing 5+ files or a dataset, write a one-off script in `<appDataDir>/brain/<conversation-id>/scratch/` that prints only the aggregated result. Read-only auditor subagents without execution tools use bounded search primitives (`grep_search`, bounded `view_file`).
+* **No raw stream dumps:** pipe `curl`/`wget`/log output through filters or into `scratch/stream_<name>.tmp`, inspect the slice, then delete the temp file. Never silently truncate failing compiler/test traces.
+* **Subagent sandbox for heavy ingestion:** documentation over 50 KB goes to the `research` subagent; traces over 500 lines go to `build-error-resolver` or an isolated diagnostic subagent. For broad codebase exploration, dispatch the read-only `research` subagent.
+
+### D. Work Scope Quad-Classification (Anti-Scope-Explosion)
+During decomposition and execution (`tasks.md`), every discovered item goes into exactly one class:
+- **`REQUIRED`**: directly needed for the user's explicit objective.
+- **`NECESSARY FOR SAFETY/CORRECTNESS`**: discovered during the work; needed to prevent a regression or boundary break.
+- **`VALUABLE`**: an improvement not needed now: parked for later, never implemented in-band.
+- **`OUT OF SCOPE`**: unrelated observations or speculative refactors: not included.
 
 ---
 
@@ -126,12 +135,17 @@ Do not dump the full conversation transcript to subagents. Pass only:
 5. **Specification Gap & Consistency Auditors (`specification-gap-auditor`, `consistency-auditor`):** Evaluates specifications, architectures, and rules for omissions, axiomatic contradictions, and logical cycles.
 6. **Research & Heavy Ingestion Specialist (`research`):** Ingests large external documentation (>50 KB) and explores broad codebases in an isolated sandbox, returning distilled contracts to the primary session.
 
+### D. Staged Artifact Passing & Partial Stage Re-Execution
+For sequential multi-subagent pipelines (`Agent 1 -> Agent 2 -> Agent 3`):
+1. **Numbered stage contracts:** persist each stage's output as a file (`<appDataDir>/brain/<conversation-id>/scratch/stage_01_<role>.md`, `stage_02_<role>.md`, ...) instead of relaying large prose through the parent conversation.
+2. **Partial re-execution:** when a follow-up or a failed verification requires revising stage *k*, keep the validated outputs of stages 1..k-1 and re-run only from stage *k*, passing the upstream artifact paths in the subagent invocation contract.
+
 ---
 
 ## 6. Entropy and Drift Management
 
 As codebases evolve, documentation, decision records (`ADR`), and rules diverge from implementation. Harness enforces periodic audits:
-* **MISTAKES.md Rule Promotion:** Failure patterns occurring three times in `MISTAKES.md` are graduated into permanent constitutional rules in `GEMINI.md` or `AGENTS.md`.
+* **MISTAKES.md Rule Promotion:** A failure pattern recurring three times in `MISTAKES.md` is promoted to a mechanical check (script, hook, test) or a skill rule first; it enters `GEMINI.md` only when no mechanical or skill-level home exists (Constitution Rule 10).
 * **Broken Contract Audits:** When API schemas or shared types change, update dependent documentation and contract tests in the same session.
 
 ---
