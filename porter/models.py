@@ -42,7 +42,7 @@ class SuitabilityIssue:
     """An issue detected during constitutional and suitability analysis."""
     severity: str  # "CRITICAL", "WARNING", "INFO"
     # "TEST_INVARIANT", "SYCOPHANCY", "PROMPT_INJECTION", "NEEDS_REVIEW" (ambiguous directive kept for a
-    # human decision), "AI_SLOP", "TOOL_LEAK", "OVERLAP"
+    # human decision), "AI_SLOP", "TOOL_LEAK", "OVERLAP", "ARCHIVE" (ZIP inspection hazards)
     category: str
     message: str
     suggested_fix: str

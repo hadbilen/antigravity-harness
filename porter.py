@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 
 # Ensure repository root is in python path
@@ -24,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from porter import __version__ as PORTER_VERSION
 from porter.analyzer import SuitabilityAnalyzer
+from porter.archive import inspect_zip
 from porter.emitters import EMITTERS, EmitterConflictError
 from porter.frontmatter import dump_frontmatter
 from porter.manifest import ManifestEngine
@@ -58,8 +60,31 @@ def _confirm(prompt: str) -> bool:
         return False
 
 
+def _is_zip_target(target: str) -> bool:
+    if target.startswith(("http://", "https://")):
+        return urllib.parse.urlparse(target).path.lower().endswith(".zip")
+    return target.lower().endswith(".zip")
+
+
+def cmd_inspect_archive(args: argparse.Namespace) -> int:
+    """Inspects a local ZIP archive without extracting it (Porter never unpacks archives)."""
+    if args.target.startswith(("http://", "https://")):
+        print(f"Error: '{args.target}' is a remote ZIP archive. Porter does not fetch archives: "
+              "download and inspect locally ('porter.py inspect <file.zip>').", file=sys.stderr)
+        return 1
+    path = Path(args.target)
+    if not path.is_file():
+        print(f"Error reading target '{args.target}': not a file", file=sys.stderr)
+        return 1
+    report = inspect_zip(path, harness_root=SCRIPT_DIR)
+    print(json.dumps(report.to_dict(), indent=2) if args.json else report.to_markdown())
+    return 0 if report.is_safe else 2
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     """Performs pre-flight suitability and adaptability analysis without mutating any files."""
+    if _is_zip_target(args.target):
+        return cmd_inspect_archive(args)
     try:
         content = fetch_target_content(args.target)
     except Exception as e:
@@ -92,6 +117,10 @@ def cmd_import(args: argparse.Namespace) -> int:
     if _is_live_config(SCRIPT_DIR):
         print("Error: porter.py is running from the live configuration directory. "
               "Use 'agy-guard porter stage' to ingest into a protected environment.", file=sys.stderr)
+        return 1
+    if _is_zip_target(args.target):
+        print(f"Error: '{args.target}' is a ZIP archive. Porter never extracts archives; "
+              "review it with 'porter.py inspect <file.zip>'.", file=sys.stderr)
         return 1
     try:
         content = fetch_target_content(args.target)
@@ -199,7 +228,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_inspect = subparsers.add_parser("inspect", help="Run pre-flight suitability and adaptability analysis.")
-    p_inspect.add_argument("target", help="File path or URL to inspect.")
+    p_inspect.add_argument("target", help="File path or URL to inspect (a local .zip is inspected without extraction).")
     p_inspect.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
 
     p_import = subparsers.add_parser("import", help="Import and sanitize an external rule into this repository.")
