@@ -1,9 +1,10 @@
 ---
 name: antislop-copywriting
 description: 'Copy and text skill for antislop. Use when writing or editing prose:
-  headlines, tone, CTAs, and anti-AI-writing patterns. Load with the core. Invoke
-  when: writing marketing prose, headlines, CTAs, landing page copy, or when user
-  says ''write copy'', ''antislop copy'', ''anti-ai tone''.'
+  headlines, tone, CTAs, and anti-AI-writing patterns, including de-AI rewrites and
+  scanning a draft for signs of AI writing with the bundled scanner. Load with the core.
+  Invoke when: writing marketing prose, headlines, CTAs, landing page copy, making text
+  sound less AI-generated, or when user says ''write copy'', ''antislop copy'', ''anti-ai tone''.'
 ---
 # antislop-copywriting
 
@@ -357,6 +358,21 @@ Run this loop before delivering copy:
 1. **Draft.** Rewrite the text applying the patterns above. Check that it reads naturally aloud, varies sentence length, prefers specific detail and simple constructions, and keeps the appropriate register.
 2. **Audit.** Ask two questions and answer them briefly: "What makes this obviously AI generated?" and "Does it state any fact, name, number, date, or citation that is not in the source?" A fabrication is a defect even when it sounds more human than the vague original.
 3. **Final.** Revise to address both answers. Check for em and en dashes one last time (R-02). A hit means the draft is not done.
+
+## Deterministic scan (local addition)
+
+When you can run code, measure before and after rewriting with the bundled scanner (Python standard library only):
+
+```bash
+python3 scripts/check_synthetic_markers.py draft.md              # findings by sign, with line numbers
+python3 scripts/check_synthetic_markers.py draft.md --summary    # counts and density per 1,000 words
+python3 scripts/check_synthetic_markers.py - --json < draft.md   # machine-readable, reads stdin
+```
+
+* `--source agent` (default) applies R-02 strictly: every em dash in copy you wrote is a finding. Use `--source human` for text the user supplied; em dashes are then flagged only in clusters, and per R-37 you surface them instead of rewriting them silently.
+* `--profile technical` switches off the Markdown-structure signs (Title Case headings, bold label bullets, small tables, emoji headings) that are normal in engineering docs; content, filler and chat-leftover signs stay on. `--lang tr` (or `auto`) adds the Turkish signs.
+* The scanner catches pattern-level signs only; rhythm, elegant variation and puffed-up structure still need the read-aloud pass. A hit you keep on purpose (a quotation, a proper noun, a literal use) is fine: mention it.
+* Rewriting changes how things are said, never what is said: keep every fact, number, name, date, link and quotation, and leave clean sentences alone. Report the finding counts before → after.
 
 ## Copywriting Skill Checklist
 

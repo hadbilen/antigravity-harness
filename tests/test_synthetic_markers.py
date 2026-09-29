@@ -1,5 +1,5 @@
 """
-tests/test_synthetic_markers.py — Tests for scripts/check_synthetic_markers.py
+tests/test_synthetic_markers.py — Tests for skills/antislop-copywriting/scripts/check_synthetic_markers.py
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Standard library only; no network.
 """
@@ -9,6 +9,7 @@ from __future__ import annotations
 import hermetic  # noqa: F401  (isolates HOME/state before anything else is imported)
 
 import dataclasses
+import importlib.util
 import json
 import os
 import subprocess
@@ -17,10 +18,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts import check_synthetic_markers as csm
+_SCANNER = Path(__file__).resolve().parent.parent / "skills" / "antislop-copywriting" / "scripts" / "check_synthetic_markers.py"
+_spec = importlib.util.spec_from_file_location("check_synthetic_markers", _SCANNER)
+csm = importlib.util.module_from_spec(_spec)
+sys.modules["check_synthetic_markers"] = csm  # dataclasses resolve their module by name
+_spec.loader.exec_module(csm)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = REPO_ROOT / "scripts" / "check_synthetic_markers.py"
+SCRIPT = _SCANNER
 
 CAFE = (
     "Nestled in the heart of the city, our café stands as a testament to the town's rich cultural\n"
@@ -468,6 +473,18 @@ class TestCommandLine(unittest.TestCase):
         self.assertEqual(run_cli("--profile", "prose", "-", stdin=GEMINI_STYLE).returncode, 1)
         self.assertEqual(run_cli("--lang", "en", "-", stdin=TURKISH).returncode, 0)
         self.assertEqual(run_cli("--strict", "-", stdin="This step is crucial.").returncode, 1)
+
+
+
+class TestTechnicalTriadThreshold(unittest.TestCase):
+    TEXT = ("Guard runs on Linux, macOS and Windows. It checks types, lints and tests. "
+            "Reports cover files, leases and snapshots. The installer copies skills, agents and templates.\n")
+
+    def test_technical_profile_tolerates_real_lists_of_three(self):
+        prose = [f.rule_id for f in csm.scan_text(self.TEXT, profile="prose").findings]
+        technical = [f.rule_id for f in csm.scan_text(self.TEXT, profile="technical").findings]
+        self.assertIn("2.5", prose)
+        self.assertNotIn("2.5", technical)
 
 
 if __name__ == "__main__":

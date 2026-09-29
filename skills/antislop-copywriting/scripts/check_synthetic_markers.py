@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scripts/check_synthetic_markers.py — Deterministic scanner for signs of machine-generated prose
+skills/antislop-copywriting/scripts/check_synthetic_markers.py — Deterministic scanner for signs of machine-generated prose
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Python standard library only; runs on Python 3.10 and later.
 
@@ -993,7 +993,10 @@ class _Scanner:
             for m in TRIAD_RE.finditer(text):
                 if not TRIAD_CLICHE_RE.match(m.group(0)):
                     found.append((base + m.start(), m.group(0)))
-        dense = _dense_indices([self.word_index(o) for o, _ in found], 3)
+        # Engineering docs enumerate real triples ("Linux, macOS and Windows") all the time, so the
+        # technical profile only reports generic triads at twice the prose density; clichés always fire.
+        threshold = 6 if self.profile == "technical" else 3
+        dense = _dense_indices([self.word_index(o) for o, _ in found], threshold)
         for n, (offset, span) in enumerate(found):
             if self.strict or n in dense:
                 self.add("2.5", offset, span)

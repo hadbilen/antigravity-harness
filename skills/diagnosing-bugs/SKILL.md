@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: Systematic seven-phase root-cause analysis for bugs, test failures, and regressions. Prohibits speculative code edits until a reproducible feedback loop is established. Enforces Think in Code context hygiene and MISTAKES.md logging. Invoke when debugging, fixing failing tests, investigating crashes, or troubleshooting regressions.
+description: Systematic seven-phase root-cause analysis for bugs, test failures, regressions and measured performance problems. Classifies each failure (code, environment, tool, external) before any edit and prohibits speculative code edits until a reproducible feedback loop is established. Invoke when debugging, fixing failing tests, investigating crashes, troubleshooting regressions, or when something measured is too slow.
 ---
 
 # Diagnosing Bugs & Root-Cause Analysis
@@ -17,6 +17,9 @@ NEVER propose speculative fixes, wrap code in superficial try/catch blocks, or m
 
 ## The Seven-Phase Investigation Discipline
 
+### Phase 0: Classify the Failure (before touching any source)
+Label the failure with one or more of: **`CODE`** (application logic is wrong), **`ENVIRONMENT`** (tool/runtime/path/dependency/configuration), **`TOOL`** (an agent tool call failed, timed out or was rejected), **`EXTERNAL`** (a remote service or network endpoint), **`UNKNOWN`** (evidence is insufficient: reproduce and gather traces before changing anything). A failure can carry several labels (code that relies on an API the installed runtime lacks is `CODE` + `ENVIRONMENT`): fix each part where it lives. Never modify working application code to get around an environment, tool or external failure.
+
 ### Phase 1: Establish a Reproducible Feedback Loop
 * Formulate a single, deterministic command, script, or test case that triggers the failure reliably.
 * Run the command and verify that it consistently fails (RED).
@@ -30,6 +33,7 @@ NEVER propose speculative fixes, wrap code in superficial try/catch blocks, or m
 ### Phase 3: Formulate & Rank Hypotheses
 * Formulate 2–3 concrete hypotheses for the root cause, ranked by likelihood.
 * For each hypothesis, define a specific **falsification test** (what evidence would prove this hypothesis wrong?).
+* **Hypothesis-bound scripts:** every diagnostic scratch script tests a stated hypothesis. When a script does not confirm it, revise the hypothesis from the evidence before writing the next script; open-ended trial-and-error scripting is progress theater. (Inventory/aggregation scripts required by Constitution Rule 11 are not diagnostic scripts.)
 
 ### Phase 4: Instrument & Verify Hypothesis
 * Add minimal, targeted diagnostic logging or assertions to test the top hypothesis.
@@ -51,4 +55,10 @@ NEVER propose speculative fixes, wrap code in superficial try/catch blocks, or m
   * **Root Cause:** What flawed assumption or missing validation triggered it?
   * **Impact:** What regressed or failed?
   * **Preventive Rule:** Concrete rule to prevent recurrence.
-* **Rule Graduation:** When the same error pattern recurs 3 or more times, propose graduating it from `MISTAKES.md` into permanent rules in `AGENTS.md` or `GEMINI.md`.
+* **Rule Graduation:** When the same error pattern recurs 3 or more times, propose graduating it into a mechanical check (script, hook, test) or a skill rule first; only when neither is possible, into `AGENTS.md` or `GEMINI.md` (Constitution Rule 10).
+
+## Performance Problems (Measured Optimization Path)
+Optimization is a defect fix with a measurement instead of a failing test:
+1. **Measure first:** a repeatable command and its number (time, memory, I/O calls, query count). No measurement, no optimization: without a measured problem the answer is Constitution Rule 8's null action.
+2. **Change one thing** at the measured hot spot; keep public signatures and behaviour identical. Seam tests must pass unchanged (Rule 9); changing an API for ergonomics is a separate, user-approved design change, not an optimization.
+3. **Re-measure with the same command** and report before/after numbers. Keep the change only if the gain is real and outside run-to-run noise.

@@ -34,12 +34,16 @@ You are an independent, meticulous structural and axiomatic consistency auditor.
 - Are cross-module section/clause number references current and valid?
 - Are there defined terms/tokens never used, or used terms never defined?
 
-### 3. State Machine & Cycle Invariants
+### 3. State Machine, Lifecycle & Cycle Invariants
 - Are there unreachable dead states or inescapable deadlocks in state transition diagrams or protocol workflows?
 - Does circular dependency exist within hierarchy rules?
+- **4-Point State Transition Completeness:** for every state/status field introduced or modified, do all four points exist: (1) initial assignment, (2) forward transition trigger, (3) failure/timeout rollback or reset (no stuck states), (4) exhaustive handling in every consumer/UI branch?
 
 ### 4. Register & Counter Mismatches
 - Do component or token count declarations in verification gates or release notes (e.g. "27 status tokens") match exact scans of implementation files?
+
+### 5. Cross-Boundary Payload Parity (API ↔ Client Seams)
+- Do client-side generic casts (`fetchJson<T>()`, `axios.get<T>()`, `response.json() as T`) match the runtime JSON envelope the backend route/serializer actually returns (`{ data: ... }` versus a bare array/object)? Type checkers trust generic casts blindly: read both sides of the boundary side by side, field by field.
 
 ## Output Format
 

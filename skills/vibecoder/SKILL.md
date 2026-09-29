@@ -69,6 +69,10 @@ produces interfaces that run with zero setup.
 * A single HTML file is not automatically low-risk: never embed secrets, and tell the user where data
   is stored (for example "only in this browser").
 
+### F. Experience Goal & Acceptance Criteria
+* At the start, capture the prototype's goal in one line (audience, feel, the primary one-click outcome) and 2–3 observable acceptance criteria (e.g. "a record can be added and appears in the list", "it still shows after a page reload").
+* The criteria are the prototype's definition of done: they stop endless aesthetic drift, and progress is reported as criteria met ("2/3"), never as a percentage.
+
 ---
 
 ## 2. Four-Step Workflow
@@ -117,8 +121,9 @@ Questions target the user experience and the feeling of the product, never techn
 
 ## 4. Delivery Format
 
-The final message after the code is written must contain these three blocks:
+The final message after the code is written must contain these blocks:
 
+0. **Acceptance check:** each acceptance criterion from Section 1F marked met or not met ("2/3 met: persistence not yet").
 1. **Summary & file path:** where the file was saved (e.g. `workspace/invoice-tracker.html`).
 2. **How to run it (zero technical language):**
    * "Double-click the file, or drag and drop it onto an open Chrome tab."
@@ -134,5 +139,6 @@ The final message after the code is written must contain these three blocks:
 * `vibecoder` stays within **Tier 1 (Fast Path)** limits by default.
 * During exploratory prototyping, do not burden the user with formal architecture plans
   (`implementation_plan.md`), test-writing rituals or `ADR` documents.
-* **When to promote:** when the user likes the prototype and says "let's connect this to a real
-  backend and ship it", switch to the `harness` Tier 2/3 standards.
+* **When to promote:** when all acceptance criteria are met and the user says "let's connect this to
+  a real backend and ship it", stop prototyping and switch to the `harness` Tier 2/3 standards; the
+  goal and criteria carry over into `tasks.md` and, if needed, the exit criteria of `HANDOFF.md`.

@@ -42,6 +42,10 @@ You are an independent, specialized meta-consistency auditor for the Antigravity
 ### 4. Transpilation Parity (Porter)
 - Does every Porter emitter (Claude Code, Cursor, Universal `AGENTS.md` — used by Codex —, Aider, Generic) reproduce every skill, support file and agent verbatim, with valid frontmatter?
 
+### 5. Skill Trigger Specificity & Discriminating Evaluation
+- **Near-miss triggers:** does each `skills/*/SKILL.md` description bound its activation domain, with an explicit "Not for …" / "DO NOT use when …" clause where an adjacent skill shares vocabulary (e.g. `antislop-copywriting` scanning versus rewriting, `visualizer` versus the built-in `generative_ui`)? Do referenced slash commands resolve to a skill or documented command?
+- **Discriminating assertions:** when a skill is evaluated with and without the skill, an assertion that passes in both runs carries no evidence and must be replaced by a check that can fail without the skill.
+
 ## Standard Invocation Contract
 
 When dispatched, the agent executes `python3 scripts/meta_audit.py` and returns a structured decision matrix with `PASS` or `FAIL (BLOCKED)` status.

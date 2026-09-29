@@ -82,7 +82,7 @@ When a decision moment is detected:
 1. **Initialize (first time only)** — if `docs/adr/` does not exist, ask the user for confirmation before creating the directory, a `README.md` seeded with the index table header (see ADR Index Format below), and a blank `template.md` for manual use. Do not create files without explicit consent.
 2. **Identify the decision** — extract the core architectural choice being made
 3. **Gather context** — what problem prompted this? What constraints exist?
-4. **Document alternatives** — what other options were considered? Why were they rejected?
+4. **Document alternatives with weighted criteria** — what other options were considered and why were they rejected? Do not treat criteria as equally weighted: name the decision-driving constraint and whether a single critical failure mode outweighed several minor advantages.
 5. **State consequences** — what are the trade-offs? What becomes easier/harder?
 6. **Assign a number** — scan existing ADRs in `docs/adr/` and increment
 7. **Confirm and write** — present the draft ADR to the user for review. Only write to `docs/adr/NNNN-decision-title.md` after explicit approval. If the user declines, discard the draft without writing any files.

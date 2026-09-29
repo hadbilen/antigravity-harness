@@ -3,7 +3,8 @@ name: audit
 description: >-
   Independent, self-calibrating structural, consistency, and security boundary audit engine for codebases, formal specifications,
   architectural documents, and schemas. Evaluates internal consistency, intent alignment, omissions, and state invariant violations
-  without mutating target files. Invoke with /audit, /audit --boundary, /audit --resilience, /audit --delta, /audit --meta, /audit --self.
+  without mutating target files. Invoke with /audit, /audit --boundary (alias --resilience), /audit --delta, /audit --meta or --self
+  (optionally with --forensics / --cognitive for the harness itself).
 ---
 
 # Audit — Autonomous Structural, Consistency & Security Boundary Inspection Engine
@@ -32,7 +33,7 @@ This inspection is not an offensive cyberattack, penetration test, or unauthoriz
 
 * **EXPLICIT CALLS ONLY:** This skill runs ONLY when explicitly invoked. It MUST NOT trigger during routine queries, casual reviews, or quick questions.
 * **Recognized Triggers:**
-  * Slash commands: `/audit`, `/audit --boundary`, `/audit --resilience`, `/audit --delta`, `/audit --meta`, `/audit --self`
+  * Slash commands: `/audit`, `/audit --boundary` (`--resilience` is an exact alias), `/audit --delta`, `/audit --meta` (`--self` is an alias; add `--forensics` and/or `--cognitive` for the harness self-audit dimensions of Mode 4)
   * Explicit phrases: *"Audit this"*, *"Test boundary conditions and resilience"*, *"Perform consistency analysis"*, *"Inspect design and security boundaries"*, *"Run harness meta-audit"*, *"Self-audit harness"*.
 
 ---
@@ -55,7 +56,12 @@ Before performing any analysis, the agent inspects the target structure and decl
 ### B. Contract Grounding
 The agent reads existing local governance files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `GATES.md`, `MISTAKES.md`) to anchor the audit to the project's real non-negotiable constraints without asking the user for repetitive context.
 
-### C. Header Declaration
+### C. Scope Sizing (measured, not guessed)
+Measure the target before reading it: `git ls-files <target> | xargs wc -c | tail -1` (or `wc -c` over the listed files). The cost of an audit follows bytes read, not file count.
+* **Up to ~150 KB:** audit in the current context.
+* **Above ~150 KB, or an auth/billing/storage core:** split the target by area or dimension across the auditor subagents (Section 7); each returns at most 15 findings with `file:line` coordinates and a reproduction command, never "clean/safe" impressions. The lead deduplicates and ranks. Fall back to a filtered `HANDOFF.md` (coordinates and invariants only) only when subagents are unavailable.
+
+### D. Header Declaration
 Every audit report MUST begin with a one-line verdict (GEMINI.md Rule 1), immediately followed by:
 `Lens: [<Selected Lens>] · Standard: [<Applied Standard>] · Scope: [<Target>]`
 
@@ -92,6 +98,9 @@ Validates input validation gaps, data boundaries, concurrency risks, and unexpec
 * Audits the Antigravity Harness's own governance files (skills, agents, constitutions, and CLI contracts).
 * Executes `python3 scripts/meta_audit.py --json` or dispatches `meta-auditor` subagent.
 * Deterministically validates YAML frontmatter schemas, cross-reference links, mutual exclusion barriers, and Porter export parity.
+* **`--forensics` (harness only):** verifies Guard's live OS behaviour by running it against throw-away fixtures in a scratch directory with HOME/XDG/`ANTIGRAVITY_CONFIG_DIR` redirected (symlink handling, permission round-trip, integrity scope, lease concurrency). Never run lock/unlock against the real configuration.
+* **`--cognitive` (harness only):** checks the instruction set itself: contradictory or duplicated rules across `GEMINI.md` and skills, thresholds that disagree, rules the model cannot observe or measure, trigger overlap between skills, and rules that are lost when work is delegated to subagents.
+* Usability and performance claims need evidence: a performance finding requires a measurement command and its output; a usability finding without user-behaviour evidence is reported as `[OPEN QUESTION]`, never above `INFO`.
 
 ---
 
@@ -133,5 +142,7 @@ For large multi-volume audits or `/boost` workflows, the lead auditor can delega
 1. **`consistency-auditor`:** Scans axiomatic contradictions, broken references, and counter mismatches.
 2. **`security-boundary-verifier`:** Executes negative test cases for access boundaries, data isolation, and race conditions.
 3. **`specification-gap-auditor`:** Uncovers omissions, unhandled edge cases, and unverifiable adjectives.
+
+Work is split by the kind of evidence a question needs, not by label: static consistency questions go to `consistency-auditor`; questions answered by running a negative test or a fixture go to `security-boundary-verifier` (it needs command execution); omissions and vague requirements go to `specification-gap-auditor`; measurements are made with a script, not inferred.
 
 The lead agent synthesizes findings, removes duplicates, and renders a unified `Audit Ledger`.
