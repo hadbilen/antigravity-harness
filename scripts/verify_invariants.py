@@ -122,7 +122,7 @@ def check_diff(base_ref: str = "") -> List[Tuple[str, str, str]]:
 def scan_directory(base_path: Path) -> List[Tuple[str, str, str]]:
     """Scans all files in directory against static invariants."""
     violations = []
-    ignore_dirs = {".git", "__pycache__", "node_modules", ".harness", "export", "dist", "build"}
+    ignore_dirs = {".git", "__pycache__", "node_modules", ".harness", "export", "dist", "build", ".claude"}
 
     for root, dirs, files in os.walk(base_path):
         dirs[:] = sorted(d for d in dirs if d not in ignore_dirs)

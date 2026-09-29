@@ -47,7 +47,8 @@ KNOWN_EXTERNAL_MD = {
     "CONTRIBUTING.md", "task.md", "spec.md", "todo.md", "backlog.md", "sprint.md", "ADR.md",
     "RELEASE.md", "template.md",  # files the skills create inside the user's project
 }
-SKIP_DIRS = {".git", "node_modules", "export", "__pycache__", "dist", "build", ".harness"}
+# `.claude` holds local agent worktrees (full repository copies) and is never harness content.
+SKIP_DIRS = {".git", "node_modules", "export", "__pycache__", "dist", "build", ".harness", ".claude"}
 
 
 @dataclass
@@ -201,7 +202,7 @@ class MetaAuditEngine:
                               f"Create templates/{tmpl} or update the path.")
 
         top_dirs = {"skills", "agents", "scripts", "guard", "porter", "templates", "installers", "tests", "bin"}
-        basenames = {p.name for p in self.repo_root.rglob("*") if ".git" not in p.parts}
+        basenames = {p.name for p in self.repo_root.rglob("*") if not SKIP_DIRS.intersection(p.parts)}
         for md in self._markdown_files():
             text = md.read_text(encoding="utf-8", errors="ignore")
             target = self._rel(md)

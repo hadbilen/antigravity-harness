@@ -34,7 +34,8 @@ class IntegrityReport:
     deleted: List[str] = field(default_factory=list)
     unreadable: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
-    baseline_status: str = "ok"  # "ok", "missing" or "corrupt"
+    baseline_status: str = "ok"  # "ok", "missing", "corrupt" or "pending_review"
+    pending_source: str = ""
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -45,6 +46,10 @@ class IntegrityReport:
                     f"Run 'agy-guard rebaseline' after reviewing them.")
         if self.baseline_status == "corrupt":
             return f"[WARN] BASELINE CORRUPT: the baseline file could not be read ({self.total_files} files in scope)."
+        if self.baseline_status == "pending_review":
+            changed = len(self.modified) + len(self.added) + len(self.deleted)
+            return (f"[REVIEW] {changed} change(s) made during {self.pending_source or 'a maintenance window'} await review "
+                    f"(nothing else drifted). Inspect them, then run 'agy-guard rebaseline' to accept.")
         if self.is_intact:
             return f"[OK] Integrity Verified: {self.total_files} files intact. Zero drift detected."
         parts = []
@@ -74,7 +79,11 @@ class FileIntegrityMonitor:
         "guard_integrity.json",
         ".DS_Store",
     }
-    EXCLUDED_PREFIXES = (".guard_", "backup_", ".backup_")
+    # Legacy Guard files and installer backups only ever lived directly in the root of the
+    # monitored tree, so these prefixes are excluded at the TOP LEVEL only. Excluding them at
+    # any depth let e.g. skills/backup_x/SKILL.md (a loadable skill) hide from the monitor.
+    TOP_LEVEL_EXCLUDED_PREFIXES = (".guard_", "backup_", ".backup_")
+    EXCLUDED_PREFIXES = TOP_LEVEL_EXCLUDED_PREFIXES  # backwards-compatible alias
     EXCLUDED_SUFFIXES = (".tmp", ".swp")
     HISTORY_KEEP = 10
 
@@ -120,6 +129,11 @@ class FileIntegrityMonitor:
         )
 
     @property
+    def pending_file(self) -> Path:
+        """Candidate baseline recorded when a maintenance window closes without human review."""
+        return self.state_file.with_name(self.state_file.stem + ".pending.json")
+
+    @property
     def is_isolated(self) -> bool:
         """True if the baseline is stored outside the monitored target directory."""
         return not is_within(self.state_file, self.target_dir)
@@ -127,12 +141,16 @@ class FileIntegrityMonitor:
     # ------------------------------------------------------------------
     # Scanning
     # ------------------------------------------------------------------
-    def _excluded(self, name: str) -> bool:
+    def _excluded(self, name: str, top_level: bool = False) -> bool:
         return (
             name in self.EXCLUDED_NAMES
-            or name.startswith(self.EXCLUDED_PREFIXES)
+            or (top_level and name.startswith(self.TOP_LEVEL_EXCLUDED_PREFIXES))
             or name.endswith(self.EXCLUDED_SUFFIXES)
         )
+
+    def _is_top_level(self, directory: Path) -> bool:
+        absolute = os.path.abspath(directory)
+        return any(absolute == os.path.abspath(root) for root in self._key_roots)
 
     def _key(self, path: Path) -> str:
         absolute = Path(os.path.abspath(path))
@@ -182,9 +200,10 @@ class FileIntegrityMonitor:
         except OSError as e:
             hashes[self._key(directory)] = f"UNREADABLE:{type(e).__name__}"
             return
-        state_path = os.path.abspath(self.state_file)
+        own_files = {os.path.abspath(self.state_file), os.path.abspath(self.pending_file)}
+        top_level = self._is_top_level(directory)
         for entry in entries:
-            if self._excluded(entry.name) or os.path.abspath(entry.path) == state_path:
+            if self._excluded(entry.name, top_level=top_level) or os.path.abspath(entry.path) in own_files:
                 continue
             self._scan_entry(Path(entry.path), hashes, visited)
 
@@ -256,13 +275,58 @@ class FileIntegrityMonitor:
                 # removing it dropped their inherited copies: re-lock a locked tree recursively.
                 self.os_adapter.lock(parent, recursive=children_locked)
 
+        self.clear_pending()
+        from guard.audit_log import audit
+        audit("integrity.baseline_saved", target=str(self.target_dir), env=self.env_id, files=len(current_hashes))
         return len(current_hashes), self.state_file.as_posix()
 
+    def save_pending_baseline(self, source: str) -> Tuple[int, str]:
+        """
+        Records the current state as a candidate baseline awaiting human review. The trusted
+        baseline is NOT changed, so the drift stays visible until someone accepts it with
+        `agy-guard rebaseline` (which requires approval).
+        """
+        current_hashes = self.scan_directory()
+        payload = {
+            "source": source,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_dir": str(self.target_dir),
+            "file_count": len(current_hashes),
+            "files": current_hashes,
+        }
+        atomic_write_json(self.pending_file, payload, mode=0o600)
+        from guard.audit_log import audit
+        audit("integrity.pending_recorded", target=str(self.target_dir), env=self.env_id, source=source, files=len(current_hashes))
+        return len(current_hashes), self.pending_file.as_posix()
+
+    def load_pending(self) -> Optional[Dict]:
+        try:
+            with open(self.pending_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) and isinstance(data.get("files"), dict) else None
+
+    def clear_pending(self) -> None:
+        try:
+            self.pending_file.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
     def load_baseline(self) -> Optional[Dict[str, str]]:
+        """Returns the baseline map; raises ValueError when the file exists but is malformed."""
         if not self.state_file.exists():
             return None
         with open(self.state_file, "r", encoding="utf-8") as f:
-            return json.load(f).get("files", {})
+            data = json.load(f)
+        files = data.get("files", {}) if isinstance(data, dict) else None
+        if not isinstance(files, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in files.items()):
+            raise ValueError(f"{self.state_file}: 'files' must be a mapping of path -> hash")
+        return files
 
     def verify(self) -> IntegrityReport:
         """Compares current file hashes against the baseline manifest."""
@@ -306,7 +370,7 @@ class FileIntegrityMonitor:
         modified = sorted(k for k in (current_keys & baseline_keys) if current_hashes[k] != baseline_files[k])
         unreadable = sorted(k for k, v in current_hashes.items() if v.startswith("UNREADABLE:"))
 
-        return IntegrityReport(
+        report = IntegrityReport(
             timestamp=now_str,
             target_dir=str(self.target_dir),
             total_files=len(current_hashes),
@@ -316,3 +380,11 @@ class FileIntegrityMonitor:
             deleted=deleted,
             unreadable=unreadable,
         )
+        if not report.is_intact and not unreadable:
+            pending = self.load_pending()
+            # Only an EXACT match with the recorded window state is labelled as pending review;
+            # anything that changed after the window closed is reported as ordinary drift.
+            if pending is not None and pending.get("files") == current_hashes:
+                report.baseline_status = "pending_review"
+                report.pending_source = str(pending.get("source", ""))
+        return report

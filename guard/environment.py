@@ -15,8 +15,9 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from guard.audit_log import audit
 from guard.os_adapter import OSProtectionAdapter
-from guard.paths import atomic_write_json, config_dir, path_key, read_json, state_dir
+from guard.paths import atomic_write_json, config_dir, config_dir_symlink, path_key, read_json, state_dir
 
 VALID_POLICIES = ("enforced", "monitored", "disabled")
 
@@ -37,13 +38,25 @@ ANTIGRAVITY_GOVERNANCE_SEAMS = [
 ]
 ANTIGRAVITY_RUNTIME_ENTRIES = ["config.json", "projects", "sidecars", "plugins", "cache", ".git"]
 
+# Other agents' seams are a file-level whitelist of RULE content only. Their configuration
+# directories also hold runtime state the tools write themselves (Claude Code's
+# settings.local.json, session and memory files; Cursor's state), which must never be
+# write-protected: locking a whole `.claude` or `.cursor` directory breaks those tools.
 KNOWN_PLATFORMS = {
     "antigravity": {"name": "Antigravity Harness", "governance_seams": ANTIGRAVITY_GOVERNANCE_SEAMS},
-    "claude": {"name": "Claude Code", "governance_seams": ["CLAUDE.md", ".claude"]},
-    "codex": {"name": "GPT Codex / Copilot", "governance_seams": ["AGENTS.md", "CODEX.md", ".codex"]},
-    "cursor": {"name": "Cursor IDE", "governance_seams": [".cursorrules", ".cursor"]},
+    "claude": {"name": "Claude Code", "governance_seams": ["CLAUDE.md", ".claude/agents", ".claude/commands", ".claude/skills"]},
+    "codex": {"name": "GPT Codex / Copilot", "governance_seams": ["AGENTS.md", "CODEX.md"]},
+    "cursor": {"name": "Cursor IDE", "governance_seams": [".cursorrules", ".cursor/rules"]},
     "aider": {"name": "Aider", "governance_seams": [".aider.conf.yml", ".aiderignore"]},
 }
+
+# Whole-directory seams registered by releases before 1.4.0; replaced by the whitelist above.
+LEGACY_BROAD_SEAMS = {"claude": {".claude"}, "codex": {".codex"}, "cursor": {".cursor"}}
+
+# Other agents' environments are discovered as "monitored" (integrity reports, no chmod):
+# write-protecting another tool's files is opt-in via `agy-guard env policy <id> enforced`.
+DISCOVERED_DEFAULT_POLICY = {"antigravity": "enforced"}
+POLICY_STRENGTH = {"disabled": 0, "monitored": 1, "enforced": 2}
 
 
 class RegistryError(RuntimeError):
@@ -144,6 +157,7 @@ class EnvironmentRegistry:
 
         self.os_adapter = os_adapter or OSProtectionAdapter()
         self._environments: Dict[str, AgentEnvironment] = {}
+        self.last_discovery_note = ""
         self.load()
 
     def load(self) -> None:
@@ -157,6 +171,7 @@ class EnvironmentRegistry:
                     env = AgentEnvironment.from_dict(env_data)
                 except (KeyError, TypeError):
                     continue
+                self._migrate_broad_seams(env)
                 self._environments[env.id] = env
 
         default_global = default_antigravity_environment()
@@ -172,6 +187,18 @@ class EnvironmentRegistry:
             for seam in ANTIGRAVITY_GOVERNANCE_SEAMS:
                 if seam not in existing.governance_paths:
                     existing.governance_paths.append(seam)
+
+    @staticmethod
+    def _migrate_broad_seams(env: AgentEnvironment) -> None:
+        """Replaces pre-1.4.0 whole-directory seams (e.g. `.claude`) with the rule-file whitelist."""
+        broad = LEGACY_BROAD_SEAMS.get(env.platform_type)
+        if env.is_global or not broad or not broad.intersection(env.governance_paths):
+            return
+        kept = [s for s in env.governance_paths if s not in broad]
+        for seam in KNOWN_PLATFORMS[env.platform_type]["governance_seams"]:
+            if seam not in kept:
+                kept.append(seam)
+        env.governance_paths = kept
 
     def save(self) -> None:
         """Persists the registry atomically; raises RegistryError with an actionable message."""
@@ -205,6 +232,21 @@ class EnvironmentRegistry:
         """
         target_ws = Path(workspace_dir or self.workspace_dir).resolve()
         discovered: List[AgentEnvironment] = [self._environments["antigravity"]]
+        self.last_discovery_note = ""
+
+        # The home directory (or a filesystem root) is not a workspace: from there `.gemini`,
+        # `.claude` and `.cursor` are the tools' own global runtime directories. A GUI started
+        # from a desktop launcher runs with $HOME as its working directory.
+        home = Path.home().resolve()
+        if target_ws == home or target_ws == Path(target_ws.anchor) or home.is_relative_to(target_ws):
+            self.last_discovery_note = (
+                f"{target_ws} is the home directory (or one of its ancestors), not a project workspace; "
+                f"only the global Antigravity environment was considered. Run discovery from a project "
+                f"folder or pass --workspace <project>."
+            )
+            if register:
+                self.save()
+            return discovered
 
         candidates: List[Tuple[str, str, str, List[str]]] = []
         antigravity_root = self._environments["antigravity"].get_root()
@@ -233,7 +275,7 @@ class EnvironmentRegistry:
                     platform_type=platform_type,
                     root_path=str(target_ws),
                     governance_paths=seams,
-                    policy="enforced",
+                    policy=DISCOVERED_DEFAULT_POLICY.get(platform_type, "monitored"),
                     is_global=False,
                 )
             )
@@ -288,14 +330,21 @@ class EnvironmentRegistry:
             return True
         return False
 
+    @staticmethod
+    def is_weakening(current: str, new: str) -> bool:
+        """True when `new` protects less than `current` (such changes need human approval)."""
+        return POLICY_STRENGTH.get(new, 0) < POLICY_STRENGTH.get(current, 0)
+
     def set_policy(self, env_id: str, policy: str) -> bool:
         if policy not in VALID_POLICIES:
             raise ValueError(f"Invalid policy '{policy}'. Must be one of {', '.join(VALID_POLICIES)}.")
         env = self.get_environment(env_id)
         if not env:
             return False
+        previous = env.policy
         env.policy = policy
         self.save()
+        audit("registry.policy", env=env.id, previous=previous, policy=policy)
         return True
 
     # ------------------------------------------------------------------
@@ -307,9 +356,25 @@ class EnvironmentRegistry:
             return ([env] if env else []), err
         return self.list_environments(), ""
 
+    @staticmethod
+    def symlinked_root_issue(env: AgentEnvironment) -> str:
+        """Non-empty when the global root is itself a symlink (locking would protect its target)."""
+        if not env.is_global or env.id != "antigravity":
+            return ""
+        link = config_dir_symlink()
+        if link is None:
+            return ""
+        return (
+            f"{link} is a symlink to {os.path.realpath(link)}; Guard refuses to lock it because that "
+            f"would write-protect the link target. Reinstall in copy mode (python3 install.py)."
+        )
+
     def protection_issues(self, env: AgentEnvironment) -> List[str]:
         """Reasons why an environment is not fully write-protected (empty list = protected)."""
         issues: List[str] = []
+        root_issue = self.symlinked_root_issue(env)
+        if root_issue:
+            return [root_issue]
         paths = env.get_governance_paths(existing_only=True)
         if paths:
             issues.extend(self.os_adapter.protection_issues(paths))
@@ -322,7 +387,7 @@ class EnvironmentRegistry:
         results: Dict[str, bool] = {}
         targets, _ = self._targets(env_id)
         for env in targets:
-            if not env.enabled or env.policy == "disabled":
+            if not env.enabled or env.policy == "disabled" or self.symlinked_root_issue(env):
                 results[env.id] = False
                 continue
             paths = env.get_governance_paths(existing_only=True)
@@ -341,7 +406,17 @@ class EnvironmentRegistry:
         all_ok = True
         for env in targets:
             if not env.enabled or env.policy != "enforced":
-                details.append(f"Skipped {env.name} (policy={env.policy})")
+                state = "disabled" if not env.enabled else f"policy={env.policy}"
+                details.append(f"Skipped {env.name} ({state}): NOT write-protected")
+                # Asking for one specific environment is a request to protect it: a skip is not
+                # success (a lease relock or boot check must never report a writable tree as locked).
+                if env_id:
+                    all_ok = False
+                continue
+            root_issue = self.symlinked_root_issue(env)
+            if root_issue:
+                all_ok = False
+                details.append(f"[{env.name}] {root_issue}")
                 continue
             paths = env.get_governance_paths(existing_only=True)
             ok, msg = self.os_adapter.lock(paths) if paths else (True, "Zero active governance files found to lock.")
@@ -352,6 +427,7 @@ class EnvironmentRegistry:
             if not ok:
                 all_ok = False
             details.append(f"[{env.name}] {msg}")
+        audit("registry.lock", target=env_id or "all", ok=all_ok, detail=" | ".join(details)[:2000])
         return all_ok, "\n".join(details)
 
     def unlock(self, env_id: Optional[str] = None) -> Tuple[bool, str]:
@@ -378,6 +454,7 @@ class EnvironmentRegistry:
             if not ok:
                 all_ok = False
             details.append(f"[{env.name}] {msg}")
+        audit("registry.unlock", target=env_id or "all", ok=all_ok, detail=" | ".join(details)[:2000])
         return all_ok, "\n".join(details)
 
     def get_status_matrix(self) -> List[Dict[str, Any]]:

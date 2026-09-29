@@ -56,12 +56,18 @@ def tty_approver(request: ApprovalRequest) -> bool:
 
 
 def request_approval(action: str, summary: str, details: Sequence[str] = ()) -> bool:
+    from guard.audit_log import audit, warn
+
     request = ApprovalRequest(action=action, summary=summary, details=list(details))
     approver = _approver_override or tty_approver
     try:
-        return bool(approver(request))
-    except Exception:
+        approved = bool(approver(request))
+    except Exception as e:  # noqa: BLE001 - any approver failure fails closed
+        warn("approval.error", action=action, error=f"{type(e).__name__}: {e}")
         return False
+    audit("approval.granted" if approved else "approval.refused", action=action,
+          interactive=is_interactive(), via="override" if _approver_override else "tty")
+    return approved
 
 
 def refusal_message(action: str) -> str:

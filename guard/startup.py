@@ -41,6 +41,7 @@ SYSTEMD_SERVICE_NAME = "agy-guard-boot.service"
 LAUNCH_AGENT_DIR = Path.home() / "Library" / "LaunchAgents"
 LAUNCH_AGENT_PLIST = "com.antigravity.guard.plist"
 WINDOWS_TASK_NAME = "AntigravityGuardBootSentinel"
+BOOT_DRIFT_KEEP = 3
 
 
 class StartupManager:
@@ -82,12 +83,21 @@ class StartupManager:
         return subprocess.list2cmdline(argv) if IS_WINDOWS else shlex.join(argv)
 
     @staticmethod
-    def _systemd_quote(value: str) -> str:
+    def _systemd_quote(value: str, exec_word: bool = False) -> str:
+        """
+        Quotes one systemd unit-file word. Control characters (newlines in particular) are
+        rejected outright: a newline inside a value would start a new directive, e.g. an
+        injected ExecStartPre= line taken from a crafted ANTIGRAVITY_CONFIG_DIR.
+        """
+        if any(ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+            raise ValueError(f"Refusing to write a systemd unit value containing control characters: {value!r}")
         escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+        if exec_word:  # ExecStart= expands $VAR; Environment= values do not
+            escaped = escaped.replace("$", "$$")
         return f'"{escaped}"'
 
     def render_systemd_unit(self) -> str:
-        exec_start = " ".join(self._systemd_quote(a) for a in self.get_guard_argv())
+        exec_start = " ".join(self._systemd_quote(a, exec_word=True) for a in self.get_guard_argv())
         env_line = self._systemd_quote(f"ANTIGRAVITY_CONFIG_DIR={self.target_dir}")
         return f"""[Unit]
 Description=Antigravity Guard Boot Sentinel (integrity check + governance lock)
@@ -141,15 +151,21 @@ WantedBy=default.target
         service_file = SYSTEMD_USER_DIR / SYSTEMD_SERVICE_NAME
         service_file.write_text(service_content, encoding="utf-8")
 
-        # Try enabling via systemctl if available
-        if shutil.which("systemctl"):
+        if not shutil.which("systemctl"):
+            return False, (f"Wrote {service_file}, but systemctl is not available, so the sentinel is NOT "
+                           f"enabled. Enable it with your init system manually.")
+        problems = []
+        for cmd in (["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", SYSTEMD_SERVICE_NAME]):
             try:
-                subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
-                subprocess.run(["systemctl", "--user", "enable", SYSTEMD_SERVICE_NAME], check=False, capture_output=True)
-            except Exception:
-                pass
-
-        return True, f"Configured systemd user service: {service_file}"
+                res = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=30)
+            except (OSError, subprocess.SubprocessError) as e:
+                problems.append(f"{' '.join(cmd)}: {e}")
+                continue
+            if res.returncode != 0:
+                problems.append(f"{' '.join(cmd)}: {(res.stderr or res.stdout).strip() or f'exit {res.returncode}'}")
+        if problems:
+            return False, f"Wrote {service_file}, but enabling it failed: " + "; ".join(problems)
+        return True, f"Configured and enabled systemd user service: {service_file}"
 
     def _disable_linux(self) -> Tuple[bool, str]:
         if shutil.which("systemctl"):
@@ -196,13 +212,15 @@ WantedBy=default.target
         plist_file = LAUNCH_AGENT_DIR / LAUNCH_AGENT_PLIST
         plist_file.write_text(plist_content, encoding="utf-8")
 
-        if shutil.which("launchctl"):
-            try:
-                subprocess.run(["launchctl", "load", str(plist_file)], check=False, capture_output=True)
-            except Exception:
-                pass
-
-        return True, f"Configured macOS LaunchAgent: {plist_file}"
+        if not shutil.which("launchctl"):
+            return False, f"Wrote {plist_file}, but launchctl is not available, so the sentinel is NOT loaded."
+        try:
+            res = subprocess.run(["launchctl", "load", str(plist_file)], check=False, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            return False, f"Wrote {plist_file}, but launchctl load failed: {e}"
+        if res.returncode != 0:
+            return False, f"Wrote {plist_file}, but launchctl load failed: {(res.stderr or res.stdout).strip()}"
+        return True, f"Configured and loaded macOS LaunchAgent: {plist_file}"
 
     def _disable_macos(self) -> Tuple[bool, str]:
         plist_file = LAUNCH_AGENT_DIR / LAUNCH_AGENT_PLIST
@@ -243,8 +261,10 @@ WantedBy=default.target
                     cmd,
                     "/SC",
                     "ONLOGON",
+                    # Least privilege: the task runs a per-user, user-writable launcher, so it must
+                    # never run elevated (a replaced binary would otherwise gain admin rights).
                     "/RL",
-                    "HIGHEST",
+                    "LIMITED",
                     "/F",
                 ],
                 capture_output=True,
@@ -282,7 +302,7 @@ WantedBy=default.target
 
         return {
             "platform": "Windows",
-            "mechanism": "Task Scheduler (ONLOGON / HIGHEST)",
+            "mechanism": "Task Scheduler (ONLOGON / LIMITED)",
             "installed": is_active,
             "active": is_active,
             "target_path": WINDOWS_TASK_NAME,
@@ -293,23 +313,36 @@ WantedBy=default.target
     # -------------------------------------------------------------------------
     def enable(self) -> Tuple[bool, str]:
         """Registers the Pre-Session Boot Sentinel for early boot execution."""
-        if IS_LINUX:
-            return self._enable_linux()
-        elif IS_MACOS:
-            return self._enable_macos()
-        elif IS_WINDOWS:
-            return self._enable_windows()
-        return False, f"Startup Sentinel is unsupported on {platform.system()}."
+        from guard.audit_log import audit
+
+        try:
+            if IS_LINUX:
+                ok, msg = self._enable_linux()
+            elif IS_MACOS:
+                ok, msg = self._enable_macos()
+            elif IS_WINDOWS:
+                ok, msg = self._enable_windows()
+            else:
+                ok, msg = False, f"Startup Sentinel is unsupported on {platform.system()}."
+        except (ValueError, OSError) as e:
+            ok, msg = False, f"Could not register the boot sentinel: {e}"
+        audit("startup.enable", ok=ok, detail=msg)
+        return ok, msg
 
     def disable(self) -> Tuple[bool, str]:
         """Unregisters the Pre-Session Boot Sentinel."""
+        from guard.audit_log import audit
+
         if IS_LINUX:
-            return self._disable_linux()
+            ok, msg = self._disable_linux()
         elif IS_MACOS:
-            return self._disable_macos()
+            ok, msg = self._disable_macos()
         elif IS_WINDOWS:
-            return self._disable_windows()
-        return True, "Nothing to disable."
+            ok, msg = self._disable_windows()
+        else:
+            ok, msg = True, "Nothing to disable."
+        audit("startup.disable", ok=ok, detail=msg)
+        return ok, msg
 
     def status(self) -> Dict[str, Any]:
         """Returns the registration and installation status of the Boot Sentinel."""
@@ -327,40 +360,40 @@ WantedBy=default.target
             "target_path": "N/A",
         }
 
+    def _forensic_snapshot(self, report) -> str:
+        """Captures a boot-drift snapshot unless an identical drift state was already captured."""
+        import hashlib
+        import json
+
+        from guard.snapshot import SnapshotEngine
+
+        engine = SnapshotEngine.for_environment(self.environment, self.registry) if not self.environment.id.startswith("boot-target") \
+            else SnapshotEngine(self.target_dir, os_adapter=self.os_adapter)
+        signature = hashlib.sha256(json.dumps(
+            {"modified": report.modified, "added": report.added, "deleted": report.deleted,
+             "files": self.integrity_monitor.scan_directory()}, sort_keys=True).encode("utf-8")).hexdigest()
+        latest = engine.latest_snapshot(kind="boot-drift")
+        if latest is not None and latest.get("drift_signature") == signature:
+            return f"[QUARANTINE] Drift unchanged since forensic snapshot {latest.get('id')}; no new copy taken."
+        snap_id, _ = engine.create_snapshot(label="boot-drift-forensics", kind="boot-drift",
+                                            extra_meta={"drift_signature": signature})
+        pruned = engine.prune_kind("boot-drift", keep=BOOT_DRIFT_KEEP)
+        note = f" ({pruned} older boot-drift snapshot(s) pruned)" if pruned else ""
+        return f"[QUARANTINE] Forensic snapshot {snap_id} captured; baseline left untouched{note}."
+
     def execute_boot_check(self) -> Tuple[bool, str]:
         """
         Executes the non-interactive boot check:
-        1. Verifies governance integrity against the per-environment baseline.
-        2. On drift: forensic snapshot + CRITICAL notification (quarantine, no rebaseline).
-        3. Enforces the governance write lock.
+        1. Enforces the governance write lock FIRST (a failing check must never leave it open).
+        2. Verifies governance integrity against the per-environment baseline.
+        3. On drift: forensic snapshot (deduplicated) + CRITICAL notification (no rebaseline).
+           Changes recorded when a maintenance window closed are reported as pending review.
         Returns (success, message).
         """
+        from guard.audit_log import audit
+
         messages: List[str] = []
         notifier = GuardNotifier()
-
-        report = self.integrity_monitor.verify()
-        baseline_missing = not self.integrity_monitor.state_file.exists()
-        if baseline_missing:
-            messages.append("[FIM WARN] No integrity baseline yet; run 'agy-guard rebaseline' from a terminal.")
-        elif not report.is_intact:
-            messages.append(f"[FIM ALERT] Integrity drift detected: {report.summary()}")
-            try:
-                from guard.snapshot import SnapshotEngine
-
-                engine = SnapshotEngine.for_environment(self.environment, self.registry) if not self.environment.id.startswith("boot-target") \
-                    else SnapshotEngine(self.target_dir, os_adapter=self.os_adapter)
-                snap_id, _ = engine.create_snapshot(label="boot-drift-forensics", kind="boot-drift")
-                messages.append(f"[QUARANTINE] Forensic snapshot {snap_id} captured; baseline left untouched.")
-            except Exception as e:
-                messages.append(f"[QUARANTINE] Forensic snapshot failed: {e}")
-            notifier.notify(
-                title="Antigravity Guard — Boot Integrity Drift",
-                message=f"{report.summary()} Review with 'agy-guard verify' before trusting the environment.",
-                severity=NotificationSeverity.CRITICAL,
-                force=True,
-            )
-        else:
-            messages.append("[FIM OK] File integrity verified against baseline.")
 
         if self.environment.id.startswith("boot-target"):
             paths = self.environment.get_governance_paths(existing_only=True)
@@ -380,5 +413,42 @@ WantedBy=default.target
                 force=True,
             )
 
-        overall_success = report.is_intact and lock_ok
+        intact = False
+        try:
+            report = self.integrity_monitor.verify()
+        except Exception as e:  # noqa: BLE001 - a broken check must be reported, not crash the sentinel
+            report = None
+            messages.append(f"[FIM ERROR] Integrity check failed: {type(e).__name__}: {e}")
+            notifier.notify(title="Antigravity Guard — Boot Integrity Check Failed", message=str(e)[:300],
+                            severity=NotificationSeverity.CRITICAL, force=True)
+        if report is not None:
+            if report.baseline_status == "missing":
+                messages.append("[FIM WARN] No integrity baseline yet; run 'agy-guard rebaseline' from a terminal.")
+            elif report.baseline_status == "pending_review":
+                messages.append(f"[FIM REVIEW] {report.summary()}")
+                notifier.notify(
+                    title="Antigravity Guard — Changes Await Review",
+                    message=report.summary(),
+                    severity=NotificationSeverity.WARNING,
+                    key="boot-pending-review",
+                )
+            elif not report.is_intact:
+                messages.append(f"[FIM ALERT] Integrity drift detected: {report.summary()}")
+                try:
+                    messages.append(self._forensic_snapshot(report))
+                except Exception as e:  # noqa: BLE001 - evidence capture is best effort, reported below
+                    messages.append(f"[QUARANTINE] Forensic snapshot failed: {e}")
+                notifier.notify(
+                    title="Antigravity Guard — Boot Integrity Drift",
+                    message=f"{report.summary()} Review with 'agy-guard verify' before trusting the environment.",
+                    severity=NotificationSeverity.CRITICAL,
+                    force=True,
+                )
+            else:
+                intact = True
+                messages.append("[FIM OK] File integrity verified against baseline.")
+
+        overall_success = intact and lock_ok
+        audit("boot_check", ok=overall_success, lock_ok=lock_ok,
+              integrity=(report.baseline_status if report is not None else "error"), detail=" | ".join(messages)[:2000])
         return overall_success, " | ".join(messages)

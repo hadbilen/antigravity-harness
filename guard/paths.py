@@ -17,8 +17,9 @@ import platform
 import shutil
 import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Iterator, List, Optional
 
 APP_NAME = "antigravity-harness"
 IS_WINDOWS = platform.system().lower() == "windows"
@@ -29,10 +30,25 @@ def _env_path(name: str) -> Optional[Path]:
     return Path(value).expanduser() if value else None
 
 
+def configured_config_dir() -> Path:
+    """The governance root exactly as configured (absolute, symlinks NOT resolved)."""
+    override = _env_path("ANTIGRAVITY_CONFIG_DIR")
+    return Path(os.path.abspath(override or Path.home() / ".gemini" / "config"))
+
+
 def config_dir() -> Path:
     """Antigravity global customization root (governance target)."""
-    override = _env_path("ANTIGRAVITY_CONFIG_DIR")
-    return (override or Path.home() / ".gemini" / "config").resolve()
+    return configured_config_dir().resolve()
+
+
+def config_dir_symlink() -> Optional[Path]:
+    """
+    The configured governance root if it is itself a symlink, else None. Locking would follow
+    the link and write-protect the link target (typically a repository checkout), so callers
+    refuse to lock such a root instead of silently protecting the wrong tree.
+    """
+    raw = configured_config_dir()
+    return raw if os.path.islink(raw) else None
 
 
 def _absolute(path: Path) -> Path:
@@ -179,3 +195,74 @@ def read_json(path: Path, default: Any = None) -> Any:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
+
+
+class CorruptStateError(ValueError):
+    """A state file exists but cannot be parsed; callers must fail closed, not treat it as empty."""
+
+
+def read_json_strict(path: Path) -> Any:
+    """Like read_json, but distinguishes "missing" (returns None) from "corrupt" (raises)."""
+    path = Path(path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError as e:
+        raise CorruptStateError(f"{path} is not valid JSON ({e})") from e
+
+
+def move_aside(path: Path, tag: str = "corrupt") -> Optional[Path]:
+    """Renames a damaged state file to `<name>.<tag>-<timestamp>` so it is kept for inspection."""
+    import time as _time
+
+    path = Path(path)
+    target = path.with_name(f"{path.name}.{tag}-{_time.strftime('%Y%m%dT%H%M%S')}")
+    try:
+        os.replace(path, target)
+        return target
+    except OSError:
+        return None
+
+
+@contextmanager
+def file_lock(target: Path, timeout: float = 10.0, stale_after: float = 30.0) -> Iterator[None]:
+    """
+    Cross-process advisory lock implemented with an O_EXCL lock file next to `target`.
+    The lock file carries an owner token, so a process only ever removes its own lock; a
+    lock older than `stale_after` seconds (crashed owner) is taken over.
+    """
+    import time as _time
+    import uuid as _uuid
+
+    lock_path = Path(target).with_name(Path(target).name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    token = f"{os.getpid()}:{_uuid.uuid4().hex}"
+    deadline = _time.time() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            try:
+                if _time.time() - lock_path.stat().st_mtime > stale_after:
+                    lock_path.unlink()
+                    continue
+            except OSError:
+                pass
+            if _time.time() > deadline:
+                raise TimeoutError(f"State store is busy ({lock_path}).")
+            _time.sleep(0.05)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token)
+        break
+    try:
+        yield
+    finally:
+        try:
+            if lock_path.read_text(encoding="utf-8") == token:
+                lock_path.unlink()
+        except OSError:
+            pass

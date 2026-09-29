@@ -51,7 +51,9 @@ class SnapshotEngine:
     """
 
     META_FILE = ".snap_meta.json"
-    IGNORED_NAMES = {".guard_snapshots", ".guard_integrity.json", "__pycache__", ".git", ".DS_Store"}
+    # node_modules matches the integrity monitor's exclusions: dependency trees are
+    # regenerable and would otherwise multiply every snapshot (restore does not recreate them).
+    IGNORED_NAMES = {".guard_snapshots", ".guard_integrity.json", "__pycache__", ".git", ".DS_Store", "node_modules"}
     IGNORED_PREFIXES = (".backup_", "backup_", ".agy-restore-", ".agy-old-")
 
     def __init__(
@@ -167,7 +169,8 @@ class SnapshotEngine:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def create_snapshot(self, label: Optional[str] = None, kind: str = "manual") -> Tuple[str, Path]:
+    def create_snapshot(self, label: Optional[str] = None, kind: str = "manual",
+                        extra_meta: Optional[Dict] = None) -> Tuple[str, Path]:
         """Creates a timestamped snapshot of the governance scope with a content manifest."""
         now = datetime.now(timezone.utc)
         timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
@@ -203,11 +206,34 @@ class SnapshotEngine:
                 "scope": entries,
                 "files": self._hash_tree(dest_dir),
             }
+            for key, value in (extra_meta or {}).items():
+                meta.setdefault(key, value)
             atomic_write_json(dest_dir / self.META_FILE, meta, mode=0o600)
         except Exception:
             shutil.rmtree(dest_dir, ignore_errors=True)
             raise
+        from guard.audit_log import audit
+        audit("snapshot.create", id=snap_id, kind=kind, target=str(self.target_dir))
         return snap_id, dest_dir
+
+    def latest_snapshot(self, kind: str) -> Optional[Dict]:
+        """Newest snapshot of the given kind (with its metadata), or None."""
+        for snap in self.list_snapshots():
+            if snap.get("kind") == kind:
+                meta = self._read_meta(Path(snap["path"])) or {}
+                return {**snap, **{k: v for k, v in meta.items() if k != "files"}}
+        return None
+
+    def prune_kind(self, kind: str, keep: int) -> int:
+        """Keeps only the newest `keep` snapshots of one kind (used for automatic evidence capture)."""
+        pruned = 0
+        for snap in [s for s in self.list_snapshots() if s.get("kind") == kind][keep:]:
+            path = Path(snap["path"])
+            if path.exists() and is_within(path, self.snapshots_dir):
+                shutil.rmtree(path, ignore_errors=True)
+                if not path.exists():
+                    pruned += 1
+        return pruned
 
     def list_snapshots(self) -> List[Dict]:
         """Returns all snapshots, newest first. Entries without metadata are marked 'unknown'."""
@@ -237,10 +263,14 @@ class SnapshotEngine:
             return False, f"Snapshot '{snap_id}' does not exist."
 
         meta = self._read_meta(source_dir)
-        if meta and "files" in meta:
-            actual = self._hash_tree(source_dir)
-            if actual != meta["files"]:
-                return False, f"Snapshot '{snap_id}' failed verification: its content no longer matches its manifest."
+        if not meta or not isinstance(meta.get("files"), dict):
+            return False, (
+                f"Snapshot '{snap_id}' has no readable content manifest, so it cannot be verified; "
+                f"refusing to restore unverified content."
+            )
+        actual = self._hash_tree(source_dir)
+        if actual != meta["files"]:
+            return False, f"Snapshot '{snap_id}' failed verification: its content no longer matches its manifest."
 
         restore_names = sorted(n for n in os.listdir(source_dir) if n != self.META_FILE)
         current_names = [n for n in self._scope_entries() if os.path.lexists(self.target_dir / n)]
@@ -300,10 +330,16 @@ class SnapshotEngine:
                     self._remove_entry(leftover)
                 except OSError:
                     pass
+            relock_note = ""
             if was_locked:
-                self.locker.lock()
+                relock_ok, relock_detail = self.locker.lock()
+                if not relock_ok:
+                    relock_note = f" WARNING: re-lock after rollback failed, the tree is writable: {relock_detail}."
             extra = f" Rollback problems: {rollback_errors}. Pre-restore backup: {pre_id}." if rollback_errors else ""
-            return False, f"Restore of '{snap_id}' failed and was rolled back: {e}.{extra}"
+            from guard.audit_log import error
+            error("snapshot.restore_failed", id=snap_id, error=str(e), rollback_errors=len(rollback_errors),
+                  relocked=not relock_note)
+            return False, f"Restore of '{snap_id}' failed and was rolled back: {e}.{extra}{relock_note}"
 
         cleanup_errors = []
         for _, old, _ in journal:
@@ -329,6 +365,8 @@ class SnapshotEngine:
 
         cleanup_msg = f" Cleanup warnings: {cleanup_errors}." if cleanup_errors else ""
         success = not relock_msg
+        from guard.audit_log import audit
+        audit("snapshot.restore", id=snap_id, ok=success, pre_restore_backup=pre_id, target=str(self.target_dir))
         return success, (
             f"Successfully restored snapshot '{snap_id}' (pre-restore backup: {pre_id}).{baseline_msg}{relock_msg}{cleanup_msg}"
         )

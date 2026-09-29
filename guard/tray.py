@@ -59,8 +59,24 @@ def generate_shield_icon(is_locked: bool, size: int = 64):
 
 
 class BaseTrayAdapter:
+    failed = False  # set when the tray backend crashed after start()
+
     def start(self):
         pass
+
+    @property
+    def is_running(self) -> bool:
+        """True only while a tray icon is actually shown (the window may then hide to the tray)."""
+        thread = getattr(self, "_gtk_thread", None) or getattr(self, "_thread", None)
+        return self.is_available and not self.failed and thread is not None and thread.is_alive()
+
+    def _record_failure(self, exc: BaseException) -> None:
+        self.failed = True
+        try:
+            from guard.audit_log import warn
+            warn("tray.failed", backend=type(self).__name__, error=f"{type(exc).__name__}: {exc}")
+        except Exception:  # noqa: BLE001 - diagnostics must never crash the GUI
+            pass
 
     def stop(self):
         pass
@@ -156,8 +172,8 @@ class AyatanaAdapter(BaseTrayAdapter):
                 self.indicator.set_status(self._appindicator.IndicatorStatus.ACTIVE)
                 self._update_gtk_menu()
                 self._gtk.main()
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 - reported via is_running / audit log
+                self._record_failure(e)
 
         self._gtk_thread = threading.Thread(target=_run_gtk, daemon=True)
         self._gtk_thread.start()
@@ -279,12 +295,13 @@ class PystrayAdapter(BaseTrayAdapter):
             def _run():
                 try:
                     self.icon.run()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - reported via is_running / audit log
+                    self._record_failure(e)
 
             self._thread = threading.Thread(target=_run, daemon=True)
             self._thread.start()
-        except Exception:
+        except Exception as e:  # noqa: BLE001 - reported via is_running / audit log
+            self._record_failure(e)
             self.icon = None
 
     def stop(self):

@@ -3,9 +3,10 @@ guard/cli.py — Command-Line Interface for Antigravity Guard
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 
-Administration commands that weaken protection (unlock, rebaseline, snapshot restore,
-startup disable, porter stage, test-boundary re-snapshot) require a human to confirm
-in an interactive terminal. They exit with code 3 when that confirmation is missing.
+Administration commands that weaken protection or change what Guard does (unlock,
+rebaseline, snapshot restore/prune, startup enable/disable, lowering an environment
+policy, disabling notifications, porter stage, test-boundary re-snapshot) require a human
+to confirm in an interactive terminal. They exit with code 3 when that confirmation is missing.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ import argparse
 import json
 import os
 import re
-import stat
 import sys
 import time
 from pathlib import Path
@@ -22,6 +22,8 @@ from typing import List, Optional, Tuple
 
 from guard import __version__
 from guard.approval import refusal_message, request_approval
+from guard.audit_log import audit
+from guard.doctor import diagnose
 from guard.environment import (
     VALID_POLICIES,
     AgentEnvironment,
@@ -30,8 +32,8 @@ from guard.environment import (
 )
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.lease import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, LeaseManager
-from guard.notifier import load_settings, save_settings
-from guard.paths import config_dir, state_dir
+from guard.notifier import GuardNotifier, NotificationSeverity, load_settings, save_settings, settings_file
+from guard.paths import config_dir, read_json
 from guard.porter_bridge import PorterBridge
 from guard.provenance import RunProvenanceTracker
 from guard.snapshot import SnapshotEngine
@@ -64,7 +66,7 @@ def _refuse(action: str) -> int:
 
 
 def _print_report_details(report: IntegrityReport, indent: str = "") -> None:
-    if report.baseline_status != "ok":
+    if report.baseline_status not in ("ok", "pending_review"):
         for note in report.notes:
             print(f"{indent}Note: {note}")
         return
@@ -138,6 +140,21 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_lock(args: argparse.Namespace) -> int:
     registry = _registry(args)
     target = None if getattr(args, "all", False) else (getattr(args, "env", None) or "antigravity")
+    # Silent-ingestion guard: before sealing, show what changed since the trusted baseline.
+    # Locking never accepts those changes; they stay reported until an approved rebaseline.
+    if target:
+        env, _ = registry.resolve_environment(target)
+        envs = [env] if env else []
+    else:
+        envs = registry.list_environments()
+    for env in envs:
+        if env.policy != "enforced":
+            continue
+        report = _monitor(env, registry).verify()
+        if not report.is_intact:
+            print(f"[{env.name}] Sealing with unreviewed changes: {report.summary()}")
+            _print_report_details(report, indent="  ")
+            print("  Locking does not accept these changes; review them, then run 'agy-guard rebaseline'.")
     success, msg = registry.lock(env_id=target)
     print(f"[{'LOCKED' if success else 'ERROR'}] {msg}")
     return 0 if success else 1
@@ -193,6 +210,10 @@ def cmd_rebaseline(args: argparse.Namespace) -> int:
     report = monitor.verify()
     details = [report.summary()]
     details += [f"~ {f}" for f in report.modified[:10]] + [f"+ {f}" for f in report.added[:10]] + [f"- {f}" for f in report.deleted[:10]]
+    pending = monitor.load_pending()
+    if pending is not None and report.baseline_status != "pending_review":
+        details.append(f"NOTE: files changed again after {pending.get('source', 'the maintenance window')} closed; "
+                       f"review the list above, it is more than the window's changes.")
     if not request_approval("rebaseline", f"Accept the CURRENT state of {env.name} as trusted?", details):
         return _refuse("rebaseline")
     count, path = monitor.save_baseline()
@@ -231,7 +252,11 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         print(f"[{'SUCCESS' if success else 'ERROR'}] {msg}")
         return 0 if success else 1
     if args.action == "prune":
+        if not request_approval("snapshot prune", f"Permanently delete older snapshots of {env.name} (keep {args.keep or 5} per kind)?",
+                                ["Snapshots are forensic evidence and restore points; pruning cannot be undone."]):
+            return _refuse("snapshot prune")
         count = engine.prune_snapshots(keep=args.keep or 5)
+        audit("snapshot.prune", env=env.id, removed=count, keep=args.keep or 5)
         print(f"[PRUNED] Removed {count} older snapshots (kept {args.keep or 5} per kind).")
         return 0
     return 0
@@ -283,142 +308,57 @@ def cmd_upstream(args: argparse.Namespace) -> int:
     return 0
 
 
-def _world_writable_ancestors(path: Path, depth: int = 3) -> List[str]:
-    if os.name == "nt":
-        return []  # st_mode carries no ACL information on Windows; every path would look world-writable
-    found = []
-    current = Path(os.path.realpath(path))
-    for _ in range(depth + 1):
-        try:
-            mode = os.stat(current).st_mode
-            # Sticky world-writable dirs (/tmp) do not let other users replace our entries.
-            if mode & stat.S_IWOTH and not mode & stat.S_ISVTX:
-                found.append(str(current))
-        except OSError:
-            break
-        if current.parent == current:
-            break
-        current = current.parent
-    return found
-
-
-def _grant_statistics(config_json: Path) -> Optional[dict]:
-    """Counts risky permission grants WITHOUT printing their contents."""
-    try:
-        data = json.loads(config_json.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    allow = (((data.get("userSettings") or {}).get("globalPermissionGrants") or {}).get("allow")) or []
-    entries = [e if isinstance(e, str) else json.dumps(e) for e in allow]
-    governance_markers = (".gemini/config", ".gemini/antigravity-harness")
-    return {
-        "total": len(entries),
-        "governance_writes": sum(1 for e in entries if e.startswith("write_file") and any(m in e for m in governance_markers)),
-        "secret_like": sum(1 for e in entries if re.search(r"(token|api[_-]?key|secret|password)=", e, re.I)),
-        "unsandboxed": sum(1 for e in entries if e.startswith("unsandboxed")),
-        "oversized": sum(1 for e in entries if len(e) > 500),
-    }
-
-
 def cmd_doctor(args: argparse.Namespace) -> int:
     registry = _registry(args)
     env, err = _resolve(registry, getattr(args, "env", None))
     if not env:
         print(f"Error: {err}", file=sys.stderr)
         return 1
-    root = env.get_root()
-    monitor = _monitor(env, registry)
-    issues = registry.protection_issues(env)
-    report = monitor.verify()
-    warnings: List[str] = []
-    infos: List[str] = []
-
-    if issues:
-        warnings.append(f"Governance scope is not fully write-protected ({len(issues)} issue(s)); first: {issues[0]}")
-    if not report.is_intact:
-        warnings.append(f"Integrity: {report.summary()}")
-    if not monitor.is_isolated:
-        warnings.append(f"Baseline is stored inside the protected tree ({monitor.state_file}).")
-    legacy_baseline = root / ".guard_integrity.json"
-    if legacy_baseline.exists():
-        warnings.append(f"Legacy baseline {legacy_baseline} is no longer used; remove it after 'agy-guard rebaseline'.")
-    legacy_snaps = root / ".guard_snapshots"
-    if legacy_snaps.exists():
-        warnings.append(
-            f"Legacy snapshots in {legacy_snaps} may contain copies of config.json (permission grants, tokens). "
-            f"Review and delete them manually."
-        )
-    moved_legacy = state_dir() / "legacy"
-    if moved_legacy.is_dir() and any(moved_legacy.iterdir()):
-        warnings.append(
-            f"Legacy Guard data moved out of the config tree by the installer is kept in {moved_legacy}; "
-            f"it may contain copies of config.json (tokens). Delete it once reviewed."
-        )
-    backups = sorted(p.name for p in root.glob("backup_*"))
-    if backups:
-        warnings.append(f"Installer backups inside the config tree: {', '.join(backups)} (move them out).")
-    for p in env.get_governance_paths(existing_only=True):
-        if os.path.islink(p):
-            warnings.append(f"{p.name} is a symlink (symlink installs cannot be locked); reinstall with 'python3 install.py'.")
-            break
-    writable_sources = set()
-    for p in env.get_governance_paths(existing_only=True):
-        writable_sources.update(_world_writable_ancestors(p))
-    if writable_sources:
-        warnings.append(f"World-writable locations hold governance content: {', '.join(sorted(writable_sources)[:5])}")
-    if env.is_global:
-        stats = _grant_statistics(root / "config.json")
-        if stats and (stats["governance_writes"] or stats["secret_like"]):
-            warnings.append(
-                f"Antigravity permission grants: {stats['total']} total, {stats['governance_writes']} persistent write grant(s) "
-                f"to governance paths, {stats['secret_like']} containing secret-like values, {stats['unsandboxed']} unsandboxed. "
-                f"Review them in Antigravity settings and rotate any exposed tokens."
-            )
-    if not StartupManager(root).status().get("active"):
-        infos.append("Boot sentinel is not enabled ('agy-guard startup enable').")
-    if not load_settings().get("enabled", True):
-        infos.append("Desktop notifications are disabled ('agy-guard notify enable').")
+    result = diagnose(env, registry)
 
     print("=" * 64)
     print(f"       Antigravity Guard (agy-guard) v{__version__} - Doctor       ")
     print("=" * 64)
-    print(f"Environment    : {env.name} -> {root}")
+    print(f"Environment    : {env.name} -> {result.root}")
     print(f"Protection     : {registry.os_adapter.protection_kind()}")
-    print(f"Write Shield   : {'[LOCKED]' if not issues else '[UNPROTECTED]'}")
-    print(f"Trust Anchor   : {monitor.state_file}")
-    print(f"Integrity (FIM): {report.summary()}")
+    print(f"Write Shield   : {'[LOCKED]' if not result.issues else '[UNPROTECTED]'}")
+    print(f"Trust Anchor   : {result.monitor.state_file}")
+    print(f"Integrity (FIM): {result.report.summary()}")
     print("-" * 64)
-    for w in warnings:
+    for w in result.warnings:
         print(f"  [WARN] {w}")
-    for i in infos:
+    for i in result.infos:
         print(f"  [INFO] {i}")
-    if not warnings:
+    if not result.warnings:
         print("[OK] No problems found.")
 
     if getattr(args, "fix", False):
         print("\n[Auto-Healing]")
-        if issues:
+        if result.issues:
             ok, msg = registry.lock(env.id)
             print(f"  - Write shield: {'re-engaged' if ok else 'FAILED'}: {msg}")
-        if not monitor.state_file.exists():
-            if request_approval("rebaseline", f"Establish the initial integrity baseline for {env.name}?", [report.summary()]):
-                cnt, pth = monitor.save_baseline()
+        if not result.monitor.state_file.exists():
+            if request_approval("rebaseline", f"Establish the initial integrity baseline for {env.name}?", [result.report.summary()]):
+                cnt, pth = result.monitor.save_baseline()
                 print(f"  - Baseline established for {cnt} entries -> {pth}")
             else:
                 print(f"  - Baseline NOT established: {refusal_message('rebaseline')}")
         print("Doctor auto-healing completed (nothing was deleted; manual items remain listed above).")
-        issues = registry.protection_issues(env)
-        report = monitor.verify()
-        warnings = [w for w in warnings if not w.startswith(("Governance scope", "Integrity:"))]
+        result.issues = registry.protection_issues(env)
+        result.report = result.monitor.verify()
+        result.warnings = [w for w in result.warnings if not w.startswith(("Governance scope", "Integrity:"))]
 
     print("=" * 64)
-    return 0 if (not issues and report.is_intact and not warnings) else 1
+    return 0 if result.healthy else 1
 
 
 def cmd_startup(args: argparse.Namespace) -> int:
     manager = StartupManager()
     action = getattr(args, "action", "status") or "status"
     if action == "enable":
+        if not request_approval("startup enable", "Register the boot sentinel to run at every login?",
+                                [f"Command: {manager.get_guard_command()}", f"Target: {manager.target_dir}"]):
+            return _refuse("startup enable")
         ok, msg = manager.enable()
         print(f"[{'SUCCESS' if ok else 'FAILED'}] {msg}")
         return 0 if ok else 1
@@ -565,10 +505,12 @@ def cmd_env(args: argparse.Namespace) -> int:
     if action == "detect":
         workspace = Path(getattr(args, "path", None) or Path.cwd())
         discovered = registry.discover_environments(workspace_dir=workspace, register=not getattr(args, "dry_run", False))
+        if registry.last_discovery_note:
+            print(f"[NOTE] {registry.last_discovery_note}")
         print(f"Discovered {len(discovered)} coding agent environment(s):")
         for env in discovered:
             paths = env.get_governance_paths(existing_only=True)
-            print(f"  - {env.name} (id: {env.id}, platform: {env.platform_type}) -> {len(paths)} governance entries")
+            print(f"  - {env.name} (id: {env.id}, platform: {env.platform_type}, policy: {env.policy}) -> {len(paths)} governance entries")
         if not getattr(args, "dry_run", False):
             print(f"\n[SAVED] Environments registered to {registry.config_path}")
         return 0
@@ -604,6 +546,14 @@ def cmd_env(args: argparse.Namespace) -> int:
         if not name or not policy_val:
             print(f"Error: usage: agy-guard env policy <id> <{'|'.join(VALID_POLICIES)}>", file=sys.stderr)
             return 1
+        if policy_val not in VALID_POLICIES:
+            print(f"Error: Invalid policy '{policy_val}'. Must be one of {', '.join(VALID_POLICIES)}.", file=sys.stderr)
+            return 1
+        current = registry.get_environment(name)
+        if current is not None and registry.is_weakening(current.policy, policy_val):
+            if not request_approval("env policy", f"Lower the protection of {current.name} from '{current.policy}' to '{policy_val}'?",
+                                    ["A non-enforced environment is not re-locked by leases, the boot sentinel or 'agy-guard lock'."]):
+                return _refuse("env policy")
         try:
             if registry.set_policy(name, policy_val):
                 print(f"[POLICY UPDATED] '{name}' policy set to '{policy_val}'")
@@ -629,7 +579,7 @@ def cmd_request_unlock(args: argparse.Namespace) -> int:
 
 
 def cmd_lock_complete(args: argparse.Namespace) -> int:
-    ok, msg = LeaseManager(registry=_registry(args)).complete_lease(env_id=getattr(args, "env", None))
+    ok, msg = LeaseManager(registry=_registry(args)).complete_lease(env_id=getattr(args, "env", None), interactive=True)
     print(f"[{'LOCKED' if ok else 'ERROR'}] {msg}")
     return 0 if ok else 1
 
@@ -725,6 +675,15 @@ def cmd_self_audit(args: argparse.Namespace) -> int:
 def cmd_notify(args: argparse.Namespace) -> int:
     settings = load_settings()
     action = args.action
+    if action == "send":
+        # Used by the upstream watcher hook to reach the human instead of the agent's context.
+        if not getattr(args, "title", None) or not getattr(args, "message", None):
+            print("Error: notify send requires --title and --message.", file=sys.stderr)
+            return 1
+        severity = NotificationSeverity(getattr(args, "severity", None) or "info")
+        delivered = GuardNotifier().notify(title=args.title[:120], message=args.message[:500], severity=severity,
+                                           key=getattr(args, "key", None))
+        return 0 if delivered else 1
     if action == "status":
         print(f"Notifications: {'enabled' if settings['enabled'] else 'disabled'}; quiet mode: {'on' if settings['quiet'] else 'off'}")
         return 0
@@ -732,12 +691,21 @@ def cmd_notify(args: argparse.Namespace) -> int:
     if action == "enable":
         enabled = True
     elif action == "disable":
+        # Gate on the PERSISTED setting: an AGY_GUARD_NOTIFY override in the caller's environment
+        # must not make a persistent "disable" look like a no-op that needs no approval.
+        persisted = read_json(settings_file(), default={}) or {}
+        if bool(persisted.get("enabled", True)) and not request_approval(
+            "notify disable", "Disable ALL desktop notifications, including CRITICAL relock and tamper alerts?",
+            ["Events are still written to the audit log, but nobody is alerted."],
+        ):
+            return _refuse("notify disable")
         enabled = False
     elif action == "quiet":
         quiet = True
     elif action == "normal":
         quiet = False
     path = save_settings(enabled, quiet)
+    audit("notify.settings", enabled=enabled, quiet=quiet)
     print(f"[NOTIFY] enabled={enabled} quiet={quiet} -> {path}")
     return 0
 
@@ -879,7 +847,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_self_audit)
 
     p = subparsers.add_parser("notify", help="Configure desktop notifications")
-    p.add_argument("action", choices=["status", "enable", "disable", "quiet", "normal"], default="status", nargs="?")
+    p.add_argument("action", choices=["status", "enable", "disable", "quiet", "normal", "send"], default="status", nargs="?")
+    p.add_argument("--title", help="send: notification title")
+    p.add_argument("--message", help="send: notification text")
+    p.add_argument("--severity", choices=["info", "warning", "critical"], default="info", help="send: severity")
+    p.add_argument("--key", help="send: de-duplication key (cooldown bucket)")
     p.set_defaults(func=cmd_notify)
 
     return parser
@@ -897,7 +869,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     try:
-        if args.command not in ("lease-tick", "gui"):
+        if args.command not in ("lease-tick", "gui", "notify"):
             try:
                 LeaseManager(registry=_registry(args)).check_and_expire_leases()
             except Exception as e:  # never let lease housekeeping block the requested command

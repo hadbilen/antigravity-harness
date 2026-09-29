@@ -8,16 +8,21 @@ from __future__ import annotations
 
 import os
 import queue
+import shlex
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 # Safe tkinter imports
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 from guard import __version__
-from guard.approval import ApprovalRequest
+from guard import approval
+from guard.approval import ApprovalRequest, request_approval
+from guard.audit_log import warn
+from guard.paths import runtime_dir
 from guard.environment import EnvironmentRegistry
 from guard.integrity import FileIntegrityMonitor
 from guard.lease import LeaseManager
@@ -62,6 +67,10 @@ class AntigravityGuardApp:
         self.lease_manager = LeaseManager(registry=self.env_registry)
         self.notifier = GuardNotifier()
         self.current_porter_report = None
+        self._last_tick_error = ""
+        # Every administration confirmation in this process goes through a GUI dialog and the
+        # shared approval gate, so it is recorded in the audit log like its CLI equivalent.
+        approval.set_approver(self._gui_approver)
 
         self.var_minimize_to_tray = tk.BooleanVar(value=True)
         st_info = self.startup_mgr.status()
@@ -117,8 +126,13 @@ class AntigravityGuardApp:
         try:
             if self.lease_manager.check_and_expire_leases():
                 self.refresh_status()
-        except Exception:
-            pass
+            self._last_tick_error = ""
+        except Exception as e:  # noqa: BLE001 - housekeeping must keep running; failures are logged once
+            message = f"{type(e).__name__}: {e}"
+            if message != self._last_tick_error:
+                self._last_tick_error = message
+                warn("gui.lease_tick_failed", error=message)
+                self.root.title(f"Antigravity Guard v{__version__} — lease housekeeping failed (see audit log)")
         self.root.after(5000, self._lease_tick)
 
     def _gui_approver(self, request: ApprovalRequest) -> bool:
@@ -454,6 +468,10 @@ class AntigravityGuardApp:
     # --- Operational Actions ---
     def toggle_early_startup(self):
         if self.var_early_startup.get():
+            if not request_approval("startup enable", "Register the boot sentinel to run at every login?",
+                                    [f"Command: {self.startup_mgr.get_guard_command()}"]):
+                self.var_early_startup.set(False)
+                return
             ok, msg = self.startup_mgr.enable()
             if not ok:
                 self.var_early_startup.set(False)
@@ -461,6 +479,9 @@ class AntigravityGuardApp:
             else:
                 messagebox.showinfo("Startup Sentinel", msg)
         else:
+            if not request_approval("startup disable", "Disable the boot sentinel?", []):
+                self.var_early_startup.set(True)
+                return
             ok, msg = self.startup_mgr.disable()
             if not ok:
                 self.var_early_startup.set(True)
@@ -505,19 +526,27 @@ class AntigravityGuardApp:
             )
 
     def detect_environments(self):
-        discovered = self.env_registry.discover_environments(register=True)
-        messagebox.showinfo("Discovery Complete", f"Auto-detected and registered {len(discovered)} coding agent environments.")
+        # A launcher-started GUI runs in $HOME, which is never a workspace: ask for the project.
+        folder = filedialog.askdirectory(title="Choose a project folder to scan for agent rule files")
+        if not folder:
+            return
+        discovered = self.env_registry.discover_environments(workspace_dir=Path(folder), register=True)
+        note = f"\n\n{self.env_registry.last_discovery_note}" if self.env_registry.last_discovery_note else ""
+        messagebox.showinfo("Discovery Complete",
+                            f"Registered {len(discovered)} environment(s). Other agents' rule files start as "
+                            f"'monitored' (integrity reports only); enforce them per environment if needed.{note}")
         self.refresh_environments()
 
     def lock_all_environments(self):
         ok, msg = self.env_registry.lock()
-        messagebox.showinfo("Lock Matrix", msg)
+        (messagebox.showinfo if ok else messagebox.showerror)("Lock Matrix" if ok else "Lock Incomplete", msg)
         self.refresh_status()
 
     def unlock_all_environments(self):
-        if messagebox.askyesno("Confirm Unlock", "Unlock all registered agent environments for maintenance?"):
+        if request_approval("unlock", "Unlock all registered agent environments WITHOUT an automatic relock?",
+                            ["Prefer 'Request 60s Lease' for a time-bounded window."]):
             ok, msg = self.env_registry.unlock()
-            messagebox.showinfo("Unlock Matrix", msg)
+            (messagebox.showinfo if ok else messagebox.showerror)("Unlock Matrix", msg)
             self.refresh_status()
 
     def gui_request_lease(self):
@@ -539,28 +568,30 @@ class AntigravityGuardApp:
         self.refresh_status()
 
     def gui_analyze_drift(self):
-        matrix = self.env_registry.get_status_matrix()
-        drift_items = []
-        for item in matrix:
-            env = self.env_registry.get_environment(item["id"])
-            if not env:
-                continue
-            mon = FileIntegrityMonitor.for_environment(env, os_adapter=self.env_registry.os_adapter)
-            rep = mon.verify()
-            if not rep.is_intact:
-                drift_items.append(f"{env.name}: {rep.summary()}")
-        if drift_items:
-            messagebox.showwarning("Drift Detected", "\n".join(drift_items))
-        else:
-            messagebox.showinfo("Integrity Verified", "All tracked environments match their cryptographic baselines perfectly!")
+        registry = self.env_registry
+
+        def work():
+            drift_items = []
+            for env in registry.list_environments():
+                rep = FileIntegrityMonitor.for_environment(env, os_adapter=registry.os_adapter).verify()
+                if not rep.is_intact:
+                    drift_items.append(f"{env.name}: {rep.summary()}")
+            return drift_items
+
+        def done(ok, value):
+            if not ok:
+                messagebox.showerror("Drift Analysis Failed", str(value))
+            elif value:
+                messagebox.showwarning("Drift Detected", "\n".join(value))
+            else:
+                messagebox.showinfo("Integrity Verified", "All tracked environments match their baselines.")
+
+        self._run_background(work, done)
 
     def toggle_lock(self):
         if self._is_protected():
-            if not messagebox.askyesno(
-                "Confirm Unlock",
-                "Remove write protection from the governance files WITHOUT an automatic relock?\n\n"
-                "Prefer 'Request 60s Lease' for a time-bounded window.",
-            ):
+            if not request_approval("unlock", "Remove write protection from the governance files WITHOUT an automatic relock?",
+                                    ["Prefer 'Request 60s Lease' for a time-bounded window."]):
                 return
             success, msg = self.env_registry.unlock("antigravity")
             if success:
@@ -603,14 +634,19 @@ class AntigravityGuardApp:
 
     def rebaseline(self):
         report = self.monitor.verify()
-        if not messagebox.askyesno(
-            "Confirm Re-baseline",
-            f"Accept the CURRENT state as trusted?\n\n{report.summary()}",
-        ):
+        details = [report.summary()] + [f"~ {f}" for f in report.modified[:10]] + [f"+ {f}" for f in report.added[:10]] \
+            + [f"- {f}" for f in report.deleted[:10]]
+        if not request_approval("rebaseline", "Accept the CURRENT state as trusted?", details):
             return
-        count, path = self.monitor.save_baseline()
-        messagebox.showinfo("Baseline Saved", f"Established trusted SHA-256 baseline across {count} entries.")
-        self.verify_integrity()
+
+        def done(ok, value):
+            if ok:
+                messagebox.showinfo("Baseline Saved", f"Established trusted SHA-256 baseline across {value[0]} entries.")
+            else:
+                messagebox.showerror("Re-baseline Failed", str(value))
+            self.verify_integrity()
+
+        self._run_background(self.monitor.save_baseline, done)
 
     def create_snapshot(self):
         def done(ok, value):
@@ -676,24 +712,29 @@ class AntigravityGuardApp:
         ttk.Button(bottom_bar, text="Close", style="Action.TButton", command=win.destroy).pack(side="right")
 
     def _open_external_file_by_path(self, snap_id: str, rel_path: str):
-        snap_path = self.snapshot_engine.resolve_snapshot_file(snap_id, rel_path)
-        if snap_path is None:
+        content = self.snapshot_engine.read_snapshot_file(snap_id, rel_path)
+        if content is None:
             messagebox.showerror("Error", "File does not exist inside the selected snapshot.")
             return
-
+        # Snapshot content was written by whatever edited the governance tree, so it is never
+        # handed to the OS "open" action directly (that EXECUTES .py/.bat/.command files on
+        # Windows and macOS). A read-only .txt copy in the private runtime dir is opened instead.
         try:
+            safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in f"{snap_id}_{rel_path}")[-120:]
+            copy = runtime_dir() / f"{safe_name}.txt"
+            if copy.exists():
+                os.chmod(copy, 0o600)
+            copy.write_text(content, encoding="utf-8")
+            os.chmod(copy, 0o400)
             if sys.platform == "win32":
-                os.startfile(str(snap_path))
+                os.startfile(str(copy))  # .txt is always associated with a text viewer
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(snap_path)])
+                subprocess.Popen(["open", "-t", str(copy)])
             else:
-                editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
-                if editor:
-                    subprocess.Popen([editor, str(snap_path)])
-                else:
-                    subprocess.Popen(["xdg-open", str(snap_path)])
-        except Exception as e:
-            messagebox.showerror("Open Error", f"Failed to launch external editor: {e}")
+                editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+                subprocess.Popen((shlex.split(editor) if editor else ["xdg-open"]) + [str(copy)])
+        except (OSError, ValueError) as e:
+            messagebox.showerror("Open Error", f"Failed to open a read-only copy: {e}")
 
     def open_external_snapshot_file(self):
         sel_snap = self.tree_snaps.selection()
@@ -712,12 +753,24 @@ class AntigravityGuardApp:
             return
         item = self.tree_snaps.item(selected[0])
         snap_id = item["values"][0]
-        if messagebox.askyesno("Confirm Rollback", f"Restore environment to snapshot '{snap_id}'? Current state will be backed up."):
-            success, msg = self.snapshot_engine.restore_snapshot(snap_id)
-            (messagebox.showinfo if success else messagebox.showerror)("Rollback Result", msg)
+        if not request_approval("snapshot restore", f"Restore environment to snapshot '{snap_id}'?",
+                                ["A pre-restore backup is taken first."]):
+            return
+
+        def done(ok, value):
+            if not ok:
+                messagebox.showerror("Rollback Result", str(value))
+            else:
+                success, msg = value
+                (messagebox.showinfo if success else messagebox.showerror)("Rollback Result", msg)
             self.refresh_status()
 
+        self._run_background(lambda: self.snapshot_engine.restore_snapshot(snap_id), done)
+
     def prune_snapshots(self):
+        if not request_approval("snapshot prune", "Permanently delete older snapshots (keep 5 per kind)?",
+                                ["Snapshots are forensic evidence and restore points; pruning cannot be undone."]):
+            return
         count = self.snapshot_engine.prune_snapshots(keep=5)
         messagebox.showinfo("Prune Complete", f"Pruned {count} older snapshots.")
         self.refresh_snapshots()
@@ -808,7 +861,9 @@ class AntigravityGuardApp:
 
     # --- Window & Tray Lifecycle ---
     def on_close_window(self):
-        if self.var_minimize_to_tray.get() and hasattr(self, "tray_adapter") and self.tray_adapter.is_available:
+        # Only hide to the tray when an icon is really shown; otherwise the window would vanish
+        # with no way back (e.g. the tray backend crashed after start).
+        if self.var_minimize_to_tray.get() and hasattr(self, "tray_adapter") and self.tray_adapter.is_running:
             self.root.withdraw()
         else:
             self.quit_app()

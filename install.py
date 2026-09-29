@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -151,10 +152,19 @@ class Installer:
         if hooks_path.is_file():  # reading through a legacy symlink is fine; writing never is
             try:
                 existing = json.loads(hooks_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                existing = {}
+            except (OSError, ValueError) as e:
+                existing = None
+                reason = str(e)
+            if not isinstance(existing, dict):
+                # Rewriting an unreadable hooks.json would silently drop every other hook in it.
+                self.log(f"[WARN] {hooks_path} is not a valid JSON object"
+                         + (f" ({reason})" if existing is None else "")
+                         + "; it was left untouched and the upstream watchdog hook was NOT registered. "
+                         "Fix the file and re-run the installer.")
+                return
         python_bin = sys.executable or ("python" if IS_WINDOWS else "python3")
-        command = subprocess.list2cmdline([python_bin, str(watcher)]) if IS_WINDOWS else f'"{python_bin}" "{watcher}"'
+        # POSIX: single-quoted words, so `$()`/backticks in a path are never expanded by the hook shell.
+        command = subprocess.list2cmdline([python_bin, str(watcher)]) if IS_WINDOWS else shlex.join([python_bin, str(watcher)])
         merged = dict(existing)
         merged["upstream-watchdog"] = {"PreInvocation": [{"type": "command", "command": command, "timeout": 15}]}
         if self.dry_run:
@@ -310,11 +320,11 @@ class Installer:
             return
         bin_dir = Path.home() / ".local" / "bin"
         for name, script in (("agy-guard", "guard.py"), ("agy-porter", "porter.py")):
-            body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec "{python_bin}" "{runtime / script}" "$@"\n'
+            body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec {shlex.quote(python_bin)} {shlex.quote(str(runtime / script))} "$@"\n'
             self._write_launcher(bin_dir / name, body)
         porter_alias = bin_dir / "porter"
         if not os.path.lexists(porter_alias) or LAUNCHER_MARKER in (porter_alias.read_text(errors="ignore") if porter_alias.is_file() else "") or os.path.islink(porter_alias):
-            body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec "{python_bin}" "{runtime / "porter.py"}" "$@"\n'
+            body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec {shlex.quote(python_bin)} {shlex.quote(str(runtime / "porter.py"))} "$@"\n'
             self._write_launcher(porter_alias, body)
         else:
             self.log(f"[NOTICE] {porter_alias} belongs to another tool; use 'agy-porter'.")

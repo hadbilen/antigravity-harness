@@ -14,15 +14,19 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import stat
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 TargetInput = Optional[Union[Path, str, Sequence[Union[Path, str]]]]
 
 WRITE_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+# icacls rights that grant any form of write/delete; a DENY entry carrying one of them blocks writes.
+_WRITE_DENY_RIGHTS = {"F", "M", "W", "WD", "AD", "DE", "DC", "WA", "WEA", "GW", "GA"}
 _UF_IMMUTABLE = 0x00000002
 _SF_IMMUTABLE = 0x00020000
 
@@ -95,6 +99,28 @@ class OSProtectionAdapter:
         except (OSError, ValueError, AttributeError):
             return {}
 
+    @contextmanager
+    def _mode_store_lock(self) -> Iterator[None]:
+        """Serialises load-modify-save of the mode store across processes (no lost updates)."""
+        path = self.mode_store_path
+        if not path:
+            yield
+            return
+        from guard.paths import file_lock
+        try:
+            cm = file_lock(path, timeout=30.0, stale_after=120.0)
+            cm.__enter__()
+        except (OSError, TimeoutError):
+            # The lock itself must never block protection; proceed unserialised (logged).
+            from guard.audit_log import warn
+            warn("os_adapter.mode_store_lock_unavailable", store=str(path))
+            yield
+            return
+        try:
+            yield
+        finally:
+            cm.__exit__(None, None, None)
+
     def _save_modes(self, modes: Dict[str, int]) -> Optional[str]:
         path = self.mode_store_path
         if not path:
@@ -147,7 +173,9 @@ class OSProtectionAdapter:
                 for line in res.stdout.splitlines():
                     low = line.lower()
                     if "(deny)" in low and (not user or user in low or "everyone" in low):
-                        if any(right in low for right in ("(wd", ",wd", "(w,", "(w)", "ad", "de")):
+                        # Compare whole right tokens: substring tests matched "de" inside "(deny)".
+                        rights = {tok.strip().upper() for grp in re.findall(r"\(([^()]*)\)", line) for tok in grp.split(",")}
+                        if rights & _WRITE_DENY_RIGHTS:
                             return True
                 return False
         except (OSError, subprocess.SubprocessError):
@@ -230,9 +258,10 @@ class OSProtectionAdapter:
             if not paths:
                 missing = _abs(target) if target else self.target_dir
                 return False, f"Target path '{missing}' does not exist."
-        modes = self._load_modes()
-        results = [self._lock_single(p, recursive, modes) for p in paths]
-        store_note = self._save_modes(modes)
+        with self._mode_store_lock():
+            modes = self._load_modes()
+            results = [self._lock_single(p, recursive, modes) for p in paths]
+            store_note = self._save_modes(modes)
         all_ok = all(ok for ok, _ in results)
         message = "; ".join(msg for _, msg in results)
         if store_note:
@@ -318,9 +347,10 @@ class OSProtectionAdapter:
             if not paths:
                 missing = _abs(target) if target else self.target_dir
                 return False, f"Target path '{missing}' does not exist."
-        modes = self._load_modes()
-        results = [self._unlock_single(p, recursive, modes) for p in paths]
-        store_note = self._save_modes(modes)
+        with self._mode_store_lock():
+            modes = self._load_modes()
+            results = [self._unlock_single(p, recursive, modes) for p in paths]
+            store_note = self._save_modes(modes)
         all_ok = all(ok for ok, _ in results)
         message = "; ".join(msg for _, msg in results)
         if store_note:
@@ -363,6 +393,11 @@ class OSProtectionAdapter:
                 key = str(entry)
                 original = modes.get(key)
                 if original is not None and (current & ~WRITE_BITS) == (original & ~WRITE_BITS):
+                    if original & stat.S_IWOTH:
+                        # Never re-open a tree to every user from a record anyone of this UID can edit.
+                        from guard.audit_log import warn
+                        warn("os_adapter.world_writable_mode_refused", path=key, recorded=oct(original))
+                        original &= ~stat.S_IWOTH
                     os.chmod(entry, original)
                     modes.pop(key, None)
                     restored += 1

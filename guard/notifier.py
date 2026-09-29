@@ -4,7 +4,8 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 
 Rules:
-- `enabled=False` is absolute: nothing is emitted, not even with force=True.
+- `enabled=False` is absolute: nothing is emitted, not even with force=True (WARNING and
+  CRITICAL events are still appended to the persistent audit log, see guard/audit_log.py).
 - quiet mode passes CRITICAL only.
 - force=True bypasses the cooldown window only.
 - Message text is passed to native notifiers as DATA (argv / environment), never as code.
@@ -94,6 +95,11 @@ class GuardNotifier:
             atomic_write_json(self.cache_file, {"last_sent": self._cache})
         except OSError:
             pass
+
+    @staticmethod
+    def _audit(severity: NotificationSeverity, title: str, message: str, delivered: str) -> None:
+        from guard.audit_log import audit
+        audit("notify", severity=severity.value, title=title, message=message[:500], delivered=delivered)
 
     def _get_cache_key(self, title: str, message: str, key: Optional[str] = None) -> str:
         if key:
@@ -199,11 +205,17 @@ class GuardNotifier:
         Returns True if the notification was delivered to a native notifier or the terminal.
         """
         if not self._allowed(severity):
+            if severity != NotificationSeverity.INFO:
+                # Not shown (notifications are disabled or quiet), but never lost: security
+                # events always reach the persistent audit trail.
+                self._audit(severity, title, message, delivered="suppressed")
             return False
         if not force and not self.can_send(severity, title, message, key, cooldown_seconds):
             return False
 
         dispatched, _ = self._dispatch_native(title, message, severity)
+        if severity != NotificationSeverity.INFO:
+            self._audit(severity, title, message, delivered="desktop" if dispatched else "terminal")
         if not dispatched:
             bell = "\a" if severity == NotificationSeverity.CRITICAL else ""
             sys.stderr.write(f"{bell}\n[ANTIGRAVITY GUARD - {severity.value.upper()}] {title}\n  {message}\n")
