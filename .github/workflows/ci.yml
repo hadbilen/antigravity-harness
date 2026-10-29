@@ -51,7 +51,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Compile all sources
-        run: python -m compileall -q guard porter installers tests scripts install.py porter.py guard.py
+        run: python -m compileall -q guard porter installers skills tests scripts install.py porter.py guard.py
       - name: Unit test suite
         run: python -m unittest discover -s tests -v
       - name: Deterministic invariant verification

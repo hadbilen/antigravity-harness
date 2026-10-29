@@ -2,6 +2,34 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [2.0.0] - 2026-10-19
+Native Antigravity 2.0 lifecycle hooks (`PreInvocation`, `PreToolUse`, `Stop`), full ecosystem auto-routing (skills, auditor subagents, MCP servers, and plugins), AST/dataflow/FTS5 code mapping (`scripts/code_map.py`), domain-aware UI archetypes (`MODE: UTILITY`, `MODE: EDITORIAL`, `MODE: GAME & INTERACTIVE`), deterministic UI slop scanning (`check_ui_slop.py`), 13 new engineering skills (34 total), and 2 new auditor subagents (9 total).
+
+### Breaking changes
+- **Constitution expanded to 18 rules (`GEMINI.md`).** Added Rule 9 `C9` (prohibition on test-fitted production code and test-runner environment sniffing), Rule 17 top-catalog model and highest-effort requirement on customization/governance edits, and Rule 18 (`Surgical Change & Reuse Discipline`); codified built-in platform collision resolutions in Rule 15 (`a`–`e`).
+- **Native Antigravity 2.0 `hooks.json` & `guard/agy_hooks.py` (`harness-gate`).** `PreToolUse` enforces an explicit `"decision"` contract (`"allow"`, `"force_ask"`, `"deny"`), blocks direct agent writes to `~/.gemini/config` governance seams (while permitting runtime subdirectories `plugins/`, `sidecars/`, `projects/`, `cache/`), blocks mutations to customization or governance files unless the active model and effort match the top catalog model (`skills/upstream-auditor/upstream_state.seed.json`), blocks agent execution of human-only `agy-guard` administration commands and `--no-verify` git bypasses, and prompts on destructive shell/git operations.
+- **Domain-aware `DESIGN.md` archetypes.** Added `MODE: UTILITY`, `MODE: EDITORIAL`, and `MODE: GAME & INTERACTIVE` alongside the computed WCAG AA contrast table.
+
+### Added
+- `guard/agy_hooks.py`:
+  - `PreInvocation`: bilingual (`EN` / `TR`) automatic skill suggestion across the skill catalog (`SKILL_HINTS`) plus automatic Subagent, MCP Server (`rea_rea`, `antislop-contrast`), and Plugin (`rea`) routing (`ECOSYSTEM_ROUTING_HINTS`) with per-conversation deduplication.
+  - `PreToolUse`: Governance Shield, Top-Catalog Model & Effort Customization Gate (`GEMINI.md` Rule 17), and Bash Guard with command-boundary anchoring.
+  - `Stop`: diff integrity gate catching tautological assertions, `C9` test-runner sniffing in production code, unapproved test skip markers, malformed `.json`/`.toml`/`.svg` syntax, structural UI/game slop (`UI-1`–`UI-5`), and broken workspace-local Markdown links, guarded by a 3-strike circuit breaker.
+- `scripts/code_map.py`: zero-dependency Python AST `profile`, `callers`, `flow` (backflow/forwardflow), `blast-radius` (Tier 1/2/3 threshold check), `gate-syntax`, deterministic runtime `trace`, SQLite `FTS5` BM25 passage search (`fts-search`), plus brace-aware C/C++ (`.c`/`.h`/`.cpp`/`.cc`/`.cxx`/`.hpp`/`.hh`/`.hxx`) function/method indexing and lifetime-safe Rust (`.rs`) lexer scrubbing (`ADR-0003`).
+- `skills/antislop/scripts/check_ui_slop.py`: deterministic structural scanner for UI/HTML/JSX/TSX/CSS files (`UI-1` cloned card grids, `UI-2` nested card-in-card boxification, `UI-3` unearned visual tells, `UI-4` raw RGB/CMY game primaries, `UI-5` dead interactive stubs).
+- 13 new skills (`34` total): `test-design`, `mistake-proofing`, `refactoring`, `dependency-upgrade`, `retro`, `technical-writing`, `data-analysis`, `game-engineering`, `marathon`, `sweetspot`, `media-studio`, `renew`, and `rustify`.
+- `skills/rustify`: 5-stage C/C++/Go/Python -> memory-safe Rust migration and FFI bridging package (`SKILL.md`, `references/c-cpp-abi-and-embedded.md`, `references/managed-go-python.md`) with two-stage unsafe purification and a 3-tier `rustc`/`clippy`/`miri`/sanitizer/conditional `cargo kani` verification ladder (`ADR-0003`).
+- `skills/renew/SKILL.md`: 5-stage contract-first modernization pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover & Security Sanitization -> Parity Gate`) for generational legacy software and classic games (`ADR-0002`).
+- `skills/media-studio`: container/header recovery (`media_qc.py salvage`), still-image restoration (`JPG`/`PNG`/`TIFF`/`BMP` with scanline decode verification), two-tier fidelity-bounded quality enhancement (`references/salvage-and-enhancement.md`), aspect-drift-locked `compare`, and side-by-side `ab-sheet` visual inspection (`ADR-0002`).
+- 2 new read-only auditor subagents (`9` total): `test-adequacy-auditor` and `contract-change-auditor`.
+- `skills/vibecoder/SKILL.md`: added **Game Prototype Mode (`Game Vibe Mode`)** bridged with `skills/game-engineering/SKILL.md` and `DESIGN.md` (`MODE: GAME & INTERACTIVE`) for zero-friction single-file rich HTML game prototypes (`<canvas>` + Diegetic HUD + fixed-timestep loop + seeded PRNG + WebAudio Input Feedback Triad) and a 3-question `Game Vibe-Grill`.
+- `skills/antislop-copywriting`: added Turkish synthetic-marker rules (`TR-1`–`TR-7`) and monotonous sentence cadence (`6.7`) in `check_synthetic_markers.py`.
+- `skills/upstream-auditor`: added release-tag (`"track": "release"`) and subpath tracking, registering `morluto/rea` (`reverse-engineer-anything`, 8 tracked repositories total).
+- Guard CLI, GUI & Packaging synchronization: `.zip` archive inspection in `porter_bridge.py` and GUI, `tasks.md` `## Authorized Test Modifications` support in `test_boundary.py`, `hooks.json`/`install_receipt.json` checks in `doctor.py`, and updated PyInstaller/Linux packaging scripts.
+- Architecture Decision Records: formal ADR process under `docs/adr/` (`ADR-0001` through `ADR-0004`) covering v2 remediation, renew/media-studio, rustify/codemap, and tiered MCP hook policy with dual-layer Linux package activation (`agy-guard init`).
+- Bilingual Architecture: Full parity for English workflows with native, out-of-the-box Turkish intent detection in `PreInvocation` lifecycle hooks and Turkish AI-marker detection (`TR-1`–`TR-7`) in copywriting audits.
+- Terminal & Process Hardening: Sealed terminal and process injection vectors against PTY spawns, multiplexer escapes (`tmux`, `screen`), and controlling-terminal prompt bypasses (`guard/approval.py`).
+
 ## [1.4.0] - 2026-09-30
 Governance-quality release driven by a staged review of a master integration spec and a fresh
 forensic audit of the code base. Fewer always-on rules, more mechanical enforcement.
