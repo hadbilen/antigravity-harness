@@ -11,13 +11,16 @@ description: >-
 # Unlazy
 
 ## Mutual Exclusion and Scope Rule
-* **Tier 3 Only:** Unlazy is reserved exclusively for Tier 3 tasks (>8 files, as defined in GEMINI.md) or major multi-branch architectural refactors. It must never be triggered for routine or minor edits.
-* **Mode Precedence:** When the user invokes `/unlazy`, if `/chisle` mode is active, it is automatically deactivated to initialize depth tree architecture.
+* **Activation (Tier 3 Only):** Unlazy is reserved exclusively for Tier 3 tasks (>8 files, as defined in GEMINI.md) or major multi-branch architectural refactors (`/unlazy`, `$unlazy`, `"tree N"`). It must never be triggered for routine or minor edits.
+* **Mode Precedence, `marathon` & `procoder` Mutual Exclusion:** When the user invokes `/unlazy`, if `/chisle` mode is active, `/chisle` is automatically deactivated to initialize depth tree architecture. `unlazy` is mutually exclusive with `procoder` (repositories governed by `.procoder/` use the `procoder` sprint/backlog chain instead of the `unlazy` Depth Tree) and with `marathon` (which governs multi-window `HANDOFF.md` campaigns across `W1..Wn`, whereas `unlazy` governs single-window subagent fan-out under `.unlazy/`).
+* **Deactivation:** Ends when all root gates in `GATES.md` / `.unlazy/<scope>/` pass verification, or when the user says `"stop unlazy"` (note: `"normal mode"` resets presentation styles like `chisle` first and only exits `unlazy` when no presentation style is active or when the user explicitly says `"stop unlazy"`), returning execution to standard `harness` discipline.
 
 Make incomplete work visible and make completion testable. Prove outcomes against a ledger instead of relying on a confident done report.
 (Unlazy is a Tier-3 deep execution engine. Routine and standard single-session development tasks are handled by the default `harness` skill).
 
 ## Write gates before real work
+
+* **Pre-Flight Missing-Binary Stop Rule (`node >= 18`):** Before running any `.mjs` helper (`gate-check.mjs`, `dispatch.mjs`, `status-summary.mjs`), verify `command -v node` and Node.js `>= 18` (`node -p "Number(process.versions.node.split('.')[0]) >= 18"`). If `node` is missing or older than `18`, halt immediately in `BLOCKED` status and ask the human operator to install Node.js `>= 18` — never download unpinned binaries or execute remote install scripts (`GEMINI.md` Rule 12).
 
 For solo work, create `GATES.md` from the local file `templates/gates-leaf.md` before implementing (orchestrated mode instead starts from `templates/PLAN.md` plus per-leaf `templates/gates-leaf.md` and per-branch `templates/gates-node.md` under `.unlazy/<scope>/`; see Build the Depth Tree below). State one observable outcome per gate. Give every runnable gate an indented `CHECK:` and `EXPECT:`; use a manual gate only when no command can decide the outcome.
 
@@ -66,10 +69,10 @@ Verification runs in four layers: leaf self-check, parent `--reverify`, branch i
 
 ## Work each leaf in four passes
 
-1. Implement the complete deliverable. Leave no placeholders or deferred remainder.
-2. Re-read it as a domain expert and replace the cheap version of each part.
-3. Hunt correctness, integration, portability, performance, and evidence defects. Fix what you find.
-4. Apply low-cost polish, then repeat until a full improvement pass finds nothing.
+1. Implement the complete deliverable inside the leaf's declared `OWNS:` scope (`GEMINI.md` Rule 18). Leave no placeholders or deferred remainder.
+2. Re-read the newly authored leaf implementation as a domain expert and replace incomplete stubs or shortcuts within the leaf contract.
+3. Hunt correctness, integration, portability, performance, and evidence defects against the leaf's `GATES.md`. Fix verified defects within the `GEMINI.md` Rule 13 blast cap.
+4. Verify all leaf gates pass; per `GEMINI.md` Rule 8 (Null-Action Invariant) and Rule 18 (Surgical Change), stop immediately once all gates pass and zero verified defects remain—never perform speculative restyling or touch files outside `OWNS:`.
 
 Finish a leaf only after the pass is clean and every gate is met with evidence. A visibly abandoned gate ends execution honestly but leaves the leaf in handoff state, not finished.
 
@@ -102,6 +105,7 @@ In the Antigravity environment, inferential trust is strictly barred. The agent 
 - Execute deterministic checks in the terminal (`gate-check.mjs` or equivalent test commands) for every runnable gate.
 - The session cannot complete while any gate remains failing or missing verified evidence.
 - Abandoned gates must be explicitly logged in `ABANDON: <id> <reason>` format and surfaced for explicit user confirmation.
+- Never execute `scripts/install-hooks.mjs` in Antigravity: that helper configures Claude Code `.claude/settings*.json` hooks exclusively, whereas Antigravity enforces lifecycle gates natively via `hooks.json` and `guard/agy_hooks.py` (see [references/dispatch.md](references/dispatch.md#antigravity-adapter)).
 
 ## Spend attention where it compounds
 

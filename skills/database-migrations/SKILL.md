@@ -1,6 +1,6 @@
 ---
 name: database-migrations
-description: "Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments across PostgreSQL, MySQL, and common ORMs (Prisma, Drizzle, Kysely, Django, TypeORM, golang-migrate). Invoke when: writing or reviewing database schema migrations, column/index changes, zero-downtime migrations, or when user mentions 'migration', 'alter table', 'schema migration', 'database rollback'."
+description: "Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments across PostgreSQL, MySQL, and common ORMs (Prisma, Drizzle, Kysely, Django, TypeORM, golang-migrate). Invoke when: writing or reviewing database schema migrations, column/index changes, zero-downtime migrations, or when user mentions 'migration', 'alter table', 'schema migration', 'database rollback'. Not for exploratory dataset or notebook analysis (use 'data-analysis')."
 metadata:
   origin: ECC
 ---
@@ -15,6 +15,7 @@ This skill enforces safe schema evolutions, rollback strategies, and zero-downti
 - Writing data backfill migrations
 - Planning database deployments under active production traffic
 - Designing rollbacks for failed or reverted deployments
+- Before delivering any migration that alters or drops persisted columns/tables, dispatch `contract-change-auditor` (`agents/contract-change-auditor.md`) to verify expand-and-contract compatibility and rollback safety.
 
 ## Core Principles
 

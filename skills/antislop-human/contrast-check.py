@@ -7,7 +7,7 @@ Usage:
     python3 contrast-check.py --selftest
 
 Prints the contrast ratio and a PASS/FAIL verdict for normal text (4.5:1)
-and large text (3:1, 18px+ per antislop R-25). Exit code 0 only when both
+and large text (3:1, 24px+ / 18pt regular or 18.67px+ / 14pt bold per antislop R-25). Exit code 0 only when both
 verdicts pass, so scripts can chain on it.
 
 --selftest parses the reference table out of the SKILL.md next to this script
@@ -51,7 +51,7 @@ def parse_pairing(pairing):
 
 def linearize(channel):
     c = channel / 255.0
-    if c <= 0.03928:
+    if c <= 0.04045:
         return c / 12.92
     return ((c + 0.055) / 1.055) ** 2.4
 
@@ -122,9 +122,10 @@ def selftest():
     failures = 0
     for row in rows:
         color_a, color_b = parse_pairing(row["pairing"])
-        computed = round(contrast_ratio(color_a, color_b), 2)
-        expected_normal = "Pass" if computed >= 4.5 else "Fail"
-        expected_large = "Pass" if computed >= 3.0 else "Fail"
+        raw_ratio = contrast_ratio(color_a, color_b)
+        computed = round(raw_ratio, 2)
+        expected_normal = "Pass" if raw_ratio >= 4.5 else "Fail"
+        expected_large = "Pass" if raw_ratio >= 3.0 else "Fail"
         if f"{computed:.2f}" != f"{row['ratio']:.2f}":
             failures += 1
             print(f"selftest: {row['pairing']}: table says {row['ratio']}, the formula says {computed:.2f}")

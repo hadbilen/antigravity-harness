@@ -26,13 +26,14 @@ back, and a file it could not check is never reported as clean.
 
 - **Activation:** EXCLUSIVELY when the repository contains a `.procoder/` directory, an `AGENTS.md`
   mandates procoder, or the user explicitly invokes `/procoder`.
-- **Relationship with `harness`:** procoder replaces the harness Tier 3 scaffolding (sprint chain instead
-  of depth tree) but keeps every harness verification gate; it is never combined with `unlazy`.
+- **Relationship with `harness`, `unlazy`, `marathon`, and `vibecoder`:** procoder replaces the harness Tier 3 scaffolding (sprint chain in `.procoder/` instead
+  of `tasks.md`/`HANDOFF.md` or `.unlazy/` depth tree) while keeping every harness verification gate; it is never combined with `unlazy`, `marathon`, or `vibecoder`.
 - **Deactivation:** ends when the work leaves the `.procoder/` repository or the user says "stop procoder";
   an active `chisle` mode suspends procoder ceremonies.
 
 ## The contract
 
+- **Missing-Binary Stop Rule (`GEMINI.md` Rule 12):** Verify `command -v procoder` first. If the `procoder` binary is absent from `PATH`, halt immediately without attempting `.procoder/` CLI gates or unpinned binary installation (`GEMINI.md` Rule 12), report the missing binary, and ask the user whether to install `procoder` or proceed under `harness`.
 - Before calling any work finished, run `procoder check` — the commit
   gate. Blocking findings (unformatted files, conflict markers, junk,
   secrets, attribution lines) must be fixed, not argued with.
@@ -243,8 +244,10 @@ text).
 - `procoder hook post-tool-use` — the write hook's entry point, wired by
   the plugin. You do not call it by hand.
 - `procoder version` — the version, when a report needs to name it.
-- `procoder version --check` and `procoder self-upgrade` — what is newer
-  than this binary, and the install, after an explicit yes. The upgrade
+- `procoder version --check` and `procoder self-upgrade [--confirm <sha256>]` —
+  what is newer than this binary, and the install, after an explicit yes (or,
+  with no terminal, via the `--confirm <64-hex-sha256>` checksum handshake /
+  `.procoder/ask/decisions.md`). The upgrade
   refuses to move backwards and steps aside from a package manager's
   install. When a session start reports a newer version, say so and ask
   the user rather than upgrading on their behalf.

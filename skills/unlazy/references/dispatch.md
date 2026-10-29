@@ -65,6 +65,20 @@ For a large regular fan-out, prefer a [Dynamic Workflow](https://code.claude.com
 
 Do not use `claude -p` as a substitute for an available native background Agent or workflow. A shell process farm loses the current session's native scheduling and observability.
 
+## Antigravity adapter
+
+Use the native `invoke_subagent` tool (`TypeName: "self"`, `Model: "inherit"`) with strictly disjoint file ownership across parallel leaves:
+
+1. open the wave with `dispatch-check.mjs open` for all `READY` leaves in the wave
+2. call `invoke_subagent` (`TypeName: "self"`, `Model: "inherit"`) once per leaf in the open wave, assigning disjoint write scopes
+3. record each returned `conversationId` handle with `dispatch-check.mjs start`
+4. seal the wave with `dispatch-check.mjs seal` before awaiting subagent completion notifications
+5. record each subagent return with `dispatch-check.mjs return`, then run parent re-verification gates
+
+When orchestrating larger waves through `run_workflow`, obey `GEMINI.md` Rule 15e and Rule 17: workflow scripts act strictly as orchestration glue (`agent`, `parallel`, `pipeline`, `phase`, `trajectory`, `call_tool`), must never execute child processes (`subprocess`, `os.system`) or direct filesystem writes that bypass `PreToolUse`, must default `model` to `"inherit"`, and must never downgrade `model` to `"flash"` or `"flash_lite"` when modifying customization or governance files.
+
+Never run `scripts/install-hooks.mjs` in Antigravity: `scripts/install-hooks.mjs` configures Claude Code `.claude/settings*.json` Stop hooks exclusively, whereas Antigravity enforces lifecycle gates natively via `hooks.json` and `guard/agy_hooks.py`.
+
 ## Failure and fallback
 
 If a native launch fails before returning a handle, leave the wave open, fix the launch problem, and retry that leaf. Do not seal a partial wave. If recovery is impossible, preserve the audit trail instead of inventing a handle or deleting state:

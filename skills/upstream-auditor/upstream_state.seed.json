@@ -1,24 +1,32 @@
 {
-  "last_audited_model": "Gemini 3.8 Flash (High)",
-  "last_model_slug": "gemini-3.8-flash-high",
-  "last_pbtxt_model": "MODEL_PLACEHOLDER_M318",
-  "builtin_skills_hash": "cddf6b0d4c512d7eb122cb3de3b8db922c67ce72ffe9d69fdd2e6bd63ed1905c",
+  "last_audited_model": "Gemini 4 Argon (High)",
+  "last_model_slug": "gemini-4-argon-high",
+  "approved_customization_models": [
+    "claude-opus-5-high",
+    "claude-opus-5.5-high"
+  ],
+  "last_pbtxt_model": "MODEL_PLACEHOLDER_M417",
+  "builtin_skills_hash": "de9b7f32b1ca0f839bf78c59c6f479362ed7d3edce0da0a02579cc003df4798f",
   "recorded_builtin_skills": [
     "agy-customizations",
     "antigravity_guide",
+    "automation",
     "generative_ui",
     "migrate-workflows",
-    "permissioned-github"
+    "permissioned-github",
+    "plugin",
+    "run-workflow",
+    "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-09-19T01:50:00+03:00",
-  "last_skills_audit_timestamp": "2026-09-19T01:50:00+03:00",
+  "last_audit_timestamp": "2026-10-24T10:20:00+03:00",
+  "last_skills_audit_timestamp": "2026-10-24T10:20:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "d8529a6",
+      "last_synced_commit": "671ab15",
       "target_skills": [
         "antislop",
         "antislop-code",
@@ -31,7 +39,7 @@
     "Chisle": {
       "repo": "JayPokale/Chisle",
       "branch": "main",
-      "last_synced_commit": "47b7dd7",
+      "last_synced_commit": "1b3203f",
       "target_skills": [
         "chisle"
       ]
@@ -47,7 +55,7 @@
     "procoder": {
       "repo": "azrtydxb/procoder",
       "branch": "main",
-      "last_synced_commit": "f8c7fca",
+      "last_synced_commit": "7c7f4b3",
       "target_skills": [
         "procoder"
       ]
@@ -63,20 +71,32 @@
     "everything-claude-code": {
       "repo": "affaan-m/everything-claude-code",
       "branch": "main",
-      "last_synced_commit": "b2279eb",
+      "last_synced_commit": "90606c8",
       "target_skills": [
         "architecture-decision-records",
         "database-migrations",
-        "security-review"
+        "security-review",
+        "agents/build-error-resolver.md"
       ]
     },
     "mattpocock-skills": {
       "repo": "mattpocock/skills",
       "branch": "main",
-      "last_synced_commit": "c55ee46",
+      "last_synced_commit": "5beb35b",
       "target_skills": [
         "deep-grill",
-        "diagnosing-bugs"
+        "diagnosing-bugs",
+        "test-design",
+        "retro"
+      ]
+    },
+    "rea": {
+      "repo": "morluto/rea",
+      "branch": "main",
+      "track": "release",
+      "last_synced_commit": "rea-agents-6.7.0",
+      "target_skills": [
+        "reverse-engineer-anything"
       ]
     }
   }

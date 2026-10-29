@@ -10,11 +10,11 @@ Rule families (IDs are stable and match the purifier catalogue):
   3.1–3.8   formatting           (Title Case headings, bold overuse, em dashes, tiny tables ...)
   4.1–4.3   chat leftovers       (assistant phrasing, knowledge-cutoff hedging, placeholders)
   5.1–5.2   older-model habits   (didactic filler, summary openers)
-  6.1–6.6   antislop copy rules  (fake candour, signposting, staccato drama, shouting ...)
-  TR-1–TR-6 Turkish mode         (negative parallelism, brochure vocabulary, chat leftovers ...)
+  6.1–6.7   antislop copy rules  (fake candour, signposting, staccato drama, shouting, cadence ...)
+  TR-1–TR-7 Turkish mode         (negative parallelism, brochure vocabulary, bureaucratic passive ...)
 
 Before scanning, YAML frontmatter, fenced and inline code, HTML comments and tags, link
-targets, Markdown blockquotes and (for content rules 1.x, 2.x, TR-1–TR-4 and 3.4) quotations
+targets, Markdown blockquotes and (for content rules 1.x, 2.x, TR-1–TR-4, TR-7 and 3.4) quotations
 of five or more words are blanked out character by character, so reported line numbers
 always point at the original file.
 
@@ -131,6 +131,8 @@ _register("6.5", "Shouting capitals or scare quotes", "low",
           "Build emphasis with sentence structure, not capital letters or quote marks.", "any")
 _register("6.6", "Human verb on an inanimate subject", "low",
           "Say what the thing actually does; do not give it a mind.", "en")
+_register("6.7", "Monotonous sentence cadence (low burstiness)", "low",
+          "Vary sentence lengths: follow a long explanatory sentence with a short, decisive 3-6 word sentence.", "en")
 _register("TR-1", "Turkish negative parallelism", "medium",
           "Drop the 'not X, but Y' frame and state the positive claim directly.", "tr")
 _register("TR-2", "Turkish inflated significance", "medium",
@@ -143,6 +145,8 @@ _register("TR-5", "Turkish didactic filler or summary opener", "medium",
           "Delete the filler lead-in or the summary opener.", "tr")
 _register("TR-6", "Turkish chat leftover", "high",
           "Delete the assistant sentence.", "tr")
+_register("TR-7", "Turkish bureaucratic passive or rhetorical bridge", "medium",
+          "Replace bureaucratic passive (olanak tanımaktadır/gerçekleştirilmektedir) or staged rhetorical questions with a direct active verb.", "tr")
 
 RULE_ORDER = {rid: i for i, rid in enumerate(RULES)}
 
@@ -154,9 +158,9 @@ EM_DASH_HUMAN_FIX = ("Flag to the author; do not rewrite deliberate style silent
                      "period, comma, colon or parentheses.")
 
 # Markdown-structure rules that fire on ordinary engineering documentation.
-TECHNICAL_DISABLED = frozenset({"3.1", "3.2", "3.3", "3.5", "3.6", "3.8"})
+TECHNICAL_DISABLED = frozenset({"3.1", "3.2", "3.3", "3.5", "3.6", "3.8", "6.7"})
 # Rules whose patterns are evaluated on text with long quotations blanked out.
-QUOTE_EXEMPT_PREFIXES = ("1.", "2.", "TR-1", "TR-2", "TR-3", "TR-4")
+QUOTE_EXEMPT_PREFIXES = ("1.", "2.", "TR-1", "TR-2", "TR-3", "TR-4", "TR-7")
 
 CLUSTER_WINDOW_WORDS = 500
 
@@ -332,6 +336,9 @@ PHRASE_RULES: Dict[str, Tuple[str, List[Pattern[str]]]] = {
         r"\bkanıtı olarak karşımıza çık(?:maktadır|ıyor)\b",
         r"\bev sahipliği yapmaktadır\b",
         r"\bmihenk taşı\w*",
+        r"\bdevrim niteliğinde\w*",
+        r"\byeni bir (?:çağ|dönem) başlat(?:maktadır|ıyor|an|tı)\b",
+        r"\bdönüm noktası niteliğinde(?:dir)?\b",
     )),
     "TR-3": ("content", _ci(
         r"\bgeniş bir yelpaze(?:de|si|ye)?\b",
@@ -340,18 +347,43 @@ PHRASE_RULES: Dict[str, Tuple[str, List[Pattern[str]]]] = {
         r"\bharmanlayan\b",
         r"\bbütüncül bir yaklaşım\w*",
         r"\bkusursuz bir deneyim\w*",
+        r"\bkusursuz bir şekilde\b",
         r"\bkalbinde yer alan\b",
         r"\bkapılarını arala(?:maktadır|r)\b",
+        r"\bbir üst seviyeye taşı(?:yın|mak|maktadır|yor|r|yan)\b",
+        r"\bpotansiyelini(?:zi)? ortaya çıkar(?:ın|mak|maktadır|ıyor|r|an)\b",
+        r"\b(?:dinamik|hızla değişen) dünyasında\b",
+        r"\buçtan uca (?:bir )?çözüm\w*",
+        r"\bharmoni\w*",
+        r"\bserüven\w*",
     )),
     "TR-5": ("struct", _ci(
-        r"\b(?:Unutmamak|Belirtmek|Vurgulamak) gerekir ki\b",
+        r"\b(?:İlk olarak\s+|Şunu da\s+)?(?:Unutmamak|Belirtmek|Vurgulamak) gerekir ki\b",
+        r"\bGünün sonunda\b",
     )),
     "TR-6": ("struct", _ci(
         r"\bUmarım bu (?:yardımcı olur|işinize yarar)\b",
         r"\bBaşka bir sorunuz olursa\b",
         r"\bHarika bir soru\b",
-        r"\bİşte\b[^.!?]+?\bhakkında bilmeniz gerekenler\b",
+        r"\bİşte\b(?:[^.!?]{0,60}?\bhakkında)?\s+bilmeniz gerekenler\b",
     )),
+    "TR-7": ("content", _ci(
+        r"\bolanak tanı(?:maktadır|r|yan)\b",
+        r"\bimk[aâ]n sağla(?:maktadır|r|yan)\b",
+        r"\bgerçekleştirilmektedir\b",
+        r"\bPeki,?\s+bu\s+(?:neden önemli|ne anlama geliyor)\b",
+        r"\bİşte tam (?:da )?bu noktada\b",
+    )),
+}
+
+_PHRASE_UNION_RE: Dict[str, Pattern[str]] = {
+    rule_id: re.compile(
+        "|".join(
+            f"(?i:{p.pattern})" if (p.flags & re.IGNORECASE) else f"(?:{p.pattern})"
+            for p in pats
+        )
+    )
+    for rule_id, (_variant, pats) in PHRASE_RULES.items()
 }
 
 _SENTENCE_END = r"(?:[.!?][\"'”’)\]]*)?$"
@@ -862,6 +894,7 @@ class _Scanner:
         self.hits: List[_Hit] = []
         self._bodies: Dict[Tuple[int, str], str] = {}
         self._sentences: Dict[Tuple[int, str], List[Tuple[int, str]]] = {}
+        self._kind_indices: Dict[Tuple[str, ...], List[int]] = {}
 
     # -- helpers ---------------------------------------------------------
     def enabled(self, rule_id: str) -> bool:
@@ -898,7 +931,10 @@ class _Scanner:
         self.hits.append(_Hit(rule_id, offset, offset + len(span), clean, **overrides))
 
     def block_indices(self, *kinds: str) -> List[int]:
-        return [i for i, b in enumerate(self.blocks) if not kinds or b.kind in kinds]
+        if kinds not in self._kind_indices:
+            kind_set = frozenset(kinds)
+            self._kind_indices[kinds] = [i for i, b in enumerate(self.blocks) if not kind_set or b.kind in kind_set]
+        return self._kind_indices[kinds]
 
     # -- rule runners ----------------------------------------------------
     def run(self) -> List[_Hit]:
@@ -911,15 +947,18 @@ class _Scanner:
             ("3.2", self._r3_2), ("3.3", self._r3_3), ("3.4", self._r3_4), ("3.5", self._r3_5),
             ("3.6", self._r3_6), ("3.7", self._r3_7), ("3.8", self._r3_8), ("5.1", self._r5_1_cluster),
             ("5.2", self._r5_2), ("6.1", self._r6_1), ("6.4", self._r6_4), ("6.5", self._r6_5),
-            ("TR-4", self._tr_4), ("TR-5", self._tr_5_opener),
+            ("6.7", self._r6_7), ("TR-4", self._tr_4), ("TR-5", self._tr_5_opener),
         ):
             if self.enabled(rule_id):
                 method()
         return self.hits
 
     def _phrases(self, rule_id: str, variant: str, patterns: List[Pattern[str]]) -> None:
+        union_re = _PHRASE_UNION_RE.get(rule_id)
         for i in self.block_indices("para", "heading", "list", "table"):
             text = self.body(i, variant)
+            if union_re is not None and not union_re.search(text):
+                continue
             base = self.blocks[i].offset
             for pattern in patterns:
                 for m in pattern.finditer(text):
@@ -1188,6 +1227,32 @@ class _Scanner:
             if self.strict or len(scare) >= 3:
                 for m in scare:
                     self.add("6.5", base + m.start(), m.group(0))
+
+    def _r6_7(self) -> None:
+        for i in self.block_indices("para"):
+            sents = [
+                (offset, sentence, len(WORD_RE.findall(sentence)))
+                for offset, sentence in self.sentences(i, "struct")
+            ]
+            idx = 0
+            while idx <= len(sents) - 4:
+                if not (8 <= sents[idx][2] <= 16):
+                    idx += 1
+                    continue
+                end = idx + 1
+                lo = hi = sents[idx][2]
+                while end < len(sents) and 8 <= sents[end][2] <= 16:
+                    nlo = min(lo, sents[end][2])
+                    nhi = max(hi, sents[end][2])
+                    if nhi - nlo > 1:
+                        break
+                    lo, hi = nlo, nhi
+                    end += 1
+                if end - idx >= 4:
+                    self.add("6.7", sents[idx][0], " ".join(s for _, s, _ in sents[idx:end]))
+                    idx = end
+                else:
+                    idx += 1
 
     def _tr_4(self) -> None:
         self._sentence_rule("TR-4", "content", TR_CONVERB_RE)

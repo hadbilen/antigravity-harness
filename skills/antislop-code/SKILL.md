@@ -1,9 +1,9 @@
 ---
 name: antislop-code
-description: 'Code comment hygiene for AI coding agents: remove generic AI-slop comments,
-  keep the valuable ones, never touch the code. Invoke when: refactoring code, cleaning
-  comments, reviewing PR diffs, or when user says ''clean comments'', ''comment hygiene'',
-  ''antislop-code''.'
+description: >-
+  Code-comment hygiene for AI coding agents: removes generic AI-slop comments, keeps the valuable ones, and never
+  changes executable code. Invoke when cleaning comments, reviewing diff comments, or when the user says 'clean comments',
+  'comment hygiene', or 'antislop-code'. Not for restructuring or simplifying executable code itself (use 'refactoring').
 ---
 # antislop-code
 
@@ -13,9 +13,9 @@ description: 'Code comment hygiene for AI coding agents: remove generic AI-slop 
 
 ## How to use this skill
 
-- Load together with the `antislop` core skill (`skills/antislop/SKILL.md`) whenever the task touches code comments. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds comment-specific depth.
+- Load on demand alongside the `antislop` core skill (`skills/antislop/SKILL.md`) when cleaning comments, reviewing diff comments, or when the user explicitly requests comment hygiene. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds comment-specific depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
-- **Scope guardrail:** this skill only modifies comments. Never modify executable code, identifiers, imports, formatting, indentation, whitespace, control flow, or logic. When in doubt, leave the code untouched.
+- **Scope guardrail (`GEMINI.md` Rule 18):** this skill only modifies comments within the active diff or files explicitly targeted by the user. Never modify executable code, identifiers, imports, formatting, indentation, whitespace, control flow, or logic, and preserve existing unrelated comments outside the active scope unless the user explicitly requested a comment-hygiene pass.
 - The Delivery Gate in the core remains the gate. The "Code Comment Checklist" at the end of this file is the comment-specific supplement to run alongside it.
 
 ## Comments That Add Nothing
@@ -74,7 +74,7 @@ description: 'Code comment hygiene for AI coding agents: remove generic AI-slop 
 
 - **Tell:** one comment that runs on for several lines, stacking reasons, context, and history around a fact that fits in one line: a four-line block explaining that a stub sits on PATH, which release introduced the workaround, and what broke before it. Every sentence is true. The length is the tell.
 - **Why:** a person leaves a note, a generator writes a case. Padding a one-line fact into a paragraph, building a "because X, so Y, and therefore Z" chain, or citing the issue number and the version that fixed it are the same flourish as any other AI pattern, and they bury the one line that matters under the ones that do not.
-- **Fix:** cut to the constraint alone: one line, two at most, never three. Keep the platform trap, the silent failure, the protocol rule, the performance cost. Drop the issue number, the version history, and the reasoning chain.
+- **Fix:** cut to the constraint alone: one line, two at most, never three. Keep the platform trap, the silent failure, the protocol rule, the performance cost (and preserve ticket or CVE identifiers when they document an active security boundary or upstream-bug workaround). Drop narrative version history and multi-sentence reasoning chains.
 
 ### Line-by-Line Narration
 

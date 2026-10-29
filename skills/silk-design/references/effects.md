@@ -287,3 +287,120 @@ the right** (`originX: 1`, `scaleX→0`, 0.5s) before the whole panel exits `y: 
 `[0.9, 0, 0.1, 1]` (hard curtain snap, for fullscreen menus), `[0.65, 0, 0.35, 1]` (symmetric
 in-out, for carousel slides), `[0.22, 0.68, 0, 1.2]` (playful overshoot, for 3D flips),
 `expo.out` / `back.out(2–3)` (GSAP, snappy fades / sticker pops).
+
+---
+
+## Zero-build vanilla HTML/CSS/JS & native CSS runtime — `assets/vanilla-kinetic.js`
+
+When building `MODE: EDITORIAL` (`MOTION 3`) showcase pages in Astro, Vanilla TypeScript, static HTML, or single-file HTML prototypes without React/Framer Motion/GSAP, pair `assets/vanilla-kinetic.js` (`initSilkKinetic()`) with these zero-dependency CSS primitives:
+
+### 1. Entrance reveals & word-stagger headings (`[data-silk-reveal]`, `[data-silk-words]`)
+`initSilkKinetic()` splits `[data-silk-words]` into `<span class="silk-word" style="--word-index: i">` and sets `data-silk-visible="true"` once the element crosses `-20%` viewport margin (`IntersectionObserver` with automatic instant reveal when `prefers-reduced-motion: reduce` is active):
+```css
+[data-silk-reveal],
+[data-silk-words] .silk-word {
+  opacity: 0;
+  transform: translate3d(0, 20px, 0);
+  transition:
+    opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+[data-silk-words] .silk-word {
+  display: inline-block;
+  transition-delay: calc(var(--word-index, 0) * 40ms);
+}
+[data-silk-reveal][data-silk-visible="true"],
+[data-silk-words][data-silk-visible="true"] .silk-word {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-silk-reveal],
+  [data-silk-words] .silk-word {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+```
+
+### 2. Native CSS Scroll-Driven Parallax & Editorial Word-Fill (`animation-timeline: view()`)
+Zero-JavaScript scroll scrubbing in modern browsers using CSS Scroll-Driven Animations, wrapped in `@supports (animation-timeline: view())` and `@media (prefers-reduced-motion: no-preference)`:
+```css
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .silk-parallax-front {
+      animation: silk-drift-up linear both;
+      animation-timeline: view();
+      animation-range: entry 0% exit 100%;
+    }
+    .silk-reading-fill {
+      color: color-mix(in oklab, var(--foreground) 18%, transparent);
+      animation: silk-word-brighten linear both;
+      animation-timeline: view();
+      animation-range: entry 20% cover 65%;
+    }
+  }
+}
+@keyframes silk-drift-up {
+  from { transform: translate3d(0, 72px, 0); }
+  to   { transform: translate3d(0, -72px, 0); }
+}
+@keyframes silk-word-brighten {
+  to   { color: var(--foreground); }
+}
+```
+
+### 3. Magnetic button & pointer-tracked conic border glow (`[data-silk-magnetic]`, `[data-silk-border-glow]`)
+`initSilkKinetic()` attaches passive pointer listeners (automatically disabled below `768px` and under `prefers-reduced-motion: reduce`) and updates `--start` (angle in degrees) and `--active` (`0` or `1`) on `[data-silk-border-glow]` cards:
+```css
+[data-silk-magnetic] {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+[data-silk-border-glow] {
+  position: relative;
+  --start: 0;
+  --active: 0;
+  --spread: 40;
+}
+[data-silk-border-glow]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  opacity: var(--active, 0);
+  transition: opacity 0.3s ease;
+  background: conic-gradient(
+    from calc((var(--start, 0) - var(--spread, 40)) * 1deg),
+    transparent 0deg,
+    var(--primary-cta) calc(var(--spread, 40) * 1deg),
+    transparent calc(var(--spread, 40) * 2deg)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+```
+
+### 4. View Transitions API Curtain Swap (`runSilkViewTransition`)
+Use `runSilkViewTransition(() => { ... })` from `assets/vanilla-kinetic.js` with native `::view-transition-old(root)` / `::view-transition-new(root)` clip-path wipes (`cubic-bezier(0.76, 0, 0.24, 1)`, included in `assets/animations.css`), falling back to an instant DOM update when `prefers-reduced-motion: reduce` is enabled:
+```css
+@keyframes silk-curtain-in {
+  from { clip-path: inset(0 0 100% 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+@keyframes silk-curtain-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+::view-transition-old(root) {
+  animation: 0.45s cubic-bezier(0.76, 0, 0.24, 1) both silk-curtain-out;
+}
+::view-transition-new(root) {
+  animation: 0.65s cubic-bezier(0.76, 0, 0.24, 1) both silk-curtain-in;
+}
+```
+

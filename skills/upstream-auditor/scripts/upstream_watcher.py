@@ -29,6 +29,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,12 @@ CUSTOM_SKILLS_DIR = os.path.join(CONFIG_DIR, "skills")
 SEED_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.seed.json")      # shipped, read-only
 # Seed that ships next to this script (used when the watcher runs from a source checkout).
 BUNDLED_SEED_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "upstream_state.seed.json")
+SYSTEM_SHARE_SEED_FILE = os.path.join(
+    os.path.expanduser(os.environ.get("ANTIGRAVITY_SHARE_DIR", "/usr/share/antigravity-harness")),
+    "skills",
+    "upstream-auditor",
+    "upstream_state.seed.json",
+)
 # In-tree ledger written by releases up to 1.3.0; 1.4 only reads it once, as a migration source.
 LEGACY_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
 
@@ -51,12 +58,34 @@ DEFAULT_STATE_DIR = os.path.expanduser(
 )
 STATE_FILE = os.environ.get("UPSTREAM_STATE_FILE", os.path.join(DEFAULT_STATE_DIR, "upstream_state.json"))
 BUILTIN_DIR = os.path.expanduser(os.environ.get("ANTIGRAVITY_BUILTIN_SKILLS_DIR") or "~/.gemini/antigravity/builtin/skills")
-PBTXT_FILE = os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt")
+PBTXT_FILE = os.path.expanduser(os.environ.get("ANTIGRAVITY_PBTXT_FILE") or "~/.gemini/antigravity/antigravity_state.pbtxt")
+
+
+def _ensure_runtime_sys_path() -> None:
+    repo_candidate = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    if os.name == "nt":
+        default_data = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "antigravity-harness")
+    else:
+        default_data = os.path.join(os.path.expanduser(os.environ.get("XDG_DATA_HOME", "~/.local/share")), "antigravity-harness")
+    data_root = os.path.expanduser(os.environ.get("AGY_GUARD_DATA_DIR") or default_data)
+    candidates = [
+        repo_candidate,
+        os.path.join(data_root, "runtime"),
+        "/usr/lib/antigravity-guard",
+    ]
+    for cand in candidates:
+        if cand and os.path.isfile(os.path.join(cand, "porter", "net.py")) and cand not in sys.path:
+            sys.path.insert(0, cand)
+
+
+_ensure_runtime_sys_path()
 
 # The host kills the hook after 15 s; the whole repository check must finish well before that.
 NETWORK_DEADLINE_SECONDS = 6.0
 REQUEST_TIMEOUT_SECONDS = 2.5
-MAX_NETWORK_WORKERS = 8
+MAX_NETWORK_WORKERS = 10
 NOTICE_COOLDOWN_HOURS = 12          # used only when the payload carries no session id
 # Even with session ids, the same notice is not repeated sooner than this (guards against an id
 # that turns out to change on every turn).
@@ -70,6 +99,10 @@ SESSION_ID_KEYS = (
 )
 NOTIFY_TITLE = "Antigravity Harness — upstream change"
 REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+HEX_SHA_RE = re.compile(r"[0-9a-fA-F]{7,40}")
+SUBPATH_RE = re.compile(r"[A-Za-z0-9_./-]+")
+TAG_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
+MAX_API_RESPONSE_BYTES = 262_144
 
 
 # ----------------------------------------------------------------------
@@ -132,8 +165,11 @@ def get_pbtxt_model():
     try:
         with open(PBTXT_FILE, "r", encoding="utf-8") as f:
             for line in f:
-                if "last_selected_agent_model" in line:
-                    return line.split(":", 1)[1].strip().strip('"')
+                if "last_selected_agent_model" in line and ":" in line:
+                    val = line.split(":", 1)[1].strip().strip('"')
+                    if val.upper().startswith("MODEL_PLACEHOLDER"):
+                        return ""
+                    return val
     except Exception:
         pass
     return ""
@@ -211,15 +247,52 @@ def save_state(state: dict) -> bool:
         return False
 
 
-def load_seed():
-    """Returns (seed_state, source_path) from the legacy ledger or the shipped seed."""
-    for candidate in (LEGACY_STATE_FILE, SEED_STATE_FILE, BUNDLED_SEED_FILE):
+def _shipped_seed_candidates():
+    candidates = [SEED_STATE_FILE, BUNDLED_SEED_FILE]
+    if "ANTIGRAVITY_SHARE_DIR" in os.environ or "ANTIGRAVITY_CONFIG_DIR" not in os.environ:
+        candidates.append(SYSTEM_SHARE_SEED_FILE)
+    return candidates
+
+
+def load_shipped_seed():
+    """Returns (seed_state, source_path) strictly from the shipped seed candidates."""
+    for candidate in _shipped_seed_candidates():
         if os.path.isfile(candidate):
             try:
                 return _read_json_object(candidate), candidate
             except (OSError, ValueError):
                 continue
     return None, ""
+
+
+def load_seed():
+    """Returns (seed_state, source_path) from the legacy ledger or the shipped seed."""
+    for candidate in [LEGACY_STATE_FILE] + _shipped_seed_candidates():
+        if os.path.isfile(candidate):
+            try:
+                data = _read_json_object(candidate)
+                if candidate == LEGACY_STATE_FILE:
+                    shipped, _ = load_shipped_seed()
+                    if shipped is not None:
+                        _reconcile_with_seed(data, shipped)
+                return data, candidate
+            except (OSError, ValueError):
+                continue
+    return None, ""
+
+
+def _compute_seed_digest(seed: dict) -> str:
+    canonical = {
+        "last_audited_model": seed.get("last_audited_model"),
+        "last_model_slug": seed.get("last_model_slug"),
+        "last_pbtxt_model": seed.get("last_pbtxt_model"),
+        "environment_Target": seed.get("environment_Target"),
+        "builtin_skills_hash": seed.get("builtin_skills_hash"),
+        "recorded_builtin_skills": seed.get("recorded_builtin_skills"),
+        "tracked_repositories": seed.get("tracked_repositories"),
+    }
+    raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def quarantine_corrupt_state() -> str:
@@ -235,6 +308,145 @@ def quarantine_corrupt_state() -> str:
         return ""
 
 
+def _copy_repo_entry(info: dict) -> dict:
+    out = dict(info)
+    if "target_skills" in out:
+        raw_ts = out["target_skills"]
+        out["target_skills"] = [s for s in raw_ts if isinstance(s, str)] if isinstance(raw_ts, list) else []
+    return out
+
+
+def _reconcile_with_seed(state: dict, seed: dict) -> bool:
+    """
+    Synchronizes tracked_repositories and audited environment baselines from a newer shipped seed
+    into an existing per-user ledger so repository/platform updates applied in the source checkout
+    take effect after install.py without requiring direct agent writes to the Guard-protected state directory.
+    """
+    if not isinstance(state, dict) or not isinstance(seed, dict):
+        return False
+
+    changed = False
+    raw_state_tracked = state.get("tracked_repositories")
+    if raw_state_tracked is not None and not isinstance(raw_state_tracked, dict):
+        state["tracked_repositories"] = {}
+        raw_state_tracked = {}
+        changed = True
+
+    seed_digest = _compute_seed_digest(seed)
+    prev_seed_digest = state.get("_reconciled_seed_digest")
+    has_prev_digest = isinstance(prev_seed_digest, str) and bool(prev_seed_digest)
+    seed_changed = (prev_seed_digest != seed_digest) if has_prev_digest else False
+
+    seed_ts = _parse_time(seed.get("last_audit_timestamp"))
+    state_ts = _parse_time(state.get("last_audit_timestamp"))
+    seed_newer = seed_ts is not None and (state_ts is None or seed_ts > state_ts)
+    ack_ts = _parse_time(state.get("last_ack_timestamp"))
+    seed_newer_than_ack = ack_ts is None or (seed_ts is not None and seed_ts > ack_ts)
+
+    seed_tracked = seed.get("tracked_repositories")
+    if not isinstance(seed_tracked, dict):
+        seed_tracked = {}
+    if not seed_tracked and not seed_newer and not seed_changed:
+        if state.get("_reconciled_seed_digest") != seed_digest:
+            state["_reconciled_seed_digest"] = seed_digest
+            return True
+        return changed
+
+    state_tracked = dict(raw_state_tracked) if isinstance(raw_state_tracked, dict) else {}
+    tracked_changed = False
+    can_sync_commits = seed_changed or (not has_prev_digest and (seed_newer or seed_ts is None or state_ts is None))
+
+    for name, seed_info in seed_tracked.items():
+        if not isinstance(seed_info, dict):
+            continue
+        cur_info = state_tracked.get(name)
+        if not isinstance(cur_info, dict):
+            state_tracked[name] = _copy_repo_entry(seed_info)
+            tracked_changed = True
+            continue
+        merged = _copy_repo_entry(cur_info)
+        for key in ("repo", "branch", "track", "path", "target_skills"):
+            if key in seed_info:
+                new_val = (
+                    [s for s in seed_info[key] if isinstance(s, str)]
+                    if key == "target_skills" and isinstance(seed_info[key], list)
+                    else seed_info[key]
+                )
+                if merged.get(key) != new_val:
+                    merged[key] = new_val
+                    tracked_changed = True
+            elif key in ("track", "path") and key in merged:
+                merged.pop(key, None)
+                tracked_changed = True
+        if can_sync_commits and isinstance(seed_info.get("last_synced_commit"), str) and seed_info["last_synced_commit"].strip():
+            if merged.get("last_synced_commit") != seed_info["last_synced_commit"]:
+                merged["last_synced_commit"] = seed_info["last_synced_commit"]
+                tracked_changed = True
+        state_tracked[name] = merged
+
+    if seed_newer or seed_changed:
+        raw_audit_ts = seed.get("last_audit_timestamp")
+        if seed_newer and isinstance(raw_audit_ts, str) and state.get("last_audit_timestamp") != raw_audit_ts:
+            state["last_audit_timestamp"] = raw_audit_ts
+            changed = True
+        raw_skills_ts = seed.get("last_skills_audit_timestamp")
+        seed_skills_ts = _parse_time(raw_skills_ts)
+        state_skills_ts = _parse_time(state.get("last_skills_audit_timestamp"))
+        if seed_tracked and isinstance(raw_skills_ts, str) and seed_skills_ts is not None:
+            if state_skills_ts is None or seed_skills_ts > state_skills_ts:
+                if state.get("last_skills_audit_timestamp") != raw_skills_ts:
+                    state["last_skills_audit_timestamp"] = raw_skills_ts
+                    changed = True
+                if state.get("last_audit_failed"):
+                    state["last_audit_failed"] = False
+                    changed = True
+        if seed_changed or (not has_prev_digest and seed_newer_than_ack):
+            if "recorded_builtin_skills" in seed and isinstance(seed.get("recorded_builtin_skills"), list):
+                clean_rbs = [s for s in seed["recorded_builtin_skills"] if isinstance(s, str)]
+                if state.get("recorded_builtin_skills") != clean_rbs:
+                    state["recorded_builtin_skills"] = clean_rbs
+                    changed = True
+            b_hash = seed.get("builtin_skills_hash")
+            if isinstance(b_hash, str) and b_hash.strip() and state.get("builtin_skills_hash") != b_hash:
+                state["builtin_skills_hash"] = b_hash
+                changed = True
+        if seed_changed or (not has_prev_digest and (seed_newer or seed_newer_than_ack)):
+            for env_key in (
+                "last_audited_model",
+                "last_model_slug",
+                "last_pbtxt_model",
+                "environment_Target",
+            ):
+                val = seed.get(env_key)
+                if isinstance(val, str) and val.strip() and not val.strip().upper().startswith("MODEL_PLACEHOLDER"):
+                    if state.get(env_key) != val:
+                        state[env_key] = val
+                        if env_key == "last_audited_model" and state.get("last_seen_model") and state.get("last_seen_model") != val:
+                            state["last_seen_model"] = val
+                        changed = True
+
+    if tracked_changed:
+        state["tracked_repositories"] = state_tracked
+        changed = True
+        raw_pending = state.get("pending_repo_updates")
+        if isinstance(raw_pending, dict):
+            pending = dict(raw_pending)
+            for name in list(pending):
+                entry = pending.get(name)
+                info = state_tracked.get(name)
+                if not isinstance(entry, dict) or not isinstance(info, dict):
+                    pending.pop(name, None)
+                    continue
+                if str(info.get("last_synced_commit", "")).strip() != str(entry.get("recorded", "")).strip():
+                    pending.pop(name, None)
+            state["pending_repo_updates"] = pending
+
+    if state.get("_reconciled_seed_digest") != seed_digest:
+        state["_reconciled_seed_digest"] = seed_digest
+        changed = True
+    return changed
+
+
 def load_state(write: bool = True):
     """
     Returns (state, source_description) or (None, reason).
@@ -244,11 +456,17 @@ def load_state(write: bool = True):
     note = ""
     if os.path.isfile(STATE_FILE):
         try:
-            return _read_json_object(STATE_FILE), STATE_FILE
+            state = _read_json_object(STATE_FILE)
+            seed, _ = load_shipped_seed()
+            if seed is not None and _reconcile_with_seed(state, seed) and write:
+                save_state(state)
+            return state, STATE_FILE
         except ValueError:
             if write:
                 moved = quarantine_corrupt_state()
-                note = f"corrupt ledger moved to {moved}" if moved else "corrupt ledger could not be moved"
+                if not moved:
+                    return None, f"corrupt ledger at {STATE_FILE} could not be quarantined; refusing to overwrite"
+                note = f"corrupt ledger moved to {moved}"
             else:
                 note = "ledger is corrupt; the next hook run moves it aside and re-seeds it"
         except OSError as e:
@@ -270,27 +488,75 @@ def load_state(write: bool = True):
 # ----------------------------------------------------------------------
 # Tracked repositories (network, bounded by a real overall deadline)
 # ----------------------------------------------------------------------
+def _short_ref(ref: str) -> str:
+    ref = str(ref or "").strip()
+    return ref[:7] if HEX_SHA_RE.fullmatch(ref) else ref
+
+
+def _valid_subpath(path: str) -> bool:
+    return bool(path) and bool(SUBPATH_RE.fullmatch(path)) and not any(seg in ("", ".", "..") for seg in path.split("/"))
+
+
 def _sha_matches(recorded: str, current: str) -> bool:
-    return bool(recorded and current) and (
-        recorded == current or current.startswith(recorded) or recorded.startswith(current)
-    )
+    if not (recorded and current):
+        return False
+    if recorded == current:
+        return True
+    if HEX_SHA_RE.fullmatch(recorded) and HEX_SHA_RE.fullmatch(current):
+        return current.startswith(recorded) or recorded.startswith(current)
+    return False
+
+
+def _valid_tag_or_ref(value: str) -> bool:
+    return bool(TAG_NAME_RE.fullmatch(str(value or "").strip()))
 
 
 def fetch_remote_head(info: dict):
-    """Returns the remote HEAD sha of a tracked repository, or None on any failure."""
-    repo = str(info.get("repo", ""))
-    branch = str(info.get("branch", "main"))
+    """Returns the remote HEAD sha or release tag of a tracked repository, or None on any failure."""
+    repo = str(info.get("repo", "")).strip()
+    branch = str(info.get("branch", "main")).strip() or "main"
+    track = str(info.get("track", "commits")).strip().lower()
+    subpath = str(info.get("path", "")).strip()
     if not REPO_RE.fullmatch(repo):
         return None
-    query = urllib.parse.urlencode({"sha": branch, "per_page": 1})
-    url = f"https://api.github.com/repos/{repo}/commits?{query}"
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    if track == "release":
+        url = f"https://api.github.com/repos/{repo}/releases/latest"
+    elif track == "commits":
+        params = {"sha": branch, "per_page": 1}
+        if subpath:
+            if not _valid_subpath(subpath):
+                return None
+            params["path"] = subpath
+        url = f"https://api.github.com/repos/{repo}/commits?{urllib.parse.urlencode(params)}"
+    else:
+        return None
     try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
-            data = json.loads(resp.read().decode())
-        if data and isinstance(data, list):
+        parsed_url = urllib.parse.urlparse(url)
+        if parsed_url.scheme != "https" or (parsed_url.hostname or "").lower() != "api.github.com":
+            return None
+        from porter.net import safe_fetch_url
+
+        raw_text = safe_fetch_url(
+            url,
+            user_agent=USER_AGENT,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            max_bytes=MAX_API_RESPONSE_BYTES,
+        )
+        data = json.loads(raw_text)
+        if track == "release":
+            if isinstance(data, dict):
+                tag = str(data.get("tag_name", "")).strip()
+                if tag and _valid_tag_or_ref(tag):
+                    return tag
+                return None
+        elif data and isinstance(data, list):
             sha = str(data[0]["sha"]).strip()
-            return sha or None
+            if sha and HEX_SHA_RE.fullmatch(sha):
+                return sha
+            return None
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        return None
     except Exception:
         return None
     return None
@@ -352,7 +618,12 @@ def check_tracked_skills(state: dict, now=None) -> bool:
     if last_dt is not None and (now - last_dt).total_seconds() < interval_hours * 3600:
         return False
 
-    tracked = {k: v for k, v in (state.get("tracked_repositories") or {}).items() if isinstance(v, dict)}
+    raw_tracked = state.get("tracked_repositories")
+    tracked = {
+        k: v
+        for k, v in (raw_tracked.items() if isinstance(raw_tracked, dict) else ())
+        if isinstance(v, dict)
+    }
     if not tracked:
         return False
 
@@ -383,9 +654,11 @@ def check_tracked_skills(state: dict, now=None) -> bool:
             pending.pop(name, None)
     state["pending_repo_updates"] = pending
     # Any failed repository triggers the short retry interval (partial failures are failures).
-    state["last_audit_failed"] = successes < len(tracked)
-    save_state(state)
-    return True
+    failed_any = successes < len(tracked)
+    state["last_audit_failed"] = failed_any
+    if not failed_any:
+        state["last_checked_iso"] = now.isoformat()
+    return save_state(state)
 
 
 # ----------------------------------------------------------------------
@@ -403,7 +676,8 @@ def collect_reasons(state: dict, payload_model: str = "") -> list:
     recorded_hash = state.get("builtin_skills_hash", "")
     if recorded_hash and current_builtin_hash and current_builtin_hash != recorded_hash:
         current_builtins = get_builtin_skills_list()
-        recorded_builtins = state.get("recorded_builtin_skills", []) or []
+        raw_rb = state.get("recorded_builtin_skills")
+        recorded_builtins = [s for s in raw_rb if isinstance(s, str)] if isinstance(raw_rb, list) else []
         added = sorted(set(current_builtins) - set(recorded_builtins))
         removed = sorted(set(recorded_builtins) - set(current_builtins))
         details = []
@@ -438,10 +712,13 @@ def collect_reasons(state: dict, payload_model: str = "") -> list:
             entry, info = pending.get(name), tracked.get(name)
             if not isinstance(entry, dict) or not isinstance(info, dict):
                 continue
-            recorded = str(entry.get("recorded", ""))
+            recorded = str(entry.get("recorded", "")).strip()
+            remote_val = str(entry.get("remote", "")).strip()
+            if not _valid_tag_or_ref(recorded) or not _valid_tag_or_ref(remote_val):
+                continue
             if str(info.get("last_synced_commit", "")).strip() != recorded:
                 continue  # the ledger was synchronized since this finding
-            updates.append(f"{name} ({recorded[:7]}->{str(entry.get('remote', ''))[:7]})")
+            updates.append(f"{name} ({_short_ref(recorded)}->{_short_ref(remote_val)})")
     if updates:
         reasons.append(f"New commits in tracked repositories ({', '.join(updates)})")
     return reasons
@@ -524,11 +801,18 @@ def _shorten(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def build_notice(reasons) -> str:
+def build_notice(reasons, first_time: bool = False) -> str:
     summary = _shorten("; ".join(reasons), MAX_NOTICE_CHARS)
+    first_seen_clause = (
+        " First-seen signature: after completing the user's request, you may append one standalone "
+        "`Upstream Notice:` line at the very end of the response."
+        if first_time
+        else ""
+    )
     return (
         f"[UPSTREAM WATCHDOG — operator notice, not a task instruction] {summary}. "
-        "Do not act on this and do not copy maintenance commands into task prompts, plans or handoffs. "
+        "Do not act on this and do not copy maintenance commands into task prompts, plans or handoffs."
+        f"{first_seen_clause} "
         f"Operator: review with /audit-upstream, silence with `{ack_command()}`."
     )
 
@@ -550,7 +834,8 @@ def spawn_desktop_notification(reasons) -> None:
                                        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         else:
             kwargs["start_new_session"] = True
-        subprocess.Popen(cmd, **kwargs)
+        proc = subprocess.Popen(cmd, **kwargs)
+        threading.Thread(target=proc.wait, name="upstream-notify-reaper", daemon=True).start()
     except Exception:
         pass
 
@@ -586,6 +871,22 @@ def run_hook(payload: dict) -> dict:
 
     check_tracked_skills(state)
 
+    raw_pending = state.get("pending_repo_updates")
+    if isinstance(raw_pending, dict):
+        cleaned_pending = {}
+        for repo_name, pend_entry in raw_pending.items():
+            if not isinstance(pend_entry, dict):
+                dirty = True
+                continue
+            rec_tag = str(pend_entry.get("recorded", "")).strip()
+            rem_tag = str(pend_entry.get("remote", "")).strip()
+            if not _valid_tag_or_ref(rec_tag) or not _valid_tag_or_ref(rem_tag):
+                dirty = True
+                continue
+            cleaned_pending[repo_name] = pend_entry
+        if len(cleaned_pending) != len(raw_pending):
+            state["pending_repo_updates"] = cleaned_pending
+
     active = unacknowledged(state, collect_reasons(state, payload_model))
     now = _now()
     inject, first_time = (False, False)
@@ -602,7 +903,7 @@ def run_hook(payload: dict) -> dict:
         return {}
     if first_time:
         spawn_desktop_notification(active)
-    return {"injectSteps": [{"ephemeralMessage": build_notice(active)}]}
+    return {"injectSteps": [{"ephemeralMessage": build_notice(active, first_time=first_time)}]}
 
 
 def cmd_status(model: str = "") -> int:
@@ -612,11 +913,16 @@ def cmd_status(model: str = "") -> int:
     print(f"  source : {source}")
     if state is None:
         return 1
+    audit_failed = bool(state.get("last_audit_failed"))
     last = state.get("last_skills_audit_timestamp") or "never"
-    outcome = "failed" if state.get("last_audit_failed") else "ok"
+    outcome = "failed" if audit_failed else "ok"
     print(f"  last repository check: {last} ({outcome})")
     reasons = collect_reasons(state, model or str(state.get("last_seen_model", "") or ""))
+    if audit_failed:
+        print("\n[WARN] Last upstream repository check failed (HTTP rate-limit or network error); synchronization is unverified.")
     if not reasons:
+        if audit_failed:
+            return 1
         print("\nNo upstream changes detected.")
         return 0
     active = set(unacknowledged(state, reasons))
@@ -625,7 +931,7 @@ def cmd_status(model: str = "") -> int:
         print(f"  - [{'new' if reason in active else 'acknowledged'}] {reason}")
     if active:
         print(f"\nReview with /audit-upstream; silence with: {ack_command()}")
-    return 0
+    return 1 if audit_failed else 0
 
 
 def cmd_ack(model: str = "") -> int:
@@ -633,6 +939,8 @@ def cmd_ack(model: str = "") -> int:
     if state is None:
         print(f"[ERROR] Upstream ledger unavailable: {source}", file=sys.stderr)
         return 1
+    if "corrupt ledger moved to" in str(source):
+        print(f"[WARN] Upstream ledger recovered from corruption: {source}", file=sys.stderr)
     model = model or str(state.get("last_seen_model", "") or "")
     reasons = collect_reasons(state, model)
 
@@ -695,7 +1003,8 @@ def main(argv=None) -> int:
         payload = {}
     try:
         response = run_hook(payload)
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] upstream_watcher hook error: {type(exc).__name__}: {exc}", file=sys.stderr)
         response = {}
     # ASCII-escaped JSON: valid for any consumer regardless of the console/pipe encoding.
     sys.stdout.write(json.dumps(response) + "\n")

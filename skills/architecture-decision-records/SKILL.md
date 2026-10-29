@@ -1,11 +1,6 @@
 ---
 name: architecture-decision-records
-description: 'Capture architectural decisions made during development sessions as
-  structured ADRs. Auto-detects decision moments, records context, alternatives considered,
-  and rationale. Maintains an ADR log so future developers understand why the codebase
-  is shaped the way it is. Invoke when: deciding architectural patterns, database
-  selection, protocol changes, auth model shifts, or when user says ''/adr'', ''record
-  adr'', ''document decision''.'
+description: 'Capture Tier 3 architectural decisions (>8 files, database selection, schema redesigns, protocol changes, or authentication model shifts) as structured Architecture Decision Records (ADRs) in docs/adr/. Maintains an ADR log with context, alternatives considered, and rationale. Invoke for Tier 3 architectural decisions or when user says ''/adr'', ''record adr'', ''document decision''. Not for Tier 1/2 routine implementation tasks (use ''harness'') or user-facing tutorials and API docs (use ''technical-writing'').'
 metadata:
   origin: ECC
 ---
@@ -16,7 +11,8 @@ Capture architectural decisions as they happen during coding sessions. Instead o
 
 ## When to Activate
 
-- User explicitly says "let's record this decision" or "ADR this"
+- User explicitly invokes `/adr`, or says "let's record this decision", "record adr", or "ADR this"
+- Tier 3 architectural decisions (`>8` files, database selection, schema redesigns, protocol changes, or authentication model shifts per `GEMINI.md` §3)
 - User chooses between significant alternatives (framework, library, pattern, database, API design)
 - User says "we decided to..." or "the reason we're doing X instead of Y is..."
 - User asks "why did we choose X?" (read existing ADRs)
@@ -179,7 +175,7 @@ proposed → accepted → [deprecated | superseded by ADR-NNNN]
 | **Testing** | Test framework, coverage targets, E2E vs integration balance |
 | **Process** | Branching strategy, review process, release cadence |
 
-## Integration with Other Skills
+## Integration with Other Skills and Subagents
 
-- **Planner agent**: when the planner proposes architecture changes, suggest creating an ADR
-- **Code reviewer agent**: flag PRs that introduce architectural changes without a corresponding ADR
+- **`harness` & `deep-grill` (Tier 3 Planning)**: when a Tier 3 architectural change (`>8 files`, schema, authentication, or cross-system protocol shift) is planned, record the decision in `docs/adr/` alongside `implementation_plan.md`.
+- **`consistency-auditor` & `specification-gap-auditor`**: verify that newly proposed specifications and architectural changes align with accepted ADRs or explicitly supersede them.

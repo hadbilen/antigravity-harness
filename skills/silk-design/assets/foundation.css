@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@import "./styles/masks.css";
-@import "./styles/animations.css";
+@import "./masks.css";
+@import "./animations.css";
 
 :root {
   /* Colors */
@@ -11,11 +11,25 @@
   --primary-cta-text: #000000;
   --secondary-cta: #1a1a1a;
   --secondary-cta-text: #ffffffe6;
-  --accent: #737373;
+  --accent: #8a8a8a;
   --background-accent: #00d5c7;
 
-  /* Border Radius - Pill */
-  --radius: 2rem;
+  /* Zero-Build CSS Variable Aliases (mirrors @theme inline for unbundled HTML) */
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-primary-cta: var(--primary-cta);
+  --color-primary-cta-text: var(--primary-cta-text);
+  --color-secondary-cta: var(--secondary-cta);
+  --color-secondary-cta-text: var(--secondary-cta-text);
+  --color-accent: var(--accent);
+  --color-background-accent: var(--background-accent);
+
+  /* Border Radius - Single Knob (lg, md, sm derive from here) */
+  --radius: 0.75rem;
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
 
   /* Content Width */
   --width-content-width: clamp(40rem, 72.5vw, 100rem);
@@ -29,21 +43,21 @@
   --width-carousel-item-3: calc(var(--width-content-width) / 3 - var(--vw-1_5) / 3 * 2);
   --width-carousel-item-4: calc(var(--width-content-width) / 4 - var(--vw-1_5) / 4 * 3);
 
-  /* Typography */
-  --text-2xs: clamp(0.465rem, 0.62vw, 0.62rem);
-  --text-xs: clamp(0.54rem, 0.72vw, 0.72rem);
-  --text-sm: clamp(0.615rem, 0.82vw, 0.82rem);
-  --text-base: clamp(0.69rem, 0.92vw, 0.92rem);
-  --text-lg: clamp(0.75rem, 1vw, 1rem);
-  --text-xl: clamp(0.825rem, 1.1vw, 1.1rem);
-  --text-2xl: clamp(0.975rem, 1.3vw, 1.3rem);
-  --text-3xl: clamp(1.2rem, 1.6vw, 1.6rem);
-  --text-4xl: clamp(1.5rem, 2vw, 2rem);
-  --text-5xl: clamp(2.025rem, 2.75vw, 2.75rem);
-  --text-6xl: clamp(2.475rem, 3.3vw, 3.3rem);
-  --text-7xl: clamp(3rem, 4vw, 4rem);
-  --text-8xl: clamp(3.5rem, 4.5vw, 4.5rem);
-  --text-9xl: clamp(5.25rem, 7vw, 7rem);
+  /* Typography (clamp with rem floor/ceiling for WCAG 1.4.4 zoom and 12px minimum) */
+  --text-2xs: clamp(0.75rem, 0.62vw + 0.5rem, 0.8125rem);
+  --text-xs: clamp(0.75rem, 0.72vw + 0.5rem, 0.875rem);
+  --text-sm: clamp(0.875rem, 0.82vw + 0.55rem, 0.9375rem);
+  --text-base: clamp(0.9375rem, 0.92vw + 0.6rem, 1.0625rem);
+  --text-lg: clamp(1rem, 1vw + 0.65rem, 1.125rem);
+  --text-xl: clamp(1.0625rem, 1.1vw + 0.7rem, 1.25rem);
+  --text-2xl: clamp(1.125rem, 1.3vw + 0.75rem, 1.5rem);
+  --text-3xl: clamp(1.25rem, 1.6vw + 0.8rem, 1.875rem);
+  --text-4xl: clamp(1.5rem, 2vw + 0.9rem, 2.25rem);
+  --text-5xl: clamp(1.875rem, 2.75vw + 1rem, 2.75rem);
+  --text-6xl: clamp(2.25rem, 3.3vw + 1.1rem, 3.3rem);
+  --text-7xl: clamp(2.5rem, 4vw + 1.2rem, 4rem);
+  --text-8xl: clamp(2.75rem, 4.5vw + 1.3rem, 4.5rem);
+  --text-9xl: clamp(3.25rem, 7vw + 1.5rem, 7rem);
 }
 
 /* Smaller laptops (< 14" MacBook) */
@@ -53,23 +67,23 @@
   }
 }
 
-/* Mobile typography */
+/* Mobile layout & fluid typography (respecting 0.75rem / 12px floor and rem zoom) */
 @media (max-width: 768px) {
   :root {
-    --text-2xs: 2.5vw;
-    --text-xs: 2.75vw;
-    --text-sm: 3vw;
-    --text-base: 3.25vw;
-    --text-lg: 3.5vw;
-    --text-xl: 4.25vw;
-    --text-2xl: 5vw;
-    --text-3xl: 6vw;
-    --text-4xl: 7vw;
-    --text-5xl: 7.5vw;
-    --text-6xl: 8.5vw;
-    --text-7xl: 10vw;
-    --text-8xl: 12vw;
-    --text-9xl: 14vw;
+    --text-2xs: clamp(0.75rem, 2.5vw, 0.8125rem);
+    --text-xs: clamp(0.75rem, 2.75vw, 0.875rem);
+    --text-sm: clamp(0.875rem, 3vw, 0.9375rem);
+    --text-base: clamp(0.9375rem, 3.25vw, 1rem);
+    --text-lg: clamp(1rem, 3.5vw, 1.125rem);
+    --text-xl: clamp(1.0625rem, 4.25vw, 1.25rem);
+    --text-2xl: clamp(1.125rem, 5vw, 1.5rem);
+    --text-3xl: clamp(1.25rem, 6vw, 1.75rem);
+    --text-4xl: clamp(1.5rem, 7vw, 2rem);
+    --text-5xl: clamp(1.75rem, 7.5vw, 2.25rem);
+    --text-6xl: clamp(2rem, 8.5vw, 2.5rem);
+    --text-7xl: clamp(2.25rem, 10vw, 3rem);
+    --text-8xl: clamp(2.5rem, 12vw, 3.5rem);
+    --text-9xl: clamp(2.75rem, 14vw, 4rem);
     --width-content-width: 80vw;
     --width-carousel-padding: calc((100vw - var(--width-content-width)) / 2 + 1px - 1rem);
     --width-carousel-padding-controls: calc((100vw - var(--width-content-width)) / 2 + 1px);
@@ -97,7 +111,6 @@
   --font-mono: monospace;
 
   /* Border Radius */
-  --radius: var(--radius);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -129,7 +142,7 @@
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 255, 171, 0.3) rgba(255, 255, 255, 0);
+  scrollbar-color: rgb(0 0 0 / 0.3) transparent;
 }
 
 html {
@@ -157,11 +170,24 @@ h6 {
   font-family: "Inter", sans-serif;
 }
 
+/* Cards do not apply backdrop-filter blur by default (antislop R-10); use .overlay-glass on sticky navs/modals only */
 .card {
-  backdrop-filter: blur(8px);
   background: linear-gradient(to bottom right, color-mix(in srgb, var(--color-card) 80%, transparent), color-mix(in srgb, var(--color-card) 40%, transparent));
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   border: 1px solid var(--color-card);
+}
+
+.overlay-glass {
+  backdrop-filter: blur(8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .primary-button {

@@ -1,6 +1,10 @@
 ---
 name: security-review
-description: "Comprehensive security review, vulnerability checklist, and verification engine. Invoke when: adding authentication, authorization checks, handling user input, secrets, API endpoints, payment logic, or when user invokes '/security-review', 'security check', 'audit security'."
+description: >-
+  Pre-deployment security verification checklist for secrets, headers, transport security, and cloud infrastructure.
+  Invoke when running a pre-deployment security checklist or when the user explicitly invokes '/security-review' or
+  'security review checklist'. Not for active code design of hard-to-misuse interfaces (use 'mistake-proofing') and
+  not for read-only adversarial boundary audits (use '/audit --boundary').
 license: MIT
 metadata:
   origin: ECC
@@ -12,12 +16,10 @@ This skill enforces zero-trust security checks, defense-in-depth principles, and
 
 ## When to Activate
 
-- Implementing authentication or authorization
-- Handling untrusted user input or file uploads
-- Creating or modifying API endpoints
-- Handling credentials, API keys, or secrets
-- Implementing financial/payment transactions
-- Storing or transmitting sensitive data
+- Running a pre-deployment security checklist across secrets, HTTP headers, transport security, and cloud infrastructure
+- User explicitly invokes `/security-review` or requests a `security review checklist`
+- Verifying authentication, authorization, untrusted input/upload handling, API endpoints, credentials, or payment boundaries before release
+- **Boundary Disambiguation:** For active code design of hard-to-misuse interfaces and compile-time state guards, use `mistake-proofing`. For read-only adversarial boundary audits with negative test generation, use `/audit --boundary` (`skills/audit/SKILL.md`).
 
 ## Context Hygiene & Think in Code
 
@@ -26,7 +28,7 @@ This skill enforces zero-trust security checks, defense-in-depth principles, and
 
 ## Subagent Orchestration
 
-For critical security audits, authentication/authorization overhauls, or multi-tenant data boundaries, dispatch the `security-boundary-verifier` subagent via `invoke_subagent` to avoid polluting the main conversation context. The subagent executes negative boundary tests and returns verified evidence to the primary session.
+For critical security audits, authentication/authorization overhauls, or multi-tenant data boundaries, dispatch the `security-boundary-verifier` subagent via `invoke_subagent` to avoid polluting the main conversation context. The subagent inspects bounded file slices and authors reproducible negative boundary tests for the primary session to execute and verify.
 
 ---
 
@@ -83,3 +85,5 @@ For critical security audits, authentication/authorization overhauls, or multi-t
 2. **Cloud & Infrastructure:** For deployments, IAM, logging/monitoring or CI/CD changes, also apply the checklist in `references/cloud-infrastructure-security.md`.
 3. **Endpoint Auth Audit:** Verify every exported route / controller implements explicit auth guard.
 4. **Automated Security Tests:** Run integration tests verifying unauthorized access returns 401/403.
+5. **Boundary & Result Requirement:** For every reported vulnerability, name the lower-trust principal, accepted input or action, crossed control boundary, and concrete owner-observable result; do not elevate a checklist preference or self-impact into a severity-ranked vulnerability.
+6. **Source Visibility Discipline:** When external controls (reverse proxy, Web Application Firewall (WAF), Identity and Access Management (IAM) policy, or broker Access Control Lists (ACLs)) are absent from the repository, mark the item `[OPEN QUESTION]` with the exact missing deployment fact instead of assuming those controls exist or are missing.

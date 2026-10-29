@@ -1,20 +1,16 @@
 ---
 name: antislop-layoutmobile
-description: 'Mobile layout skill for antislop. Use for layouts that reflow across
-  screen sizes, phone to desktop: grids, overflow, tap targets. Load with the core.
-  Invoke when: fixing responsive layouts, mobile horizontal overflow, tap targets,
-  mobile viewport issues, or when user says ''mobile layout'', ''fix overflow'', ''responsive
-  check''.'
+description: 'Mobile layout deep-dive module for antislop (grids, horizontal overflow, tap targets, responsive reflow). Load on demand when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures, or when user says ''antislop-layoutmobile'', ''mobile layout'', ''fix overflow'', ''responsive check''. DO NOT co-load automatically on routine backend or copy-only edits; not for prose rewrites (use ''antislop-copywriting'').'
 ---
 # antislop-layoutmobile
 
 > Anti Slop: Rules for AI Coding Agents. Mobile Layout skill
 
-> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the responsive layout concern: how a layout must reflow across screen sizes, phone to desktop. Breakpoints, scale, grids, overflow, tap targets, and navigation. It references core rules by number and never duplicates or renumbers them. Load it when the task builds or edits a layout that has to hold up at any screen width.
+> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the responsive layout concern: how a layout must reflow across screen sizes, phone to desktop. Breakpoints, scale, grids, overflow, tap targets, and navigation. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures.
 
 ## How to use this skill
 
-- Load together with the `antislop` core skill (`skills/antislop/SKILL.md`) whenever the task is mobile or responsive layout work. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds mobile-layout depth.
+- Load on demand alongside the `antislop` core skill (`skills/antislop/SKILL.md`) when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures (do not co-load automatically on every routine UI edit). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds mobile-layout depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - The principle behind this skill: **mobile layout is a different layout, not the desktop layout at a smaller size.** It must reflow: re-stack, rescale, and re-order with intent. Every pattern below is a way a layout fails to reflow.
 - The Delivery Gate in the core remains the gate. The "Layoutmobile Skill Checklist" at the end of this file is the mobile-specific supplement to run alongside it.
@@ -31,7 +27,7 @@ description: 'Mobile layout skill for antislop. Use for layouts that reflow acro
 
 - **Tell:** breakpoints named after phone widths (375px, 414px, 768px) chosen because "that is the iPhone size", not because the content breaks there.
 - **Why:** device widths change every year and every model. A breakpoint is a point where the layout stops holding; forcing it to match a device list makes the layout follow a spec sheet instead of the content (R-03).
-- **Fix:** place breakpoints where the content actually breaks: when a column stops being readable, when a row of cards gets too narrow. Test by narrowing the viewport and watching where it snaps, then set the breakpoint there.
+- **Fix:** place breakpoints where the content actually breaks: when a column stops being readable, when a row of cards gets too narrow. Prefer intrinsic fluid tracks (`minmax(min(100%, 18rem), 1fr)`) and content-driven `@media` / `@container` queries; verify with a live browser viewport when available, or inspect CSS track math and declare live-viewport resizing under `Not verified` (`GEMINI.md` Rule 8).
 
 ### Mobile Styled Last
 
@@ -43,7 +39,7 @@ description: 'Mobile layout skill for antislop. Use for layouts that reflow acro
 
 - **Tell:** a layout with exactly two states: a single stacked column below one breakpoint, and a wide multi-column grid above it, with nothing defined in between. A tablet or small laptop width then inherits whichever state is closest: the phone stack stretched absurdly wide, or the desktop grid crammed into a fraction of its intended canvas.
 - **Why:** a page is a continuous range of widths, and R-03 demands it hold up at every one of them, not just two chosen breakpoints. Two states leave the whole middle band of the range (roughly 600 to 1024 px, where tablets and small laptops live) as an accident: content that neither stacks with intent nor sits in a grid that fits. The layout reads as designed only at its two sample points and broken everywhere between.
-- **Fix:** define real states at the widths where the content stops working, and let them be as many as the content needs. A typical reflow is three states, not two: single column, then a two-column grid when cards get too wide as a single stack, then the full multi-column grid only when it genuinely fits. Verify by dragging the viewport through the whole range, not by checking two widths and calling it done (R-35).
+- **Fix:** define real states at the widths where the content stops working, and let them be as many as the content needs. A typical reflow is three states, not two: single column, then a two-column grid when cards get too wide as a single stack, then the full multi-column grid only when it genuinely fits. Verify across mobile, tablet (`600px–1024px`), and desktop rules in CSS (and live viewport resizing when available; else declare under `GEMINI.md` Rule 8) (R-35).
 
 ## Scale & Sizing
 
@@ -129,7 +125,7 @@ description: 'Mobile layout skill for antislop. Use for layouts that reflow acro
 
 - **Tell:** menus, reveals, and tooltips that exist only on hover, so a touch user can never open them.
 - **Why:** there is no hover on a touchscreen. An interaction that only responds to hover simply does not exist for mobile users, and any control that relies on it is a dead end (R-03).
-- **Fix:** give every hover-only interaction a tap equivalent: a menu that opens on hover also opens on tap, a reveal also shows on click, and interactive elements show visible `:active` feedback so a tap registers. Test by using the UI with touch alone (R-35).
+- **Fix:** give every hover-only interaction a tap/click equivalent: a menu that opens on hover also opens on tap/click, a reveal also shows on click/focus, and interactive elements show visible `:active` feedback so a tap registers. Verify `:active` and click/focus handlers in CSS/DOM (and test touch emulation when a browser tool is available; else declare under `GEMINI.md` Rule 8) (R-35).
 
 ## Mobile Navigation
 
@@ -170,4 +166,4 @@ Run these alongside the core Delivery Gate when the task is mobile or responsive
 - [ ] Do hover-only interactions have a tap equivalent with visible feedback? (R-03)
 - [ ] Does the navigation reflow into a mobile pattern (bottom nav or menu) instead of a squeezed desktop row? (R-03)
 - [ ] Do fixed nav bars (bottom nav, sticky headers) never cover content and respect safe areas? (R-03)
-- [ ] Is the layout verified at mobile breakpoints? (R-35)
+- [ ] Are responsive media/container rules, fluid track widths, and `:active`/click handlers verified in code (and live mobile viewport rendering verified when available, or declared under `GEMINI.md` Rule 8)? (R-35)

@@ -4,7 +4,8 @@ description: 'Design and copy quality filter for AI coding agents. Enforces inte
   eliminates AI-slop visual tropes, buzzword copy, and fake UI placeholders across
   38 rules, a Liveliness Toolkit, and Delivery Gate. Invoke when: designing, building,
   or reviewing websites, web apps, or interfaces, or when user invokes ''/antislop'',
-  ''anti-slop'', or runs a UI delivery gate.'
+  ''anti-slop'', or runs a UI delivery gate. Not for code-only comment cleanup without
+  UI/copy scope (use ''antislop-code'') or backend-only refactoring (use ''refactoring'').'
 ---
 
 # antislop
@@ -82,7 +83,7 @@ Every section exists because the product's content needs it, not because every A
 
 ### C-4 — Resilience
 
-The UI holds up in every state (empty, loading, error), every theme you ship, every breakpoint, and keyboard-only use.
+The UI holds up in every state (default, loading, empty, error, success), every theme you ship, every breakpoint, and keyboard-only use.
 
 ### C-5 — Evidence Over Claims
 
@@ -314,16 +315,16 @@ The 38 rules fall into three groups with different enforcement standards:
 - Banned: huge, blurry, diffuse colored shadows that make flat elements appear to float aimlessly.
 
 #### R-13 — Glow
-- Neon/colored glows are allowed only for active status indicators (e.g. green online indicator dot).
-- Banned: glowing borders around cards and buttons.
+- Neon/colored glows are allowed only for active status indicators (e.g. green online indicator dot) in `MODE: UTILITY` and `MODE: EDITORIAL`, or for diegetic combat/rarity/spell feedback inside `MODE: GAME & INTERACTIVE` canvases (`DESIGN.md` §2.1).
+- Banned: glowing borders around standard web cards and buttons.
 
 #### R-14 — Feature Cards
-- Card containers are allowed when grouping heterogeneous content or interactive entities.
+- Card containers are allowed when grouping heterogeneous content or interactive entities, subject to the **Anti-Boxification** and **Sibling Symmetry Cap** rules in Part 3 (at most 2 identical-width sibling cards side by side).
 - Banned: 3-column identical feature cards with an icon, title, and 2 lines of generic text.
 
 #### R-19 — Animations
-- Motion must guide user focus or explain state transitions (duration 150ms–300ms, respect `prefers-reduced-motion`).
-- Banned: continuous looping animations, pulsing buttons, and elements sliding in from random directions on scroll.
+- Motion must guide user focus or explain state transitions (`0ms` / static at `MOTION 1`, `150ms–200ms` at `MOTION 2`, up to `300ms` at `MOTION 3+`, and always emit client-side `@media (prefers-reduced-motion: reduce)` and `window.matchMedia` guards to collapse animations to `MOTION 1`). In `MODE: GAME & INTERACTIVE` (`MOTION 4–5`), continuous canvas/HUD frame-loop animations (`requestAnimationFrame`, idle breathing, particles, camera trauma) are permitted inside the game viewport alongside an accessible shake/flash reduction guard.
+- Banned: continuous looping animations, pulsing buttons, and elements sliding in from random directions on scroll in `MODE: UTILITY` and `MODE: EDITORIAL`.
 
 #### R-22 — Illustrations
 - Illustrations must directly illustrate the domain or workflow.
@@ -349,13 +350,13 @@ The 38 rules fall into three groups with different enforcement standards:
 - Tone must remain consistent and grounded. Never slip into hype.
 
 #### R-20 — Visual Identity
-- The design must express a clear archetype: Technical/Developer, Editorial, Minimalist Corporate, or Playful Consumer. Never mix archetypes.
+- The design must express a clear archetype aligned with `DESIGN.md` §2.1: Technical/Developer (`MODE: UTILITY`), Editorial/Showcase (`MODE: EDITORIAL`), Minimalist Corporate (`MODE: UTILITY`), Playful Consumer (`MODE: EDITORIAL`), or Game & Interactive Canvas (`MODE: GAME & INTERACTIVE`). Never mix archetypes unintentionally.
 
 #### R-21 — Dark Mode
-- Dark mode must be designed with deliberate contrast and surface layers (dark grey `#121212`, elevated surfaces `#1E1E1E`), not pure `#000000` with blinding `#FFFFFF` text.
+- Dark mode must be designed with deliberate contrast and surface layers (e.g., `DESIGN.md` zinc `#09090B` / `#18181B` or illustrative dark grey `#121212` / `#1E1E1E`; always defer to `DESIGN.md` tokens), never pure `#000000` with blinding `#FFFFFF` text.
 
 #### R-29 — Color Palette
-- Maximum 1 primary brand color, 1 secondary/accent color, and neutral shades. Every color must belong to the design system.
+- In `MODE: UTILITY` and `MODE: EDITORIAL`, cap the active UI palette at 1 primary brand color, 1 secondary/accent color, and neutral shades. In `MODE: GAME & INTERACTIVE`, additional semantic gameplay tokens (health, mana, stamina, elemental affinities, and item rarity tiers) are permitted (`DESIGN.md` §2.1) provided every color belongs to the declared token table and raw uncalibrated RGB/CMY primaries (`#FF0000`, `#00FF00`, `#0000FF`, `#FFFF00`, `#FF00FF`, `#00FFFF`) are never used.
 
 #### R-30 — Do Not Clone Popular Products
 - Never blindly duplicate the visual signature of Stripe, Linear, or Vercel unless explicitly directed. Build for the current product's needs.
@@ -365,9 +366,9 @@ The 38 rules fall into three groups with different enforcement standards:
 
 ---
 
-## Part 3: Liveliness Toolkit
+## Part 3: Liveliness Toolkit & Positive Compositional Grammar
 
-Eliminating slop leaves a void. To prevent the design from turning into a sterile, soulless grey wireframe, adjust these three dials:
+Eliminating first-order slop (purple gradients, emoji spam, fake metrics) leaves a void. If that void is filled only by uniform `border + rounded + bg-zinc-900` boxes, the output collapses into a **second-order AI tell** (the "Sterile Admin Box" template). To prevent this, apply both the **Three Dials** and the **Positive Compositional Grammar** below:
 
 ### Three Dials (Required)
 
@@ -375,7 +376,7 @@ Eliminating slop leaves a void. To prevent the design from turning into a steril
 |---|---|---|---|---|
 | **ENERGY** | 1 – 5 | Visual intensity, contrast, color punch, boldness | Monochromatic, subtle, quiet | High-contrast, bold accents, striking typography |
 | **RHYTHM** | 1 – 5 | Layout variation, asymmetry, pacing changes | Predictable grid, uniform spacing | Varied section scales, intentional asymmetry, editorial rhythm |
-| **MOTION** | 1 – 5 | Transition dynamics, interactive micro-feedback | Static, instantaneous state changes | Fluid page transitions, responsive micro-interactions |
+| **MOTION** | 1 – 5 | Transition dynamics, interactive micro-feedback | Static, instantaneous state changes | Fluid page transitions, responsive micro-interactions, canvas loops |
 
 ### Levers (How Dials Become Visual Decisions)
 1. **Scale:** Contrast between small labels and large display headings.
@@ -384,11 +385,27 @@ Eliminating slop leaves a void. To prevent the design from turning into a steril
 4. **Type:** Expressive typography pairing.
 5. **Spacing:** Deliberate rhythm in padding and margins.
 
-### Design Read (How Dials Are Set by Archetype)
-- **Developer / Technical Tool:** Energy: 2, Rhythm: 2, Motion: 2 (High density, neutral palette, fast micro-interactions).
-- **B2B Enterprise:** Energy: 2, Rhythm: 3, Motion: 2 (Clean hierarchy, dependable structure, subtle transitions).
-- **Consumer Product:** Energy: 4, Rhythm: 4, Motion: 3 (Warm palette, distinct identity, lively interaction).
-- **Creative / Editorial:** Energy: 4, Rhythm: 5, Motion: 3 (Bold typography, asymmetrical grid, expressive layouts).
+### Design Read (How Dials Are Set by Archetype — `DESIGN.md` §2.1)
+- **Developer / Technical Tool (`MODE: UTILITY`):** Energy: 2, Rhythm: 2, Motion: 2 (High density, neutral palette, fast micro-interactions).
+- **B2B Enterprise (`MODE: UTILITY`):** Energy: 2, Rhythm: 3, Motion: 2 (Clean hierarchy, dependable structure, subtle transitions).
+- **Consumer Product (`MODE: EDITORIAL`):** Energy: 4, Rhythm: 4, Motion: 3 (Warm palette, distinct identity, lively interaction).
+- **Creative / Editorial (`MODE: EDITORIAL`):** Energy: 4, Rhythm: 5, Motion: 3 (Bold typography, asymmetrical grid, expressive layouts).
+- **Game & Interactive Canvas (`MODE: GAME & INTERACTIVE`):** Energy: 4–5, Rhythm: 4, Motion: 4–5 (Diegetic HUD, Input Feedback Triad, atmospheric typography, continuous frame-loop vitality; see `skills/game-engineering/SKILL.md`).
+
+### Positive Compositional & Geometric Constraints (Anti-Sterility Grammar)
+A one-line verbal excuse (`R-31`) never excuses a generic layout topology. Enforce these four structural locks in code:
+1. **Anti-Boxification & Surface Budget (`Zero-Box Default`):**
+   - Do not wrap every logical group in a `border + rounded + background` box.
+   - A single viewport may contain at most **1 primary bordered card/surface group**. Delineate all other sections using spatial whitespace (`24px–64px`), typographic hierarchy, or single-edge hairlines (`border-t` / `border-b`).
+   - **No Card-in-Card Nesting:** Placing a bordered, rounded card surface inside another bordered, rounded card surface (`UI-2`) is prohibited unless the inner element is an interactive draggable token or modal overlay.
+2. **Sibling Symmetry Cap (`Focus + Support Topology`):**
+   - Never render **3 or more sibling containers** sharing an identical width, height, padding, and internal DOM skeleton (`icon + heading + paragraph`, `UI-1`).
+   - When presenting 3 or more items, break symmetry into **1 Dominant Focal Element (`55%–65%` width)** paired with **Compact Support Rows/List (`35%–45%` width)**, or an editorial staggered sequence.
+3. **Typographic Scale Ratio Lock:**
+   - Avoid the flat `14px–20px` machine text band. Whenever `ENERGY >= 3`, enforce at least a **`3.5:1` size ratio** between the primary display heading/metric (e.g., `56px` or `clamp(2.5rem, 5vw, 4rem)`) and body text (`16px`), paired with contrasting weight (`700/800` tight tracking vs. `400` body).
+4. **Game & Interactive Canvas Vitality (`MODE: GAME & INTERACTIVE`):**
+   - **Input Feedback Triad:** Every primary player action (attack, jump, card play, upgrade, selection) must trigger at least two synchronous feedback channels within `< 16ms`: (1) visual (`80ms–140ms` transform/squash-stretch tween, 2–4 frame hit-flash, directional knockback, or pooled particle burst), (2) spatial/camera (decaying trauma-based screen shake honoring `prefers-reduced-motion` or 2–4 frame hit-stop), and (3) audio/tactile cue (synthesized WebAudio procedural sound effect or audio/haptic hook with mute toggle).
+   - **Diegetic Controls & Cohesive Palette:** Never leave unstyled browser `<button>`/`<input>` elements or raw uncalibrated RGB/CMY primaries (`#FF0000`, `#00FF00`, `#0000FF`, `#FFFF00`, `#FF00FF`, `#00FFFF`, `UI-4`) inside a game viewport.
 
 ---
 
@@ -400,33 +417,51 @@ Eliminating slop leaves a void. To prevent the design from turning into a steril
 
 ---
 
+## Deterministic Structural Slop Scan (`check_ui_slop.py`)
+
+Self-graded uniqueness checkboxes are insufficient on their own. Whenever generating or modifying HTML, JSX, TSX, Vue, Svelte, or CSS files, run the bundled zero-dependency structural scanner before declaring completion:
+
+```bash
+python3 skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode auto
+# Installed global path (when outside repository checkout):
+python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode auto
+# Explicit domain mode (utility | editorial | game):
+python3 skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode game --summary
+```
+
+The scanner deterministically flags cloned 3+ sibling card grids (`UI-1`), nested card-in-card boxification (`UI-2`), unearned AI gradient/blur/bounce tells (`UI-3`), raw programmer-art RGB primaries in game canvases (`UI-4`), and dead anchors or no-op button stubs (`UI-5`).
+
+---
+
 ## Delivery Gate (Mandatory Pre-Ship Verification)
 
 Before delivering any UI work, evaluate against the 4 delivery blocks. Every item must pass:
 
 ### Block 1: Hard Gate (Absolute)
-- [ ] No marketing buzzwords or generic hype (R-02)
+- [ ] No marketing buzzwords or generic hype (R-02; verified via `skills/antislop-copywriting/scripts/check_synthetic_markers.py` or `~/.gemini/config/skills/antislop-copywriting/scripts/check_synthetic_markers.py` on prose/copy)
 - [ ] Mobile responsive without horizontal overflow (R-03)
 - [ ] No invented numbers or fake statistics (R-17)
 - [ ] No fake testimonials or customer logos (R-18)
-- [ ] All navigation links point to real routes (R-24)
-- [ ] Text meets WCAG AA contrast (R-25)
+- [ ] All navigation links point to real routes (R-24; zero `UI-5` dead anchors)
+- [ ] Text meets WCAG AA contrast (R-25; verified via `skills/antislop-human/contrast-check.py` or `~/.gemini/config/skills/antislop-human/contrast-check.py`)
 - [ ] Complete hover/focus/active states for all interactive elements (R-26)
 - [ ] Handles all 5 UI states: default, loading, empty, error, success (R-27)
 - [ ] Full keyboard accessibility with visible focus rings (R-32)
 - [ ] Both light and dark themes function correctly (R-34)
 
-### Block 2: Purpose-Gate (Technique with Justification)
-- [ ] Every gradient, shadow, badge, and animation has a stated purpose
-- [ ] No decorative icons filling space without meaning (R-04)
-- [ ] No unearned glowing borders or glassmorphism overload (R-10, R-13)
-- [ ] Feature cards vary in hierarchy and structure (R-14)
+### Block 2: Purpose-Gate & Positive Geometric Locks
+- [ ] Deterministic UI slop scanner (`python3 skills/antislop/scripts/check_ui_slop.py` or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) exits with `0` findings (`UI-1` through `UI-5`)
+- [ ] Anti-Boxification respected: at most 1 primary bordered card group per viewport, zero nested `card-in-card` containers (`UI-2`)
+- [ ] Sibling Symmetry Cap respected: at most 2 identical-width sibling cards side by side; 3+ items use `55%–65%` focal + `35%–45%` support topology (`R-14`, `UI-1`)
+- [ ] No decorative icons filling space without meaning (R-04) and no unearned glowing borders or glassmorphism overload (R-10, R-13, `UI-3`)
 
-### Block 3: Liveliness
-- [ ] Dials (Energy, Rhythm, Motion) match the product archetype
-- [ ] Layout has pacing variation; does not feel like a sterile template
+### Block 3: Liveliness & Domain Mode Alignment
+- [ ] Dials (Energy, Rhythm, Motion) and Domain Mode (`UTILITY`, `EDITORIAL`, or `GAME & INTERACTIVE` per `DESIGN.md` §2.1) match the product archetype
+- [ ] At `ENERGY >= 3`, primary display headings maintain `>= 3.5:1` scale contrast over body text
+- [ ] In `MODE: GAME & INTERACTIVE`, primary player actions implement the Input Feedback Triad and diegetic HUD styling with zero raw RGB programmer art (`UI-4`)
 
 ### Block 4: Craftsmanship & Quality Locks
 - [ ] Consistent border radius and spacing scale across all components (R-05, R-11)
 - [ ] Clear visual hierarchy with a single primary CTA per view (R-15)
-- [ ] Passed the uniqueness test: Would this interface still feel distinct if the logo were removed?
+- [ ] Distinct domain identity verified: consistent typography tokens (max 2 font families per `DESIGN.md` §4), explicit Domain Archetype alignment (`UTILITY`, `EDITORIAL`, or `GAME & INTERACTIVE`), and zero generic template placeholders (`UI-1`–`UI-5`)
+

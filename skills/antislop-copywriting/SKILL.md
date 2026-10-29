@@ -1,20 +1,16 @@
 ---
 name: antislop-copywriting
-description: 'Copy and text skill for antislop. Use when writing or editing prose:
-  headlines, tone, CTAs, and anti-AI-writing patterns, including de-AI rewrites and
-  scanning a draft for signs of AI writing with the bundled scanner. Load with the core.
-  Invoke when: writing marketing prose, headlines, CTAs, landing page copy, making text
-  sound less AI-generated, or when user says ''write copy'', ''antislop copy'', ''anti-ai tone''.'
+description: 'Copy and text deep-dive module for antislop (headlines, tone, CTAs, de-AI prose rewrites, and synthetic-marker scanning). Load on demand when explicitly writing or auditing marketing prose, landing-page copy, or de-AI text rewrites, or when user says ''antislop-copywriting'', ''write copy'', ''antislop copy'', ''anti-ai tone''. DO NOT co-load automatically on routine UI layout or code edits; not for developer documentation or API references (use ''technical-writing'').'
 ---
 # antislop-copywriting
 
 > Anti Slop: Rules for AI Coding Agents. Copy & Text skill
 
-> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the copy and text concern: headlines, CTAs, tone, value propositions, and the patterns that make AI-written prose easy to spot. It references core rules by number and never duplicates or renumbers them. Load it when the task writes or edits marketing copy, product copy, landing-page text, or any prose meant for people to read.
+> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the copy and text concern: headlines, CTAs, tone, value propositions, and the patterns that make AI-written prose easy to spot. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly writing or auditing marketing copy, product copy, landing-page text, or de-AI prose rewrites.
 
 ## How to use this skill
 
-- Load together with the `antislop` core skill (`skills/antislop/SKILL.md`) whenever the task is copy or text work. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate) and the hard bans (R-02, R-15, R-16, R-17, R-18, R-36, R-38). This skill holds copy-specific depth that the core does not.
+- Load on demand alongside the `antislop` core skill (`skills/antislop/SKILL.md`) when explicitly writing or auditing marketing prose, landing-page copy, or de-AI text rewrites (do not co-load automatically on routine UI layout edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate) and the hard bans (R-02, R-15, R-16, R-17, R-18, R-36, R-38). This skill holds copy-specific depth that the core does not.
 - Every pattern has the same shape: **The pattern**, **Why it reads as AI**, **Before** (the slop), **After** (the fix), with the governing core rule cited as R-XX.
 - Two rules apply to everything below:
   - **Never invent facts** (R-17, R-36, R-38). A rewrite adds no fact, name, number, date, quote, or citation that is not in the source text or supplied by the user. Specificity comes from the source or the user, not from the rewrite. If a sentence needs real detail to work, ask for it or write the plain version without it.
@@ -31,7 +27,7 @@ description: 'Copy and text skill for antislop. Use when writing or editing pros
   > Unlock the power of seamless collaboration to elevate your team's journey to the next level.
 - **After:**
   > Work with your team in one shared space.
-- **Rule:** R-16 (buzzwords), R-36 (no fabricated claims).
+- **Rule:** R-02 (no marketing buzzwords or generic hype), R-16 (natural human prose), R-36 (no fabricated claims).
 
 ### Significance Inflation
 
@@ -122,7 +118,7 @@ description: 'Copy and text skill for antislop. Use when writing or editing pros
   > The pricing page was updated to reflect the new tiers.
 - **After:**
   > We rewrote the pricing page to show the new tiers.
-- **Rule:** R-02 (text must feel natural and human).
+- **Rule:** R-16 (text must feel natural and human).
 - **Not a ban:** passive is the right choice when the actor is unknown, irrelevant, or deliberately withheld ("the server was restarted at 03:00"), and when the object is the real subject of the paragraph. The tell is passive chosen by default, page after page, with an actor that was available the whole time.
 
 ### Inanimate Subject, Human Verb
@@ -133,7 +129,7 @@ description: 'Copy and text skill for antislop. Use when writing or editing pros
   > The dashboard understands what your team needs and surfaces the right numbers.
 - **After:**
   > The dashboard opens on the three metrics your team checks every morning.
-- **Rule:** R-02, R-16 (specific language over claims).
+- **Rule:** R-02 (no hype), R-16 (natural human prose and specific language over claims).
 - **Not a ban:** ordinary product verbs are fine, and so are established idioms. "The report shows", "the form submits", "the filter narrows the list" describe what the thing does. The tell is a verb that needs a mind behind it: understands, knows, decides, wants, believes, cares.
 
 ## Rhythm & Structure
@@ -146,7 +142,7 @@ description: 'Copy and text skill for antislop. Use when writing or editing pros
   > Attendees can expect keynote sessions, panel discussions, and networking opportunities. They'll leave with innovation, inspiration, and industry insights.
 - **After:**
   > The event includes talks, panels, and time for informal networking between sessions.
-- **Rule:** R-05 (page structure), R-36.
+- **Rule:** R-05 (page structure), R-16 (natural prose rhythm), R-36.
 
 ### Negative Parallelism and Tailing Negations
 
@@ -197,6 +193,16 @@ description: 'Copy and text skill for antislop. Use when writing or editing pros
 - **After:**
   > Handles quotes, invoices, and payment reminders.
 - **Rule:** R-36.
+
+### Monotonous Sentence Cadence (`6.7` — Low Burstiness)
+
+- **The pattern:** four or more consecutive mid-length sentences (`8–16` words each) in the same paragraph whose lengths stay within a one-word spread.
+- **Why it reads as AI:** scrubbing banned words while keeping every sentence the exact same length produces a flat, metronomic drone. Human prose has *burstiness*: a short, direct statement followed by a longer clause that carries the mechanism or exception.
+- **Before:**
+  > The billing engine processes every invoice at midnight each day. The webhook worker retries failed deliveries three times per hour. The audit ledger records every state transition in real time. The dashboard displays active subscriptions for every regional account team.
+- **After:**
+  > Invoices clear at midnight. If a webhook fails, the worker retries three times over the next hour while the audit ledger records every state transition for regional account teams.
+- **Rule:** R-36, R-37 (`6.7` in `check_synthetic_markers.py`).
 
 ## Honesty & Evidence
 
@@ -314,6 +320,80 @@ description: 'Copy and text skill for antislop. Use when writing or editing pros
   > This may be why the feature went unused.
 - **Rule:** R-36.
 
+## Turkish Synthetic Markers (`TR-1` to `TR-7`)
+
+When authoring or reviewing Turkish copy, product UI strings, or technical documentation (`--lang tr` or `--lang auto`), apply the same anti-slop discipline to machine-translated calques and Turkish brochure tropes:
+
+### `TR-1`: Turkish Negative Parallelism (`Sadece X değil, aynı zamanda Y`)
+
+- **The pattern:** `sadece/yalnızca X değil, aynı zamanda Y`, `bir X olmaktan öte`, or `X değil, bir Y'dir` used to manufacture depth.
+- **Why it reads as AI:** direct calque of English `It's not just X, it's Y`. Natural Turkish states what the thing is without staging a contrast nobody asked for.
+- **Before:**
+  > Bu uygulama sadece bir görev yöneticisi değil, aynı zamanda ekip kültürünüzün yeni yaşam tarzıdır.
+- **After:**
+  > Bu uygulama ekibinizin günlük görevlerini ve teslim tarihlerini tek ekranda toplar.
+- **Rule:** R-36.
+
+### `TR-2`: Turkish Inflated Significance (`Kritik bir rol oynamaktadır`)
+
+- **The pattern:** `kritik/hayati/kilit bir rol oynamaktadır`, `adeta bir ... niteliğindedir`, `devrim niteliğinde`, `dönüm noktası niteliğindedir`, `yeni bir çağ başlatmaktadır`, `mihenk taşı`, `ev sahipliği yapmaktadır`.
+- **Why it reads as AI:** ceremonious significance claims and formal `-mektedir/-maktadır` padding where a direct verb (`vardır`, `içerir`, `azaltır`) belongs.
+- **Before:**
+  > Önbellek katmanımız sistem performansında kritik bir rol oynamaktadır ve devrim niteliğinde bir hız sunar.
+- **After:**
+  > Önbellek katmanı veritabanı sorgu süresini 120 milisaniyeden 15 milisaniyeye düşürür.
+- **Rule:** R-16, R-36.
+
+### `TR-3`: Turkish Brochure Vocabulary & English Calques (`Bir üst seviyeye taşıyın`)
+
+- **The pattern:** `bir üst seviyeye taşıyın`, `potansiyelinizi ortaya çıkarın`, `kusursuz bir deneyim`, `kusursuz bir şekilde`, `dinamik dünyasında`, `geniş bir yelpazede`, `bütüncül bir yaklaşım`, `uçtan uca çözüm`, `kalbinde yer alan`, `kapılarını aralamaktadır`, `harmoni`, `serüven`.
+- **Why it reads as AI:** literal translations of English software buzzwords (`take to the next level`, `unlock your potential`, `seamlessly`, `in the dynamic world of`).
+- **Before:**
+  > İş akışınızı bir üst seviyeye taşıyın ve ekibinizin potansiyelini kusursuz bir şekilde ortaya çıkarın.
+- **After:**
+  > Tekrarlayan onay adımlarını otomatikleştirerek haftalık rapor süresini kısaltın.
+- **Rule:** R-16, R-36.
+
+### `TR-4`: Trailing Converb Commentary (`..., önemini vurgulayarak`)
+
+- **The pattern:** tacking a trailing `-erek/-arak` clause onto the end of a sentence (`..., önemini vurgulayarak`, `..., deneyim sunarak`, `..., katkı sağlayarak`, `..., gözler önüne sererek`).
+- **Why it reads as AI:** mirrors the English trailing `-ing` participle clause (`..., highlighting its importance`). Turkish syntax places adverbial `-erek/-arak` clauses before the main verb, never as a tacked-on summary at the end.
+- **Before:**
+  > Sistem her gün binlerce işlemi doğruluyor, güvenliğin önemini vurgulayarak.
+- **After:**
+  > Sistem her gün binlerce işlemi doğruluyor.
+- **Rule:** R-16, R-36.
+
+### `TR-5`: Didactic Filler & Summary Openers (`Unutmamak gerekir ki`, `Sonuç olarak`)
+
+- **The pattern:** `Unutmamak/Belirtmek/Vurgulamak gerekir ki`, `İlk olarak belirtmek gerekir ki`, `Şunu da unutmamak gerekir ki`, `Günün sonunda`, and paragraph openers like `Sonuç olarak,`, `Özetle,`, `Genel olarak değerlendirildiğinde,`.
+- **Why it reads as AI:** throat-clearing before an ordinary statement or a formulaic essay conclusion.
+- **Before:**
+  > Unutmamak gerekir ki yedekleme işlemi zaman alır. Sonuç olarak, planlama şarttır.
+- **After:**
+  > Yedekleme işlemi veri boyutuna göre 10 ila 30 dakika sürer; bakım penceresini buna göre seçin.
+- **Rule:** R-36.
+
+### `TR-6`: Turkish Chatbot Leftovers (`Umarım bu yardımcı olur`)
+
+- **The pattern:** `Umarım bu yardımcı olur`, `Başka bir sorunuz olursa`, `Harika bir soru`, `İşte ... hakkında bilmeniz gerekenler`.
+- **Why it reads as AI:** conversational assistant wrappers left inside deliverables or documentation.
+- **Before:**
+  > İşte kurulum adımları hakkında bilmeniz gerekenler. Umarım bu yardımcı olur!
+- **After:**
+  > Kurulum için aşağıdaki üç komutu sırayla çalıştırın.
+- **Rule:** R-36.
+
+### `TR-7`: Turkish Bureaucratic Passive & Rhetorical Bridges (`olanak tanımaktadır`, `İşte tam bu noktada`)
+
+- **The pattern:** bureaucratic `-mektedir/-maktadır` verb padding (`olanak tanımaktadır`, `imkân sağlamaktadır`, `gerçekleştirilmektedir`) and synthetic rhetorical bridges (`Peki, bu neden önemli?`, `Peki bu ne anlama geliyor?`, `İşte tam da bu noktada`).
+- **Why it reads as AI:** models default to stiff institutional passives (`olanak tanımaktadır` instead of `sağlar` or direct active verbs) and translate English blog signposting (`So why does this matter?`, `That's where X comes in`) word for word.
+- **Before:**
+  > Peki, bu neden önemli? İşte tam da bu noktada yeni doğrulama motorumuz devreye girerek hataları önlemeye olanak tanımaktadır.
+- **After:**
+  > Yeni doğrulama motoru şema hatalarını derleme aşamasında yakalar.
+- **Rule:** R-02, R-16, R-36.
+
 ## What NOT to flag
 
 A clean human writer can hit several patterns above without any AI involvement. Before editing, sanity-check that you are not gutting legitimate prose. These are **not** reliable indicators on their own:
@@ -347,9 +427,20 @@ If the user provides a sample of their own writing, match it before rewriting:
 
 1. Read the sample first. Note its sentence lengths, vocabulary, paragraph openings, punctuation, and recurring phrases.
 2. Match those habits instead of merely deleting AI patterns. Do not upgrade casual words or regularize deliberate quirks.
-3. The sample outranks this skill's style rules, except where R-02 applies. R-02 governs copy the agent authors; a sample that uses em dashes is a direction, so it goes through R-37's conflict protocol, and you match its frequency only if the owner keeps it. R-02 applies in full to any copy the user did not authorize.
+3. The sample outranks this skill's style rules, except where R-02/R-16 apply. R-02 and R-16 govern copy the agent authors; a sample that uses em dashes is a direction, so it goes through R-37's conflict protocol, and you match its frequency only if the owner keeps it. R-02 and R-16 apply in full to any copy the user did not authorize.
 
-Without a sample, use the defaults above. Matching the author beats scrubbing the tell.
+Without a sample, use the defaults above and calibrate to the active `DESIGN.md` domain archetype (`MODE: UTILITY`, `MODE: EDITORIAL`, or `MODE: GAME & INTERACTIVE`). Matching the author beats scrubbing the tell.
+
+### Domain Archetype Voice Examples (`UTILITY`, `EDITORIAL`, `GAME & INTERACTIVE`)
+
+When no user sample is provided, never fall back to a flat textbook monotone. Anchor sentence cadence and word choice to the active domain archetype:
+
+- **`MODE: UTILITY` (Engineering / Operations):** Crisp, metric-first, zero throat-clearing. Pair a short status declaration with the exact operational threshold.
+  > Quotas reset at 00:00 UTC. Any worker exceeding 500 requests per minute receives an HTTP 429 with a `Retry-After` header.
+- **`MODE: EDITORIAL` (Product / Publication):** High burstiness, concrete nouns, unapologetic point of view. Open with a sharp observation, then unpack the mechanism in a longer sentence.
+  > Most changelogs lie by omission. They list the three features marketing wanted on the banner and bury the breaking schema change in a footnote six scrolls down.
+- **`MODE: GAME & INTERACTIVE` (Diegetic / World-Bound):** Tactile verbs, diegetic nouns (hull integrity, signal lock, stamina burn, ammo reserve), and immediate consequence. Never use SaaS brochure language (`seamless experience`, `unlock your potential`) inside game UI or lore.
+  > Reactor coolant is venting into Sector 4. Seal the bulkhead now and you lose the cargo bay; wait thirty seconds and you lose the ship.
 
 ## Draft, audit, final
 
@@ -357,19 +448,19 @@ Run this loop before delivering copy:
 
 1. **Draft.** Rewrite the text applying the patterns above. Check that it reads naturally aloud, varies sentence length, prefers specific detail and simple constructions, and keeps the appropriate register.
 2. **Audit.** Ask two questions and answer them briefly: "What makes this obviously AI generated?" and "Does it state any fact, name, number, date, or citation that is not in the source?" A fabrication is a defect even when it sounds more human than the vague original.
-3. **Final.** Revise to address both answers. Check for em and en dashes one last time (R-02). A hit means the draft is not done.
+3. **Final.** Revise to address both answers. Check for unapproved em-dash clusters and banned buzzwords one last time (R-02, R-16). A hit means the draft is not done.
 
 ## Deterministic scan (local addition)
 
 When you can run code, measure before and after rewriting with the bundled scanner (Python standard library only):
 
 ```bash
-python3 scripts/check_synthetic_markers.py draft.md              # findings by sign, with line numbers
-python3 scripts/check_synthetic_markers.py draft.md --summary    # counts and density per 1,000 words
-python3 scripts/check_synthetic_markers.py - --json < draft.md   # machine-readable, reads stdin
+python3 skills/antislop-copywriting/scripts/check_synthetic_markers.py draft.md              # repo-local (or ~/.gemini/config/skills/antislop-copywriting/scripts/check_synthetic_markers.py)
+python3 skills/antislop-copywriting/scripts/check_synthetic_markers.py draft.md --summary    # counts and density per 1,000 words
+python3 skills/antislop-copywriting/scripts/check_synthetic_markers.py - --json < draft.md   # machine-readable, reads stdin
 ```
 
-* `--source agent` (default) applies R-02 strictly: every em dash in copy you wrote is a finding. Use `--source human` for text the user supplied; em dashes are then flagged only in clusters, and per R-37 you surface them instead of rewriting them silently.
+* `--source agent` (default) applies R-02/R-16 strictly: every unapproved em dash in copy you wrote is a finding. Use `--source human` for text the user supplied; em dashes are then flagged only in clusters, and per R-37 you surface them instead of rewriting them silently.
 * `--profile technical` switches off the Markdown-structure signs (Title Case headings, bold label bullets, small tables, emoji headings) that are normal in engineering docs; content, filler and chat-leftover signs stay on. `--lang tr` (or `auto`) adds the Turkish signs.
 * The scanner catches pattern-level signs only; rhythm, elegant variation and puffed-up structure still need the read-aloud pass. A hit you keep on purpose (a quotation, a proper noun, a literal use) is fine: mention it.
 * Rewriting changes how things are said, never what is said: keep every fact, number, name, date, link and quotation, and leave clean sentences alone. Report the finding counts before → after.
@@ -379,11 +470,11 @@ python3 scripts/check_synthetic_markers.py - --json < draft.md   # machine-reada
 Run these alongside the core Delivery Gate when the task is copy work. Every line below must be true:
 
 - [ ] No fabricated numbers, testimonials, names, dates, or claims; everything real or a labeled placeholder (R-17, R-18, R-36, R-38)
-- [ ] Buzzwords from R-16 and the Empty AI Vocabulary list replaced with specific, evidenced language
-- [ ] No em dashes in the output (R-02); if the user's own sample voice uses them, they were surfaced under R-37 and the owner kept them
+- [ ] Buzzwords from R-02 / R-16 and the Empty AI Vocabulary list replaced with specific, evidenced language
+- [ ] No unapproved em dashes in the output (R-02, R-16); if the user's own sample voice uses them, they were surfaced under R-37 and the owner kept them
 - [ ] No excessive quotation marks: quotes only where they carry meaning (dialogue, real citations, titles), not as default emphasis (R-36)
 - [ ] No all-caps emphasis clauses: emphasis written into the sentence, not shouted with caps (R-36)
-- [ ] Every sentence names its actor: no actorless passive, no abstraction given a human verb, where a real subject was available (R-02, R-16)
+- [ ] Every sentence names its actor: no actorless passive, no abstraction given a human verb, where a real subject was available (R-16)
 - [ ] CTAs specific to the action, not generic templates (R-15)
 - [ ] No AI-rhythm tells: no forced rule of three, no negative parallelism, no staccato drama, no aphorism formulas, no false ranges (R-36)
 - [ ] Voice present: the copy has a real voice (the user's sample or a clearly chosen tone), not a sterile default (R-37)

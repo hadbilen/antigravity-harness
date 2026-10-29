@@ -1,19 +1,21 @@
 ---
 name: antislop-ui
-description: 'UI and visual skill for antislop. Use when building or editing any interface:
-  color, layout, components, motion. Load with the core. Invoke when: creating or
-  styling visual UI components, color palettes, spacing tokens, typography, or when
-  user says ''design UI'', ''style component'', ''ui layout''.'
+description: >-
+  Visual UI deep-dive supplement for antislop covering color hierarchy, positive geometric composition
+  (Anti-Boxification, Sibling Symmetry Cap, Typographic Scale Lock), component Tells/Fixes, dashboard
+  anti-patterns, and Game/Interactive HUD rules. Load when building multi-section layouts, showcase/editorial
+  pages, game HUDs, or conducting a deep visual slop audit ('antislop-ui', 'visual slop audit', 'audit UI components').
+  DO NOT co-load automatically on copy-only or code-comment edits (use 'antislop-copywriting' or 'antislop-code').
 ---
 # antislop-ui
 
 > Anti Slop: Rules for AI Coding Agents. UI & Visual skill
 
-> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the UI/visual concern: color, layout, components, decoration, structural flow, and motion. It references core rules by number and never duplicates or renumbers them. Load it when the task builds or edits a website, web app, or any interface.
+> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the UI/visual concern: color, layout, components, decoration, structural flow, and motion. It references core rules by number and never duplicates or renumbers them. Load on demand when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit.
 
 ## How to use this skill
 
-- Load together with the `antislop` core skill (`skills/antislop/SKILL.md`) whenever the task is UI or visual work. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds UI-specific depth.
+- Load on demand alongside the `antislop` core skill (`skills/antislop/SKILL.md`) when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit (do not auto-load all `antislop-*` supplements simultaneously on routine edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds UI-specific depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - The Delivery Gate in the core remains the gate. The "UI Skill Checklist" at the end of this file is the UI-specific supplement to run alongside it.
 
@@ -64,9 +66,9 @@ description: 'UI and visual skill for antislop. Use when building or editing any
 
 ### Too Many Colors in the Palette
 
-- **Tell:** 5-7 different colors on one page with no clear design system.
+- **Tell:** 5-7 different colors on a standard utility or marketing page with no clear design system.
 - **Why:** a scattered palette has no hierarchy. When every element can be any color, nothing is distinguished.
-- **Fix:** cap the active palette at 2-3 core colors + 1 accent (R-29), and let one of the cores be the neutral base. Restraint is what makes the accent land.
+- **Fix:** in `MODE: UTILITY` and `MODE: EDITORIAL`, cap the active palette at 1 primary brand color + 1 accent color + neutral shades (R-29). In `MODE: GAME & INTERACTIVE` (`DESIGN.md` §2.1), a cohesive 5–7 color world palette (background depth, terrain/arena, player, hazard/enemy, collectible/reward, HUD chrome) is explicitly permitted provided raw uncalibrated programmer-art primaries (`#ff0000`, `#00ff00`, `#0000ff`, `UI-4`) are avoided.
 
 ### Excessive Accent Color
 
@@ -74,11 +76,11 @@ description: 'UI and visual skill for antislop. Use when building or editing any
 - **Why:** the accent stops being an accent the moment it is everywhere. It becomes just another color, and the design loses its focal point.
 - **Fix:** the accent belongs at the key moment only (one deliberate accent, core Part 3). Zero accents is sterile; an accent everywhere is slop. Choose the one or two places it matters.
 
-### Sterile Default
+### Sterile Default & Nested Boxification (`UI-2`)
 
-- **Tell:** flat white or near-white, thin grey borders, small radius, no texture, generic font, no identity.
-- **Why:** this is the "safe" result of over-filtering without direction. It is not slop, but it is not design either: it is a void where a design should be.
-- **Fix:** this is a direction problem, not a filter problem. Add `DESIGN.md` or resolve the Design Read (core Part 3), then raise the liveliness dials. The fix is never more bans; it is state the purpose and add energy.
+- **Tell:** flat white or dark-zinc canvas where every single logical group is wrapped in a `border + rounded + bg-card` container, often nesting bordered sub-cards inside bordered parent cards, with a compressed `14px–20px` type scale and system font everywhere.
+- **Why:** this is the second-order AI tell created when an agent strips purple gradients and replaces them with an endless sequence of bordered boxes. When every group is a box, nothing has hierarchy.
+- **Fix:** select the Domain Archetype Mode from `DESIGN.md` §2.1 (`MODE: UTILITY`, `MODE: EDITORIAL`, or `MODE: GAME & INTERACTIVE`) and enforce the **Anti-Boxification** rule (core Part 3): allow at most 1 primary bordered card group per viewport, replace secondary boxes with open whitespace (`24px–64px`) or single-edge hairlines (`border-t` / `border-b`), ban nested `card-in-card` containers (`UI-2`), and enforce a `>= 3.5:1` display-to-body type scale at `ENERGY >= 3`.
 
 ## Layout & Components
 
@@ -88,11 +90,11 @@ description: 'UI and visual skill for antislop. Use when building or editing any
 - **Why:** the order is the training-data default, not the product's narrative. Sections appear because the template has them, not because the content needs them.
 - **Fix:** build the structure around actual content needs (R-05, C-3). If the product has no testimonials, there is no testimonials section. Section order follows the product's story. Match the RHYTHM dial: if it is 3, sections visibly vary.
 
-### Copy-Paste Feature Cards
+### Copy-Paste Feature Cards & Sibling Symmetry (`UI-1`)
 
-- **Tell:** identical size, height, icon, layout, and padding across all feature cards.
+- **Tell:** 3 or more sibling containers sharing identical width, height, padding, class signatures, and internal DOM skeleton (`icon + title + paragraph`).
 - **Why:** uniform cards flatten the content. When every feature is a card with an icon, the features with real weight and the ones without look the same.
-- **Fix:** create variation that reflects content hierarchy, with the reason written down (R-14). Not every feature needs to be a card. The flagship feature may deserve a full-width treatment, the supporting ones a list.
+- **Fix:** enforce the **Sibling Symmetry Cap** (R-14, `UI-1`): allow at most 2 identical-width sibling cards side by side. When presenting 3+ items, use an asymmetric **Focus + Support** split (`55%–65%` dominant focal panel paired with `35%–45%` compact list rows or table) and verify with `python3 skills/antislop/scripts/check_ui_slop.py` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`).
 
 ### Bento Grid
 
@@ -185,7 +187,7 @@ description: 'UI and visual skill for antislop. Use when building or editing any
 
 - **Tell:** a small colored dot beside a heading, eyebrow, nav item, or label, usually glowing and pulsing on a loop, that marks nothing. It borrows the visual language of a live or recording indicator for a page where nothing is live.
 - **Why:** the dot is an attention grab with nothing behind it: a glow plus an endless pulse is a double bid for the eye over a fact that does not exist. It reads as AI because generated pages reach for system-status vocabulary as decoration, and the same dot lands in the same place on every one of them.
-- **Fix:** a dot must mark a real state (active, live, recording, warning). If it does, keep one dot, drop the glow, and drop the endless pulse (R-19). If it marks nothing, remove it: a heading needs no indicator to be a heading (R-31).
+- **Fix:** a dot must mark a real state (active, live, recording, warning). If it does, render one solid `0.375rem–0.5rem` (`6px–8px`) indicator dot meeting `>= 3:1` contrast (`DESIGN.md` §3) — a subtle static semantic glow is allowed only on genuine active/live status indicator dots (`R-13`), never on card/button borders, and drop any endless pulse (`R-19`). If it marks nothing, remove it: a heading needs no indicator to be a heading (`R-31`).
 
 ### Generic AI Typography
 
@@ -212,13 +214,13 @@ description: 'UI and visual skill for antislop. Use when building or editing any
 
 - **Tell:** navbar links to pages or sections that do not exist.
 - **Why:** dead links are a broken promise. They break trust the moment a user clicks them.
-- **Fix:** every navigation item must have a real destination (R-24). If a feature is not built, leave it out, or label it "Coming soon" clearly. The navbar reflects content that actually exists.
+- **Fix:** every navigation item must have a real destination (R-24). If a feature is not built, leave it out of the navigation. The navbar reflects content that actually exists.
 
 ### Non-Functional Controls
 
 - **Tell:** buttons do nothing, dropdowns won't open, forms cannot submit.
 - **Why:** the visual is finished but the behavior is not. This is the difference between a mockup and a product.
-- **Fix:** every interactive element has real behavior, or it is removed (R-26). If an element genuinely cannot have a destination, ship a clear `// TODO` plus a visible "Coming soon" label, or do not ship it.
+- **Fix:** every interactive element has real behavior, or it is removed (R-26, C-2). Never ship dead buttons, `// TODO` stubs, or fake "Coming soon" controls.
 
 ### Sections That Fill a Template
 
@@ -278,7 +280,7 @@ The patterns above are landing-page shapes. These are the app-side equivalents: 
 
 - **Tell:** elements that pulse, bounce, or float forever with no user trigger.
 - **Why:** perpetual motion is noise. It competes with the content for attention and never stops to let the user rest.
-- **Fix:** motion must have a clear UX purpose, written down (R-19). Animation guides attention to a moment; it does not run on a loop. If the MOTION dial is 1 (hover states only), an endless loop is a FAIL against the declared dial.
+- **Fix:** motion must have a clear UX purpose, written down (R-19). Animation guides attention to a moment; it does not run on a loop. If the MOTION dial is 1 (`0ms` / static, instantaneous state changes) or 2 (`150ms–200ms` functional micro-interactions), an endless loop is a FAIL against the declared dial.
 
 ### Template Animations Stacked
 
@@ -288,19 +290,24 @@ The patterns above are landing-page shapes. These are the app-side equivalents: 
 
 ## UI Skill Checklist
 
-Run these alongside the core Delivery Gate when the task is UI work. All answers must be **yes**:
+Run these alongside the core Delivery Gate (`python3 skills/antislop/scripts/check_ui_slop.py` or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) when the task is UI work. All answers must be **yes**:
 
-- [ ] Is the palette derived from `DESIGN.md` or a written brand identity, not the default gradient set? (R-01, R-29)
+- [ ] Is the palette derived from `DESIGN.md` (with the matching Domain Mode: `UTILITY`, `EDITORIAL`, or `GAME & INTERACTIVE`) or a written brand identity, not the default gradient set? (R-01, R-29)
+- [ ] Does `python3 skills/antislop/scripts/check_ui_slop.py` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) exit with `0` findings (`UI-1` through `UI-5`)?
+- [ ] Does the layout respect the **Anti-Boxification** rule (at most 1 primary bordered card group per viewport, zero nested `card-in-card` boxes `UI-2`) and the **Sibling Symmetry Cap** (at most 2 identical sibling cards side by side; 3+ items use `55%–65%` focal + `35%–45%` support topology `UI-1`)? (R-05, R-14)
+- [ ] At `ENERGY >= 3`, does the primary display heading maintain at least a `3.5:1` size ratio over body copy? (R-06)
 - [ ] Is the accent used at the key moment only, not spread across every element? (core Part 3, one deliberate accent)
 - [ ] Is the copy free of decorative emoji scattered through headings, bullets, and buttons? (R-04)
 - [ ] Do section compositions vary according to the declared RHYTHM dial instead of repeating one template? (R-05)
 - [ ] Is the layout free of the default AI shapes: bento-grid mosaic, fake terminal window, three pricing columns, and left-edge color stripes with no meaning? (R-05, R-01)
-- [ ] Does every navigation item and interactive element have a real destination or behavior, or a visible "Coming soon" label? (R-24, R-26)
-- [ ] Does motion follow the declared MOTION dial and serve a written purpose, with no endless loops? (R-19)
+- [ ] Does every navigation item and interactive element have a real destination or behavior, with no dead links or fake "Coming soon" stubs (`UI-5`)? (R-24, R-26, C-2)
+- [ ] Does motion follow the declared MOTION dial and serve a written purpose (with continuous canvas loops restricted to `MODE: GAME & INTERACTIVE` alongside a reduced-motion/shake guard)? (R-19)
 - [ ] Is glass, glow, shadow, and radius used at their dose caps, not as a page-wide default? (R-10, R-11, R-12, R-13)
-- [ ] Is every colored dot and status light marking a real state, with no decorative glow or endless pulse? (R-13, R-19, R-31)
+- [ ] Is every colored dot and status light marking a real state as a solid `0.375rem–0.5rem` (`6px–8px`) indicator (`DESIGN.md` §3), with subtle static semantic glow restricted solely to genuine live/active status indicator dots and zero endless pulse? (R-13, R-19, R-31)
 - [ ] On an app screen, is the layout built around the decision the user makes there, rather than the sidebar plus stat row plus chart plus table default? (C-3, R-20)
+- [ ] In `MODE: GAME & INTERACTIVE`, do player actions implement the Input Feedback Triad and diegetic HUD styling with zero raw RGB programmer-art primaries (`UI-4`)?
 - [ ] Is every number, delta, feed entry, and table row real or a labelled placeholder, with no invented metrics? (R-17, R-18, R-38)
 - [ ] Do empty form fields and table cells stay empty or carry honest placeholders (Your Name, email@example.com) instead of fake-looking data (John Doe, johndoe@example.com)? (R-23, R-38)
 - [ ] Do the empty, loading, and error states name the cause and the next action instead of saying "No data"? (R-27)
 - [ ] Does the page hold up at every breakpoint, theme, and state, and pass keyboard-only use? (R-03, R-34, C-4)
+
