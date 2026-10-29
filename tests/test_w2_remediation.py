@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import stat
 import struct
 import subprocess
@@ -337,6 +338,9 @@ class TestTlsHandshakeDeadlineW2(unittest.TestCase):
                 self.closed = True
 
         class StallingContext:
+            verify_mode = ssl.CERT_REQUIRED
+            check_hostname = True
+
             def wrap_socket(self, sock: FakeRawSocket, server_hostname: str = ""):
                 seen_timeouts.append(sock.timeout)
                 raise socket.timeout("TLS handshake timed out")

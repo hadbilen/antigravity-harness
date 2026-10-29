@@ -30,6 +30,7 @@ import tracemalloc
 import unittest
 import urllib.error
 import zipfile
+from typing import Any, Dict
 from pathlib import Path
 from unittest import mock
 
@@ -2169,19 +2170,30 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
         self.assertIn("PTY-automation/hook ancestor", err_buf.getvalue())
 
         # Controlling-terminal I/O failure is surfaced on stderr, not swallowed
-        not_a_tty = self.tmp / "not_a_tty.txt"
-        not_a_tty.write_text("", encoding="utf-8")
-        original_prompt = approval._prompt_controlling_tty
         err_buf2, out_buf2 = io.StringIO(), io.StringIO()
-        with mock.patch.object(approval, "_non_interactive_reason", return_value=None), \
-                mock.patch.object(
-                    approval,
-                    "_prompt_controlling_tty",
-                    side_effect=lambda text: original_prompt(text, tty_path=str(not_a_tty)),
-                ), \
-                mock.patch.object(sys, "stdin", sys.__stdin__), \
-                mock.patch.object(sys, "stderr", err_buf2), mock.patch.object(sys, "stdout", out_buf2):
-            self.assertFalse(approval.tty_approver(req))
+        if os.name == "posix":
+            not_a_tty = self.tmp / "not_a_tty.txt"
+            not_a_tty.write_text("", encoding="utf-8")
+            original_prompt = approval._prompt_controlling_tty
+            with mock.patch.object(approval, "_non_interactive_reason", return_value=None), \
+                    mock.patch.object(
+                        approval,
+                        "_prompt_controlling_tty",
+                        side_effect=lambda text: original_prompt(text, tty_path=str(not_a_tty)),
+                    ), \
+                    mock.patch.object(sys, "stdin", sys.__stdin__), \
+                    mock.patch.object(sys, "stderr", err_buf2), mock.patch.object(sys, "stdout", out_buf2):
+                self.assertFalse(approval.tty_approver(req))
+        else:
+            with mock.patch.object(approval, "_non_interactive_reason", return_value=None), \
+                    mock.patch.object(
+                        approval,
+                        "_prompt_controlling_tty",
+                        side_effect=OSError("Controlling terminal CONIN$ unavailable"),
+                    ), \
+                    mock.patch.object(sys, "stdin", sys.__stdin__), \
+                    mock.patch.object(sys, "stderr", err_buf2), mock.patch.object(sys, "stdout", out_buf2):
+                self.assertFalse(approval.tty_approver(req))
         self.assertIn("Controlling terminal I/O failed", err_buf2.getvalue())
 
     def test_rule17_operator_approved_peer_flagship_passes_only_at_highest_effort(self) -> None:
