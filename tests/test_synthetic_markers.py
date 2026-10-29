@@ -134,6 +134,14 @@ RULE_CASES = {
             "The spec says clients MUST NOT retry."),
     "6.6": ("The dashboard understands your goals.",
             "The dashboard shows weekly totals."),
+    "6.7": ("The billing engine processes every invoice at midnight each day. "
+            "The webhook worker retries failed deliveries three times per hour. "
+            "The audit ledger records every state transition in real time. "
+            "The dashboard displays active subscriptions for every regional account team.",
+            "Invoices clear at midnight for every active account. "
+            "The webhook worker retries failed deliveries three times over the next hour. "
+            "The audit ledger records every state transition on disk. "
+            "Regional account teams inspect the live dashboard whenever a payment gateway reports an unexpected timeout."),
     "TR-1": ("Kahve bir içecek değil, bir deneyimdir.",
              "Hava soğuk değil, sıcak."),
     "TR-2": ("Ekip, projede kritik bir rol oynamaktadır.",
@@ -146,6 +154,8 @@ RULE_CASES = {
              "Proje bitti.\n\nSonuçta bölge daha güvenli oldu ve herkes memnun."),
     "TR-6": ("Kurulum adımları yukarıda. Umarım bu yardımcı olur.",
              "Kurulum adımları yukarıda. Sorunda hata kaydını gönderin."),
+    "TR-7": ("Yeni doğrulama motoru şema hatalarını önlemeye olanak tanımaktadır.",
+             "Yeni doğrulama motoru şema hatalarını derleme aşamasında yakalar."),
 }
 
 
@@ -264,6 +274,23 @@ class TestPositiveFixtures(unittest.TestCase):
     def test_turkish_rules_respect_language_flag(self):
         self.assertFalse({r for r in rule_ids(TURKISH, lang="en") if r.startswith("TR")})
         self.assertTrue({r for r in rule_ids(TURKISH, lang="tr") if r.startswith("TR")})
+
+    def test_expanded_turkish_calque_patterns(self):
+        self.assertIn("TR-2", rule_ids("Bu mimari sektörde devrim niteliğinde bir yenilik sunuyor.", lang="tr"))
+        self.assertIn("TR-2", rule_ids("Bu sürüm veri işlemede yeni bir çağ başlatmaktadır.", lang="tr"))
+        self.assertIn("TR-2", rule_ids("Bu gelişme sektörde dönüm noktası niteliğindedir.", lang="tr"))
+        self.assertIn("TR-3", rule_ids("İş akışınızı bir üst seviyeye taşıyın ve hızlanın.", lang="tr"))
+        self.assertIn("TR-3", rule_ids("Ekibinizin potansiyelini ortaya çıkarın.", lang="tr"))
+        self.assertIn("TR-3", rule_ids("Bulut bilişimin dinamik dünyasında rekabet artıyor.", lang="tr"))
+        self.assertIn("TR-3", rule_ids("Dağıtık ekipler için uçtan uca çözüm sunuyoruz.", lang="tr"))
+        tr5_findings = [
+            f.matched_span
+            for f in csm.scan_text("İlk olarak belirtmek gerekir ki sistem yedekli çalışır.", lang="tr").findings
+            if f.rule_id == "TR-5"
+        ]
+        self.assertEqual(tr5_findings, ["İlk olarak belirtmek gerekir ki"])
+        self.assertIn("TR-5", rule_ids("Günün sonunda performans ölçümleri belirleyicidir.", lang="tr"))
+        self.assertIn("TR-6", rule_ids("İşte bilmeniz gerekenler ve temel adımlar:", lang="tr"))
 
 
 class TestNegativeFixtures(unittest.TestCase):
@@ -485,6 +512,20 @@ class TestTechnicalTriadThreshold(unittest.TestCase):
         technical = [f.rule_id for f in csm.scan_text(self.TEXT, profile="technical").findings]
         self.assertIn("2.5", prose)
         self.assertNotIn("2.5", technical)
+
+    def test_cadence_technical_exemption_and_tr7_variants(self):
+        self.assertIn("6.7", rule_ids(RULE_CASES["6.7"][0], profile="prose"))
+        self.assertNotIn("6.7", rule_ids(RULE_CASES["6.7"][0], profile="technical"))
+        for tr7_sample in (
+            "Sistem hızlı yedeklemeye imkân sağlamaktadır.",
+            "Doğrulama adımı otomatik olarak gerçekleştirilmektedir.",
+            "Peki, bu neden önemli ve neyi değiştirir?",
+            "İşte tam da bu noktada önbellek devreye girer.",
+        ):
+            with self.subTest(sample=tr7_sample):
+                self.assertIn("TR-7", rule_ids(tr7_sample, lang="tr"))
+        quoted_tr7 = 'Rapor "sistemin hızlı yedeklemeye olanak tanımaktadır ve süreci hızlandırır" diyor.'
+        self.assertNotIn("TR-7", rule_ids(quoted_tr7, lang="tr"))
 
 
 if __name__ == "__main__":

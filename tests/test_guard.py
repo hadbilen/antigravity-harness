@@ -101,7 +101,7 @@ class TestSnapshotEngine(unittest.TestCase):
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp(prefix="test_guard_snap_"))
         self.engine = SnapshotEngine(target_dir=self.test_dir)
-        (self.test_dir / "config.json").write_text('{"state": "original"}', encoding="utf-8")
+        (self.test_dir / "GEMINI.md").write_text('{"state": "original"}', encoding="utf-8")
 
     def tearDown(self):
         hermetic.force_rmtree(self.test_dir)
@@ -112,13 +112,13 @@ class TestSnapshotEngine(unittest.TestCase):
         self.assertIn("test_snap", snap_id)
 
         # Mutate current state
-        (self.test_dir / "config.json").write_text('{"state": "mutated"}', encoding="utf-8")
+        (self.test_dir / "GEMINI.md").write_text('{"state": "mutated"}', encoding="utf-8")
         (self.test_dir / "new_file.txt").write_text("temp", encoding="utf-8")
 
         # Restore snapshot
         success, msg = self.engine.restore_snapshot(snap_id)
         self.assertTrue(success)
-        restored_content = (self.test_dir / "config.json").read_text(encoding="utf-8")
+        restored_content = (self.test_dir / "GEMINI.md").read_text(encoding="utf-8")
         self.assertEqual(restored_content, '{"state": "original"}')
         self.assertFalse((self.test_dir / "new_file.txt").exists())
 
@@ -142,7 +142,7 @@ class TestSnapshotEngine(unittest.TestCase):
         # Assert full state restoration: extraneous files and dirs must be PRUNED
         self.assertFalse(rogue_file.exists())
         self.assertFalse(rogue_dir.exists())
-        self.assertTrue((self.test_dir / "config.json").exists())
+        self.assertTrue((self.test_dir / "GEMINI.md").exists())
 
     def test_list_and_prune_snapshots(self):
         for i in range(4):
@@ -166,13 +166,13 @@ class TestSnapshotEngine(unittest.TestCase):
 
             # Mutate state by briefly unlocking then relocking to test restore while locked
             adapter.unlock()
-            (self.test_dir / "config.json").write_text('{"state": "mutated_locked"}', encoding="utf-8")
+            (self.test_dir / "GEMINI.md").write_text('{"state": "mutated_locked"}', encoding="utf-8")
             adapter.lock()
 
             success, msg = self.engine.restore_snapshot(snap_id)
             self.assertTrue(success)
             self.assertTrue(adapter.is_locked())
-            self.assertEqual((self.test_dir / "config.json").read_text(encoding="utf-8"), '{"state": "original"}')
+            self.assertEqual((self.test_dir / "GEMINI.md").read_text(encoding="utf-8"), '{"state": "original"}')
         finally:
             adapter.unlock()
 
@@ -307,7 +307,10 @@ class TestCLICommands(unittest.TestCase):
     def test_upstream_check_cli(self):
         fake = [{"name": "x", "local_sha": "abc1234", "remote_sha": "abc1234", "status": "Up-to-date"}]
         with mock.patch("guard.cli.UpstreamAuditorBridge.check_repositories", return_value=fake) as check:
-            exit_code = cli_main(["upstream", "status"])
+            status_code = cli_main(["upstream", "status"])
+            self.assertEqual(status_code, 0)
+            check.assert_not_called()
+            exit_code = cli_main(["upstream", "check"])
         self.assertEqual(exit_code, 0)
         check.assert_called_once()
 

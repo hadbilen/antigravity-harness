@@ -419,6 +419,19 @@ class TestProvenanceExtras(TempCase):
         self.assertEqual(len(manifest.tools_executed), 1)
         self.assertNotIn("IN TACT", manifest.to_markdown())
 
+    def test_provenance_markdown_contains_positive_intact_bugfix(self):
+        _git(self.tmp, "init", "-q")
+        tests_dir = self.tmp / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_sample.py").write_text("def test_ok():\n    assert 2 + 2 == 4\n", encoding="utf-8")
+        _git(self.tmp, "add", "-A")
+        _git(self.tmp, "commit", "-qm", "base")
+        TestBoundaryGuard(workspace_dir=self.tmp).snapshot()
+        tracker = RunProvenanceTracker(workspace_dir=self.tmp)
+        manifest = tracker.generate_manifest(test_command=f'"{sys.executable}" -c "pass"')
+        self.assertTrue(manifest.test_boundary_verified)
+        self.assertIn("INTACT (bugfix)", manifest.to_markdown())
+
 
 class TestUpstreamHelpers(unittest.TestCase):
     def test_model_status_is_not_invented(self):

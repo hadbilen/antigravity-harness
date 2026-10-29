@@ -318,7 +318,10 @@ class TestSnapshots(TempDirCase):
             self.assertTrue(adapter.is_locked(self.target))
         finally:
             adapter.unlock(self.target)
-        self.assertEqual(engine.prune_snapshots(keep=0), 2)
+        with self.assertRaises(ValueError):
+            engine.prune_snapshots(keep=0)
+        engine.create_snapshot(label="second")
+        self.assertEqual(engine.prune_snapshots(keep=1), 1)
 
     @posix_only
     def test_directory_symlinks_inside_skills_are_copied_as_links(self):

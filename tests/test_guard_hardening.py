@@ -1,5 +1,5 @@
 """
-tests/test_v140_guard.py — Regression tests for the 1.4.0 Guard remediation:
+tests/test_guard_hardening.py — Regression tests for Guard hardening and remediation:
 environment discovery scope, policy/lock honesty, FIM exclusions, lease races and review
 of window changes, fail-closed lease store, audit trail, approval gates, boot sentinel.
 """
@@ -347,6 +347,210 @@ class TestInstallerHooks(TempDirCase):
         self.assertEqual((target / "hooks.json").read_text(encoding="utf-8"), "{broken")
         self.assertTrue(any("left untouched" in str(c) for c in log.call_args_list))
 
+    def test_install_hooks_matcher_covers_all_write_and_command_tools(self):
+        import install
+        from guard import agy_hooks
+
+        expected_tools = {
+            "run_command",
+            "bash",
+            "execute_command",
+            "shell",
+            "send_command_input",
+            "manage_task",
+            "run_workflow",
+            "invoke_subagent",
+            "call_mcp_tool",
+            "mcp_.*",
+            "write_to_file",
+            "write_file",
+            "replace_file_content",
+            "multi_replace_file_content",
+            "edit_file",
+            "create_file",
+            "write",
+            "edit",
+            "multiedit",
+            "notebookedit",
+        }
+        target = self.root / "cfg_hooks_sync"
+        target.mkdir()
+        inst = install.Installer(target, mode="copy")
+        with mock.patch.object(inst, "log"):
+            inst.install_hooks()
+
+        installed_hooks = json.loads((target / "hooks.json").read_text(encoding="utf-8"))
+        installed_matcher = installed_hooks["harness-gate"]["PreToolUse"][0]["matcher"]
+        installed_set = set(installed_matcher.split("|"))
+
+        repo_hooks = json.loads((Path(install.SCRIPT_DIR) / "hooks.json").read_text(encoding="utf-8"))
+        repo_matcher = repo_hooks["harness-gate"]["PreToolUse"][0]["matcher"]
+        repo_set = set(repo_matcher.split("|"))
+
+        self.assertEqual(installed_set, expected_tools)
+        self.assertEqual(installed_set, set(agy_hooks.PRE_TOOL_USE_MATCHER_TOOLS))
+        self.assertEqual(
+            installed_set,
+            set(
+                agy_hooks.COMMAND_TOOL_NAMES
+                | agy_hooks.WRITE_TOOL_NAMES
+                | {"run_workflow", "invoke_subagent", "call_mcp_tool", "mcp_.*"}
+            ),
+        )
+        self.assertEqual(repo_set, expected_tools)
+
+        # Non-object valid JSON (e.g. `[]`) leaves hooks.json untouched and warns about both hook suites
+        target_list = self.root / "cfg_hooks_list"
+        target_list.mkdir()
+        (target_list / "hooks.json").write_text("[]", encoding="utf-8")
+        inst_list = install.Installer(target_list, mode="copy")
+        with mock.patch.object(inst_list, "log") as log_list:
+            inst_list.install_hooks()
+        self.assertEqual((target_list / "hooks.json").read_text(encoding="utf-8"), "[]")
+        logged = " ".join(str(c) for c in log_list.call_args_list)
+        self.assertIn("left untouched", logged)
+        self.assertIn("harness-gate", logged)
+
+    def test_installer_backs_up_symlinked_governance_targets(self):
+        import install
+
+        target = self.root / "cfg_sym"
+        target.mkdir()
+        ext_file = self.root / "external_gemini.md"
+        ext_file.write_text("custom external", encoding="utf-8")
+        (target / "GEMINI.md").symlink_to(ext_file)
+        inst = install.Installer(target, mode="copy")
+        with mock.patch.object(inst, "log"):
+            inst.backup(target / "GEMINI.md")
+        self.assertFalse(os.path.lexists(target / "GEMINI.md"))
+        self.assertTrue(os.path.lexists(inst.backup_dir / "GEMINI.md"))
+
+    def test_snapshot_restore_preserves_nested_siblings_and_restores_readonly_dirs(self):
+        from guard.snapshot import SnapshotEngine
+
+        ws = self.root / "claude_ws"
+        (ws / ".claude" / "agents").mkdir(parents=True)
+        (ws / ".claude" / "agents" / "a.md").write_text("v1", encoding="utf-8")
+        (ws / ".claude" / "settings.local.json").write_text('{"keep": true}', encoding="utf-8")
+        snap = SnapshotEngine(target_dir=ws, scope_paths=[".claude/agents"])
+        snap_id, _ = snap.create_snapshot(label="nested", kind="manual")
+        self.assertTrue(bool(snap_id))
+        # Tamper and make read-only
+        (ws / ".claude" / "agents" / "a.md").write_text("tampered", encoding="utf-8")
+        os.chmod(ws / ".claude" / "agents" / "a.md", 0o400)
+        os.chmod(ws / ".claude" / "agents", 0o500)
+        ok, msg = snap.restore_snapshot(snap_id)
+        self.assertTrue(ok, msg)
+        self.assertEqual((ws / ".claude" / "agents" / "a.md").read_text(encoding="utf-8"), "v1")
+        self.assertEqual((ws / ".claude" / "settings.local.json").read_text(encoding="utf-8"), '{"keep": true}')
+
+    def test_lease_rejects_symlinks_and_pre_existing_drift_laundering(self):
+        reg = EnvironmentRegistry(config_path=self.root / "reg_lease.json", os_adapter=_mock_adapter())
+        env = reg.get_environment("antigravity")
+        target = env.get_root()
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "GEMINI.md").write_text("clean", encoding="utf-8")
+        fim = FileIntegrityMonitor.for_environment(env)
+        fim.save_baseline()
+        # Tamper before lease
+        (target / "GEMINI.md").write_text("tampered_before_lease", encoding="utf-8")
+        mgr = LeaseManager(
+            registry=reg,
+            notifier=mock.MagicMock(),
+            lease_file=self.root / "leases_drift.json",
+            scheduler=lambda lease, m: (True, "test"),
+        )
+        ok, msg, lease = mgr.request_unlock(
+            env_id="antigravity", reason="fix", duration_seconds=60, approver=lambda _: True
+        )
+        self.assertTrue(ok, msg)
+        self.assertIsNotNone(lease)
+        self.assertTrue(lease.had_pre_existing_drift)
+        mgr.expire_lease(lease)
+        self.assertIsNone(fim.load_pending())
+
+    def test_integrity_monitor_tracks_all_known_seams_and_external_dir_symlinks(self):
+        reg = EnvironmentRegistry(config_path=self.root / "reg_fim.json", os_adapter=_mock_adapter())
+        env = reg.get_environment("antigravity")
+        target = env.get_root()
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "hooks.json").write_text("{}", encoding="utf-8")
+        ext_dir = self.root / "ext_skill"
+        ext_dir.mkdir()
+        (ext_dir / "SKILL.md").write_text("v1", encoding="utf-8")
+        (target / "skills").mkdir(exist_ok=True)
+        if not os.path.lexists(target / "skills" / "linked"):
+            (target / "skills" / "linked").symlink_to(ext_dir)
+        fim = FileIntegrityMonitor.for_environment(env)
+        fim.save_baseline()
+        (target / "hooks.json").write_text('{"changed": true}', encoding="utf-8")
+        (ext_dir / "SKILL.md").write_text("v2", encoding="utf-8")
+        report = fim.verify()
+        self.assertTrue(any(k.endswith("hooks.json") for k in report.modified), report.modified)
+        self.assertTrue(any("SKILL.md" in k for k in report.modified), report.modified)
+
+    def test_file_lock_evicts_dead_pid_lock_file(self):
+        from guard.paths import file_lock
+
+        lock_target = self.root / "resource.json"
+        lock_file = lock_target.with_suffix(".json.lock")
+        lock_file.write_text("99999999\n", encoding="utf-8")
+        with file_lock(lock_target, timeout=1.0):
+            self.assertIn(str(os.getpid()), lock_file.read_text(encoding="utf-8"))
+
+    def test_installer_retires_removed_skills_and_records_installed_in_receipt(self):
+        import install
+
+        target = self.root / "cfg_retire"
+        retired_skill = target / "skills" / "retired-legacy-skill"
+        retired_skill.mkdir(parents=True)
+        (retired_skill / "SKILL.md").write_text("---\nname: retired-legacy-skill\ndescription: old\n---\n", encoding="utf-8")
+        prior_receipt = install.state_dir() / "install_receipt.json"
+        prior_receipt.parent.mkdir(parents=True, exist_ok=True)
+        prior_receipt.write_text(
+            json.dumps({"target": str(target), "installed": ["skills/retired-legacy-skill"]}),
+            encoding="utf-8",
+        )
+
+        inst = install.Installer(target, mode="copy")
+        with mock.patch.object(inst, "log"):
+            inst.install_governance()
+            inst.write_receipt()
+
+        self.assertFalse((target / "skills" / "retired-legacy-skill").exists())
+        self.assertTrue((inst.backup_dir / "skills" / "retired-legacy-skill" / "SKILL.md").is_file())
+        receipt = json.loads((install.state_dir() / "install_receipt.json").read_text(encoding="utf-8"))
+        self.assertIn("installed", receipt)
+        self.assertIn("GEMINI.md", receipt["installed"])
+
+    def test_verify_invariants_check_diff_honors_base_path(self):
+        import subprocess
+        from scripts.verify_invariants import check_diff
+
+        repo_dir = self.root / "git_repo"
+        non_git_cwd = self.root / "outside_cwd"
+        repo_dir.mkdir()
+        non_git_cwd.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(repo_dir), check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(repo_dir), check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(repo_dir), check=True)
+        test_file = repo_dir / "tests" / "test_sample.py"
+        test_file.parent.mkdir()
+        test_file.write_text("def test_a():\n    assert 1 == 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(repo_dir), check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=str(repo_dir), check=True)
+        comment_prefix = "#"
+        test_file.write_text(f"def test_a():\n    {comment_prefix} assert 1 == 1\n    pass\n", encoding="utf-8")
+
+        prev_cwd = os.getcwd()
+        try:
+            os.chdir(str(non_git_cwd))
+            violations = check_diff(base_path=repo_dir)
+        finally:
+            os.chdir(prev_cwd)
+        self.assertTrue(any("Commented-out test assertion" in desc for _, _, desc in violations), violations)
+
 
 if __name__ == "__main__":
     unittest.main()
+
