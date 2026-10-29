@@ -7,5 +7,33 @@
         "timeout": 15
       }
     ]
+  },
+  "harness-gate": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 \"guard/agy_hooks.py\" pre-invocation",
+        "timeout": 5
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command|bash|execute_command|shell|send_command_input|manage_task|run_workflow|invoke_subagent|call_mcp_tool|mcp_.*|write_to_file|write_file|replace_file_content|multi_replace_file_content|edit_file|create_file|write|edit|multiedit|notebookedit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"guard/agy_hooks.py\" pre-tool-use",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 \"guard/agy_hooks.py\" stop",
+        "timeout": 15
+      }
+    ]
   }
 }

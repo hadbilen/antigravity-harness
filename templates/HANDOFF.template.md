@@ -1,7 +1,7 @@
 # Session Handoff Document
 
 **Status:** {{[COMPLETE] | [IN-PROGRESS]}}
-**Handoff Trigger:** {{milestone completed | circuit breaker | trace > 500 lines | repeated user correction}}
+**Handoff Trigger:** {{milestone completed | marathon window boundary | circuit breaker | trace > 500 lines | repeated user correction}}
 **Date & Time:** {{ISO_TIMESTAMP}}
 **Previous Conversation / Session ID:** {{CONVERSATION_ID_OR_LABEL}}
 **Git Branch / Commit:** {{BRANCH}} @ {{COMMIT_HASH}}
@@ -31,5 +31,8 @@
 
 ## 4. Cold-Start Directive for the Incoming Agent
 - **Where:** {{continue in this window | new window with this HANDOFF.md}}
+- **Window Index:** {{Single-Handoff | Window k/N — <Window Title>}}
+- **Recommended Model & Effort:** {{Top Reasoning / Balanced / Fast Model Tier (<Effort Level>) — <1-line rationale>}}
+- **Required Skills to Load:** {{e.g. `harness`, `marathon` (`skills/harness/SKILL.md`, `skills/marathon/SKILL.md`)}}
 - **Immediate Next Action:** The single next justified step: exact file, symbol or command to run on turn 1, and the skill to load if any.
-- **Ready-to-Use Prompt:** A short task prompt that carries only the coordinates above (goal, exit criteria, next action). Task prompts never include harness maintenance commands.
+- **Ready-to-Use Prompt:** A short task prompt that carries only the coordinates above (goal, exit criteria, required skills, next action). Task prompts never include harness maintenance commands.
