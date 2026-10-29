@@ -5,6 +5,7 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 
 Usage:
+  python3 guard.py init [--source <dir>]      # Initialize ~/.gemini/config from system package
   python3 guard.py status                     # Protection, integrity and lease status
   python3 guard.py lock [--env <id>|--all]    # Write-protect governance seams
   python3 guard.py unlock [--env <id>|--all]  # Remove protection (human confirmation)
@@ -18,13 +19,13 @@ Usage:
   python3 guard.py self-audit [--json|--strict] # Harness meta-consistency audit
   python3 guard.py snapshot create|list|restore|prune  # Governance snapshots
   python3 guard.py porter inspect|stage <path/url>     # Porter inspection and staging gate
-  python3 guard.py upstream check             # Tracked upstream repositories
+  python3 guard.py upstream [check|status|ack] [--offline] # Tracked upstream repositories
   python3 guard.py test-boundary snapshot|verify|run-reproducible  # Test trust boundary
   python3 guard.py provenance generate|status # Execution provenance manifest
   python3 guard.py startup enable|disable|status # Boot sentinel registration
   python3 guard.py boot-check                 # Headless boot verification and lock
-  python3 guard.py doctor [--fix]             # Health check (permissions, legacy state, grants)
-  python3 guard.py notify status|enable|disable|quiet|normal  # Desktop notifications
+  python3 guard.py doctor [--fix|--recover]   # Health check (permissions, legacy state, grants)
+  python3 guard.py notify status|enable|disable|quiet|normal|send # Desktop notifications
   python3 guard.py gui                        # Launch desktop GUI
 """
 

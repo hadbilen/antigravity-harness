@@ -28,8 +28,16 @@ ACCESS_TOOLS: Dict[str, List[str]] = {
     "read-exec": ["Read", "Grep", "Glob", "Bash"],
 }
 WEB_TOOLS = ["WebFetch", "WebSearch"]
+_READONLY_CANONICAL_TOOLS: Dict[str, str] = {
+    "read": "Read",
+    "grep": "Grep",
+    "glob": "Glob",
+    "webfetch": "WebFetch",
+    "websearch": "WebSearch",
+}
 _WEB_RESEARCH = re.compile(r"(?i)\bweb\s+resources?\b|\bfetch\s+target\s+urls?\b|\bweb\s+(?:search|research)(?:es)?\b")
 _FRONTMATTER = re.compile(r"\A(---\r?\n.*?\r?\n)(---[ \t]*(?:\r?\n|\Z))", re.DOTALL)
+_EXISTING_TOOLS_BLOCK = re.compile(r"(?m)^tools\s*:[^\r\n]*(?:\r?\n[ \t]+-[ \t]+[^\r\n]*)*\r?\n?")
 
 
 def agent_tools(raw: str) -> Optional[List[str]]:
@@ -46,14 +54,61 @@ def agent_tools(raw: str) -> Optional[List[str]]:
     return list(tools)
 
 
-def native_agent(raw: str) -> str:
-    """The agent definition with a `tools:` line derived from `access:` (unchanged when not applicable)."""
+def _filter_readonly_tools(raw_fm: str, parsed_tools: object, fallback: List[str]) -> List[str]:
+    tokens: List[str] = []
+    if isinstance(parsed_tools, list):
+        tokens = [str(item).strip() for item in parsed_tools if str(item).strip()]
+    elif isinstance(parsed_tools, str):
+        tokens = [tok.strip(" []'\"") for tok in re.split(r"[,\s]+", parsed_tools) if tok.strip(" []'\"")]
+    else:
+        m_line = re.search(r"(?m)^tools\s*:\s*(.*)$", raw_fm)
+        if m_line and m_line.group(1).strip():
+            tokens = [tok.strip(" []'\"") for tok in re.split(r"[,\s]+", m_line.group(1)) if tok.strip(" []'\"")]
+    cleaned: List[str] = []
+    for tok in tokens:
+        canon = _READONLY_CANONICAL_TOOLS.get(tok.lower())
+        if canon and canon not in cleaned:
+            cleaned.append(canon)
+    return cleaned if cleaned else list(fallback)
+
+
+def native_agent(raw: str, target: str = "claude") -> str:
+    """The agent definition with a `tools:` line derived from `access:` and a sanitized body."""
     tools = agent_tools(raw)
     m = _FRONTMATTER.match(raw)
-    if tools is None or not m or re.search(r"(?m)^tools\s*:", m.group(1)):
-        return raw
-    newline = "\r\n" if m.group(1).endswith("\r\n") else "\n"
-    return f"{m.group(1)}tools: {', '.join(tools)}{newline}{m.group(2)}{raw[m.end():]}"
+    if not m:
+        san = ConstitutionalSanitizer.sanitize_for_export(raw, target=target)
+        return f"{san}\n" if san else ""
+    fm_part = m.group(1)
+    fence_end = m.group(2)
+    newline = "\r\n" if fm_part.endswith("\r\n") else "\n"
+    access_val = ""
+    parsed_tools: object = None
+    try:
+        meta, _ = parse_frontmatter(raw)
+        access_val = str(meta.get("access") or "").strip().lower()
+        parsed_tools = meta.get("tools")
+    except FrontmatterError:
+        m_acc = re.search(r"(?im)^access\s*:\s*['\"]?([^\s'\"#]+)", fm_part)
+        if m_acc:
+            access_val = m_acc.group(1).strip().lower()
+
+    has_existing_tools = bool(re.search(r"(?m)^tools\s*:", fm_part))
+    if access_val == "read-only" and has_existing_tools:
+        clean_tools = _filter_readonly_tools(fm_part, parsed_tools, tools or ACCESS_TOOLS["read-only"])
+        stripped_fm = _EXISTING_TOOLS_BLOCK.sub("", fm_part)
+        if not stripped_fm.endswith(("\n", "\r\n")):
+            stripped_fm += newline
+        fm_out = f"{stripped_fm}tools: {', '.join(clean_tools)}{newline}{fence_end}"
+    elif tools is not None and not has_existing_tools:
+        fm_out = f"{fm_part}tools: {', '.join(tools)}{newline}{fence_end}"
+    else:
+        fm_out = f"{fm_part}{fence_end}"
+    san_body = ConstitutionalSanitizer.sanitize_for_export(raw[m.end():], target=target)
+    if not san_body:
+        return fm_out
+    sep = newline if fm_out.endswith(("\n", "\r\n")) else f"{newline}{newline}"
+    return f"{fm_out}{sep}{san_body}{newline}"
 
 
 class ClaudeEmitter:
@@ -71,7 +126,9 @@ class ClaudeEmitter:
         for agent in manifest.agents:
             name = agent.get("name")
             if name:
-                plan[output_dir / cls.NATIVE_AGENTS_DIR / f"{name}.md"] = native_agent(agent.get("raw", ""))
+                plan[output_dir / cls.NATIVE_AGENTS_DIR / f"{name}.md"] = native_agent(
+                    agent.get("raw", ""), target=cls.TARGET
+                )
         const = ConstitutionalSanitizer.sanitize_for_export(manifest.constitution.get("raw", ""), target=cls.TARGET)
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
         plan[output_dir / "CLAUDE.md"] = f"""# Claude Code Engineering Guidelines
@@ -101,4 +158,11 @@ class ClaudeEmitter:
     def emit(cls, manifest: UniversalManifest, output_dir: Path, force: bool = False) -> List[Path]:
         output_dir = Path(output_dir)
         plan, links = cls.plan(manifest, output_dir)
-        return commit(plan, links, force=force, executables=support_executables(manifest, output_dir / cls.SKILLS_DIR))
+        return commit(
+            plan,
+            links,
+            force=force,
+            executables=support_executables(manifest, output_dir / cls.SKILLS_DIR),
+            output_dir=output_dir,
+            target_name=cls.TARGET,
+        )

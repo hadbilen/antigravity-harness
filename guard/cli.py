@@ -3,28 +3,36 @@ guard/cli.py — Command-Line Interface for Antigravity Guard
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Zero external dependencies: uses strictly the Python standard library.
 
-Administration commands that weaken protection or change what Guard does (unlock,
-rebaseline, snapshot restore/prune, startup enable/disable, lowering an environment
-policy, disabling notifications, porter stage, test-boundary re-snapshot) require a human
-to confirm in an interactive terminal. They exit with code 3 when that confirmation is missing.
+Administration commands that weaken protection or change what Guard does (init, init --uninstall,
+unlock, rebaseline, snapshot restore/prune, startup enable/disable, env add/remove, lowering an
+environment policy, doctor --fix/--recover, disabling notifications, porter stage, test-boundary
+re-snapshot, and --authorize overrides) require human operator authorization. Interactive terminal
+confirmations exit with code 3 when missing.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import platform
 import re
+import shlex
+import shutil
+import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from guard import __version__
 from guard.approval import refusal_message, request_approval
 from guard.audit_log import audit
-from guard.doctor import diagnose
+from guard.doctor import diagnose, recover_or_load_registry
 from guard.environment import (
+    ANTIGRAVITY_RUNTIME_ENTRIES,
     VALID_POLICIES,
     AgentEnvironment,
     EnvironmentRegistry,
@@ -33,7 +41,7 @@ from guard.environment import (
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.lease import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, LeaseManager
 from guard.notifier import GuardNotifier, NotificationSeverity, load_settings, save_settings, settings_file
-from guard.paths import config_dir, read_json
+from guard.paths import atomic_write_json, config_dir, copy_entry, data_dir, read_json, state_dir
 from guard.porter_bridge import PorterBridge
 from guard.provenance import RunProvenanceTracker
 from guard.snapshot import SnapshotEngine
@@ -137,18 +145,760 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0 if protected else 1
 
 
+def _resolve_init_source(explicit_source: Optional[str]) -> Optional[Path]:
+    if explicit_source:
+        cand = Path(explicit_source).expanduser().resolve()
+        return cand if (cand / "GEMINI.md").is_file() and (cand / "skills").is_dir() else None
+    env_share = os.environ.get("ANTIGRAVITY_SHARE_DIR", "").strip()
+    if env_share:
+        cand = Path(env_share).expanduser().resolve()
+        return cand if (cand / "GEMINI.md").is_file() and (cand / "skills").is_dir() else None
+    cli_path = Path(__file__).resolve()
+    for cand in (
+        Path("/usr/share/antigravity-harness"),
+        cli_path.parent.parent.parent.parent / "share" / "antigravity-harness",
+        cli_path.parent.parent,
+    ):
+        try:
+            if (cand / "GEMINI.md").is_file() and (cand / "skills").is_dir():
+                return cand.resolve()
+        except OSError:
+            continue
+    return None
+
+
+def _init_ignore(_src: str, names: List[str]) -> List[str]:
+    return [n for n in names if n in ("__pycache__", ".pytest_cache", ".DS_Store") or n.endswith((".pyc", ".pyo"))]
+
+
+def _release_init_tree(path: Path) -> None:
+    if os.path.islink(path) or not path.is_dir():
+        return
+    for root, dirs, files in os.walk(path):
+        for entry in [root] + [os.path.join(root, d) for d in dirs] + [os.path.join(root, f) for f in files]:
+            if not os.path.islink(entry):
+                try:
+                    mode = os.lstat(entry).st_mode
+                    if not (mode & 0o200):
+                        os.chmod(entry, (mode & 0o7777) | 0o200)
+                except OSError:
+                    pass
+
+
+def _trees_identical_init(src: Path, dest: Path) -> bool:
+    """Returns True when real directory `dest` has identical relative entries and contents to `src`."""
+    if not src.is_dir() or not dest.is_dir() or os.path.islink(dest):
+        return False
+
+    def _collect(root_dir: Path, apply_ignore: bool) -> Optional[Dict[str, tuple]]:
+        entries: Dict[str, tuple] = {}
+        try:
+            for cur_root, dirs, files in os.walk(root_dir, followlinks=False):
+                if apply_ignore:
+                    ignored_dirs = set(_init_ignore(cur_root, dirs))
+                    dirs[:] = [d for d in dirs if d not in ignored_dirs]
+                    ignored_files = set(_init_ignore(cur_root, files))
+                    files = [f for f in files if f not in ignored_files]
+                dirs.sort()
+                files.sort()
+                cur_path = Path(cur_root)
+                rel_dir = cur_path.relative_to(root_dir).as_posix()
+                if rel_dir != ".":
+                    entries[rel_dir] = ("dir",)
+                for d in list(dirs):
+                    dp = cur_path / d
+                    if os.path.islink(dp):
+                        rel = dp.relative_to(root_dir).as_posix()
+                        entries[rel] = ("symlink", os.readlink(dp))
+                        dirs.remove(d)
+                for f in files:
+                    fp = cur_path / f
+                    rel = fp.relative_to(root_dir).as_posix()
+                    if os.path.islink(fp):
+                        entries[rel] = ("symlink", os.readlink(fp))
+                    elif fp.is_file():
+                        st = fp.stat()
+                        entries[rel] = ("file", st.st_size, hashlib.sha256(fp.read_bytes()).hexdigest())
+                    else:
+                        return None
+        except OSError:
+            return None
+        return entries
+
+    src_map = _collect(src, apply_ignore=True)
+    if src_map is None:
+        return False
+    dest_map = _collect(dest, apply_ignore=False)
+    if dest_map is None:
+        return False
+    return src_map == dest_map
+
+
+def _prune_named_backups(prefix: str, keep: int = 10) -> int:
+    if isinstance(keep, bool) or not isinstance(keep, int) or keep < 1:
+        raise ValueError("keep must be an integer >= 1")
+    backups_root = state_dir() / "backups"
+    if not backups_root.is_dir() or os.path.islink(backups_root):
+        return 0
+    try:
+        dirs = [p for p in backups_root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not os.path.islink(p)]
+    except OSError:
+        return 0
+    dirs.sort(key=lambda p: p.name)
+    if len(dirs) <= keep:
+        return 0
+    removed = 0
+    for old_dir in dirs[:-keep]:
+        try:
+            _release_init_tree(old_dir)
+            shutil.rmtree(old_dir)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run: bool) -> int:
+    is_win = platform.system().lower() == "windows"
+    print("=" * 64)
+    print(f"  Antigravity Guard (agy-guard) v{__version__} - User Init Uninstall  ")
+    print("=" * 64)
+    print(f"Target : {target_dir}")
+    print("-" * 64)
+
+    if not dry_run:
+        if not request_approval(
+            "init --uninstall",
+            f"Uninstall Antigravity Harness governance profile from {target_dir}?",
+            [
+                str(target_dir),
+                "Custom user files, sidecars, and non-harness hooks in hooks.json are preserved.",
+            ],
+        ):
+            return _refuse("init --uninstall")
+
+    cleanup_failed = False
+    reg_arg = getattr(args, "registry", None)
+    reg_cfg = Path(reg_arg) if reg_arg else None
+    if dry_run:
+        try:
+            registry = EnvironmentRegistry(config_path=reg_cfg)
+        except RegistryError as exc:
+            print(f"[DRY-RUN] corrupt environment registry ({exc}) would be quarantined")
+            registry = EnvironmentRegistry(config_path=target_dir / ".dry_run_nonexistent_environments.json")
+    else:
+        registry, quarantined = recover_or_load_registry(config_path=reg_cfg, recover=True)
+        if quarantined is not None:
+            print(f"[RECOVERED] Quarantined corrupt environment registry -> {quarantined}")
+
+    env = registry.get_environment("antigravity")
+    if env is None or Path(env.get_root()).resolve() != target_dir:
+        env = AgentEnvironment(
+            id="antigravity",
+            name="Antigravity Global Config",
+            platform_type="antigravity",
+            root_path=str(target_dir),
+            policy="enforced",
+        )
+
+    try:
+        startup_mgr = StartupManager(target_dir=target_dir, registry=registry)
+        st_status = startup_mgr.status()
+        if st_status.get("installed") or st_status.get("active"):
+            if dry_run:
+                print(f"[DRY-RUN] disable boot sentinel ({st_status.get('target_path')})")
+            else:
+                ok_dis, msg_dis = startup_mgr.disable()
+                if ok_dis:
+                    print(f"[DISABLED] Boot sentinel: {msg_dis}")
+                else:
+                    print(f"[ERROR] Could not disable boot sentinel: {msg_dis}", file=sys.stderr)
+                    cleanup_failed = True
+    except Exception as exc:
+        print(f"[WARN] Boot sentinel check failed: {exc}", file=sys.stderr)
+
+    if not dry_run:
+        lease_mgr = LeaseManager(registry=registry)
+        try:
+            if lease_mgr.get_active_lease("antigravity") is not None:
+                lease_mgr.complete_lease(env_id="antigravity", interactive=False)
+        except Exception:
+            pass
+        if registry.get_environment("antigravity") is not None:
+            ok_u, msg_u = registry.unlock("antigravity")
+            if not ok_u and target_dir.exists():
+                print(f"[WARN] Could not unlock antigravity environment: {msg_u}", file=sys.stderr)
+        if os.path.lexists(target_dir) and not os.path.islink(target_dir):
+            registry.os_adapter.unlock(target_dir, recursive=True)
+            _release_init_tree(target_dir)
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    uninstall_backup = state_dir() / "backups" / f"uninstall_{stamp}"
+
+    def _stash_entry(entry: Path, rel_name: Path) -> None:
+        dest = uninstall_backup / rel_name
+        if dry_run:
+            print(f"[DRY-RUN] remove {entry} -> {dest}")
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not is_win:
+            for d in (uninstall_backup.parent, uninstall_backup):
+                if d.exists() and not os.path.islink(d):
+                    try:
+                        os.chmod(d, 0o700)
+                    except OSError:
+                        pass
+        if not os.path.islink(entry) and entry.is_dir():
+            _release_init_tree(entry)
+        elif not os.path.islink(entry) and entry.is_file():
+            try:
+                os.chmod(entry, (os.lstat(entry).st_mode & 0o7777) | 0o200)
+            except OSError:
+                pass
+        shutil.move(str(entry), str(dest))
+        print(f"[REMOVED] {entry} (backed up -> {dest})")
+
+    receipt_path = state_dir() / "install_receipt.json"
+    tracked_rel: List[str] = []
+    receipt_matches_target = False
+    if receipt_path.is_file():
+        try:
+            rec = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if isinstance(rec, dict):
+                rec_target = rec.get("target")
+                if not rec_target or Path(str(rec_target)).resolve() == target_dir.resolve():
+                    receipt_matches_target = True
+                    if isinstance(rec.get("installed"), list):
+                        tracked_rel = [str(x) for x in rec["installed"] if isinstance(x, str)]
+        except (OSError, ValueError) as exc:
+            print(f"[WARN] Could not parse {receipt_path} ({exc}); falling back to canonical harness entries.", file=sys.stderr)
+
+    if not tracked_rel:
+        tracked_rel = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", ".harness/manifest.json"]
+        opt_source = _resolve_init_source(getattr(args, "source", None))
+        if opt_source is not None:
+            if (opt_source / "agents").is_dir():
+                tracked_rel.extend(f"agents/{p.name}" for p in sorted((opt_source / "agents").glob("*.md")))
+            if (opt_source / "skills").is_dir():
+                tracked_rel.extend(f"skills/{p.name}" for p in sorted((opt_source / "skills").iterdir()) if p.is_dir())
+            if (opt_source / "templates").is_dir():
+                tracked_rel.extend(
+                    f"templates/{p.name}"
+                    for p in sorted((opt_source / "templates").iterdir())
+                    if p.is_file() and p.name != "config.example.json"
+                )
+
+    hooks_path = target_dir / "hooks.json"
+    if os.path.lexists(hooks_path):
+        if os.path.islink(hooks_path):
+            _stash_entry(hooks_path, Path("hooks.json"))
+        elif hooks_path.is_file():
+            try:
+                hooks_data = json.loads(hooks_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                print(f"[WARN] {hooks_path} is not valid JSON ({exc}); leaving hooks.json untouched.", file=sys.stderr)
+                hooks_data = None
+            if isinstance(hooks_data, dict):
+                removed_keys = [k for k in ("harness-gate", "upstream-watchdog") if k in hooks_data]
+                if removed_keys:
+                    remaining = {k: v for k, v in hooks_data.items() if k not in ("harness-gate", "upstream-watchdog")}
+                    if remaining:
+                        if dry_run:
+                            print(f"[DRY-RUN] prune {', '.join(removed_keys)} from {hooks_path} (preserving {len(remaining)} user hook group(s))")
+                        else:
+                            backup_hooks = uninstall_backup / "hooks.json"
+                            backup_hooks.parent.mkdir(parents=True, exist_ok=True)
+                            if not is_win:
+                                for d in (uninstall_backup.parent, uninstall_backup):
+                                    if d.exists() and not os.path.islink(d):
+                                        try:
+                                            os.chmod(d, 0o700)
+                                        except OSError:
+                                            pass
+                            shutil.copy2(hooks_path, backup_hooks)
+                            atomic_write_json(hooks_path, remaining, mode=0o644)
+                            print(f"[CLEANED] Removed {', '.join(removed_keys)} from {hooks_path} ({len(remaining)} other hook group(s) preserved)")
+                    else:
+                        _stash_entry(hooks_path, Path("hooks.json"))
+
+    target_resolved = target_dir.resolve()
+    for rel_item in tracked_rel:
+        norm_rel = rel_item.replace("\\", "/").strip("/")
+        if not norm_rel or norm_rel == "hooks.json":
+            continue
+        cand_path = Path(rel_item)
+        entry = cand_path if cand_path.is_absolute() else (target_dir / norm_rel)
+        try:
+            parent_resolved = entry.parent.resolve()
+            if entry != target_dir and not (parent_resolved == target_resolved or parent_resolved.is_relative_to(target_resolved)):
+                continue
+        except OSError:
+            continue
+        if os.path.lexists(entry):
+            rel_dest = entry.relative_to(target_dir) if entry.is_relative_to(target_dir) else Path(entry.name)
+            try:
+                _stash_entry(entry, rel_dest)
+            except OSError as exc:
+                print(f"[ERROR] Could not remove {entry}: {exc}", file=sys.stderr)
+                cleanup_failed = True
+
+    if not dry_run and target_dir.is_dir() and not os.path.islink(target_dir):
+        for sub_name in (".harness", "agents", "skills", "templates"):
+            sub_dir = target_dir / sub_name
+            if sub_dir.is_dir() and not os.path.islink(sub_dir):
+                try:
+                    if not any(sub_dir.iterdir()):
+                        sub_dir.rmdir()
+                except OSError:
+                    pass
+
+    monitor = _monitor(env, registry)
+    state_files = [monitor.state_file, monitor.pending_file]
+    if receipt_matches_target or target_dir == config_dir().expanduser().resolve():
+        state_files.append(receipt_path)
+    for st_file in state_files:
+        if os.path.lexists(st_file):
+            if dry_run:
+                print(f"[DRY-RUN] remove state file {st_file}")
+            else:
+                registry.os_adapter.unlock(st_file, recursive=False)
+                try:
+                    if not os.path.islink(st_file):
+                        os.chmod(st_file, 0o600)
+                    st_file.unlink(missing_ok=True)
+                except OSError as exc:
+                    print(f"[ERROR] Could not remove state file {st_file}: {exc}", file=sys.stderr)
+                    cleanup_failed = True
+
+    if not dry_run:
+        _prune_named_backups("uninstall_", keep=10)
+    audit("guard.init.uninstall", target=str(target_dir), dry_run=dry_run, ok=(not cleanup_failed))
+    print("=" * 64)
+    if cleanup_failed:
+        print("[ERROR] Profile teardown completed with errors.", file=sys.stderr)
+        print("=" * 64)
+        return 1
+    print(f"[SUCCESS] Uninstalled Antigravity Harness profile at {target_dir}" + (" (dry run)" if dry_run else ""))
+    if not dry_run and uninstall_backup.exists():
+        print(f"Removed governance files were archived to: {uninstall_backup}")
+    print("=" * 64)
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """Initializes user ~/.gemini/config governance profile, hooks, FIM baseline, and lock from system package."""
+    dry_run = bool(getattr(args, "dry_run", False))
+    no_lock = bool(getattr(args, "no_lock", False))
+    target_override = getattr(args, "target", None)
+    target_dir = Path(target_override).expanduser().resolve() if target_override else config_dir().expanduser().resolve()
+
+    if bool(getattr(args, "uninstall", False)):
+        return _uninstall_init_profile(args, target_dir, dry_run)
+
+    source_dir = _resolve_init_source(getattr(args, "source", None))
+    if source_dir is None:
+        hint = getattr(args, "source", None) or os.environ.get("ANTIGRAVITY_SHARE_DIR") or "/usr/share/antigravity-harness"
+        print(f"[ERROR] Governance source assets (GEMINI.md, skills/) not found at {hint}.", file=sys.stderr)
+        return 1
+
+    is_win = platform.system().lower() == "windows"
+
+    print("=" * 64)
+    print(f"    Antigravity Guard (agy-guard) v{__version__} - User Init    ")
+    print("=" * 64)
+    print(f"Source : {source_dir}")
+    print(f"Target : {target_dir}")
+    print("-" * 64)
+
+    if dry_run:
+        print(f"[DRY-RUN] copy governance assets from {source_dir} -> {target_dir}")
+        print(f"[DRY-RUN] merge upstream-watchdog & harness-gate into {target_dir / 'hooks.json'}")
+        print(f"[DRY-RUN] establish FIM baseline and {'skip lock (--no-lock)' if no_lock else 'engage OS write protection'}")
+        return 0
+
+    if not request_approval(
+        "init",
+        f"Initialize Antigravity Harness governance in {target_dir}?",
+        [
+            f"Source: {source_dir}",
+            f"Target: {target_dir}",
+            "Existing replaced files are backed up before update, then FIM baselined and write-protected.",
+        ],
+    ):
+        return _refuse("init")
+
+    reg_arg = getattr(args, "registry", None)
+    registry, quarantined = recover_or_load_registry(config_path=Path(reg_arg) if reg_arg else None, recover=True)
+    if quarantined is not None:
+        print(f"[RECOVERED] Quarantined corrupt environment registry -> {quarantined}")
+    env = registry.get_environment("antigravity")
+    if env is None or Path(env.get_root()).resolve() != target_dir:
+        env = AgentEnvironment(
+            id="antigravity",
+            name="Antigravity Global Config",
+            platform_type="antigravity",
+            root_path=str(target_dir),
+            policy="enforced",
+        )
+
+    def _engage_init_lock() -> Tuple[bool, str]:
+        if target_override and Path(registry.get_environment("antigravity").get_root()).resolve() != target_dir:
+            lock_ok_inner = True
+            lock_msgs_inner: List[str] = []
+            for gp in env.get_governance_paths(existing_only=True):
+                ok_part, msg_part = registry.os_adapter.lock(Path(gp), recursive=Path(gp).is_dir())
+                lock_ok_inner = lock_ok_inner and ok_part
+                if not ok_part and msg_part:
+                    lock_msgs_inner.append(msg_part)
+            if target_dir.exists() and not os.path.islink(target_dir):
+                ok_root, msg_root = registry.os_adapter.lock(target_dir, recursive=False)
+                lock_ok_inner = lock_ok_inner and ok_root
+                if not ok_root and msg_root:
+                    lock_msgs_inner.append(msg_root)
+            return lock_ok_inner, ("; ".join(lock_msgs_inner) or f"Protected {target_dir}")
+        return registry.lock("antigravity")
+
+    was_locked = bool(
+        (not target_override and registry.is_locked("antigravity").get("antigravity", False))
+        or any(
+            not os.access(p, os.W_OK)
+            for p in ([target_dir] if target_dir.exists() else []) + env.get_governance_paths(existing_only=True)
+            if not os.path.islink(p)
+        )
+    )
+
+    lease_mgr = LeaseManager(registry=registry)
+    try:
+        if lease_mgr.get_active_lease("antigravity") is not None:
+            lease_mgr.complete_lease(env_id="antigravity", interactive=False)
+    except Exception:
+        pass
+    registry.unlock("antigravity")
+    if target_dir.exists() and not os.path.islink(target_dir):
+        registry.os_adapter.unlock(target_dir, recursive=False)
+        for rt_name in ANTIGRAVITY_RUNTIME_ENTRIES:
+            rt_entry = target_dir / rt_name
+            if os.path.lexists(rt_entry) and not os.path.islink(rt_entry):
+                registry.os_adapter.unlock(rt_entry, recursive=True)
+        for gp in env.get_governance_paths(existing_only=True):
+            if not os.path.islink(gp):
+                registry.os_adapter.unlock(Path(gp), recursive=True)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    backup_dir = state_dir() / "backups" / f"init_{stamp}"
+    installed_paths: List[str] = []
+    backed_up: List[Tuple[Path, Path]] = []
+    placed_new: List[Path] = []
+
+    def _backup_existing(dest: Path) -> bool:
+        if not os.path.lexists(dest):
+            return False
+        rel = dest.relative_to(target_dir) if dest.is_relative_to(target_dir) else Path(dest.name)
+        btarget = backup_dir / rel
+        btarget.parent.mkdir(parents=True, exist_ok=True)
+        if not is_win:
+            for d in (backup_dir.parent, backup_dir):
+                if d.exists() and not os.path.islink(d):
+                    try:
+                        os.chmod(d, 0o700)
+                    except OSError:
+                        pass
+        if not os.path.islink(dest) and dest.is_dir():
+            _release_init_tree(dest)
+        elif not os.path.islink(dest) and dest.is_file():
+            try:
+                os.chmod(dest, (os.lstat(dest).st_mode & 0o7777) | 0o200)
+            except OSError:
+                pass
+        shutil.move(str(dest), str(btarget))
+        backed_up.append((dest, btarget))
+        return True
+
+    def _rollback_init() -> None:
+        for created in reversed(placed_new):
+            try:
+                if os.path.islink(created) or created.is_file():
+                    created.unlink(missing_ok=True)
+                elif created.is_dir():
+                    _release_init_tree(created)
+                    shutil.rmtree(created, ignore_errors=True)
+            except OSError:
+                pass
+        for orig_dest, bsrc in reversed(backed_up):
+            try:
+                if os.path.lexists(orig_dest):
+                    if os.path.islink(orig_dest) or orig_dest.is_file():
+                        orig_dest.unlink(missing_ok=True)
+                    elif orig_dest.is_dir():
+                        _release_init_tree(orig_dest)
+                        shutil.rmtree(orig_dest, ignore_errors=True)
+                if os.path.lexists(bsrc):
+                    orig_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(bsrc), str(orig_dest))
+            except OSError:
+                pass
+        if was_locked or not no_lock:
+            try:
+                _engage_init_lock()
+            except Exception:
+                pass
+
+    def _place_copy(src: Path, dest: Path) -> None:
+        if os.path.lexists(dest) and not os.path.islink(dest):
+            if dest.is_file() and src.is_file() and dest.read_bytes() == src.read_bytes():
+                installed_paths.append(str(dest))
+                return
+            if dest.is_dir() and src.is_dir() and _trees_identical_init(src, dest):
+                installed_paths.append(str(dest))
+                return
+        had_existing = _backup_existing(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        copy_entry(src, dest, _init_ignore)
+        installed_paths.append(str(dest))
+        if not had_existing:
+            placed_new.append(dest)
+
+    prior_installed: set[str] = set()
+    receipt_path = state_dir() / "install_receipt.json"
+    if os.path.lexists(receipt_path):
+        try:
+            rec = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if isinstance(rec, dict) and isinstance(rec.get("installed"), list):
+                rec_target = rec.get("target")
+                if not rec_target or Path(str(rec_target)).resolve() == target_dir.resolve():
+                    prior_installed = {str(p).replace("\\", "/") for p in rec["installed"]}
+        except (OSError, ValueError) as exc:
+            print(f"[WARN] Could not parse {receipt_path} ({exc}); preserving unrecorded custom entries.", file=sys.stderr)
+
+    try:
+        for gname in ("GEMINI.md", "DESIGN.md", "MISTAKES.md"):
+            gsrc = source_dir / gname
+            if gsrc.is_file():
+                _place_copy(gsrc, target_dir / gname)
+
+        msrc = source_dir / ".harness" / "manifest.json"
+        if msrc.is_file():
+            if os.path.islink(target_dir / ".harness"):
+                _backup_existing(target_dir / ".harness")
+            _place_copy(msrc, target_dir / ".harness" / "manifest.json")
+
+        agents_src = source_dir / "agents"
+        if agents_src.is_dir():
+            target_agents = target_dir / "agents"
+            if os.path.islink(target_agents):
+                _backup_existing(target_agents)
+            src_agents = {p.name: p for p in sorted(agents_src.glob("*.md"))}
+            if target_agents.is_dir() and not os.path.islink(target_agents):
+                for existing in sorted(target_agents.glob("*.md")):
+                    if existing.name not in src_agents and f"agents/{existing.name}" in prior_installed:
+                        _backup_existing(existing)
+            for agent_name, agent_file in src_agents.items():
+                _place_copy(agent_file, target_agents / agent_name)
+
+        skills_src = source_dir / "skills"
+        if skills_src.is_dir():
+            target_skills = target_dir / "skills"
+            if os.path.islink(target_skills):
+                _backup_existing(target_skills)
+            src_skills = {p.name: p for p in sorted(p for p in skills_src.iterdir() if p.is_dir())}
+            if target_skills.is_dir() and not os.path.islink(target_skills):
+                for existing in sorted(target_skills.iterdir()):
+                    if (
+                        (existing.is_dir() or os.path.islink(existing))
+                        and existing.name not in src_skills
+                        and f"skills/{existing.name}" in prior_installed
+                    ):
+                        _backup_existing(existing)
+            for skill_name, skill_dir in src_skills.items():
+                _place_copy(skill_dir, target_skills / skill_name)
+
+        templates_src = source_dir / "templates"
+        if templates_src.is_dir():
+            target_templates = target_dir / "templates"
+            if os.path.islink(target_templates):
+                _backup_existing(target_templates)
+            src_templates = {
+                p.name: p
+                for p in sorted(templates_src.iterdir())
+                if p.is_file() and p.name != "config.example.json"
+            }
+            if target_templates.is_dir() and not os.path.islink(target_templates):
+                for existing in sorted(target_templates.iterdir()):
+                    if (
+                        (existing.is_file() or os.path.islink(existing))
+                        and existing.name not in src_templates
+                        and existing.name != "config.example.json"
+                        and f"templates/{existing.name}" in prior_installed
+                    ):
+                        _backup_existing(existing)
+            for tmpl_name, tmpl in src_templates.items():
+                _place_copy(tmpl, target_templates / tmpl_name)
+            example_cfg = templates_src / "config.example.json"
+            cfg_dest = target_dir / "config.json"
+            if not cfg_dest.exists() and example_cfg.is_file():
+                shutil.copy2(example_cfg, cfg_dest)
+                if not is_win:
+                    os.chmod(cfg_dest, 0o600)
+
+        if not is_win:
+            skills_root = target_dir / "skills"
+            if skills_root.is_dir() and not os.path.islink(skills_root):
+                script_cands: List[Path] = []
+                for sdir in skills_root.rglob("scripts"):
+                    if sdir.is_dir() and not os.path.islink(sdir):
+                        for entry in sdir.rglob("*"):
+                            if entry.suffix in (".py", ".sh", ".mjs"):
+                                script_cands.append(entry)
+                ah_dir = skills_root / "antislop-human"
+                if ah_dir.is_dir() and not os.path.islink(ah_dir):
+                    script_cands.extend(ah_dir.glob("contrast-*.py"))
+                for sc in script_cands:
+                    if not os.path.islink(sc) and sc.is_file():
+                        try:
+                            sc.chmod(sc.stat().st_mode | 0o755)
+                        except OSError:
+                            pass
+
+        from guard.agy_hooks import PRE_TOOL_USE_MATCHER
+
+        hooks_path = target_dir / "hooks.json"
+        existing_hooks: dict = {}
+        if hooks_path.is_file():
+            try:
+                loaded_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                loaded_hooks = None
+                hooks_err = str(exc)
+            else:
+                hooks_err = "root is not a JSON object"
+            if not isinstance(loaded_hooks, dict):
+                _rollback_init()
+                print(f"[ERROR] {hooks_path} is invalid ({hooks_err}); aborted and rolled back.", file=sys.stderr)
+                return 1
+            existing_hooks = loaded_hooks
+
+        fhs_hooks = source_dir.parent.parent / "lib" / "antigravity-guard" / "guard" / "agy_hooks.py"
+        if fhs_hooks.is_file():
+            hooks_script = fhs_hooks.resolve()
+        elif getattr(sys, "frozen", False):
+            sys_hooks = Path("/usr/lib/antigravity-guard/guard/agy_hooks.py")
+            rt_hooks = data_dir() / "runtime" / "guard" / "agy_hooks.py"
+            hooks_script = sys_hooks if sys_hooks.is_file() else (rt_hooks if rt_hooks.is_file() else (source_dir / "guard" / "agy_hooks.py"))
+        else:
+            hooks_script = Path(__file__).resolve().parent / "agy_hooks.py"
+
+        watcher_script = target_dir / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
+        if getattr(sys, "frozen", False):
+            python_bin = "python" if is_win else "python3"
+        else:
+            python_bin = sys.executable or ("python" if is_win else "python3")
+
+        def _fmt_cmd(*parts: str) -> str:
+            return subprocess.list2cmdline([python_bin, *parts]) if is_win else shlex.join([python_bin, *parts])
+
+        merged_hooks = dict(existing_hooks)
+        merged_hooks["upstream-watchdog"] = {
+            "PreInvocation": [{"type": "command", "command": _fmt_cmd(str(watcher_script)), "timeout": 15}]
+        }
+        merged_hooks["harness-gate"] = {
+            "PreInvocation": [
+                {"type": "command", "command": _fmt_cmd(str(hooks_script), "pre-invocation"), "timeout": 5}
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": PRE_TOOL_USE_MATCHER,
+                    "hooks": [
+                        {"type": "command", "command": _fmt_cmd(str(hooks_script), "pre-tool-use"), "timeout": 5}
+                    ],
+                }
+            ],
+            "Stop": [
+                {"type": "command", "command": _fmt_cmd(str(hooks_script), "stop"), "timeout": 15}
+            ],
+        }
+        if merged_hooks == existing_hooks and not os.path.islink(hooks_path):
+            installed_paths.append(str(hooks_path))
+        else:
+            had_hooks = _backup_existing(hooks_path)
+            atomic_write_json(hooks_path, merged_hooks, mode=0o644)
+            installed_paths.append(str(hooks_path))
+            if not had_hooks:
+                placed_new.append(hooks_path)
+
+        installed_rel = [
+            str(Path(p).relative_to(target_dir)) if Path(p).is_relative_to(target_dir) else str(p)
+            for p in installed_paths
+        ]
+        atomic_write_json(
+            state_dir() / "install_receipt.json",
+            {
+                "version": __version__,
+                "installed_at": datetime.now(timezone.utc).isoformat(),
+                "source": str(source_dir),
+                "source_commit": "",
+                "source_dirty": False,
+                "mode": "copy",
+                "target": str(target_dir),
+                "backup_dir": str(backup_dir) if backup_dir.exists() else None,
+                "installed": installed_rel,
+            },
+        )
+        _prune_named_backups("init_", keep=10)
+        monitor = _monitor(env, registry)
+        count, bpath = monitor.save_baseline()
+        print(f"[BASELINE] Integrity baseline established for {count} governance entries -> {bpath}")
+    except Exception:
+        _rollback_init()
+        raise
+
+    if not no_lock:
+        lock_ok, lmsg = _engage_init_lock()
+        print(f"[{'LOCKED' if lock_ok else 'ERROR'}] {lmsg}")
+        if not lock_ok:
+            return 1
+
+    audit("guard.init", source=str(source_dir), target=str(target_dir), baseline_entries=count)
+    print("=" * 64)
+    print(f"[SUCCESS] Initialized Antigravity Harness profile at {target_dir}")
+    if backup_dir.exists():
+        print(f"Replaced files were backed up to: {backup_dir}")
+    print("=" * 64)
+    return 0
+
+
 def cmd_lock(args: argparse.Namespace) -> int:
     registry = _registry(args)
+    lease_mgr = LeaseManager(registry=registry)
     target = None if getattr(args, "all", False) else (getattr(args, "env", None) or "antigravity")
-    # Silent-ingestion guard: before sealing, show what changed since the trusted baseline.
-    # Locking never accepts those changes; they stay reported until an approved rebaseline.
     if target:
-        env, _ = registry.resolve_environment(target)
-        envs = [env] if env else []
+        env, err = registry.resolve_environment(target)
+        if not env:
+            print(f"Error: {err}", file=sys.stderr)
+            return 1
+        if lease_mgr.get_active_lease(env.id) is not None:
+            success, msg = lease_mgr.complete_lease(env_id=env.id, interactive=True)
+            print(f"[{'LOCKED' if success else 'ERROR'}] {msg}")
+            return 0 if success else 1
+        envs = [env]
     else:
         envs = registry.list_environments()
+
+    leased_ids = set()
+    lease_msgs: List[str] = []
+    lease_ok = True
+    if target is None:
+        for env in envs:
+            if lease_mgr.get_active_lease(env.id) is not None:
+                leased_ids.add(env.id)
+                l_ok, l_msg = lease_mgr.complete_lease(env_id=env.id, interactive=True)
+                lease_ok = lease_ok and l_ok
+                lease_msgs.append(l_msg)
+
+    # Silent-ingestion guard: before sealing, show what changed since the trusted baseline.
+    # Locking never accepts those changes; they stay reported until an approved rebaseline.
     for env in envs:
-        if env.policy != "enforced":
+        if env.id in leased_ids or env.policy != "enforced":
             continue
         report = _monitor(env, registry).verify()
         if not report.is_intact:
@@ -156,8 +906,10 @@ def cmd_lock(args: argparse.Namespace) -> int:
             _print_report_details(report, indent="  ")
             print("  Locking does not accept these changes; review them, then run 'agy-guard rebaseline'.")
     success, msg = registry.lock(env_id=target)
-    print(f"[{'LOCKED' if success else 'ERROR'}] {msg}")
-    return 0 if success else 1
+    overall_ok = lease_ok and success
+    combined_msg = (" | ".join(lease_msgs + ([msg] if msg else ""))).strip() if lease_msgs else msg
+    print(f"[{'LOCKED' if overall_ok else 'ERROR'}] {combined_msg}")
+    return 0 if overall_ok else 1
 
 
 def cmd_unlock(args: argparse.Namespace) -> int:
@@ -252,12 +1004,15 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         print(f"[{'SUCCESS' if success else 'ERROR'}] {msg}")
         return 0 if success else 1
     if args.action == "prune":
-        if not request_approval("snapshot prune", f"Permanently delete older snapshots of {env.name} (keep {args.keep or 5} per kind)?",
+        keep = 5 if args.keep is None else args.keep
+        if isinstance(keep, bool) or not isinstance(keep, int) or keep < 1:
+            print("Error: --keep must be an integer >= 1.", file=sys.stderr)
+            return 1
+        if not request_approval("snapshot prune", f"Permanently delete older snapshots of {env.name} (keep {keep} per kind)?",
                                 ["Snapshots are forensic evidence and restore points; pruning cannot be undone."]):
             return _refuse("snapshot prune")
-        count = engine.prune_snapshots(keep=args.keep or 5)
-        audit("snapshot.prune", env=env.id, removed=count, keep=args.keep or 5)
-        print(f"[PRUNED] Removed {count} older snapshots (kept {args.keep or 5} per kind).")
+        count = engine.prune_snapshots(keep=keep)
+        print(f"[PRUNED] Removed {count} older snapshots (kept {keep} per kind).")
         return 0
     return 0
 
@@ -298,23 +1053,81 @@ def cmd_porter(args: argparse.Namespace) -> int:
 
 def cmd_upstream(args: argparse.Namespace) -> int:
     bridge = UpstreamAuditorBridge()
+    action = getattr(args, "action", "check") or "check"
+    if action == "ack":
+        ok, msg = bridge.acknowledge_drift(model_name=getattr(args, "model", None))
+        print(f"[{'OK' if ok else 'ERROR'}] {msg}")
+        return 0 if ok else 1
+
+    if action == "status" or getattr(args, "offline", False):
+        from guard.upstream import short_ref
+
+        summary = bridge.get_summary()
+        model_info = bridge.get_model_drift_status()
+        print(f"Active Model   : {model_info['active_model']} ({model_info['model_source']})")
+        print(f"Upstream State : {summary['status']} ({summary['state_file']})")
+        for w in summary.get("warnings", []):
+            print(f"[WARN] {w}", file=sys.stderr)
+        state = bridge.load_state()
+        tracked = state.get("tracked_repositories", {})
+        if not isinstance(tracked, dict) or not tracked:
+            print("[WARN] No tracked repositories configured in upstream state.", file=sys.stderr)
+            return 1
+        pending = state.get("pending_repo_updates", {})
+        if not isinstance(pending, dict):
+            pending = {}
+        print(f"\nTracked Repositories Ledger ({len(tracked)}, offline):")
+        print(f"{'Repository':<24} {'Local':<18} {'Pending':<18} {'Status':<18}")
+        print("-" * 80)
+        has_offline_errors = summary["status"] != "OK"
+        for name in sorted(tracked):
+            info = tracked[name]
+            if not isinstance(info, dict):
+                has_offline_errors = True
+                print(f"{name:<24} {'None':<18} {'-':<18} {'Invalid entry':<18}")
+                continue
+            recorded_raw = str(info.get("last_synced_commit", "")).strip()
+            local_sha = short_ref(recorded_raw)
+            entry = pending.get(name) if isinstance(pending.get(name), dict) else {}
+            pend_sha = short_ref(entry.get("remote", "")) if str(entry.get("recorded", "")).strip() == recorded_raw else ""
+            status = "Updates Pending" if pend_sha else "Recorded"
+            print(f"{name:<24} {local_sha or 'None':<18} {pend_sha or '-':<18} {status:<18}")
+        return 1 if has_offline_errors else 0
+
+    model_info = bridge.get_model_drift_status()
+    print(f"Active Model : {model_info['active_model']} ({model_info['model_source']})")
+    if bridge.last_load_error:
+        print(f"[WARN] {bridge.last_load_error}", file=sys.stderr)
     print("Checking tracked repositories (zero LLM token cost)...")
     results = bridge.check_repositories()
     print(f"\nTracked Repositories Status ({len(results)}):")
-    print(f"{'Repository':<24} {'Local':<10} {'Remote':<10} {'Status':<18}")
-    print("-" * 64)
+    print(f"{'Repository':<24} {'Local':<18} {'Remote':<18} {'Status':<18}")
+    print("-" * 80)
+    has_errors = bool(bridge.last_load_error) or not results
+    if not results:
+        print("[WARN] No tracked repositories configured in upstream state.", file=sys.stderr)
     for r in results:
-        print(f"{r['name']:<24} {r['local_sha'] or 'None':<10} {r['remote_sha'] or 'None':<10} {r['status']:<18}")
-    return 0
+        st_label = str(r.get("status", ""))
+        if st_label.startswith(("Network Error", "HTTP Error", "Invalid ", "Unknown", "Worker Error")):
+            has_errors = True
+        print(f"{r['name']:<24} {r['local_sha'] or 'None':<18} {r['remote_sha'] or 'None':<18} {st_label:<18}")
+    return 1 if has_errors else 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    registry = _registry(args)
+    reg_arg = getattr(args, "registry", None)
+    reg_cfg = Path(reg_arg) if reg_arg else None
+    registry, quarantined_reg = recover_or_load_registry(
+        config_path=reg_cfg,
+        recover=bool(getattr(args, "fix", False)),
+    )
     env, err = _resolve(registry, getattr(args, "env", None))
     if not env:
         print(f"Error: {err}", file=sys.stderr)
         return 1
     result = diagnose(env, registry)
+    if quarantined_reg is not None:
+        result.infos.insert(0, f"Quarantined corrupt environment registry -> {quarantined_reg} and re-initialized defaults.")
 
     print("=" * 64)
     print(f"       Antigravity Guard (agy-guard) v{__version__} - Doctor       ")
@@ -346,7 +1159,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("Doctor auto-healing completed (nothing was deleted; manual items remain listed above).")
         result.issues = registry.protection_issues(env)
         result.report = result.monitor.verify()
-        result.warnings = [w for w in result.warnings if not w.startswith(("Governance scope", "Integrity:"))]
+        healed_prefixes: list[str] = []
+        if not result.issues:
+            healed_prefixes.append("Governance scope")
+        if result.report.is_intact:
+            healed_prefixes.append("Integrity:")
+        if healed_prefixes:
+            result.warnings = [w for w in result.warnings if not w.startswith(tuple(healed_prefixes))]
 
     print("=" * 64)
     return 0 if result.healthy else 1
@@ -393,9 +1212,15 @@ def cmd_test_boundary(args: argparse.Namespace) -> int:
 
     if action == "snapshot":
         target = Path(args.output).resolve() if getattr(args, "output", None) else guard.state_file
-        if target.exists() and not request_approval(
-            "test-boundary snapshot", "Overwrite the existing test boundary baseline with the CURRENT tests?",
-            [str(target), "Re-snapshotting after editing tests would legitimise those edits."],
+        prompt = (
+            "Overwrite the existing test boundary baseline with the CURRENT tests?"
+            if target.exists()
+            else "Create a new test boundary baseline from the CURRENT workspace tests?"
+        )
+        if not request_approval(
+            "test-boundary snapshot",
+            prompt,
+            [str(target), "Snapshotting after editing tests would legitimise those edits."],
         ):
             return _refuse("test-boundary snapshot")
         count, path = guard.snapshot(target_path=getattr(args, "output", None))
@@ -404,7 +1229,13 @@ def cmd_test_boundary(args: argparse.Namespace) -> int:
 
     if action == "verify":
         mode = getattr(args, "mode", "bugfix") or "bugfix"
-        report = guard.verify(mode=mode, snapshot_path=getattr(args, "snapshot", None), base_ref=getattr(args, "base_ref", None))
+        authorized = set(getattr(args, "authorize", None) or [])
+        report = guard.verify(
+            mode=mode,
+            snapshot_path=getattr(args, "snapshot", None),
+            authorized_modifications=authorized,
+            base_ref=getattr(args, "base_ref", None),
+        )
         print("=" * 64)
         print("      Antigravity Guard — Test & Config Boundary Verification     ")
         print("=" * 64)
@@ -453,6 +1284,8 @@ def cmd_provenance(args: argparse.Namespace) -> int:
             mode=getattr(args, "mode", "bugfix") or "bugfix",
             test_command=getattr(args, "test_cmd", None),
             reproducibility_passes=args.passes,
+            base_ref=getattr(args, "base_ref", None),
+            authorized_modifications=set(getattr(args, "authorize", None) or []),
         )
         print("=" * 64)
         print("        Antigravity Guard — Run Provenance Manifest Generated     ")
@@ -520,14 +1353,37 @@ def cmd_env(args: argparse.Namespace) -> int:
         if not name or not path:
             print("Error: Specify environment name (--name) and path (--path) to add.", file=sys.stderr)
             return 1
+        policy_val = getattr(args, "policy", None) or "enforced"
+        if policy_val not in VALID_POLICIES:
+            print(f"Error: Invalid policy '{policy_val}'. Must be one of {', '.join(VALID_POLICIES)}.", file=sys.stderr)
+            return 1
+        env_id = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-")
+        existing_ids = {e.id for e in registry.list_environments()}
+        if not env_id or env_id == "antigravity" or env_id in existing_ids:
+            print(
+                f"Error: Environment ID '{env_id or name}' is reserved or already registered.",
+                file=sys.stderr,
+            )
+            return 1
+        if policy_val != "enforced":
+            if not request_approval(
+                "env add",
+                f"Register environment '{name}' with non-enforced policy '{policy_val}'?",
+                ["A non-enforced environment is not write-protected by leases, the boot sentinel or 'agy-guard lock'."],
+            ):
+                return _refuse("env add")
         env = AgentEnvironment(
-            id=re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-"),
+            id=env_id,
             name=name,
             platform_type=getattr(args, "type", None) or "custom",
             root_path=str(Path(path).resolve()),
-            policy=getattr(args, "policy", None) or "enforced",
+            policy=policy_val,
         )
-        registry.register_environment(env)
+        try:
+            registry.register_environment(env)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
         print(f"[REGISTERED] Environment '{env.id}' added -> {env.root_path}")
         return 0
 
@@ -535,6 +1391,15 @@ def cmd_env(args: argparse.Namespace) -> int:
         if not name:
             print("Error: Specify environment ID to remove.", file=sys.stderr)
             return 1
+        if name == "antigravity" or name not in {e.id for e in registry.list_environments()}:
+            print(f"Environment '{name}' not found (the global 'antigravity' environment cannot be removed).", file=sys.stderr)
+            return 1
+        if not request_approval(
+            "env remove",
+            f"Remove environment '{name}' from Guard protection?",
+            ["Unregistering an environment stops integrity verification and re-locking for its governance seams."],
+        ):
+            return _refuse("env remove")
         if registry.unregister_environment(name):
             print(f"[REMOVED] Environment '{name}' removed from registry.")
             return 0
@@ -628,7 +1493,16 @@ def _default_audit_root() -> Path:
     repo_root = Path(__file__).resolve().parent.parent
     if (repo_root / "skills").is_dir() and (repo_root / "GEMINI.md").is_file():
         return repo_root
-    return config_dir()
+    cfg = config_dir()
+    if (cfg / "skills").is_dir() and (cfg / "GEMINI.md").is_file():
+        return cfg
+    for share_cand in (
+        repo_root.parent.parent / "share" / "antigravity-harness",
+        Path("/usr/share/antigravity-harness"),
+    ):
+        if (share_cand / "skills").is_dir() and (share_cand / "GEMINI.md").is_file():
+            return share_cand.resolve()
+    return cfg
 
 
 def cmd_self_audit(args: argparse.Namespace) -> int:
@@ -732,6 +1606,15 @@ def build_parser() -> argparse.ArgumentParser:
         if with_all:
             p.add_argument("--all", "-a", action="store_true", help="Apply to all registered environments")
 
+    p = subparsers.add_parser("init", help="Initialize ~/.gemini/config governance profile from system package")
+    p.add_argument("--source", help="Source directory containing governance assets (default: /usr/share/antigravity-harness)")
+    p.add_argument("--target", help="Target configuration directory (default: ~/.gemini/config)")
+    p.add_argument("--no-lock", action="store_true", help="Do not write-protect governance seams after initialization")
+    p.add_argument("--uninstall", action="store_true", help="Remove ~/.gemini/config governance profile, hooks, and receipt-tracked entries")
+    p.add_argument("--yes", "-y", action="store_true", help="Acknowledge uninstall operation (interactive approval still enforced)")
+    p.add_argument("--dry-run", action="store_true", help="Preview initialization without writing files")
+    p.set_defaults(func=cmd_init)
+
     p = subparsers.add_parser("status", help="Show write protection, integrity and lease status")
     env_opts(p)
     p.set_defaults(func=cmd_status)
@@ -756,7 +1639,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["create", "list", "restore", "prune"], help="Snapshot action")
     p.add_argument("--label", "-l", help="Label for snapshot create")
     p.add_argument("--id", help="Snapshot ID for restore")
-    p.add_argument("--keep", type=int, default=5, help="Snapshots to retain per kind during prune")
+    p.add_argument("--keep", type=int, default=5, help="Snapshots to retain per kind during prune (>= 1)")
     env_opts(p)
     p.set_defaults(func=cmd_snapshot)
 
@@ -769,7 +1652,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_porter)
 
     p = subparsers.add_parser("upstream", help="Check tracked upstream repositories")
-    p.add_argument("action", choices=["check", "status"], default="check", nargs="?", help="Upstream action")
+    p.add_argument("action", choices=["check", "status", "ack"], default="check", nargs="?", help="Upstream action")
+    p.add_argument("--model", help="Model name to record with 'ack'")
+    p.add_argument("--offline", action="store_true", help="Inspect local ledger without network requests")
     p.set_defaults(func=cmd_upstream)
 
     p = subparsers.add_parser("startup", help="Manage the boot sentinel registration")
@@ -794,6 +1679,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", help="Snapshot output path")
     p.add_argument("--snapshot", help="Custom snapshot path to verify against")
     p.add_argument("--base-ref", help="Verify against a git ref (e.g. origin/main) instead of a stored snapshot")
+    p.add_argument("--authorize", action="append", default=[], help="Relative test path authorized for contract modification (repeatable)")
     p.add_argument("--cmd", help="Target test command for run-reproducible")
     p.add_argument("--passes", type=int, default=2, help="Consecutive passes required (>= 2, default: 2)")
     p.set_defaults(func=cmd_test_boundary)
@@ -802,6 +1688,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["generate", "status"], default="status", nargs="?", help="Provenance action")
     p.add_argument("--mode", choices=["bugfix", "tdd"], default="bugfix", help="Operating mode for boundary check")
     p.add_argument("--dir", help="Target workspace root directory")
+    p.add_argument("--base-ref", help="Git ref for the test boundary baseline (e.g. origin/main)")
+    p.add_argument("--authorize", action="append", default=[], help="Relative test path authorized for contract modification (repeatable)")
     p.add_argument("--test-cmd", help="Optional test command to check reproducibility")
     p.add_argument("--passes", type=int, default=2, help="Reproducibility passes (>= 2, default: 2)")
     p.set_defaults(func=cmd_provenance)

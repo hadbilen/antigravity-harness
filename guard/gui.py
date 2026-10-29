@@ -14,16 +14,24 @@ import sys
 import threading
 from pathlib import Path
 
-# Safe tkinter imports
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+# Safe tkinter imports (optional OS package on minimal Linux distributions)
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+    _TK_IMPORT_ERROR: Exception | None = None
+except ImportError as _tk_exc:
+    tk = None  # type: ignore[assignment]
+    ttk = None  # type: ignore[assignment]
+    messagebox = None  # type: ignore[assignment]
+    filedialog = None  # type: ignore[assignment]
+    _TK_IMPORT_ERROR = _tk_exc
 
 from guard import __version__
 from guard import approval
 from guard.approval import ApprovalRequest, request_approval
 from guard.audit_log import warn
 from guard.paths import runtime_dir
-from guard.environment import EnvironmentRegistry
+from guard.environment import EnvironmentRegistry, RegistryError
 from guard.integrity import FileIntegrityMonitor
 from guard.lease import LeaseManager
 from guard.notifier import GuardNotifier
@@ -257,7 +265,8 @@ class AntigravityGuardApp:
         btn_bar.pack(fill="x")
         ttk.Button(btn_bar, text="Verify Integrity Now", style="Action.TButton", command=self.verify_integrity).pack(side="left", padx=(0, 8))
         ttk.Button(btn_bar, text="Establish Baseline (Re-baseline)", style="Primary.TButton", command=self.rebaseline).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_bar, text="Create Snapshot Point", style="Action.TButton", command=self.create_snapshot).pack(side="left")
+        ttk.Button(btn_bar, text="Create Snapshot Point", style="Action.TButton", command=self.create_snapshot).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="Run Doctor Check", style="Action.TButton", command=self.run_doctor_check).pack(side="left")
 
         card_list = ttk.Frame(self.tab_shield, style="Card.TFrame", padding=16)
         card_list.pack(fill="both", expand=True)
@@ -286,6 +295,8 @@ class AntigravityGuardApp:
         ttk.Button(btn_box, text="Lock All Enforced", style="Action.TButton", command=self.lock_all_environments).pack(side="left", padx=(0, 8))
         ttk.Button(btn_box, text="Unlock All", style="Action.TButton", command=self.unlock_all_environments).pack(side="left", padx=(0, 8))
         ttk.Button(btn_box, text="Request 60s Lease", style="Action.TButton", command=self.gui_request_lease).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_box, text="Toggle Policy", style="Action.TButton", command=self.gui_toggle_policy).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_box, text="Verify Selected", style="Action.TButton", command=self.gui_verify_selected_env).pack(side="left", padx=(0, 8))
         ttk.Button(btn_box, text="Analyze Drift", style="Action.TButton", command=self.gui_analyze_drift).pack(side="left")
 
         tree_card = ttk.Frame(self.tab_env, style="Card.TFrame", padding=12)
@@ -357,10 +368,19 @@ class AntigravityGuardApp:
         ttk.Label(header_card, text="Tracked Ecosystem & Model Drift", style="Header.TLabel").pack(anchor="w")
         model_info = self.upstream_bridge.get_model_drift_status()
         active_model = model_info.get("active_model", "Unknown")
+        model_source = model_info.get("model_source", "none")
         tracked_count = model_info.get("tracked_ecosystems", str(len(self.upstream_bridge.load_state().get("tracked_repositories", {}))))
-        ttk.Label(header_card, text=f"Active Antigravity Model: {active_model} | Monitored: {tracked_count} ecosystems", style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
+        self.lbl_upstream_meta = ttk.Label(
+            header_card,
+            text=f"Active Antigravity Model: {active_model} ({model_source}) | Monitored: {tracked_count} ecosystems",
+            style="Muted.TLabel",
+        )
+        self.lbl_upstream_meta.pack(anchor="w", pady=(2, 8))
 
-        ttk.Button(header_card, text="Check Repositories Now", style="Primary.TButton", command=self.check_upstream_async).pack(anchor="w")
+        up_btns = ttk.Frame(header_card, style="Card.TFrame")
+        up_btns.pack(fill="x")
+        ttk.Button(up_btns, text="Check Repositories Now", style="Primary.TButton", command=self.check_upstream_async).pack(side="left", padx=(0, 8))
+        ttk.Button(up_btns, text="Acknowledge Drift", style="Action.TButton", command=self.acknowledge_upstream_drift).pack(side="left")
 
         table_frame = ttk.Frame(self.tab_upstream, style="Card.TFrame", padding=12)
         table_frame.pack(fill="both", expand=True)
@@ -504,6 +524,101 @@ class AntigravityGuardApp:
         self.verify_integrity()
         self.refresh_snapshots()
         self.refresh_environments()
+        self.refresh_upstream_meta()
+
+    def refresh_upstream_meta(self):
+        if not hasattr(self, "lbl_upstream_meta") or self.lbl_upstream_meta is None:
+            return
+        model_info = self.upstream_bridge.get_model_drift_status()
+        active_model = model_info.get("active_model", "Unknown")
+        model_source = model_info.get("model_source", "none")
+        tracked_count = model_info.get("tracked_ecosystems", "0")
+        self.lbl_upstream_meta.config(
+            text=f"Active Antigravity Model: {active_model} ({model_source}) | Monitored: {tracked_count} ecosystems"
+        )
+
+    def acknowledge_upstream_drift(self):
+        ok, msg = self.upstream_bridge.acknowledge_drift()
+        self.refresh_upstream_meta()
+        if ok:
+            messagebox.showinfo("Upstream State Acknowledged", msg)
+        else:
+            messagebox.showerror("Upstream Acknowledge Error", msg)
+
+    def run_doctor_check(self):
+        from guard.doctor import diagnose
+
+        def work():
+            return diagnose(self.env, self.env_registry)
+
+        def done(ok, report):
+            if not ok:
+                messagebox.showerror("Doctor Check Failed", str(report))
+                return
+            lines = [
+                f"Environment: {report.env.name} ({report.root})",
+                f"Write Shield: {'LOCKED' if not report.issues else 'UNPROTECTED'}",
+                f"Integrity: {report.report.summary()}",
+            ]
+            if report.warnings:
+                lines.append("\nWarnings:")
+                lines.extend(f"  - {w}" for w in report.warnings)
+            if report.infos:
+                lines.append("\nInfo:")
+                lines.extend(f"  - {i}" for i in report.infos)
+            if report.healthy:
+                messagebox.showinfo("Doctor Health Report — Healthy", "\n".join(lines))
+            else:
+                messagebox.showwarning("Doctor Health Report — Action Required", "\n".join(lines))
+
+        self._run_background(work, done)
+
+    def gui_toggle_policy(self):
+        sel = self.tree_envs.selection() if hasattr(self, "tree_envs") else ()
+        env_id = self.tree_envs.item(sel[0])["values"][0] if sel else "antigravity"
+        current = self.env_registry.get_environment(env_id)
+        if current is None:
+            messagebox.showerror("Environment Not Found", f"Environment '{env_id}' is not registered.")
+            return
+        next_policy = "monitored" if current.policy == "enforced" else "enforced"
+        if self.env_registry.is_weakening(current.policy, next_policy):
+            if not request_approval(
+                "env policy",
+                f"Lower the protection of {current.name} from '{current.policy}' to '{next_policy}'?",
+                ["A non-enforced environment is not re-locked by leases, the boot sentinel or 'agy-guard lock'."],
+            ):
+                return
+        try:
+            ok = self.env_registry.set_policy(env_id, next_policy)
+        except (RegistryError, ValueError) as exc:
+            messagebox.showerror("Policy Error", str(exc))
+            return
+        if not ok:
+            messagebox.showerror("Environment Not Found", f"Environment '{env_id}' could not be updated.")
+            return
+        messagebox.showinfo("Policy Updated", f"'{current.name}' policy set to '{next_policy}'.")
+        self.refresh_environments()
+
+    def gui_verify_selected_env(self):
+        sel = self.tree_envs.selection() if hasattr(self, "tree_envs") else ()
+        env_id = self.tree_envs.item(sel[0])["values"][0] if sel else "antigravity"
+        env = self.env_registry.get_environment(env_id)
+        if env is None:
+            messagebox.showerror("Environment Not Found", f"Environment '{env_id}' is not registered.")
+            return
+
+        def work():
+            return FileIntegrityMonitor.for_environment(env, os_adapter=self.adapter).verify()
+
+        def done(ok, rep):
+            if not ok:
+                messagebox.showerror("Verification Failed", str(rep))
+            elif rep.is_intact:
+                messagebox.showinfo("Environment Verified", f"{env.name}: {rep.summary()}")
+            else:
+                messagebox.showwarning("Environment Drift Detected", f"{env.name}: {rep.summary()}")
+
+        self._run_background(work, done)
 
     def refresh_environments(self):
         if not hasattr(self, "tree_envs"):
@@ -530,7 +645,11 @@ class AntigravityGuardApp:
         folder = filedialog.askdirectory(title="Choose a project folder to scan for agent rule files")
         if not folder:
             return
-        discovered = self.env_registry.discover_environments(workspace_dir=Path(folder), register=True)
+        try:
+            discovered = self.env_registry.discover_environments(workspace_dir=Path(folder), register=True)
+        except (RegistryError, ValueError) as exc:
+            messagebox.showerror("Discovery Error", str(exc))
+            return
         note = f"\n\n{self.env_registry.last_discovery_note}" if self.env_registry.last_discovery_note else ""
         messagebox.showinfo("Discovery Complete",
                             f"Registered {len(discovered)} environment(s). Other agents' rule files start as "
@@ -538,8 +657,17 @@ class AntigravityGuardApp:
         self.refresh_environments()
 
     def lock_all_environments(self):
+        leased_msgs = []
+        all_ok = True
+        for env in self.env_registry.list_environments():
+            if self.lease_manager.get_active_lease(env.id) is not None:
+                l_ok, l_msg = self.lease_manager.complete_lease(env.id, approver=self._gui_approver)
+                all_ok = all_ok and l_ok
+                leased_msgs.append(l_msg)
         ok, msg = self.env_registry.lock()
-        (messagebox.showinfo if ok else messagebox.showerror)("Lock Matrix" if ok else "Lock Incomplete", msg)
+        all_ok = all_ok and ok
+        full_msg = ("\n".join(leased_msgs + ([msg] if msg else ""))).strip() if leased_msgs else msg
+        (messagebox.showinfo if all_ok else messagebox.showerror)("Lock Matrix" if all_ok else "Lock Incomplete", full_msg)
         self.refresh_status()
 
     def unlock_all_environments(self):
@@ -599,9 +727,15 @@ class AntigravityGuardApp:
             else:
                 messagebox.showerror("Unlock Failed", msg)
         else:
-            success, msg = self.env_registry.lock("antigravity")
+            if self.lease_manager.get_active_lease("antigravity") is not None:
+                success, msg = self.lease_manager.complete_lease("antigravity", approver=self._gui_approver)
+            else:
+                success, msg = self.env_registry.lock("antigravity")
             if success:
-                messagebox.showinfo("Shield Engaged", "Governance files are write-protected (user-space lock).")
+                messagebox.showinfo(
+                    "Shield Engaged",
+                    msg if "Lease " in msg else "Governance files are write-protected (user-space lock).",
+                )
             else:
                 messagebox.showerror("Lock Incomplete", msg)
         self.refresh_status()
@@ -776,7 +910,10 @@ class AntigravityGuardApp:
         self.refresh_snapshots()
 
     def _browse_porter_file(self):
-        f = filedialog.askopenfilename(title="Select Rule File", filetypes=[("Markdown / Rule", "*.md *.mdc *.txt"), ("All Files", "*.*")])
+        f = filedialog.askopenfilename(
+            title="Select Rule File or ZIP Archive",
+            filetypes=[("Markdown / Rule / Archive", "*.md *.mdc *.txt *.zip"), ("All Files", "*.*")],
+        )
         if f:
             self.ent_porter_source.delete(0, "end")
             self.ent_porter_source.insert(0, f)
@@ -806,7 +943,7 @@ class AntigravityGuardApp:
             self.txt_sanitized.delete("1.0", "end")
             self.txt_sanitized.insert("1.0", report["sanitized_content"])
 
-            if report["is_admissible"]:
+            if report["is_admissible"] and not report.get("is_archive"):
                 self.btn_ingest.state(["!disabled"])
             else:
                 self.btn_ingest.state(["disabled"])
@@ -817,14 +954,39 @@ class AntigravityGuardApp:
         src = self.ent_porter_source.get().strip()
         if not src:
             return
-        if messagebox.askyesno("Confirm Ingestion", "Ingest this rule into your environment? An atomic snapshot will be taken first."):
-            expected = (self.current_porter_report or {}).get("content_sha256")
-            success, msg = self.porter_bridge.stage_and_ingest(src, expected_sha256=expected)
+        report = self.current_porter_report or {}
+        if report.get("is_archive") or src.lower().endswith(".zip"):
+            messagebox.showerror(
+                "Ingestion Refused",
+                "ZIP archives are read-only evidence and are never extracted or installed (GEMINI.md Rule 16).",
+            )
+            return
+        name = report.get("name", Path(src).stem or "incoming_rule")
+        target_type = report.get("target_type", "skill")
+        expected = report.get("content_sha256")
+        details = [f"content sha256 {expected}"] if expected else []
+        if not request_approval(
+            "porter stage",
+            f"Write '{name}' ({target_type}) into the protected governance tree?",
+            details,
+        ):
+            return
+
+        def done(ok, value):
+            if not ok:
+                messagebox.showerror("Ingestion Failed", str(value))
+                return
+            success, msg = value
             if success:
                 messagebox.showinfo("Ingested Successfully", msg)
                 self.refresh_status()
             else:
                 messagebox.showerror("Ingestion Failed", msg)
+
+        self._run_background(
+            lambda: self.porter_bridge.stage_and_ingest(src, expected_sha256=expected),
+            done,
+        )
 
     def check_upstream_async(self):
         q: queue.Queue = queue.Queue()
@@ -845,6 +1007,7 @@ class AntigravityGuardApp:
                     messagebox.showerror("Upstream Check Error", str(item))
                 else:
                     self._populate_upstream(item)
+                    self.refresh_upstream_meta()
             except queue.Empty:
                 self.root.after(100, poll)
 
@@ -879,8 +1042,31 @@ class AntigravityGuardApp:
         self.root.destroy()
 
 
+def _tkinter_missing_message() -> str:
+    return (
+        "[ERROR] Desktop GUI unavailable: Python 'tkinter' module is not installed.\n"
+        "Install your distribution's Tk package and retry:\n"
+        "  - Debian / Ubuntu : sudo apt install python3-tk\n"
+        "  - Fedora / RHEL   : sudo dnf install python3-tkinter\n"
+        "  - Arch Linux      : sudo pacman -S tk\n"
+        "  - macOS (Homebrew): brew install python-tk\n"
+        "All CLI governance commands ('agy-guard status', 'agy-guard doctor', etc.) work without tkinter."
+    )
+
+
 def launch_gui():
-    root = tk.Tk()
+    if tk is None or _TK_IMPORT_ERROR is not None:
+        print(_tkinter_missing_message(), file=sys.stderr)
+        return 1
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        print(
+            f"[ERROR] Desktop GUI unavailable: could not connect to a display server ({exc}).\n"
+            "Set DISPLAY / WAYLAND_DISPLAY in a graphical session, or run CLI commands ('agy-guard status', 'agy-guard doctor').",
+            file=sys.stderr,
+        )
+        return 1
     app = AntigravityGuardApp(root)
     root.mainloop()
     return 0

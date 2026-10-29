@@ -79,8 +79,34 @@ class LinuxPackager:
         """Public seam: write a .deb (ar archive) from an already prepared stage."""
         return self._build_deb_pure_python(stage, target_deb)
 
+    def validate_inputs(self) -> None:
+        """Fail closed if explicit --binary or mandatory repository payload entries are absent."""
+        if self.binary_path is not None and not self.binary_path.is_file():
+            raise FileNotFoundError(f"Explicit --binary path does not exist: {self.binary_path}")
+        for pkg in ("guard", "porter", "scripts"):
+            if not (self.repo_root / pkg).is_dir():
+                raise FileNotFoundError(f"Mandatory package directory missing: {self.repo_root / pkg}")
+        for req_file in (
+            "guard.py",
+            "porter.py",
+            "GEMINI.md",
+            "DESIGN.md",
+            "MISTAKES.md",
+            "README.md",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.md",
+            "hooks.json",
+            ".harness/manifest.json",
+        ):
+            if not (self.repo_root / req_file).is_file():
+                raise FileNotFoundError(f"Mandatory package file missing: {self.repo_root / req_file}")
+        for folder in ("templates", "skills", "agents"):
+            if not (self.repo_root / folder).is_dir():
+                raise FileNotFoundError(f"Mandatory governance directory missing: {self.repo_root / folder}")
+
     def _prepare_payload(self, staging_dir: Path) -> None:
         """Populates staging directory with standard Linux FHS hierarchy."""
+        self.validate_inputs()
         bin_dir = staging_dir / "usr" / "bin"
         apps_dir = staging_dir / "usr" / "share" / "applications"
         icons_dir = staging_dir / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps"
@@ -90,25 +116,31 @@ class LinuxPackager:
         for d in (bin_dir, apps_dir, icons_dir, docs_dir, comp_dir):
             d.mkdir(parents=True, exist_ok=True)
 
-        # 1. Binary or launcher
+        # 1. Binary or launcher (plus Porter & scripts runtime library)
         dest_bin = bin_dir / "agy-guard"
-        if self.binary_path and self.binary_path.exists():
+        dest_porter = bin_dir / "agy-porter"
+        lib_dir = staging_dir / "usr" / "lib" / "antigravity-guard"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+
+        if self.binary_path is not None:
             shutil.copy2(self.binary_path, dest_bin)
         else:
             # Standalone launcher invoking system python3
-            lib_dir = staging_dir / "usr" / "lib" / "antigravity-guard"
-            lib_dir.mkdir(parents=True, exist_ok=True)
-
-            ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
-            for pkg in ("guard", "porter", "scripts"):
-                if (self.repo_root / pkg).exists():
-                    shutil.copytree(self.repo_root / pkg, lib_dir / pkg, dirs_exist_ok=True, ignore=ignore)
-            shutil.copy2(self.repo_root / "guard.py", lib_dir / "guard.py")
-
             dest_bin.write_text(
                 "#!/bin/sh\nexec python3 /usr/lib/antigravity-guard/guard.py \"$@\"\n",
                 encoding="utf-8"
             )
+
+        for pkg in ("guard", "porter", "scripts"):
+            shutil.copytree(self.repo_root / pkg, lib_dir / pkg, dirs_exist_ok=True, ignore=ignore)
+        shutil.copy2(self.repo_root / "guard.py", lib_dir / "guard.py")
+        shutil.copy2(self.repo_root / "porter.py", lib_dir / "porter.py")
+        dest_porter.write_text(
+            "#!/bin/sh\nexec python3 /usr/lib/antigravity-guard/porter.py \"$@\"\n",
+            encoding="utf-8"
+        )
+        dest_porter.chmod(0o755)
         dest_bin.chmod(0o755)
 
         # 2. Desktop entry
@@ -126,23 +158,54 @@ class LinuxPackager:
         if icon_src.exists():
             shutil.copy2(icon_src, icons_dir / "antigravity-guard.svg")
 
-        # 4. Governance Docs & Templates
-        for name in ("GEMINI.md", "DESIGN.md", "MISTAKES.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"):
-            f_path = self.repo_root / name
-            if f_path.exists():
-                shutil.copy2(f_path, docs_dir / name)
+        # 4. Governance Docs, Hooks, Manifest & Templates
+        for name in ("GEMINI.md", "DESIGN.md", "MISTAKES.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "hooks.json"):
+            shutil.copy2(self.repo_root / name, docs_dir / name)
+
+        staged_hooks = docs_dir / "hooks.json"
+        hooks_txt = staged_hooks.read_text(encoding="utf-8")
+        src_uw = "skills/upstream-auditor/scripts/upstream_watcher.py"
+        src_hg = "guard/agy_hooks.py"
+        if src_uw not in hooks_txt or src_hg not in hooks_txt:
+            raise ValueError(f"Expected hook script paths ({src_uw}, {src_hg}) not found in {staged_hooks}")
+        hooks_txt = hooks_txt.replace(
+            src_uw,
+            "/usr/share/antigravity-harness/skills/upstream-auditor/scripts/upstream_watcher.py",
+        ).replace(
+            src_hg,
+            "/usr/lib/antigravity-guard/guard/agy_hooks.py",
+        )
+        parsed_hooks = __import__("json").loads(hooks_txt)
+        if not isinstance(parsed_hooks, dict):
+            raise ValueError(f"Rewritten {staged_hooks} is not a valid JSON object")
+        staged_hooks.write_text(hooks_txt, encoding="utf-8")
+
+        manifest_src = self.repo_root / ".harness" / "manifest.json"
+        (docs_dir / ".harness").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(manifest_src, docs_dir / ".harness" / "manifest.json")
 
         for folder in ("templates", "skills", "agents"):
-            f_dir = self.repo_root / folder
-            if f_dir.exists():
-                shutil.copytree(f_dir, docs_dir / folder, dirs_exist_ok=True,
-                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
+            shutil.copytree(self.repo_root / folder, docs_dir / folder, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
+
+        skills_stage = docs_dir / "skills"
+        if skills_stage.is_dir():
+            for sdir in skills_stage.rglob("scripts"):
+                if sdir.is_dir() and not sdir.is_symlink():
+                    for sc in sdir.rglob("*"):
+                        if sc.suffix in (".py", ".sh", ".mjs") and sc.is_file() and not sc.is_symlink():
+                            sc.chmod(0o755)
+            ah_stage = skills_stage / "antislop-human"
+            if ah_stage.is_dir() and not ah_stage.is_symlink():
+                for sc in ah_stage.glob("contrast-*.py"):
+                    if sc.is_file() and not sc.is_symlink():
+                        sc.chmod(0o755)
 
         # 5. Bash completion
         comp_content = """# Bash completion for agy-guard
 _agy_guard_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
-    local commands="status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify gui"
+    local commands="init status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify gui"
     COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
 }
 complete -F _agy_guard_completions agy-guard
@@ -170,7 +233,8 @@ Section: devel
 Priority: optional
 Architecture: {deb_arch}
 Depends: python3 (>= 3.10)
-Recommends: libnotify-bin
+Recommends: libnotify-bin, python3-tk
+Suggests: nodejs, ffmpeg
 Maintainer: Had Bilen <https://github.com/hadbilen/antigravity-harness>
 Description: OS-Level Governance, Write Protection, & Multi-Environment Integrity Suite
  Antigravity Guard (agy-guard) enforces OS write protection, cryptographic
@@ -183,14 +247,23 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
             dpkg_deb = shutil.which("dpkg-deb")
             if dpkg_deb:
                 res = subprocess.run([dpkg_deb, "--build", "--root-owner-group", str(stage), str(target_deb)], capture_output=True, text=True)
-                if res.returncode == 0:
-                    return target_deb
+                if res.returncode != 0:
+                    detail = (res.stderr or res.stdout or "").strip()
+                    raise RuntimeError(f"dpkg-deb failed with exit code {res.returncode}: {detail}")
+                return target_deb
 
             # Pure Python .deb container creation (ar format)
             return self._build_deb_pure_python(stage, target_deb)
 
     def _build_deb_pure_python(self, stage: Path, target_deb: Path) -> Path:
         """Pure-Python .deb archive generator (zero external dpkg dependency)."""
+        def _root_tar_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo:
+            tarinfo.uid = 0
+            tarinfo.gid = 0
+            tarinfo.uname = "root"
+            tarinfo.gname = "root"
+            return tarinfo
+
         # 1. debian-binary
         deb_binary = b"2.0\n"
 
@@ -198,7 +271,7 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
         control_buf = io.BytesIO()
         with tarfile.open(fileobj=control_buf, mode="w:gz") as tar:
             for f in (stage / "DEBIAN").iterdir():
-                tar.add(f, arcname=f.name)
+                tar.add(f, arcname=f.name, filter=_root_tar_filter)
         control_data = control_buf.getvalue()
 
         # 3. data.tar.gz
@@ -207,7 +280,7 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
             for item in stage.iterdir():
                 if item.name == "DEBIAN":
                     continue
-                tar.add(item, arcname=item.name)
+                tar.add(item, arcname=item.name, filter=_root_tar_filter)
         data_data = data_buf.getvalue()
 
         # Construct ar archive: Global magic "!<arch>\n" + entries
@@ -257,6 +330,7 @@ License:        MIT AND Apache-2.0
 URL:            https://github.com/hadbilen/antigravity-harness
 BuildArch:      {rpm_arch}
 Requires:       python3 >= 3.10
+Recommends:     python3-tkinter
 
 %description
 Antigravity Guard (agy-guard) enforces OS-level write protection, cryptographic
@@ -276,13 +350,12 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
 
 %files
 /usr/bin/agy-guard
+/usr/bin/agy-porter
+/usr/lib/antigravity-guard
 /usr/share/applications/antigravity-guard.desktop
 /usr/share/icons/hicolor/scalable/apps/antigravity-guard.svg
 /usr/share/antigravity-harness
 /usr/share/bash-completion/completions/agy-guard
-%if %{{_has_lib}}
-/usr/lib/antigravity-guard
-%endif
 
 %changelog
 * {self.changelog_date} Had Bilen <hadbilen@users.noreply.github.com> - {self.version}-1
@@ -304,22 +377,21 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
             stage = rpm_root / "SOURCES" / "stage"
             self._prepare_payload(stage)
 
-            has_lib = "1" if (stage / "usr" / "lib" / "antigravity-guard").exists() else "0"
             cmd = [
                 rpmbuild,
                 "-bb",
                 f"--define=_topdir {rpm_root}",
-                f"--define=_has_lib {has_lib}",
                 f"--target={rpm_arch}",
                 str(spec_path),
             ]
             res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0:
-                for f in (rpm_root / "RPMS").rglob("*.rpm"):
-                    shutil.copy2(f, target_rpm)
-                    return target_rpm
-
-        return spec_path
+            if res.returncode != 0:
+                detail = (res.stderr or res.stdout or "").strip()
+                raise RuntimeError(f"rpmbuild failed with exit code {res.returncode}: {detail}")
+            for f in (rpm_root / "RPMS").rglob("*.rpm"):
+                shutil.copy2(f, target_rpm)
+                return target_rpm
+            raise RuntimeError("rpmbuild exited 0 but produced no .rpm package artifact")
 
     def build_arch(self) -> Path:
         """Builds an Arch Linux package (.pkg.tar.zst or fallback .pkg.tar.xz)."""
@@ -344,6 +416,9 @@ license = MIT
 license = Apache-2.0
 depend = python>=3.10
 optdepend = libnotify: Desktop notifications
+optdepend = tk: Desktop GUI interface (agy-guard gui)
+optdepend = nodejs: JavaScript syntax verification and UI tooling
+optdepend = ffmpeg: Media studio audio/video verification and processing
 """
             (stage / ".PKGINFO").write_text(pkginfo, encoding="utf-8")
 
@@ -352,21 +427,39 @@ optdepend = libnotify: Desktop notifications
             if not has_zstd:
                 target_pkg = self.out_dir / f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
 
+            entries = [".PKGINFO"] + sorted(p.name for p in stage.iterdir() if p.name != ".PKGINFO")
             tar_cmd = shutil.which("tar")
             if tar_cmd and has_zstd:
-                cmd = [tar_cmd, "--zstd", "-cf", str(target_pkg), "."]
+                cmd = [
+                    tar_cmd,
+                    "--zstd",
+                    "--owner=0",
+                    "--group=0",
+                    "--numeric-owner",
+                    "-cf",
+                    str(target_pkg),
+                    *entries,
+                ]
                 res = subprocess.run(cmd, cwd=stage, capture_output=True)
-                if res.returncode == 0:
-                    return target_pkg
+                if res.returncode != 0:
+                    raw_err = res.stderr.decode("utf-8", errors="replace") if isinstance(res.stderr, bytes) else str(res.stderr or "")
+                    detail = raw_err.strip()
+                    raise RuntimeError(f"tar --zstd failed with exit code {res.returncode}: {detail}")
+                return target_pkg
 
             # Python tarfile fallback
+            def _root_tar_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo:
+                tarinfo.uid = 0
+                tarinfo.gid = 0
+                tarinfo.uname = "root"
+                tarinfo.gname = "root"
+                return tarinfo
+
             target_pkg = self.out_dir / f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
             with tarfile.open(target_pkg, "w:xz") as tar:
-                tar.add(stage / ".PKGINFO", arcname=".PKGINFO")
-                for item in stage.iterdir():
-                    if item.name == ".PKGINFO":
-                        continue
-                    tar.add(item, arcname=item.name)
+                tar.add(stage / ".PKGINFO", arcname=".PKGINFO", filter=_root_tar_filter)
+                for entry_name in entries[1:]:
+                    tar.add(stage / entry_name, arcname=entry_name, filter=_root_tar_filter)
 
             return target_pkg
 
@@ -395,6 +488,12 @@ def main() -> int:
         binary_path=Path(args.binary) if args.binary else None,
     )
 
+    try:
+        packager.validate_inputs()
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+
     if args.check_only:
         print("Packaging configuration valid:")
         print(f"  Version: {packager.version}")
@@ -409,22 +508,35 @@ def main() -> int:
     generated: List[Path] = []
     formats = ["deb", "rpm", "arch"] if args.format == "all" else [args.format]
 
-    for fmt in formats:
-        if fmt == "deb":
-            deb_path = packager.build_deb()
-            if deb_path and deb_path.is_file():
-                generated.append(deb_path)
-                print(f"✅ [.DEB] Built Debian package: {deb_path.name} ({deb_path.stat().st_size} bytes)")
-        elif fmt == "rpm":
-            rpm_path = packager.build_rpm()
-            if rpm_path and rpm_path.is_file():
-                generated.append(rpm_path)
-                print(f"✅ [.RPM] Generated RPM artifact: {rpm_path.name}")
-        elif fmt == "arch":
-            arch_path = packager.build_arch()
-            if arch_path and arch_path.is_file():
-                generated.append(arch_path)
-                print(f"✅ [ARCH] Built Arch Linux package: {arch_path.name} ({arch_path.stat().st_size} bytes)")
+    try:
+        for fmt in formats:
+            if fmt == "deb":
+                deb_path = packager.build_deb()
+                if deb_path and deb_path.is_file():
+                    generated.append(deb_path)
+                    print(f"✅ [.DEB] Built Debian package: {deb_path.name} ({deb_path.stat().st_size} bytes)")
+            elif fmt == "rpm":
+                rpm_path = packager.build_rpm()
+                if rpm_path and rpm_path.is_file():
+                    if rpm_path.suffix == ".spec":
+                        if args.format == "rpm":
+                            print(
+                                f"[ERROR] rpmbuild is not installed; generated spec only ({rpm_path}), no .rpm package built.",
+                                file=sys.stderr,
+                            )
+                            return 1
+                        print(f"[INFO] Generated RPM spec (rpmbuild not installed): {rpm_path.name}")
+                    else:
+                        generated.append(rpm_path)
+                        print(f"✅ [.RPM] Built RPM package: {rpm_path.name} ({rpm_path.stat().st_size} bytes)")
+            elif fmt == "arch":
+                arch_path = packager.build_arch()
+                if arch_path and arch_path.is_file():
+                    generated.append(arch_path)
+                    print(f"✅ [ARCH] Built Arch Linux package: {arch_path.name} ({arch_path.stat().st_size} bytes)")
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
 
     print("-" * 64)
     print(f"Summary: Generated {len(generated)} package artifact(s) in {packager.out_dir}")

@@ -26,8 +26,10 @@ human before anything is written.
 
 from __future__ import annotations
 
+import functools
 import re
-from dataclasses import dataclass
+import unicodedata
+from dataclasses import dataclass, replace
 from typing import Dict, Iterator, List, Optional, Pattern, Sequence, Set, Tuple
 
 from porter.models import SuitabilityIssue
@@ -97,6 +99,10 @@ TEST_WEAKENING_PATTERNS: List[Tuple[str, str, bool]] = [
      "Turkish directive to skip, delete or disable tests", False),
     (r"(?i)\b(?:assert(?:ion)?(?:lar[ıi]|leri|u|ü)?|do[ğg]rulamalar[ıi])\s+(?:gev[şs]et|zay[ıi]flat|de[ğg]i[şs]tir|kald[ıi]r)(?:in|[ıi]n)?\b",
      "Turkish directive to weaken assertions", False),
+    (r"(?i)\b(?:update|updating|regenerate|regenerating)\b(?P<gap>[^.\n;]{0,30}?)\b(?:snapshots?|golden\s+files?)\s+to\s+(?:make\s+(?:it|them|tests?)\s+)?(?:pass|match)\b",
+     "Directive to blindly regenerate snapshots to make tests pass", True),
+    (r'(?i)"(?:permissionDecision|decision)"\s*:\s*"allow"',
+     "Hook configuration returning unconditional 'allow' decision (bypasses host permission prompts)", False),
 ]
 
 SYCOPHANCY_PATTERNS: List[Tuple[str, str, bool]] = [
@@ -111,8 +117,8 @@ SYCOPHANCY_PATTERNS: List[Tuple[str, str, bool]] = [
 
 PROMPT_INJECTION_PATTERNS: List[Tuple[str, str, bool]] = [
     (r"(?i)\b(?:ignore|ignoring|disregard|disregarding|forget|forgetting|override|overriding)\s+(?:all\s+|any\s+)?"
-     r"(?:(?:the|your|my|of\s+the)\s+)?(?:previous|prior|above|earlier|preceding|former|system)\s+"
-     r"(?:instructions?|rules?|prompts?|directives?|guidelines?)\b",
+     r"(?:(?:the|your|my|of\s+the)\s+)?(?:(?:previous|prior|above|earlier|preceding|former|system|safety|security|constitutional|guard)\s+){1,3}"
+     r"(?:instructions?|rules?|prompts?|directives?|guidelines?|constraints?|guards?)\b",
      "Instruction-override directive (ignore previous instructions)", False),
 ]
 
@@ -128,9 +134,13 @@ AGY_INTERNAL_MARKERS = [
     r"<RULE\[.*?\]>",
     r"</RULE\[.*?\]>",
     r"<appDataDir>/brain/[^/\s`]+",
+    r"<appDataDir>",
+    r"(?:~|\$HOME|\$\{HOME\})/\.gemini/config(?:/[^\s`)\"'>]*)?",
     r"default_api:\w+",
     r"\binvoke_subagent\b",
     r"\bmanage_task\b",
+    r"\bread_url_content\b",
+    r"\bsearch_web\b",
 ]
 
 _NEGATION_BEFORE = re.compile(
@@ -197,16 +207,21 @@ _BARE_NEGATION = re.compile(
 )
 _SENTENCE_BREAK = re.compile(r"[.!?;](?=\s|$)|\n")
 _CLAUSE_BREAK = re.compile(
-    r"(?i)(?P<soft>[,:()—–]|\s-{1,2}\s)"
+    r'(?i)(?P<hard>\b(?:but|however|otherwise|instead(?!\s+of\b)|rather(?!\s+than\b))\b|",\s*"[^"]+"\s*:|[,{]\s*[A-Za-z0-9_-]+\s*:)'
+    r"|(?P<soft>[,:()—–]|\s-{1,2}\s|\b(?:and|or|then)\b)"
     r"(?P<conj>\s*\b(?:just|then|so|simply|but|however|otherwise|instead(?!\s+of\b)|rather(?!\s+than\b))\b)?"
-    r"|(?P<hard>\b(?:but|however|otherwise|instead(?!\s+of\b)|rather(?!\s+than\b))\b)"
 )
 _GERUND_START = re.compile(
     r"(?i)(?:skipping|ignoring|disabling|removing|deleting|dropping|bypassing|commenting|relaxing|loosening|"
     r"weakening|softening|modifying|changing|editing|adjusting|rewriting|marking|turning|switching|silencing)\b"
 )
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)")
-_UNIT_START = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s|\||>)")
+_UNIT_START = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s|\|)")
+_BLOCKQUOTE_PREFIX = re.compile(r"^\s*(>+)[ \t]?")
+_HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?--!?>")
+_FENCED_CODE_BLOCK_RE = re.compile(
+    r"(?m)^([ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]*\2+[ \t]*(?:\n|\Z)|\Z))"
+)
 _HEADING = re.compile(r"^\s*#{1,6}\s")
 _LEAD_IN_PROHIBITION = re.compile(
     r"(?i)\b(?:forbidden|prohibited|banned|not\s+allowed|disallowed|anti-?patterns?|don[’']?ts)\b"
@@ -304,9 +319,27 @@ def _next_sentence(text: str, e: int) -> str:
     return rest[:m.end()] if m else rest
 
 
+_STRUCTURED_QUOTE_PREFIX = re.compile(r'(?:^|[:=\[,{]|^\s*[-*+])\s*"[^"]*$')
+_STRUCTURED_QUOTE_SUFFIX = re.compile(r'^[^"]*"\s*(?:[,}\]]|#.*|//.*|$)')
+_MD_LINK_RE = re.compile(r"\[([^\[\]\n]+)\]\([^)\n]*\)")
+_INLINE_MD_RE = re.compile(
+    r"`+|\*\*|__|~~|(?<=[A-Za-z])\*+(?=[A-Za-z])|(?<!\w)\*(?=\S)|(?<=\S)\*(?!\w)|(?<!\w)_(?=\S)|(?<=\S)_(?!\w)"
+)
+_COMPLETED_COND_PREDICATE_RE = re.compile(
+    r"(?i)\b(?:is|are|was|were|has|have|had|becomes?|gets?|seems?|fails?|failed|flakes?|breaks?|broke|hangs?|times?\s+out|takes?|runs?)\b"
+)
+
+
+def _strip_inline_markdown(text: str) -> str:
+    """Strips inline Markdown emphasis, links and code markers while preserving word boundaries and identifiers."""
+    return _INLINE_MD_RE.sub("", _MD_LINK_RE.sub(r"\1", text))
+
+
 def _in_quotes(sentence: str, a: int, b: int) -> bool:
-    """True when sentence[a:b] sits inside a double-quoted span (a mention, not an instruction)."""
+    """True when sentence[a:b] sits inside a prose double-quoted mention (not a JSON/YAML/TOML value)."""
     if sentence[:a].count('"') % 2 == 1 and '"' in sentence[b:]:
+        if _STRUCTURED_QUOTE_PREFIX.search(sentence[:a]) and _STRUCTURED_QUOTE_SUFFIX.match(sentence[b:]):
+            return False
         return True
     return sentence[:a].count("“") > sentence[:a].count("”") and "”" in sentence[b:]
 
@@ -333,8 +366,9 @@ def _classify(text: str, start: int, end: int, interior: Sequence[str] = (), inh
     if (_PROHIBITION_AFTER.search(text[end:own_end]) or _PROHIBITION_LEAD.match(text[end:chain_end])
             or (gerund and _PROHIBITION_AFTER.search(text[end:chain_end]))):
         return PROHIBITED, "declared forbidden after the directive"
-    if _SUBORDINATOR.search(clause_prefix):
-        if _CONSEQUENCE.search(text[end:chain_end]):
+    sub_m = _SUBORDINATOR.search(clause_prefix)
+    if sub_m and not _COMPLETED_COND_PREDICATE_RE.search(clause_prefix[sub_m.end():]):
+        if _CONSEQUENCE.search(text[end:e]):
             return PROHIBITED, "condition with a blocking consequence"
         return UNCERTAIN, "appears inside a condition, not as an instruction"
     if term == "?":
@@ -404,10 +438,59 @@ def _fence_flags(lines: List[str]) -> List[bool]:
     return flags
 
 
-def _paragraphs(lines: List[str]) -> List[Tuple[int, int]]:
+def _normalize_line_unicode(line: str) -> str:
+    cleaned = "".join(ch for ch in line if unicodedata.category(ch) != "Cf")
+    norm = unicodedata.normalize("NFKC", cleaned)
+    return re.sub(r"[\r\n\x1c\x1d\x1e\x85\u2028\u2029]", " ", norm)
+
+
+def _prepare_inspection_lines(content: str) -> Tuple[List[str], List[bool]]:
+    """Strips HTML comments and Unicode format characters + applies NFKC while keeping 1:1 line indices."""
+    raw_lines = content.splitlines()
+    if not raw_lines:
+        return [], []
+    fenced = _fence_flags(raw_lines)
+    out_lines: List[str] = list(raw_lines)
+    i = 0
+    n = len(raw_lines)
+    while i < n:
+        if raw_lines[i].strip().startswith(("```", "~~~")):
+            out_lines[i] = _normalize_line_unicode(raw_lines[i])
+            i += 1
+            continue
+        mode = fenced[i]
+        j = i + 1
+        while j < n and fenced[j] == mode and not raw_lines[j].strip().startswith(("```", "~~~")):
+            j += 1
+        chunk = "\n".join(raw_lines[i:j])
+        chunk_no_comments = _HTML_COMMENT_RE.sub(
+            lambda m: "\n" * m.group(0).count("\n"),
+            chunk,
+        )
+        for offset, ln in enumerate(chunk_no_comments.split("\n")):
+            out_lines[i + offset] = _normalize_line_unicode(ln)
+        i = j
+    return out_lines, fenced
+
+
+def _strip_blockquote(line: str, is_fenced: bool) -> Tuple[int, str]:
+    if is_fenced:
+        return 0, line
+    m = _BLOCKQUOTE_PREFIX.match(line)
+    if not m:
+        return 0, line
+    return len(m.group(1)), line[m.end():]
+
+
+def _paragraphs(lines: List[str], fenced: Optional[List[bool]] = None) -> List[Tuple[int, int]]:
+    if fenced is None:
+        fenced = _fence_flags(lines)
     spans, start = [], None
     for idx, line in enumerate(lines):
-        if line.strip() and not line.strip().startswith(("```", "~~~")):
+        stripped = line.strip()
+        _, unquoted = _strip_blockquote(line, fenced[idx])
+        has_content = bool(unquoted.strip()) and not stripped.startswith(("```", "~~~"))
+        if has_content:
             if start is None:
                 start = idx
         elif start is not None:
@@ -424,25 +507,38 @@ def _join(lines: List[str], span: Tuple[int, int], fenced: List[bool]) -> Tuple[
     offsets: List[Tuple[int, int, int]] = []
     pos = 0
     prev = ""
+    prev_bq_depth = 0
     for i in range(span[0], span[1] + 1):
-        line = lines[i].strip()
+        bq_depth, unquoted = _strip_blockquote(lines[i], fenced[i])
+        raw_line = unquoted.strip()
+        line = _strip_inline_markdown(raw_line)
         if i > span[0]:
-            separate = fenced[i] or _UNIT_START.match(lines[i]) or _HEADING.match(prev) or prev.startswith("|")
+            separate = (
+                fenced[i]
+                or bq_depth != prev_bq_depth
+                or bool(_UNIT_START.match(unquoted))
+                or bool(_HEADING.match(prev))
+                or prev.startswith("|")
+            )
             parts.append("\n" if separate else " ")
             pos += 1
         offsets.append((pos, i, len(line)))
         parts.append(line)
         pos += len(line)
-        prev = line
+        prev = raw_line
+        prev_bq_depth = bq_depth
     return "".join(parts), offsets
 
 
 def _lead_in(lines: List[str], idx: int, fenced: List[bool]) -> Optional[str]:
     """The line introducing the list that holds lines[idx] (a heading or a line ending in ':')."""
-    if fenced[idx] or not _LIST_ITEM.match(lines[idx]):
+    bq_depth, unquoted_target = _strip_blockquote(lines[idx], fenced[idx])
+    if fenced[idx] or not _LIST_ITEM.match(unquoted_target):
         return None
     for j in range(idx - 1, max(-1, idx - 60), -1):
-        raw = lines[j]
+        cand_bq, raw = _strip_blockquote(lines[j], fenced[j])
+        if cand_bq != bq_depth:
+            return None
         stripped = raw.strip()
         if not stripped or _LIST_ITEM.match(raw) or (raw[:1].isspace() and not _HEADING.match(raw)):
             continue
@@ -458,16 +554,11 @@ def _lead_in_prohibits(lead: str) -> bool:
     return bool(_NEGATION_BEFORE.search(cleaned) or _LEAD_IN_PROHIBITION.search(cleaned))
 
 
-def review_directives(content: str) -> List[Directive]:
-    """
-    Every weakening / sycophancy / instruction-override finding with its classification
-    (PROHIBITED, AFFIRMATIVE or UNCERTAIN). Lines replaced because of an AFFIRMATIVE finding do not
-    also carry weaker findings.
-    """
-    lines = content.splitlines()
-    fenced = _fence_flags(lines)
+@functools.lru_cache(maxsize=256)
+def _review_directives_cached(content: str) -> Tuple[Directive, ...]:
+    lines, fenced = _prepare_inspection_lines(content)
     best: Dict[Tuple[str, int], Directive] = {}
-    for span in _paragraphs(lines):
+    for span in _paragraphs(lines, fenced):
         text, offsets = _join(lines, span, fenced)
         for category, compiled in _CATEGORIES:
             for m, desc, inherent in _iter_matches(text, compiled):
@@ -490,12 +581,21 @@ def review_directives(content: str) -> List[Directive]:
             sanitized.update(range(d.line_start, d.line_end + 1))
     out = [d for d in best.values()
            if d.classification == AFFIRMATIVE or not sanitized.intersection(range(d.line_start, d.line_end + 1))]
-    return sorted(out, key=lambda d: (d.line_start, d.category))
+    return tuple(sorted(out, key=lambda d: (d.line_start, d.category)))
+
+
+def review_directives(content: str) -> List[Directive]:
+    """
+    Every weakening / sycophancy / instruction-override finding with its classification
+    (PROHIBITED, AFFIRMATIVE or UNCERTAIN). Lines replaced because of an AFFIRMATIVE finding do not
+    also carry weaker findings.
+    """
+    return [replace(d) for d in _review_directives_cached(content)]
 
 
 def find_directives(content: str) -> List[Directive]:
     """Locates weakening, sycophancy and instruction-override directives that will be sanitized."""
-    return [d for d in review_directives(content) if d.classification == AFFIRMATIVE]
+    return [replace(d) for d in _review_directives_cached(content) if d.classification == AFFIRMATIVE]
 
 
 class ConstitutionalSanitizer:
@@ -536,7 +636,8 @@ class ConstitutionalSanitizer:
                               "prohibition or delete it before relying on the import.",
             ))
 
-        for idx, line in enumerate(content.splitlines()):
+        insp_lines, _ = _prepare_inspection_lines(content)
+        for idx, line in enumerate(insp_lines):
             for m, desc, inherent in _iter_matches(line, _SLOP):
                 if ("AI_SLOP", desc) in reported:
                     continue
@@ -587,23 +688,122 @@ class ConstitutionalSanitizer:
     def sanitize_for_export(cls, content: str, target: str = "generic") -> str:
         """
         Applies the same directive filter as import, strips Antigravity-specific tags and
-        translates tool references to target equivalents.
+        translates prose tool references to target equivalents while preserving fenced code blocks.
         """
         text = cls.neutralize_directives(content)
 
         text = re.sub(r"<RULE\[[^\]]+\]>", "", text)
         text = re.sub(r"</RULE\[[^\]]+\]>", "", text)
-        text = re.sub(r"<appDataDir>/brain/<conversation-id>/", ".harness/artifacts/", text)
-        text = re.sub(r"<appDataDir>/brain/[^/\s`]+/", ".harness/artifacts/", text)
-        # Templates are exported to <output>/templates/, not the Antigravity config directory.
-        text = re.sub(r"~/\.gemini/config/templates/", "templates/", text)
+        text = re.sub(r"<appDataDir>/brain/<conversation-id>/?", ".harness/artifacts/", text)
+        text = re.sub(r"<appDataDir>/brain/[^/\s`]+/?", ".harness/artifacts/", text)
+        text = re.sub(r"<appDataDir>/", ".harness/artifacts/", text)
+        text = re.sub(r"<appDataDir>", ".harness/artifacts", text)
+        # Templates, design contract, skills, agents, and config references are rewritten to portable relative paths.
+        _home_cfg = r"(?:~|\$HOME|\$\{HOME\})/\.gemini/config"
+        text = re.sub(_home_cfg + r"/templates/", "templates/", text)
+        text = re.sub(_home_cfg + r"/DESIGN\.md\b", "DESIGN.md", text)
+        text = re.sub(_home_cfg + r"/GEMINI\.md\b", "GEMINI.md", text)
+        text = re.sub(_home_cfg + r"/MISTAKES\.md\b", "MISTAKES.md", text)
+        text = re.sub(_home_cfg + r"/hooks\.json\b", "hooks.json", text)
+        text = re.sub(_home_cfg + r"/skills/", "skills/", text)
+        text = re.sub(_home_cfg + r"/agents/", "agents/", text)
+        text = re.sub(_home_cfg + r"/sidecars/?", ".harness/sidecars/", text)
+        text = re.sub(_home_cfg + r"/", ".harness/", text)
+        text = re.sub(_home_cfg + r"\b", ".harness", text)
+
+        sentinel_base = "__PORTER_FENCED_BLOCK"
+        while sentinel_base in text:
+            sentinel_base += "_"
+        fenced_blocks: List[str] = []
+
+        def _mask_fence(m: "re.Match[str]") -> str:
+            block = m.group(1)
+            idx = len(fenced_blocks)
+            if block.endswith("\n"):
+                fenced_blocks.append(block[:-1])
+                return f"{sentinel_base}_{idx}__\n"
+            fenced_blocks.append(block)
+            return f"{sentinel_base}_{idx}__"
+
+        text = _FENCED_CODE_BLOCK_RE.sub(_mask_fence, text)
+        text = re.sub(r"\bdefault_api:(\w+)", r"\1", text)
 
         if target == "claude":
-            text = re.sub(r"invoke_subagent\b", "a Claude Code subagent (.claude/agents/)", text)
+            tool_map = {
+                "invoke_subagent": "a Claude Code subagent (.claude/agents/)",
+                "run_workflow": "Task / subagent orchestration",
+                "manage_task": "TaskOutput / background task management",
+                "view_file": "Read",
+                "read_file": "Read",
+                "write_file": "Write",
+                "edit_file": "Edit",
+                "replace_file_content": "Edit",
+                "multi_replace_file_content": "MultiEdit",
+                "run_command": "Bash",
+                "grep_search": "Grep",
+                "ask_question": "AskUserQuestion",
+                "read_url_content": "WebFetch",
+                "search_web": "WebSearch",
+            }
         elif target in ("cursor", "windsurf"):
-            text = re.sub(r"invoke_subagent\b", "the matching agent rule in .cursor/rules/", text)
+            tool_map = {
+                "invoke_subagent": "the matching agent rule in .cursor/rules/",
+                "run_workflow": "rule-guided agent workflow",
+                "manage_task": "background terminal task management",
+                "view_file": "read_file",
+                "read_file": "read_file",
+                "write_file": "edit_file",
+                "edit_file": "edit_file",
+                "replace_file_content": "edit_file",
+                "multi_replace_file_content": "edit_file",
+                "run_command": "run_terminal_cmd",
+                "grep_search": "grep",
+                "ask_question": "interactive user question",
+                "read_url_content": "fetch_url",
+                "search_web": "web_search",
+            }
+        elif target == "aider":
+            tool_map = {
+                "invoke_subagent": "an independent audit agent or verification task",
+                "run_workflow": "scripted workflow orchestration",
+                "manage_task": "background task management",
+                "view_file": "file read tool",
+                "read_file": "file read tool",
+                "write_file": "file write tool",
+                "edit_file": "file edit tool",
+                "replace_file_content": "file edit tool",
+                "multi_replace_file_content": "file edit tool",
+                "run_command": "terminal command tool",
+                "grep_search": "grep",
+                "ask_question": "interactive user question",
+                "read_url_content": "URL fetch tool",
+                "search_web": "web search tool",
+            }
         else:
-            text = re.sub(r"invoke_subagent\b", "an independent audit agent or verification task", text)
+            tool_map = {
+                "invoke_subagent": "an independent audit agent or verification task",
+                "run_workflow": "workflow orchestration",
+                "manage_task": "background task management",
+                "view_file": "file read tool",
+                "read_file": "file read tool",
+                "write_file": "file write tool",
+                "edit_file": "file edit tool",
+                "replace_file_content": "file edit tool",
+                "multi_replace_file_content": "file edit tool",
+                "run_command": "terminal command tool",
+                "grep_search": "grep",
+                "ask_question": "interactive user question",
+                "read_url_content": "URL fetch tool",
+                "search_web": "web search tool",
+            }
+        tool_re = re.compile(r"\b(" + "|".join(re.escape(k) for k in tool_map) + r")\b")
+        text = tool_re.sub(lambda m: tool_map[m.group(1)], text)
+
+        for marker in AGY_INTERNAL_MARKERS:
+            text = re.sub(marker, "", text)
+
+        for idx, block in enumerate(fenced_blocks):
+            text = text.replace(f"{sentinel_base}_{idx}__", block)
 
         lines = [line.rstrip() for line in text.splitlines()]
         return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()

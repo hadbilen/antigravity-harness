@@ -53,4 +53,10 @@ class GenericEmitter:
     def emit(cls, manifest: UniversalManifest, output_dir: Path, force: bool = False) -> List[Path]:
         output_dir = Path(output_dir)
         plan, links = cls.plan(manifest, output_dir)
-        return commit(plan, links, force=force, executables=support_executables(manifest, output_dir / cls.SKILLS_DIR))
+        return commit(
+            plan,
+            links,
+            force=force,
+            executables=support_executables(manifest, output_dir / cls.SKILLS_DIR),
+            output_dir=output_dir,
+        )

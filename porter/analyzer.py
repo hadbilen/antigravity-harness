@@ -9,20 +9,27 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from porter.frontmatter import FrontmatterError, frontmatter_description, parse_frontmatter
-from porter.models import SuitabilityReport
+from porter.frontmatter import FrontmatterError, frontmatter_description, parse_frontmatter, split_frontmatter
+from porter.manifest import default_harness_root
+from porter.models import SuitabilityIssue, SuitabilityReport
 from porter.sanitizer import ConstitutionalSanitizer
 
 _AGENT_NAME_RE = re.compile(r"(?i)\b([a-z0-9_]+(?:-[a-z0-9_]+)*-(?:auditor|verifier|hunter|agent|resolver|reviewer))\b")
 _PERSONA_RE = re.compile(r"(?i)\byou\s+are\s+(?:an?\s+)?(?:autonomous\s+|expert\s+|independent\s+|read-only\s+)*"
                          r"(?:sub-?agent|auditor|verifier|reviewer|agent)\b")
+_MUTATING_AGENT_TOOLS = frozenset({
+    "bash", "write", "edit", "multiedit", "notebookedit",
+    "run_command", "write_file", "edit_file", "write_to_file",
+    "replace_file_content", "multi_replace_file_content",
+    "execute", "shell", "rm", "chmod", "killshell", "bashoutput",
+})
 
 
 class SuitabilityAnalyzer:
     """Evaluates external rules for compatibility, safety, and ecosystem fit before any file is written."""
 
     def __init__(self, harness_root: Optional[Path] = None):
-        self.harness_root = Path(harness_root) if harness_root else Path(__file__).resolve().parent.parent
+        self.harness_root = Path(harness_root) if harness_root else default_harness_root()
         self.known_skills = self._load_known_skills()
         self.known_agents = self._load_known_agents()
 
@@ -136,6 +143,61 @@ class SuitabilityAnalyzer:
                     })
         return redundancies
 
+    @staticmethod
+    def _audit_frontmatter_privileges(content: str) -> List[SuitabilityIssue]:
+        """Flags non-read-only `access:` or mutating `tools:` declarations in external frontmatter."""
+        reasons: List[str] = []
+        meta: Optional[Dict[str, object]] = None
+        try:
+            parsed, _ = parse_frontmatter(content)
+            meta = dict(parsed)
+        except FrontmatterError:
+            try:
+                raw_fm, _ = split_frontmatter(content)
+            except FrontmatterError:
+                raw_fm = None
+            if raw_fm:
+                m_acc = re.search(r"(?im)^access\s*:\s*['\"]?([^\s'\"#]+)", raw_fm)
+                if m_acc and m_acc.group(1).strip().lower() != "read-only":
+                    reasons.append(f"Frontmatter declares non-read-only access ({m_acc.group(1)!r})")
+                m_tools = re.search(r"(?im)^tools\s*:\s*(.+)$", raw_fm)
+                if m_tools:
+                    toks = [t.strip(" []'\"") for t in re.split(r"[,\s]+", m_tools.group(1)) if t.strip(" []'\"")]
+                    bad = [t for t in toks if t.lower() in _MUTATING_AGENT_TOOLS]
+                    if bad:
+                        reasons.append(f"Frontmatter declares mutating tools ({', '.join(bad)})")
+
+        if meta is not None:
+            if "access" in meta:
+                acc_raw = meta.get("access")
+                acc_norm = str(acc_raw).strip().lower() if isinstance(acc_raw, str) else ""
+                if acc_norm != "read-only":
+                    reasons.append(f"Frontmatter declares non-read-only access ({acc_raw!r})")
+            if "tools" in meta:
+                raw_tools = meta.get("tools")
+                tokens: List[str] = []
+                if isinstance(raw_tools, list):
+                    tokens = [str(item).strip() for item in raw_tools if str(item).strip()]
+                elif isinstance(raw_tools, str):
+                    tokens = [tok.strip() for tok in re.split(r"[,\s]+", raw_tools) if tok.strip()]
+                bad_tools = [tok for tok in tokens if tok.lower() in _MUTATING_AGENT_TOOLS]
+                if bad_tools:
+                    reasons.append(f"Frontmatter declares mutating tools ({', '.join(bad_tools)})")
+            ew = meta.get("EnableWriteTools")
+            if ew is True or (isinstance(ew, str) and ew.strip().lower() == "true"):
+                reasons.append("Frontmatter enables write tools (EnableWriteTools: true)")
+
+        if not reasons:
+            return []
+        return [
+            SuitabilityIssue(
+                severity="WARNING",
+                category="TOOL_LEAK",
+                message="; ".join(reasons) + " — custom subagents in Antigravity must remain read-only.",
+                suggested_fix="Clamp imported agent frontmatter to 'access: read-only' and strip mutating 'tools:' keys.",
+            )
+        ]
+
     def analyze(self, content: str, source_identifier: str = "unnamed_source") -> SuitabilityReport:
         """Executes full pre-flight inspection and returns SuitabilityReport."""
         detected_format = self.detect_format(content, source_identifier)
@@ -143,6 +205,7 @@ class SuitabilityAnalyzer:
 
         # Audit constitutional alignment
         issues = ConstitutionalSanitizer.audit_content(content)
+        issues.extend(self._audit_frontmatter_privileges(content))
 
         # Calculate Constitutional Score (100 base)
         const_score = 100

@@ -43,6 +43,9 @@ class _AdapterLocker:
     def lock(self) -> Tuple[bool, str]:
         return self.adapter.lock(self.target)
 
+    def should_lock_after_restore(self) -> bool:
+        return self.is_locked()
+
 
 class SnapshotEngine:
     """
@@ -53,8 +56,24 @@ class SnapshotEngine:
     META_FILE = ".snap_meta.json"
     # node_modules matches the integrity monitor's exclusions: dependency trees are
     # regenerable and would otherwise multiply every snapshot (restore does not recreate them).
-    IGNORED_NAMES = {".guard_snapshots", ".guard_integrity.json", "__pycache__", ".git", ".DS_Store", "node_modules"}
-    IGNORED_PREFIXES = (".backup_", "backup_", ".agy-restore-", ".agy-old-")
+    # Secret-bearing runtime config files (config.json*, mcp_config.json.*) are excluded by default.
+    IGNORED_NAMES = {
+        ".guard_snapshots",
+        ".guard_integrity.json",
+        "__pycache__",
+        ".git",
+        ".DS_Store",
+        "node_modules",
+        "config.json",
+    }
+    IGNORED_PREFIXES = (
+        ".backup_",
+        "backup_",
+        ".agy-restore-",
+        ".agy-old-",
+        "config.json",
+        "mcp_config.json.",
+    )
 
     def __init__(
         self,
@@ -79,9 +98,14 @@ class SnapshotEngine:
     def for_environment(cls, env, registry, integrity_monitor=None) -> "SnapshotEngine":
         from guard.environment import ANTIGRAVITY_RUNTIME_ENTRIES, EnvironmentLocker
 
-        scope = [os.path.relpath(p, env.get_root()) for p in env.get_governance_paths(existing_only=False)]
+        root = env.get_root()
+        scope = [
+            os.path.relpath(p, root)
+            for p in env.get_governance_paths(existing_only=False)
+            if is_within(p, root) and Path(os.path.abspath(p)) != Path(os.path.abspath(root))
+        ]
         return cls(
-            target_dir=env.get_root(),
+            target_dir=root,
             os_adapter=registry.os_adapter,
             scope_paths=scope,
             snapshots_dir=data_dir() / "snapshots" / env.id,
@@ -119,8 +143,27 @@ class SnapshotEngine:
     @staticmethod
     def _remove_entry(path: Path) -> None:
         if os.path.islink(path) or path.is_file():
+            if not os.path.islink(path):
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
             path.unlink(missing_ok=True)
         elif path.is_dir():
+            for root, dirs, files in os.walk(path, followlinks=False):
+                for d in [root] + [os.path.join(root, n) for n in dirs]:
+                    if not os.path.islink(d):
+                        try:
+                            os.chmod(d, 0o700)
+                        except OSError:
+                            pass
+                for f in files:
+                    fp = os.path.join(root, f)
+                    if not os.path.islink(fp):
+                        try:
+                            os.chmod(fp, 0o600)
+                        except OSError:
+                            pass
             shutil.rmtree(path)
 
     def _hash_tree(self, root: Path) -> Dict[str, str]:
@@ -178,12 +221,25 @@ class SnapshotEngine:
         prefix = "pre_rollback" if kind == "pre_rollback" else "snap"
         base_id = f"{prefix}_{timestamp}{safe_label if kind != 'pre_rollback' else ''}"
         # The Windows clock ticks in ~15 ms steps, so back-to-back snapshots can share a timestamp.
-        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        self.snapshots_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if os.name != "nt":
+            if self.snapshots_dir.parent.name == "snapshots" and not os.path.islink(self.snapshots_dir.parent):
+                try:
+                    os.chmod(self.snapshots_dir.parent, 0o700)
+                except OSError:
+                    pass
+            if not os.path.islink(self.snapshots_dir):
+                try:
+                    os.chmod(self.snapshots_dir, 0o700)
+                except OSError:
+                    pass
         for attempt in range(1, 1000):
             snap_id = base_id if attempt == 1 else f"{base_id}-{attempt}"
             dest_dir = self.snapshots_dir / snap_id
             try:
-                dest_dir.mkdir(exist_ok=False)
+                dest_dir.mkdir(mode=0o700, exist_ok=False)
+                if os.name != "nt":
+                    os.chmod(dest_dir, 0o700)
                 break
             except FileExistsError:
                 continue
@@ -195,7 +251,13 @@ class SnapshotEngine:
                 src = self.target_dir / name
                 if not os.path.lexists(src):
                     continue
-                self._copy_entry(src, dest_dir / name, self._copytree_ignore)
+                dst_entry = dest_dir / name
+                self._copy_entry(src, dst_entry, self._copytree_ignore)
+                if os.name != "nt" and dst_entry.is_file() and not os.path.islink(dst_entry) and Path(name).name == "mcp_config.json":
+                    try:
+                        os.chmod(dst_entry, 0o600)
+                    except OSError:
+                        pass
                 entries.append(name)
             meta = {
                 "id": snap_id,
@@ -226,11 +288,13 @@ class SnapshotEngine:
 
     def prune_kind(self, kind: str, keep: int) -> int:
         """Keeps only the newest `keep` snapshots of one kind (used for automatic evidence capture)."""
+        if isinstance(keep, bool) or not isinstance(keep, int) or keep < 1:
+            raise ValueError("keep must be an integer >= 1")
         pruned = 0
         for snap in [s for s in self.list_snapshots() if s.get("kind") == kind][keep:]:
             path = Path(snap["path"])
             if path.exists() and is_within(path, self.snapshots_dir):
-                shutil.rmtree(path, ignore_errors=True)
+                self._remove_entry(path)
                 if not path.exists():
                     pruned += 1
         return pruned
@@ -272,13 +336,62 @@ class SnapshotEngine:
         if actual != meta["files"]:
             return False, f"Snapshot '{snap_id}' failed verification: its content no longer matches its manifest."
 
-        restore_names = sorted(n for n in os.listdir(source_dir) if n != self.META_FILE)
+        meta_scope = meta.get("scope")
+        if isinstance(meta_scope, list):
+            for raw_entry in meta_scope:
+                if (
+                    not isinstance(raw_entry, str)
+                    or not raw_entry.strip()
+                    or raw_entry.strip() == "."
+                    or Path(raw_entry).is_absolute()
+                    or ".." in Path(raw_entry).parts
+                    or not is_within(self.target_dir / raw_entry, self.target_dir)
+                    or Path(os.path.abspath(self.target_dir / raw_entry)) == Path(os.path.abspath(self.target_dir))
+                ):
+                    return False, (
+                        f"Snapshot '{snap_id}' contains an invalid or out-of-scope entry '{raw_entry}'; "
+                        "refusing to restore."
+                    )
+        has_nested_scope = (
+            isinstance(meta_scope, list)
+            and any("/" in str(s) or "\\" in str(s) for s in meta_scope)
+        ) or (
+            self.scope_paths is not None
+            and any("/" in str(s) or "\\" in str(s) for s in self.scope_paths)
+        )
+        if has_nested_scope and isinstance(meta_scope, list):
+            restore_names = sorted(n for n in meta_scope if os.path.lexists(source_dir / n))
+        else:
+            restore_names = sorted(n for n in os.listdir(source_dir) if n != self.META_FILE)
         current_names = [n for n in self._scope_entries() if os.path.lexists(self.target_dir / n)]
         remove_names = sorted(set(current_names) - set(restore_names))
 
+        if os.path.islink(self.target_dir):
+            return False, f"Refusing to restore: target root {self.target_dir} is a symlink."
+
+        target_abs = Path(os.path.abspath(self.target_dir))
+        source_abs = Path(os.path.abspath(source_dir))
         for name in restore_names + remove_names:
+            if (
+                not name
+                or Path(name).is_absolute()
+                or ".." in Path(name).parts
+                or not is_within(self.target_dir / name, self.target_dir)
+                or Path(os.path.abspath(self.target_dir / name)) == target_abs
+                or not is_within(source_dir / name, source_dir)
+                or Path(os.path.abspath(source_dir / name)) == source_abs
+            ):
+                return False, f"Refusing to restore: '{name}' escapes target scope {self.target_dir}."
             dst = self.target_dir / name
             src = source_dir / name
+            anc = dst.parent
+            while is_within(anc, self.target_dir) and Path(os.path.abspath(anc)) != target_abs:
+                if os.path.islink(anc):
+                    return False, (
+                        f"Refusing to restore: ancestor directory {anc} is a symlink and restore never writes "
+                        "through symlinked parent directories."
+                    )
+                anc = anc.parent
             if os.path.islink(dst) and not os.path.islink(src):
                 return False, (
                     f"Refusing to restore: {dst} is a symlink and restore never writes through symlinks. "
@@ -291,27 +404,41 @@ class SnapshotEngine:
             return False, f"Emergency pre-restore backup failed ({e}); restore aborted without changes."
 
         was_locked = self.locker.is_locked()
-        if was_locked:
+        should_relock = was_locked or getattr(self.locker, "should_lock_after_restore", lambda: False)()
+        if was_locked or should_relock:
             ok, msg = self.locker.unlock()
-            if not ok:
+            if not ok and was_locked:
                 return False, f"Could not unlock target for restore: {msg}"
 
         token = uuid.uuid4().hex[:8]
         journal: List[Tuple[str, Optional[Path], bool]] = []  # (name, old_copy, new_placed)
         try:
-            for name in restore_names:
+            for idx, name in enumerate(restore_names):
+                safe_name = name.replace("\\", "__").replace("/", "__")
                 dst = self.target_dir / name
-                staged = self.target_dir / f".agy-restore-{token}-{name}"
+                staged = self.target_dir / f".agy-restore-{token}-r{idx}-{safe_name}"
                 self._copy_entry(source_dir / name, staged, self._copytree_ignore)
                 old: Optional[Path] = None
                 if os.path.lexists(dst):
-                    old = self.target_dir / f".agy-old-{token}-{name}"
+                    if not os.path.islink(dst) and dst.is_dir():
+                        try:
+                            os.chmod(dst, 0o700)
+                        except OSError:
+                            pass
+                    old = self.target_dir / f".agy-old-{token}-r{idx}-{safe_name}"
                     os.replace(dst, old)
+                dst.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(staged, dst)
                 journal.append((name, old, True))
-            for name in remove_names:
+            for idx, name in enumerate(remove_names):
+                safe_name = name.replace("\\", "__").replace("/", "__")
                 dst = self.target_dir / name
-                old = self.target_dir / f".agy-old-{token}-{name}"
+                if not os.path.islink(dst) and dst.is_dir():
+                    try:
+                        os.chmod(dst, 0o700)
+                    except OSError:
+                        pass
+                old = self.target_dir / f".agy-old-{token}-d{idx}-{safe_name}"
                 os.replace(dst, old)
                 journal.append((name, old, False))
         except Exception as e:
@@ -322,6 +449,7 @@ class SnapshotEngine:
                     if placed and os.path.lexists(dst):
                         self._remove_entry(dst)
                     if old is not None and os.path.lexists(old):
+                        dst.parent.mkdir(parents=True, exist_ok=True)
                         os.replace(old, dst)
                 except OSError as rb:
                     rollback_errors.append(f"{name}: {rb}")
@@ -331,7 +459,7 @@ class SnapshotEngine:
                 except OSError:
                     pass
             relock_note = ""
-            if was_locked:
+            if should_relock:
                 relock_ok, relock_detail = self.locker.lock()
                 if not relock_ok:
                     relock_note = f" WARNING: re-lock after rollback failed, the tree is writable: {relock_detail}."
@@ -350,29 +478,35 @@ class SnapshotEngine:
                     cleanup_errors.append(str(ce))
 
         relock_msg = ""
-        if was_locked:
+        if should_relock:
             ok, lock_msg = self.locker.lock()
             if not ok:
                 relock_msg = f" WARNING: re-lock failed: {lock_msg}"
 
         baseline_msg = ""
+        baseline_failed = False
         if self.integrity_monitor is not None:
             try:
                 count, _ = self.integrity_monitor.save_baseline()
                 baseline_msg = f" Integrity baseline re-established ({count} files)."
             except Exception as be:
-                baseline_msg = f" WARNING: baseline refresh failed: {be}."
+                baseline_failed = True
+                baseline_msg = f" ERROR: baseline refresh failed: {be}."
 
         cleanup_msg = f" Cleanup warnings: {cleanup_errors}." if cleanup_errors else ""
-        success = not relock_msg
+        success = (not relock_msg) and (not baseline_failed) and (not cleanup_errors)
         from guard.audit_log import audit
         audit("snapshot.restore", id=snap_id, ok=success, pre_restore_backup=pre_id, target=str(self.target_dir))
         return success, (
             f"Successfully restored snapshot '{snap_id}' (pre-restore backup: {pre_id}).{baseline_msg}{relock_msg}{cleanup_msg}"
+            if success
+            else f"Restored snapshot '{snap_id}' with post-restore errors (pre-restore backup: {pre_id}).{baseline_msg}{relock_msg}{cleanup_msg}"
         )
 
     def prune_snapshots(self, keep: int = 5) -> int:
         """Keeps the newest `keep` snapshots of EACH kind (manual, pre_rollback, ...)."""
+        if isinstance(keep, bool) or not isinstance(keep, int) or keep < 1:
+            raise ValueError("keep must be an integer >= 1")
         by_kind: Dict[str, List[Dict]] = {}
         for snap in self.list_snapshots():
             by_kind.setdefault(snap.get("kind", "manual"), []).append(snap)
@@ -381,9 +515,11 @@ class SnapshotEngine:
             for snap in snaps[keep:]:
                 path = Path(snap["path"])
                 if path.exists() and is_within(path, self.snapshots_dir):
-                    shutil.rmtree(path, ignore_errors=True)
+                    self._remove_entry(path)
                     if not path.exists():
                         pruned += 1
+        from guard.audit_log import audit
+        audit("snapshot.prune", target=str(self.target_dir), removed=pruned, keep=keep)
         return pruned
 
     def get_snapshot_files(self, snap_id: str) -> List[str]:

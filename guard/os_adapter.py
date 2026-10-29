@@ -268,6 +268,25 @@ class OSProtectionAdapter:
             message = f"{message}; note: {store_note}"
         return all_ok, message
 
+    @staticmethod
+    def _chmod_nofollow(entry: Path, mode: int) -> None:
+        """Applies `mode` via an `O_NOFOLLOW` descriptor on POSIX to eliminate symlink-swap TOCTOU."""
+        if (
+            os.name != "nt"
+            and hasattr(os, "O_NOFOLLOW")
+            and os.chmod in getattr(os, "supports_fd", ())
+        ):
+            fd = os.open(entry, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                os.chmod(fd, mode)
+            finally:
+                os.close(fd)
+            return
+        if os.path.islink(entry):
+            import errno
+            raise OSError(errno.ELOOP, "Refusing to chmod symbolic link", str(entry))
+        os.chmod(entry, mode)
+
     def _lock_single(self, lock_path: Path, recursive: bool, modes: Dict[str, int]) -> Tuple[bool, str]:
         failures: List[str] = []
         details: List[str] = []
@@ -283,6 +302,7 @@ class OSProtectionAdapter:
         if is_dir and recursive:
             entries.extend(self._iter_tree(lock_path))
         changed = 0
+        owner_only_names = {"mcp_config.json", "config.json"}
         for entry in entries:
             try:
                 if os.path.islink(entry):
@@ -291,10 +311,16 @@ class OSProtectionAdapter:
                         failures.append(problem)
                     continue
                 mode = stat.S_IMODE(os.lstat(entry).st_mode)
-                new_mode = mode & ~WRITE_BITS
+                is_secret_file = entry.name in owner_only_names and entry.is_file()
+                if is_secret_file:
+                    unlocked_mode = ((mode & ~0o077) | stat.S_IRUSR | stat.S_IWUSR) & ~stat.S_IWOTH
+                    new_mode = (mode & ~0o077 & ~WRITE_BITS) | stat.S_IRUSR
+                else:
+                    unlocked_mode = (mode | stat.S_IWUSR) & ~stat.S_IWOTH
+                    new_mode = mode & ~WRITE_BITS
+                modes.setdefault(str(entry), unlocked_mode)
                 if new_mode != mode:
-                    modes.setdefault(str(entry), mode)
-                    os.chmod(entry, new_mode)
+                    self._chmod_nofollow(entry, new_mode)
                     changed += 1
             except OSError as e:
                 failures.append(f"chmod failed for {entry}: {e}")
@@ -310,7 +336,7 @@ class OSProtectionAdapter:
         elif self.system == "windows":
             username = os.environ.get("USERNAME", "Everyone")
             rights = "(OI)(CI)(WD,AD,DE,DC)" if is_dir and recursive else "(WD,AD,DE,DC)"
-            ok, err = self._run(["icacls", str(lock_path), "/deny", f"{username}:{rights}"])
+            ok, err = self._run(["icacls", str(lock_path), "/deny", f"{username}:{rights}", "/L"])
             if not ok:
                 failures.append(f"icacls deny failed: {err}")
             attrib = ["attrib", "+R", str(lock_path)] + (["/S", "/D"] if is_dir and recursive else [])
@@ -370,7 +396,9 @@ class OSProtectionAdapter:
                 failures.append(f"chflags nouchg failed: {err}")
         elif self.system == "windows":
             username = os.environ.get("USERNAME", "Everyone")
-            cmd = ["icacls", str(unlock_path), "/remove:d", username] + (["/t", "/c", "/q"] if is_dir and recursive else ["/q"])
+            cmd = ["icacls", str(unlock_path), "/remove:d", username] + (
+                ["/t", "/c", "/L", "/q"] if is_dir and recursive else ["/L", "/q"]
+            )
             ok, err = self._run(cmd)
             if not ok:
                 failures.append(f"icacls remove deny failed: {err}")
@@ -379,12 +407,15 @@ class OSProtectionAdapter:
             if not ok2:
                 failures.append(f"attrib -R failed: {err2}")
         elif self.system == "linux" and hasattr(os, "geteuid") and os.geteuid() == 0:
-            self._run(["chattr"] + (["-R"] if is_dir and recursive else []) + ["-i", str(unlock_path)])
+            ok, err = self._run(["chattr"] + (["-R"] if is_dir and recursive else []) + ["-i", str(unlock_path)])
+            if not ok:
+                failures.append(f"chattr -i failed: {err}")
 
         entries = [unlock_path]
         if is_dir and recursive:
             entries.extend(self._iter_tree(unlock_path))
         restored = 0
+        owner_only_names = {"mcp_config.json", "config.json"}
         for entry in entries:
             try:
                 if os.path.islink(entry):
@@ -392,28 +423,38 @@ class OSProtectionAdapter:
                 current = stat.S_IMODE(os.lstat(entry).st_mode)
                 key = str(entry)
                 original = modes.get(key)
+                is_secret_file = entry.name in owner_only_names and entry.is_file()
                 if original is not None and (current & ~WRITE_BITS) == (original & ~WRITE_BITS):
                     if original & stat.S_IWOTH:
                         # Never re-open a tree to every user from a record anyone of this UID can edit.
                         from guard.audit_log import warn
                         warn("os_adapter.world_writable_mode_refused", path=key, recorded=oct(original))
                         original &= ~stat.S_IWOTH
-                    os.chmod(entry, original)
+                    restored_mode = (original | stat.S_IWUSR) & ~stat.S_IWOTH
+                    if is_secret_file:
+                        restored_mode = (restored_mode & ~0o077) | stat.S_IRUSR | stat.S_IWUSR
+                    self._chmod_nofollow(entry, restored_mode)
                     modes.pop(key, None)
                     restored += 1
                 else:
                     modes.pop(key, None)
-                    if not current & stat.S_IWUSR:
-                        os.chmod(entry, current | stat.S_IWUSR)
+                    target_mode = (current | stat.S_IWUSR) & ~stat.S_IWOTH
+                    if is_secret_file:
+                        target_mode = (target_mode & ~0o077) | stat.S_IRUSR | stat.S_IWUSR
+                    if target_mode != current:
+                        self._chmod_nofollow(entry, target_mode)
             except OSError as e:
                 failures.append(f"permission restore failed for {entry}: {e}")
 
         if self.system != "windows":
-            try:
-                if not os.lstat(unlock_path).st_mode & stat.S_IWUSR:
-                    failures.append(f"{unlock_path} is still read-only")
-            except OSError as e:
-                failures.append(str(e))
+            for entry in entries:
+                if os.path.islink(entry):
+                    continue
+                try:
+                    if not os.lstat(entry).st_mode & stat.S_IWUSR:
+                        failures.append(f"{entry} is still read-only")
+                except OSError as e:
+                    failures.append(str(e))
 
         if failures:
             return False, f"PARTIAL UNLOCK for {unlock_path}: " + "; ".join(failures[:8])

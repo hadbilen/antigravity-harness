@@ -17,9 +17,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from guard.audit_log import audit
 from guard.os_adapter import OSProtectionAdapter
-from guard.paths import atomic_write_json, config_dir, config_dir_symlink, path_key, read_json, state_dir
+from guard.paths import (
+    CorruptStateError,
+    atomic_write_json,
+    config_dir,
+    config_dir_symlink,
+    data_dir,
+    path_key,
+    read_json_strict,
+    state_dir,
+)
 
 VALID_POLICIES = ("enforced", "monitored", "disabled")
+_LAUNCHER_MARKER = "antigravity-harness launcher"
 
 # Governance seams of the Antigravity global customization root. Runtime state written by
 # the Antigravity application itself (config.json, projects/, sidecars/, plugins/, cache)
@@ -33,6 +43,7 @@ ANTIGRAVITY_GOVERNANCE_SEAMS = [
     "mcp_config.json",
     "skills",
     "agents",
+    "rules",
     "templates",
     ".harness",
 ]
@@ -45,13 +56,43 @@ ANTIGRAVITY_RUNTIME_ENTRIES = ["config.json", "projects", "sidecars", "plugins",
 KNOWN_PLATFORMS = {
     "antigravity": {"name": "Antigravity Harness", "governance_seams": ANTIGRAVITY_GOVERNANCE_SEAMS},
     "claude": {"name": "Claude Code", "governance_seams": ["CLAUDE.md", ".claude/agents", ".claude/commands", ".claude/skills"]},
-    "codex": {"name": "GPT Codex / Copilot", "governance_seams": ["AGENTS.md", "CODEX.md"]},
-    "cursor": {"name": "Cursor IDE", "governance_seams": [".cursorrules", ".cursor/rules"]},
-    "aider": {"name": "Aider", "governance_seams": [".aider.conf.yml", ".aiderignore"]},
+    "codex": {
+        "name": "GPT Codex / Copilot",
+        "governance_seams": ["AGENTS.md", "CODEX.md", "CONVENTIONS.md", ".agents/skills", ".agents/rules"],
+    },
+    "cursor": {
+        "name": "Cursor IDE",
+        "governance_seams": [".cursorrules", ".cursor/rules", ".cursor/skills", ".cursor/agents"],
+    },
+    "aider": {
+        "name": "Aider",
+        "governance_seams": [".aider.conf.yml", ".aiderignore", "CONVENTIONS.md", ".aider/skills"],
+    },
 }
 
-# Whole-directory seams registered by releases before 1.4.0; replaced by the whitelist above.
-LEGACY_BROAD_SEAMS = {"claude": {".claude"}, "codex": {".codex"}, "cursor": {".cursor"}}
+# Whole-directory seams registered by releases before 1.4.0 (or pre-2.0 workspace `.gemini`);
+# replaced by rule-only whitelists so tool runtime state (`~/.gemini/antigravity/brain`, settings, caches) stays writable.
+ANTIGRAVITY_WORKSPACE_SEAMS = [
+    "GEMINI.md",
+    "AGENTS.md",
+    "DESIGN.md",
+    "MISTAKES.md",
+    ".gemini/GEMINI.md",
+    ".gemini/AGENTS.md",
+    ".gemini/rules",
+    ".gemini/skills",
+    ".gemini/agents",
+    ".gemini/hooks.json",
+    ".gemini/mcp_config.json",
+    ".agents",
+    ".harness",
+]
+LEGACY_BROAD_SEAMS = {
+    "antigravity": {".gemini"},
+    "claude": {".claude"},
+    "codex": {".codex"},
+    "cursor": {".cursor"},
+}
 
 # Other agents' environments are discovered as "monitored" (integrity reports, no chmod):
 # write-protecting another tool's files is opt-in via `agy-guard env policy <id> enforced`.
@@ -71,6 +112,37 @@ def make_env_id(prefix: str, workspace: Path) -> str:
     """Collision-resistant environment id: platform + folder name + short path hash."""
     ws = Path(workspace).resolve()
     return f"{prefix}-{_slug(ws.name)}-{path_key(ws)[:6]}"
+
+
+def antigravity_external_governance_paths(existing_only: bool = False) -> List[Path]:
+    """
+    Returns external runtime (`data_dir() / "runtime"`) and CLI launcher paths belonging to
+    the global Antigravity Harness installation so they share OS-lock and FIM protection.
+    """
+    runtime_root = Path(os.path.abspath(data_dir() / "runtime"))
+    candidates: List[Path] = [runtime_root]
+    if os.name == "nt":
+        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard"
+        for name in ("agy-guard.cmd", "agy-porter.cmd", "agy-guard.exe"):
+            candidates.append(Path(os.path.abspath(bin_dir / name)))
+    else:
+        bin_dir = Path.home() / ".local" / "bin"
+        candidates.append(Path(os.path.abspath(bin_dir / "agy-guard")))
+        candidates.append(Path(os.path.abspath(bin_dir / "agy-porter")))
+        porter_alias = Path(os.path.abspath(bin_dir / "porter"))
+        include_porter = False
+        if not os.path.lexists(porter_alias) or os.path.islink(porter_alias):
+            include_porter = True
+        elif porter_alias.is_file():
+            try:
+                with open(porter_alias, "rb") as fh:
+                    head = fh.read(512).decode("utf-8", errors="ignore")
+                include_porter = _LAUNCHER_MARKER in head
+            except OSError:
+                include_porter = False
+        if include_porter:
+            candidates.append(porter_alias)
+    return [p for p in candidates if not existing_only or os.path.lexists(p)]
 
 
 @dataclass
@@ -96,12 +168,19 @@ class AgentEnvironment:
         """Absolute governance paths. Symlinks are NOT resolved, so they stay visible to the lock."""
         root = self.get_root()
         resolved: List[Path] = []
+        seen: set[str] = set()
         for rel in self.governance_paths:
             candidate = Path(rel).expanduser()
             p = candidate if candidate.is_absolute() else root / candidate
             p = Path(os.path.abspath(p))
             if not existing_only or os.path.lexists(p):
                 resolved.append(p)
+                seen.add(str(p))
+        if self.is_global and self.id == "antigravity":
+            for ext in antigravity_external_governance_paths(existing_only=existing_only):
+                if str(ext) not in seen:
+                    resolved.append(ext)
+                    seen.add(str(ext))
         return resolved
 
     def to_dict(self) -> Dict[str, Any]:
@@ -109,10 +188,29 @@ class AgentEnvironment:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> AgentEnvironment:
+        if not isinstance(data, dict):
+            raise TypeError("Environment entry must be a JSON object")
+        env_id = data.get("id")
+        root_path = data.get("root_path")
+        if not isinstance(env_id, str) or not env_id.strip():
+            raise TypeError("Environment 'id' must be a non-empty string")
+        if not isinstance(root_path, str) or not root_path.strip():
+            raise TypeError("Environment 'root_path' must be a non-empty string")
         known = {f.name for f in fields(cls)}
         payload = {k: v for k, v in data.items() if k in known}
-        payload.setdefault("name", data["id"])
+        payload.setdefault("name", env_id)
         payload.setdefault("platform_type", "custom")
+        if not isinstance(payload["name"], str) or not isinstance(payload["platform_type"], str):
+            raise TypeError("Environment 'name' and 'platform_type' must be strings")
+        gov_paths = payload.get("governance_paths", [])
+        if not isinstance(gov_paths, list) or not all(isinstance(p, str) for p in gov_paths):
+            raise TypeError("Environment 'governance_paths' must be a list of strings")
+        policy = payload.get("policy", "enforced")
+        if not isinstance(policy, str) or policy not in VALID_POLICIES:
+            raise ValueError(f"Invalid environment policy {policy!r}")
+        for bool_field in ("is_global", "enabled", "protect_root"):
+            if bool_field in payload and not isinstance(payload[bool_field], bool):
+                raise TypeError(f"Environment '{bool_field}' must be a boolean")
         return cls(**payload)
 
 
@@ -160,19 +258,45 @@ class EnvironmentRegistry:
         self.last_discovery_note = ""
         self.load()
 
+    def _fail_closed_default(self) -> None:
+        default_global = default_antigravity_environment()
+        self._environments = {"antigravity": default_global}
+        try:
+            self.lock("antigravity")
+        except Exception:
+            pass
+
     def load(self) -> None:
         """Loads environment definitions from disk (or a legacy registry) and seeds defaults."""
         self._environments = {}
         source = self.config_path if self.config_path.exists() else self.legacy_config_path
         if source is not None:
-            data = read_json(source, default={}) or {}
-            for env_data in data.get("environments", []):
-                try:
-                    env = AgentEnvironment.from_dict(env_data)
-                except (KeyError, TypeError):
-                    continue
-                self._migrate_broad_seams(env)
-                self._environments[env.id] = env
+            try:
+                data = read_json_strict(source)
+            except CorruptStateError as e:
+                self._fail_closed_default()
+                raise RegistryError(f"Environment registry {source} is corrupt ({e})") from e
+            except OSError as e:
+                self._fail_closed_default()
+                raise RegistryError(f"Environment registry {source} cannot be read ({e})") from e
+            if data is not None:
+                if not isinstance(data, dict):
+                    self._fail_closed_default()
+                    raise RegistryError(f"Environment registry {source} is not a JSON object.")
+                raw_envs = data.get("environments", [])
+                if not isinstance(raw_envs, list):
+                    self._fail_closed_default()
+                    raise RegistryError(f"Environment registry {source}: 'environments' must be a list.")
+                for env_data in raw_envs:
+                    try:
+                        env = AgentEnvironment.from_dict(env_data)
+                    except (KeyError, TypeError, ValueError) as e:
+                        self._fail_closed_default()
+                        raise RegistryError(
+                            f"Environment registry {source} contains a malformed environment entry ({e})."
+                        ) from e
+                    self._migrate_broad_seams(env)
+                    self._environments[env.id] = env
 
         default_global = default_antigravity_environment()
         existing = self._environments.get("antigravity")
@@ -182,7 +306,10 @@ class EnvironmentRegistry:
             # The global root always follows the active configuration directory, and the
             # governance scope is upgraded with any seams introduced by newer releases.
             existing.root_path = default_global.root_path
+            existing.platform_type = default_global.platform_type
             existing.is_global = True
+            existing.enabled = True
+            existing.policy = "enforced"
             existing.protect_root = default_global.protect_root
             for seam in ANTIGRAVITY_GOVERNANCE_SEAMS:
                 if seam not in existing.governance_paths:
@@ -190,12 +317,17 @@ class EnvironmentRegistry:
 
     @staticmethod
     def _migrate_broad_seams(env: AgentEnvironment) -> None:
-        """Replaces pre-1.4.0 whole-directory seams (e.g. `.claude`) with the rule-file whitelist."""
+        """Replaces pre-1.4.0 whole-directory seams (e.g. `.claude`, workspace `.gemini`) with the rule-file whitelist."""
         broad = LEGACY_BROAD_SEAMS.get(env.platform_type)
         if env.is_global or not broad or not broad.intersection(env.governance_paths):
             return
         kept = [s for s in env.governance_paths if s not in broad]
-        for seam in KNOWN_PLATFORMS[env.platform_type]["governance_seams"]:
+        replacement_seams = (
+            ANTIGRAVITY_WORKSPACE_SEAMS
+            if env.platform_type == "antigravity"
+            else KNOWN_PLATFORMS[env.platform_type]["governance_seams"]
+        )
+        for seam in replacement_seams:
             if seam not in kept:
                 kept.append(seam)
         env.governance_paths = kept
@@ -250,9 +382,14 @@ class EnvironmentRegistry:
 
         candidates: List[Tuple[str, str, str, List[str]]] = []
         antigravity_root = self._environments["antigravity"].get_root()
-        if target_ws != antigravity_root and ((target_ws / ".gemini").exists() or (target_ws / "GEMINI.md").exists()):
-            seams = [s for s in ["GEMINI.md", "DESIGN.md", "MISTAKES.md", ".gemini", ".agents", ".harness"] if os.path.lexists(target_ws / s)]
-            candidates.append(("antigravity", "antigravity-workspace", f"Antigravity Workspace ({target_ws.name})", seams or ["GEMINI.md"]))
+        if target_ws != antigravity_root and (
+            (target_ws / ".gemini").exists()
+            or (target_ws / "GEMINI.md").exists()
+            or (target_ws / ".harness").exists()
+        ):
+            seams = [s for s in ANTIGRAVITY_WORKSPACE_SEAMS if os.path.lexists(target_ws / s)]
+            if seams:
+                candidates.append(("antigravity", "antigravity-workspace", f"Antigravity Workspace ({target_ws.name})", seams))
         for platform_type in ("claude", "codex", "cursor", "aider"):
             seams_all = KNOWN_PLATFORMS[platform_type]["governance_seams"]
             seams = [s for s in seams_all if os.path.lexists(target_ws / s)]
@@ -318,6 +455,8 @@ class EnvironmentRegistry:
     def register_environment(self, env: AgentEnvironment) -> None:
         if env.policy not in VALID_POLICIES:
             raise ValueError(f"Invalid policy '{env.policy}'. Must be one of {', '.join(VALID_POLICIES)}.")
+        if not env.id or env.id == "antigravity" or env.id in self._environments:
+            raise ValueError(f"Environment ID '{env.id}' is reserved or already registered.")
         self._environments[env.id] = env
         self.save()
 
@@ -492,3 +631,7 @@ class EnvironmentLocker:
 
     def lock(self) -> Tuple[bool, str]:
         return self.registry.lock(self.env_id)
+
+    def should_lock_after_restore(self) -> bool:
+        env = self.registry.get_environment(self.env_id)
+        return bool(env and env.enabled and env.policy == "enforced")

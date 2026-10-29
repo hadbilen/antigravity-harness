@@ -1,6 +1,6 @@
 # Maintainer: Had Bilen <https://github.com/hadbilen>
 pkgname=antigravity-guard
-pkgver=1.4.0
+pkgver=2.0.0
 pkgrel=1
 pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
 arch=('x86_64' 'aarch64')
@@ -9,6 +9,7 @@ license=('MIT' 'Apache-2.0')  # Apache-2.0: bundled procoder skill (see THIRD_PA
 depends=('python>=3.10')
 optdepends=(
     'libnotify: Desktop notifications via notify-send'
+    'tk: Desktop GUI interface (agy-guard gui)'
     'python-gobject: Native Ayatana/AppIndicator system tray support'
     'gtk3: Desktop GTK interface support'
 )
@@ -25,23 +26,45 @@ package() {
     cp -r porter "$pkgdir/usr/lib/$pkgname/"
     cp -r scripts "$pkgdir/usr/lib/$pkgname/"
     cp guard.py "$pkgdir/usr/lib/$pkgname/guard.py"
+    cp porter.py "$pkgdir/usr/lib/$pkgname/porter.py"
 
-    # Binary launcher
+    # Binary launchers
     install -dm755 "$pkgdir/usr/bin"
     cat << 'EOF' > "$pkgdir/usr/bin/agy-guard"
 #!/bin/sh
 exec python3 /usr/lib/antigravity-guard/guard.py "$@"
 EOF
     chmod 755 "$pkgdir/usr/bin/agy-guard"
+    cat << 'EOF' > "$pkgdir/usr/bin/agy-porter"
+#!/bin/sh
+exec python3 /usr/lib/antigravity-guard/porter.py "$@"
+EOF
+    chmod 755 "$pkgdir/usr/bin/agy-porter"
 
     # Desktop entry & Icon
     install -Dm644 installers/antigravity-guard.desktop "$pkgdir/usr/share/applications/antigravity-guard.desktop"
     install -Dm644 installers/packaging/antigravity-guard.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/antigravity-guard.svg"
 
-    # Documentation & Governance Templates
+    # Documentation, Hooks, Manifest & Governance Templates
     install -dm755 "$pkgdir/usr/share/antigravity-harness"
-    cp GEMINI.md DESIGN.md MISTAKES.md "$pkgdir/usr/share/antigravity-harness/"
+    cp GEMINI.md DESIGN.md MISTAKES.md README.md hooks.json "$pkgdir/usr/share/antigravity-harness/"
+    python3 -c 'import json, sys; from pathlib import Path; p = Path(sys.argv[1]) / "usr/share/antigravity-harness/hooks.json"; raw = p.read_text(encoding="utf-8"); u, g = "skills/upstream-auditor/scripts/upstream_watcher.py", "guard/agy_hooks.py"; assert u in raw and g in raw, "expected hook script paths missing in hooks.json"; out = raw.replace(u, "/usr/share/antigravity-harness/" + u).replace(g, "/usr/lib/antigravity-guard/" + g); assert isinstance(json.loads(out), dict); p.write_text(out, encoding="utf-8")' "$pkgdir"
+    install -Dm644 .harness/manifest.json "$pkgdir/usr/share/antigravity-harness/.harness/manifest.json"
     cp -r templates skills agents "$pkgdir/usr/share/antigravity-harness/"
+    find "$pkgdir/usr/share/antigravity-harness/skills" -type f \( -path '*/scripts/*.py' -o -path '*/scripts/*.sh' -o -path '*/scripts/*.mjs' -o -name 'contrast-*.py' \) -exec chmod 755 {} +
+
+    # Bash completion
+    install -dm755 "$pkgdir/usr/share/bash-completion/completions"
+    cat << 'EOF' > "$pkgdir/usr/share/bash-completion/completions/agy-guard"
+# Bash completion for agy-guard
+_agy_guard_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local commands="init status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify gui"
+    COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+}
+complete -F _agy_guard_completions agy-guard
+EOF
+    chmod 644 "$pkgdir/usr/share/bash-completion/completions/agy-guard"
 
     # Licenses
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

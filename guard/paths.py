@@ -227,42 +227,67 @@ def move_aside(path: Path, tag: str = "corrupt") -> Optional[Path]:
         return None
 
 
+HOOK_LOCK_TIMEOUT: float = 2.0
+
+
 @contextmanager
-def file_lock(target: Path, timeout: float = 10.0, stale_after: float = 30.0) -> Iterator[None]:
+def file_lock(target: Path, timeout: float = HOOK_LOCK_TIMEOUT, stale_after: float = 30.0) -> Iterator[None]:
     """
-    Cross-process advisory lock implemented with an O_EXCL lock file next to `target`.
-    The lock file carries an owner token, so a process only ever removes its own lock; a
-    lock older than `stale_after` seconds (crashed owner) is taken over.
+    Cross-process and cross-thread advisory lock on a persistent `.lock` inode next to `target`.
+    Uses kernel `fcntl.flock` on POSIX and `msvcrt.locking` on Windows without unlinking the
+    lock file on release, eliminating unlink/recreate inode races.
     """
     import time as _time
-    import uuid as _uuid
 
+    _ = stale_after  # retained for signature compatibility; kernel releases locks on process exit
     lock_path = Path(target).with_name(Path(target).name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    token = f"{os.getpid()}:{_uuid.uuid4().hex}"
     deadline = _time.time() + timeout
-    while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            try:
-                if _time.time() - lock_path.stat().st_mtime > stale_after:
-                    lock_path.unlink()
-                    continue
-            except OSError:
-                pass
-            if _time.time() > deadline:
-                raise TimeoutError(f"State store is busy ({lock_path}).")
-            _time.sleep(0.05)
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(token)
-        break
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    locked = False
     try:
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except OSError:
+                if _time.time() > deadline:
+                    raise TimeoutError(f"State store is busy ({lock_path}).")
+                _time.sleep(0.02)
+        try:
+            if os.name != "nt" and hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
+            payload = f"{os.getpid()}\n".encode("utf-8")
+            os.ftruncate(fd, 0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.write(fd, payload)
+        except OSError:
+            pass
         yield
     finally:
+        if locked:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
         try:
-            if lock_path.read_text(encoding="utf-8") == token:
-                lock_path.unlink()
+            os.close(fd)
         except OSError:
             pass

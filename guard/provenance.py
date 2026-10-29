@@ -82,6 +82,16 @@ class RunProvenanceTracker:
         else:
             self.output_file = self.workspace_dir / ".harness" / "provenance.json"
 
+    @staticmethod
+    def _has_git_marker(path: Path) -> bool:
+        cur = path.resolve()
+        while True:
+            if os.path.lexists(cur / ".git"):
+                return True
+            if cur.parent == cur:
+                return False
+            cur = cur.parent
+
     def _get_git_commit(self) -> str:
         try:
             out = subprocess.check_output(
@@ -89,6 +99,7 @@ class RunProvenanceTracker:
                 cwd=self.workspace_dir,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                timeout=15,
             )
             return out.strip()
         except Exception:
@@ -102,8 +113,19 @@ class RunProvenanceTracker:
                 ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
                 cwd=self.workspace_dir,
                 stderr=subprocess.DEVNULL,
+                timeout=15,
             ).decode("utf-8", errors="surrogateescape")
-        except (OSError, subprocess.CalledProcessError):
+        except (OSError, subprocess.SubprocessError) as exc:
+            if self._has_git_marker(self.workspace_dir):
+                from guard.audit_log import warn
+
+                err_note = f"<git-status-error: {type(exc).__name__}>"
+                warn("provenance.git_status_error", workspace=str(self.workspace_dir), error=f"{type(exc).__name__}: {exc}")
+                print(
+                    f"[WARN] Could not inspect git status in {self.workspace_dir} ({type(exc).__name__}: {exc}).",
+                    file=sys.stderr,
+                )
+                return False, [err_note], [], []
             return False, [], [], []
         records = out.split("\0")
         i = 0
@@ -126,16 +148,20 @@ class RunProvenanceTracker:
         is_clean = not (modified or added or deleted)
         return is_clean, modified, added, deleted
 
+    _SAFE_FLAG_VALUES = frozenset({"", "0", "1", "true", "false", "yes", "no"})
+
     def _detect_env_overrides(self) -> Dict[str, str]:
-        """Records suspicious override variables; values that may be secrets are redacted."""
+        """Records suspicious override variables; non-trivial values are redacted unconditionally."""
         detected = {}
         for k, v in os.environ.items():
             upper = k.upper()
             if upper in SAFE_ENV_NAMES:
                 continue
             if any(upper.startswith(p) for p in self.SUSPICIOUS_ENV_PREFIXES):
-                looks_secret = any(h in upper for h in SECRET_NAME_HINTS) or len(v) > 16
-                detected[k] = "<redacted>" if looks_secret else v
+                is_safe_flag = v.strip().lower() in self._SAFE_FLAG_VALUES and not any(
+                    h in upper for h in SECRET_NAME_HINTS
+                )
+                detected[k] = v if is_safe_flag else "<redacted>"
         return detected
 
     def generate_manifest(
@@ -143,6 +169,8 @@ class RunProvenanceTracker:
         mode: str = "bugfix",
         test_command: Optional[str] = None,
         reproducibility_passes: int = 2,
+        base_ref: Optional[str] = None,
+        authorized_modifications: Optional[set] = None,
     ) -> RunProvenanceManifest:
         """
         Generates full audit manifest, evaluating git status, environment overrides,
@@ -154,7 +182,11 @@ class RunProvenanceTracker:
 
         # Check test boundary
         guard = TestBoundaryGuard(workspace_dir=self.workspace_dir)
-        report = guard.verify(mode=mode)
+        report = guard.verify(
+            mode=mode,
+            base_ref=base_ref,
+            authorized_modifications=authorized_modifications,
+        )
         test_boundary_verified = report.is_intact
 
         # Check reproducibility if test command provided
@@ -184,6 +216,6 @@ class RunProvenanceTracker:
             tools_executed=list(guard.last_commands),
         )
 
-        atomic_write_json(self.output_file, manifest.to_dict(), mode=0o644)
+        atomic_write_json(self.output_file, manifest.to_dict(), mode=0o600)
 
         return manifest

@@ -26,7 +26,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape as xml_escape
 
-from guard.environment import AgentEnvironment, EnvironmentRegistry, default_antigravity_environment
+from guard.environment import (
+    AgentEnvironment,
+    EnvironmentRegistry,
+    RegistryError,
+    antigravity_external_governance_paths,
+    default_antigravity_environment,
+)
 from guard.integrity import FileIntegrityMonitor
 from guard.notifier import GuardNotifier, NotificationSeverity
 from guard.os_adapter import OSProtectionAdapter
@@ -55,10 +61,22 @@ class StartupManager:
             self.target_dir = Path(os.path.abspath(target_dir))
 
         self.os_adapter = OSProtectionAdapter(self.target_dir)
-        self.registry = registry or EnvironmentRegistry(os_adapter=self.os_adapter)
-        global_env = self.registry.get_environment("antigravity")
+        self._registry_error: Optional[str] = None
+        if registry is not None:
+            self.registry: Optional[EnvironmentRegistry] = registry
+        else:
+            try:
+                self.registry = EnvironmentRegistry(os_adapter=self.os_adapter)
+            except RegistryError as exc:
+                self.registry = None
+                self._registry_error = str(exc)
+
+        global_env = self.registry.get_environment("antigravity") if self.registry is not None else None
+        default_env = default_antigravity_environment()
         if global_env is not None and global_env.get_root() == self.target_dir:
             self.environment: AgentEnvironment = global_env
+        elif self.registry is None and default_env.get_root() == self.target_dir:
+            self.environment = default_env
         else:
             self.environment = default_antigravity_environment(self.target_dir)
             self.environment.id = f"boot-target-{path_key(self.target_dir)}"
@@ -157,7 +175,7 @@ WantedBy=default.target
         problems = []
         for cmd in (["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", SYSTEMD_SERVICE_NAME]):
             try:
-                res = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=30)
+                res = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=15)
             except (OSError, subprocess.SubprocessError) as e:
                 problems.append(f"{' '.join(cmd)}: {e}")
                 continue
@@ -170,9 +188,9 @@ WantedBy=default.target
     def _disable_linux(self) -> Tuple[bool, str]:
         if shutil.which("systemctl"):
             try:
-                subprocess.run(["systemctl", "--user", "disable", SYSTEMD_SERVICE_NAME], check=False, capture_output=True)
-                subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
-            except Exception:
+                subprocess.run(["systemctl", "--user", "disable", SYSTEMD_SERVICE_NAME], check=False, capture_output=True, timeout=15)
+                subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True, timeout=15)
+            except (OSError, subprocess.SubprocessError):
                 pass
 
         service_file = SYSTEMD_USER_DIR / SYSTEMD_SERVICE_NAME
@@ -187,12 +205,16 @@ WantedBy=default.target
         is_active = False
 
         if is_installed and shutil.which("systemctl"):
-            res = subprocess.run(
-                ["systemctl", "--user", "is-enabled", SYSTEMD_SERVICE_NAME],
-                capture_output=True,
-                text=True,
-            )
-            is_active = res.stdout.strip() == "enabled"
+            try:
+                res = subprocess.run(
+                    ["systemctl", "--user", "is-enabled", SYSTEMD_SERVICE_NAME],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                is_active = res.stdout.strip() == "enabled"
+            except (OSError, subprocess.SubprocessError):
+                is_active = False
 
         return {
             "platform": "Linux",
@@ -215,7 +237,7 @@ WantedBy=default.target
         if not shutil.which("launchctl"):
             return False, f"Wrote {plist_file}, but launchctl is not available, so the sentinel is NOT loaded."
         try:
-            res = subprocess.run(["launchctl", "load", str(plist_file)], check=False, capture_output=True, text=True, timeout=30)
+            res = subprocess.run(["launchctl", "load", str(plist_file)], check=False, capture_output=True, text=True, timeout=15)
         except (OSError, subprocess.SubprocessError) as e:
             return False, f"Wrote {plist_file}, but launchctl load failed: {e}"
         if res.returncode != 0:
@@ -226,8 +248,8 @@ WantedBy=default.target
         plist_file = LAUNCH_AGENT_DIR / LAUNCH_AGENT_PLIST
         if shutil.which("launchctl") and plist_file.exists():
             try:
-                subprocess.run(["launchctl", "unload", str(plist_file)], check=False, capture_output=True)
-            except Exception:
+                subprocess.run(["launchctl", "unload", str(plist_file)], check=False, capture_output=True, timeout=15)
+            except (OSError, subprocess.SubprocessError):
                 pass
 
         if plist_file.exists():
@@ -251,25 +273,29 @@ WantedBy=default.target
     def _enable_windows(self) -> Tuple[bool, str]:
         cmd = self.get_guard_command()
         if shutil.which("schtasks"):
-            res = subprocess.run(
-                [
-                    "schtasks",
-                    "/Create",
-                    "/TN",
-                    WINDOWS_TASK_NAME,
-                    "/TR",
-                    cmd,
-                    "/SC",
-                    "ONLOGON",
-                    # Least privilege: the task runs a per-user, user-writable launcher, so it must
-                    # never run elevated (a replaced binary would otherwise gain admin rights).
-                    "/RL",
-                    "LIMITED",
-                    "/F",
-                ],
-                capture_output=True,
-                text=True,
-            )
+            try:
+                res = subprocess.run(
+                    [
+                        "schtasks",
+                        "/Create",
+                        "/TN",
+                        WINDOWS_TASK_NAME,
+                        "/TR",
+                        cmd,
+                        "/SC",
+                        "ONLOGON",
+                        # Least privilege: the task runs a per-user, user-writable launcher, so it must
+                        # never run elevated (a replaced binary would otherwise gain admin rights).
+                        "/RL",
+                        "LIMITED",
+                        "/F",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            except (OSError, subprocess.SubprocessError) as e:
+                return False, f"Failed to register task via schtasks: {e}"
             if res.returncode == 0:
                 return True, f"Registered scheduled task: {WINDOWS_TASK_NAME}"
             return False, f"Failed to register task via schtasks: {res.stderr.strip()}"
@@ -278,11 +304,15 @@ WantedBy=default.target
 
     def _disable_windows(self) -> Tuple[bool, str]:
         if shutil.which("schtasks"):
-            res = subprocess.run(
-                ["schtasks", "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"],
-                capture_output=True,
-                text=True,
-            )
+            try:
+                res = subprocess.run(
+                    ["schtasks", "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            except (OSError, subprocess.SubprocessError) as e:
+                return False, f"Failed to delete scheduled task via schtasks: {e}"
             if res.returncode == 0:
                 return True, f"Unregistered scheduled task: {WINDOWS_TASK_NAME}"
             if not self._status_windows().get("installed"):
@@ -293,12 +323,16 @@ WantedBy=default.target
     def _status_windows(self) -> Dict[str, Any]:
         is_active = False
         if shutil.which("schtasks"):
-            res = subprocess.run(
-                ["schtasks", "/Query", "/TN", WINDOWS_TASK_NAME],
-                capture_output=True,
-                text=True,
-            )
-            is_active = res.returncode == 0
+            try:
+                res = subprocess.run(
+                    ["schtasks", "/Query", "/TN", WINDOWS_TASK_NAME],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                is_active = res.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                is_active = False
 
         return {
             "platform": "Windows",
@@ -367,8 +401,11 @@ WantedBy=default.target
 
         from guard.snapshot import SnapshotEngine
 
-        engine = SnapshotEngine.for_environment(self.environment, self.registry) if not self.environment.id.startswith("boot-target") \
+        engine = (
+            SnapshotEngine.for_environment(self.environment, self.registry)
+            if (self.registry is not None and not self.environment.id.startswith("boot-target"))
             else SnapshotEngine(self.target_dir, os_adapter=self.os_adapter)
+        )
         signature = hashlib.sha256(json.dumps(
             {"modified": report.modified, "added": report.added, "deleted": report.deleted,
              "files": self.integrity_monitor.scan_directory()}, sort_keys=True).encode("utf-8")).hexdigest()
@@ -395,10 +432,24 @@ WantedBy=default.target
         messages: List[str] = []
         notifier = GuardNotifier()
 
-        if self.environment.id.startswith("boot-target"):
-            paths = self.environment.get_governance_paths(existing_only=True)
+        if self._registry_error is not None:
+            messages.append(f"[REGISTRY ERROR] {self._registry_error}")
+            notifier.notify(
+                title="Antigravity Guard — Corrupt Environment Registry",
+                message=self._registry_error[:300],
+                severity=NotificationSeverity.CRITICAL,
+                force=True,
+            )
+
+        if self.registry is None or self.environment.id.startswith("boot-target"):
+            paths = list(self.environment.get_governance_paths(existing_only=True))
+            if self.environment.is_global and self.environment.id == "antigravity":
+                paths.extend(antigravity_external_governance_paths(existing_only=True))
             lock_ok, lock_msg = self.os_adapter.lock(paths) if paths else (True, "")
-            root_ok, root_msg = self.os_adapter.lock(self.target_dir, recursive=False)
+            if self.target_dir.exists():
+                root_ok, root_msg = self.os_adapter.lock(self.target_dir, recursive=False)
+            else:
+                root_ok, root_msg = True, ""
             lock_ok, lock_msg = lock_ok and root_ok, f"{lock_msg} {root_msg}".strip()
         else:
             lock_ok, lock_msg = self.registry.lock(self.environment.id)
@@ -448,7 +499,7 @@ WantedBy=default.target
                 intact = True
                 messages.append("[FIM OK] File integrity verified against baseline.")
 
-        overall_success = intact and lock_ok
+        overall_success = intact and lock_ok and (self._registry_error is None)
         audit("boot_check", ok=overall_success, lock_ok=lock_ok,
               integrity=(report.baseline_status if report is not None else "error"), detail=" | ".join(messages)[:2000])
         return overall_success, " | ".join(messages)

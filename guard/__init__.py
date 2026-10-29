@@ -6,7 +6,7 @@ Zero external dependencies: uses strictly the Python standard library.
 
 from __future__ import annotations
 
-__version__ = "1.4.0"
+__version__ = "2.0.0"
 __author__ = "Antigravity Team & Contributors"
 
 from guard.os_adapter import OSProtectionAdapter

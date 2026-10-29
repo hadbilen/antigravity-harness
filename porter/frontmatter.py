@@ -267,6 +267,20 @@ def dump_frontmatter(data: Dict[str, Any]) -> str:
             else:
                 out.append(f"{key}:")
                 out.extend(f"  - {json.dumps(str(v), ensure_ascii=False)}" for v in value)
+        elif isinstance(value, dict):
+            if not value:
+                out.append(f"{key}: null")
+            else:
+                out.append(f"{key}:")
+                for nk, nv in value.items():
+                    if isinstance(nv, bool):
+                        out.append(f"  {nk}: {'true' if nv else 'false'}")
+                    elif nv is None:
+                        out.append(f"  {nk}: null")
+                    elif isinstance(nv, (int, float)):
+                        out.append(f"  {nk}: {nv}")
+                    else:
+                        out.append(f"  {nk}: {json.dumps(str(nv), ensure_ascii=False)}")
         else:
             out.append(f"{key}: {json.dumps(str(value), ensure_ascii=False)}")
     out.append("---")

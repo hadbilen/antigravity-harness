@@ -27,9 +27,13 @@ from porter import __version__ as PORTER_VERSION
 from porter.analyzer import SuitabilityAnalyzer
 from porter.archive import inspect_zip
 from porter.emitters import EMITTERS, EmitterConflictError
-from porter.frontmatter import dump_frontmatter
-from porter.manifest import ManifestEngine
+from porter.frontmatter import FrontmatterError, dump_frontmatter, parse_frontmatter_block, split_frontmatter
+from porter.manifest import ManifestEngine, default_harness_root
 from porter.net import safe_fetch_url
+
+
+def _harness_root() -> Path:
+    return default_harness_root(SCRIPT_DIR)
 
 
 def fetch_target_content(target: str) -> str:
@@ -76,7 +80,7 @@ def cmd_inspect_archive(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"Error reading target '{args.target}': not a file", file=sys.stderr)
         return 1
-    report = inspect_zip(path, harness_root=SCRIPT_DIR)
+    report = inspect_zip(path, harness_root=_harness_root())
     print(json.dumps(report.to_dict(), indent=2) if args.json else report.to_markdown())
     return 0 if report.is_safe else 2
 
@@ -91,7 +95,7 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         print(f"Error reading target '{args.target}': {e}", file=sys.stderr)
         return 1
 
-    report = SuitabilityAnalyzer(harness_root=SCRIPT_DIR).analyze(content, source_identifier=args.target)
+    report = SuitabilityAnalyzer(harness_root=_harness_root()).analyze(content, source_identifier=args.target)
     if args.json:
         print(json.dumps({
             "source_target": report.source_target,
@@ -114,7 +118,11 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
 def cmd_import(args: argparse.Namespace) -> int:
     """Imports and converts an external rule into a harness skill or agent in this repository."""
-    if _is_live_config(SCRIPT_DIR):
+    if getattr(args, "as_skill", None) and getattr(args, "as_agent", None):
+        print("Error: --as-skill and --as-agent cannot be used together.", file=sys.stderr)
+        return 2
+    harness_root = _harness_root()
+    if _is_live_config(harness_root):
         print("Error: porter.py is running from the live configuration directory. "
               "Use 'agy-guard porter stage' to ingest into a protected environment.", file=sys.stderr)
         return 1
@@ -128,7 +136,7 @@ def cmd_import(args: argparse.Namespace) -> int:
         print(f"Error reading target '{args.target}': {e}", file=sys.stderr)
         return 1
 
-    report = SuitabilityAnalyzer(harness_root=SCRIPT_DIR).analyze(content, source_identifier=args.target)
+    report = SuitabilityAnalyzer(harness_root=harness_root).analyze(content, source_identifier=args.target)
     if not report.is_safe_to_import:
         print(report.to_markdown(), file=sys.stderr)
         if not args.force:
@@ -143,27 +151,67 @@ def cmd_import(args: argparse.Namespace) -> int:
         for issue in review:
             print(f"  - {issue.message}", file=sys.stderr)
 
-    target_type = "agent" if args.as_agent else "skill"
+    if args.as_agent:
+        target_type = "agent"
+    elif args.as_skill:
+        target_type = "skill"
+    elif report.recommended_type in ("agent", "subagent"):
+        target_type = "agent"
+    else:
+        target_type = "skill"
     raw_name = args.as_agent or args.as_skill or report.recommended_name
     name = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(raw_name).name).strip("-").lower() or "imported-custom"
 
     if target_type == "skill":
-        base_dir = (SCRIPT_DIR / "skills").resolve()
-        dest_dir = (base_dir / name).resolve()
+        base_dir = harness_root / "skills"
+        dest_dir = base_dir / name
         dest_file = dest_dir / "SKILL.md"
+        segments = (harness_root, base_dir, dest_dir, dest_file)
         description = f"{Path(str(report.source_target)).name} adapted via Porter."
     else:
-        base_dir = (SCRIPT_DIR / "agents").resolve()
+        base_dir = harness_root / "agents"
         dest_dir = base_dir
-        dest_file = (dest_dir / f"{name}.md").resolve()
+        dest_file = dest_dir / f"{name}.md"
+        segments = (harness_root, base_dir, dest_file)
         description = f"{name} agent definition adapted via Porter."
+
+    for seg in segments:
+        if os.path.islink(seg):
+            print(f"Error: refusing to write through symlink {seg}.", file=sys.stderr)
+            return 1
     try:
-        dest_file.relative_to(base_dir)
+        dest_file.resolve().relative_to(base_dir.resolve())
     except ValueError:
         print(f"Error: Invalid destination path '{dest_file}'", file=sys.stderr)
         return 1
 
-    output_content = dump_frontmatter({"name": name, "description": description}) + "\n" + report.sanitized_content + "\n"
+    try:
+        fm, body = split_frontmatter(report.sanitized_content)
+    except FrontmatterError:
+        fm, body = None, report.sanitized_content
+    parsed_meta = {}
+    if isinstance(fm, str):
+        try:
+            parsed_meta = dict(parse_frontmatter_block(fm))
+        except FrontmatterError:
+            parsed_meta = {}
+    elif isinstance(fm, dict):
+        parsed_meta = dict(fm)
+    raw_desc = parsed_meta.get("description")
+    clean_desc = raw_desc.strip() if isinstance(raw_desc, str) and raw_desc.strip() else description
+    if target_type == "agent":
+        meta = {
+            "name": name,
+            "description": clean_desc,
+            "access": "read-only",
+        }
+    else:
+        meta = {"name": name}
+        for k, v in parsed_meta.items():
+            if k not in ("name", "description", "access", "tools", "EnableWriteTools", "EnableSubagentTools"):
+                meta[k] = v
+        meta["description"] = clean_desc
+    output_content = dump_frontmatter(meta) + "\n" + body.lstrip() + "\n"
 
     if args.dry_run:
         print(f"[DRY-RUN] Target destination: {dest_file}")
@@ -174,30 +222,36 @@ def cmd_import(args: argparse.Namespace) -> int:
     if dest_file.exists() and not args.overwrite:
         print(f"Error: {dest_file} already exists. Use --overwrite to replace it.", file=sys.stderr)
         return 1
-    if os.path.islink(dest_file) or os.path.islink(dest_dir):
-        print(f"Error: refusing to write through symlink {dest_file}.", file=sys.stderr)
-        return 1
+    for seg in segments:
+        if os.path.islink(seg):
+            print(f"Error: refusing to write through symlink {seg}.", file=sys.stderr)
+            return 1
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_file.write_bytes(output_content.encode("utf-8"))  # LF on every OS
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(dest_file), flags, 0o644)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(output_content.encode("utf-8"))  # LF on every OS
     print(f"[IMPORTED] Successfully created: {dest_file} (review with 'git diff' before deploying)")
     return 0
 
 
 def cmd_export(args: argparse.Namespace) -> int:
     """Exports the canonical harness into native target agent configurations."""
-    manifest = ManifestEngine(harness_root=SCRIPT_DIR).build_manifest()
-    out_base = Path(args.out).resolve() if args.out else SCRIPT_DIR / "export"
+    harness_root = _harness_root()
+    manifest = ManifestEngine(harness_root=harness_root).build_manifest()
+    default_out = (Path.cwd() / "export") if harness_root != SCRIPT_DIR else (SCRIPT_DIR / "export")
+    out_base = Path(args.out).resolve() if args.out else default_out
     targets = [args.target] if args.target != "all" else list(EMITTERS)
 
     print(f"Antigravity Porter Export — Version {manifest.version}")
-    print(f"Source: {SCRIPT_DIR}")
+    print(f"Source: {harness_root}")
     print(f"Output: {out_base}")
     print("-" * 50)
     for target in targets:
         target_dir = out_base if len(targets) == 1 and args.out else out_base / target
         try:
             emitted = EMITTERS[target].emit(manifest, target_dir, force=args.force)
-        except EmitterConflictError as e:
+        except (EmitterConflictError, ValueError, OSError) as e:
             print(f"[{target.upper()}] {e}", file=sys.stderr)
             return 1
         print(f"[{target.upper()}] Generated {len(emitted)} files in {target_dir}")
@@ -206,8 +260,9 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_manifest(args: argparse.Namespace) -> int:
     """Generates the Universal Canonical Manifest (.harness/manifest.json) or checks it."""
-    engine = ManifestEngine(harness_root=SCRIPT_DIR)
-    out_path = Path(args.out).resolve() if args.out else SCRIPT_DIR / ".harness" / "manifest.json"
+    harness_root = _harness_root()
+    engine = ManifestEngine(harness_root=harness_root)
+    out_path = Path(args.out).resolve() if args.out else harness_root / ".harness" / "manifest.json"
     if args.check:
         if engine.is_up_to_date(out_path):
             print(f"[MANIFEST] Up to date: {out_path}")
@@ -243,8 +298,9 @@ def main() -> int:
 
     p_import = subparsers.add_parser("import", help="Import and sanitize an external rule into this repository.")
     p_import.add_argument("target", help="File path or URL to import.")
-    p_import.add_argument("--as-skill", help="Import as a modular skill with given name.")
-    p_import.add_argument("--as-agent", help="Import as a subagent with given name.")
+    p_import_kind = p_import.add_mutually_exclusive_group()
+    p_import_kind.add_argument("--as-skill", help="Import as a modular skill with given name.")
+    p_import_kind.add_argument("--as-agent", help="Import as a subagent with given name.")
     p_import.add_argument("--force", action="store_true", help="Import despite critical findings (interactive confirmation).")
     p_import.add_argument("--overwrite", action="store_true", help="Replace an existing skill/agent file.")
     p_import.add_argument("--dry-run", action="store_true", help="Preview output without writing files.")

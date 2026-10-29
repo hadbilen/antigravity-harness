@@ -50,11 +50,33 @@ def content_digest(manifest_dict: Dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def default_harness_root(fallback: Optional[Path] = None) -> Path:
+    """Returns `fallback` (or repo root) if it contains GEMINI.md and skills/, else config_dir() or /usr/share/antigravity-harness."""
+    root = Path(fallback).resolve() if fallback else Path(__file__).resolve().parent.parent
+    if (root / "skills").is_dir() and (root / "GEMINI.md").is_file():
+        return root
+    try:
+        from guard.paths import config_dir
+        cfg = config_dir()
+    except ImportError:
+        cfg = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
+    if (cfg / "skills").is_dir() and (cfg / "GEMINI.md").is_file():
+        return cfg
+    for share_cand in (
+        root.parent.parent / "share" / "antigravity-harness",
+        Path(__file__).resolve().parent.parent.parent / "share" / "antigravity-harness",
+        Path("/usr/share/antigravity-harness"),
+    ):
+        if (share_cand / "skills").is_dir() and (share_cand / "GEMINI.md").is_file():
+            return share_cand.resolve()
+    return cfg
+
+
 class ManifestEngine:
     """Reads, generates, and validates the canonical machine-readable harness manifest."""
 
     def __init__(self, harness_root: Optional[Path] = None):
-        self.harness_root = Path(harness_root) if harness_root else Path(__file__).resolve().parent.parent
+        self.harness_root = Path(harness_root) if harness_root else default_harness_root()
         self._index_executables: Optional[Set[str]] = None
         self._index_loaded = False
 
@@ -165,7 +187,7 @@ class ManifestEngine:
         if design_path.is_file():
             manifest.design_contract = {
                 "raw": design_path.read_text(encoding="utf-8", errors="ignore"),
-                "palette": "zinc/slate neutral base with emerald/amber/rose functional accents",
+                "palette": "zinc/slate neutral base with #2563EB (Cobalt Blue) primary and emerald/amber/rose functional accents",
                 "contrast_standard": "WCAG AA (4.5:1 text, 3:1 UI borders)",
             }
 
@@ -217,7 +239,7 @@ class ManifestEngine:
         known = {f.name for f in dataclasses.fields(UniversalManifest)}
         return UniversalManifest(**{k: v for k, v in data.items() if k in known})
 
-    def is_up_to_date(self, path: Optional[Path] = None) -> bool:
+    def is_up_to_date(self, path: Optional[Path] = None, manifest: Optional[UniversalManifest] = None) -> bool:
         """True when the committed manifest matches a fresh build (ignoring generated_at)."""
         target = Path(path) if path else (self.harness_root / ".harness" / "manifest.json")
         if not target.is_file():
@@ -226,7 +248,8 @@ class ManifestEngine:
             committed = json.loads(target.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
-        return content_digest(committed) == content_digest(self.build_manifest(deterministic=True).to_dict())
+        fresh = manifest if manifest is not None else self.build_manifest(deterministic=True)
+        return content_digest(committed) == content_digest(fresh.to_dict())
 
     def _extract_rules_from_markdown(self, content: str) -> List[Dict[str, str]]:
         """Parses numbered sections or rules from GEMINI.md."""

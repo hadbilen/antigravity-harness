@@ -121,9 +121,28 @@ class FileIntegrityMonitor:
     @classmethod
     def for_environment(cls, env, os_adapter: Optional[OSProtectionAdapter] = None) -> "FileIntegrityMonitor":
         """Monitor scoped to an environment's governance seams with a per-environment baseline."""
+        from guard.environment import KNOWN_PLATFORMS, antigravity_external_governance_paths
+
+        root = env.get_root()
+        target_paths = list(env.get_governance_paths(existing_only=False))
+        seen = {os.path.abspath(p) for p in target_paths}
+        canonical = list(KNOWN_PLATFORMS.get(env.platform_type, {}).get("governance_seams", ()))
+        if env.platform_type == "antigravity" and not env.is_global:
+            canonical = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", ".gemini", ".agents", ".harness"]
+        for seam in canonical:
+            cand = Path(os.path.abspath(root / seam))
+            if str(cand) not in seen:
+                target_paths.append(cand)
+                seen.add(str(cand))
+        if env.is_global and env.id == "antigravity":
+            for ext_path in antigravity_external_governance_paths(existing_only=False):
+                cand = Path(os.path.abspath(ext_path))
+                if str(cand) not in seen:
+                    target_paths.append(cand)
+                    seen.add(str(cand))
         return cls(
-            target_dir=env.get_root(),
-            target_paths=env.get_governance_paths(existing_only=False),
+            target_dir=root,
+            target_paths=target_paths,
             env_id=env.id,
             os_adapter=os_adapter,
         )
@@ -172,6 +191,15 @@ class FileIntegrityMonitor:
         except OSError as e:
             return f"UNREADABLE:{type(e).__name__}"
 
+    def _is_in_monitored_scope(self, real: Path) -> bool:
+        if self.target_paths is not None:
+            return any(
+                not os.path.islink(p) and is_within(real, Path(os.path.realpath(p)))
+                for p in self.target_paths
+                if os.path.lexists(p)
+            )
+        return is_within(real, self.target_dir)
+
     def _scan_entry(self, path: Path, hashes: Dict[str, str], visited: Set[str]) -> None:
         key = self._key(path)
         if os.path.islink(path):
@@ -179,7 +207,7 @@ class FileIntegrityMonitor:
             real = Path(os.path.realpath(path))
             if real.is_dir():
                 hashes[key] = f"symlink:{link}"
-                if not is_within(real, self.target_dir):
+                if not self._is_in_monitored_scope(real):
                     self._scan_dir(path, hashes, visited)
             elif real.is_file():
                 hashes[key] = f"{self._hash_file(real)}|symlink:{link}"
@@ -228,15 +256,12 @@ class FileIntegrityMonitor:
         if not self.state_file.is_file():
             return
         history = state_dir() / "integrity" / "history"
-        try:
-            history.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-            shutil.copy2(self.state_file, history / f"{self.state_file.stem}-{stamp}.json")
-            archived = sorted(history.glob(f"{self.state_file.stem}-*.json"))
-            for old in archived[: -self.HISTORY_KEEP]:
-                old.unlink(missing_ok=True)
-        except OSError:
-            pass
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        shutil.copy2(self.state_file, history / f"{self.state_file.stem}-{stamp}.json")
+        archived = sorted(history.glob(f"{self.state_file.stem}-*.json"))
+        for old in archived[: -self.HISTORY_KEEP]:
+            old.unlink(missing_ok=True)
 
     def save_baseline(self) -> Tuple[int, str]:
         """Saves the current state as the trusted baseline (previous baseline is archived)."""
@@ -270,10 +295,15 @@ class FileIntegrityMonitor:
             atomic_write_json(self.state_file, payload, mode=0o600)
         finally:
             if relock_parent:
-                self.os_adapter.lock(self.state_file)
+                ok_file, msg_file = self.os_adapter.lock(self.state_file)
                 # On Windows the parent's inheritable deny ACE also covered its children and
                 # removing it dropped their inherited copies: re-lock a locked tree recursively.
-                self.os_adapter.lock(parent, recursive=children_locked)
+                ok_parent, msg_parent = self.os_adapter.lock(parent, recursive=children_locked)
+                if not ok_file or not ok_parent:
+                    details = "; ".join(
+                        part for part in (msg_file if not ok_file else "", msg_parent if not ok_parent else "") if part
+                    )
+                    raise PermissionError(f"Cannot re-lock baseline directory {parent}: {details}")
 
         self.clear_pending()
         from guard.audit_log import audit

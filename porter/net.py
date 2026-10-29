@@ -28,7 +28,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 MAX_REDIRECTS = 5
 # Default overall deadline of safe_fetch_url() = timeout * DEADLINE_FACTOR seconds.
@@ -197,7 +197,29 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 
     def connect(self):
         raw = _pinned_socket(self.host, self.port, self.timeout, self._agy_deadline)
-        sock = self._agy_context.wrap_socket(raw, server_hostname=self.host)
+        capped = False
+        try:
+            if isinstance(raw, _DeadlineMixin):
+                capped = raw._agy_arm()
+            elif self._agy_deadline is not None:
+                remaining = self._agy_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise FetchDeadlineExceeded("Remote fetch exceeded its overall deadline.")
+                per_op = getattr(raw, "_agy_per_op", _per_op_timeout(self.timeout))
+                capped = per_op is None or remaining <= per_op
+                raw.settimeout(remaining if per_op is None else min(per_op, remaining))
+            sock = self._agy_context.wrap_socket(raw, server_hostname=self.host)
+        except FetchDeadlineExceeded:
+            raw.close()
+            raise
+        except socket.timeout as e:
+            raw.close()
+            if capped or (self._agy_deadline is not None and time.monotonic() >= self._agy_deadline):
+                raise FetchDeadlineExceeded("Remote fetch exceeded its overall deadline.") from e
+            raise
+        except BaseException:
+            raw.close()
+            raise
         if isinstance(sock, _DeadlineMixin):
             sock._agy_deadline = self._agy_deadline
             sock._agy_per_op = raw._agy_per_op
@@ -229,7 +251,15 @@ class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     max_redirections = MAX_REDIRECTS
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        validate_safe_url(newurl)
+        try:
+            validate_safe_url(newurl)
+        except BaseException:
+            if fp is not None:
+                try:
+                    fp.close()
+                except Exception:
+                    pass
+            raise
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -259,6 +289,7 @@ def safe_fetch_url(
     timeout: float = 10.0,
     max_bytes: int = 10_000_000,
     deadline: Optional[float] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Retrieves remote text via HTTP(S) with SSRF validation, DNS pinning and size bounds.
@@ -274,11 +305,22 @@ def safe_fetch_url(
         raise ValueError("deadline must be positive")
     deadline_at = time.monotonic() + total
     validate_safe_url(url)
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent})
+    req_headers: Dict[str, str] = {"User-Agent": user_agent}
+    if headers:
+        for k, v in headers.items():
+            if k.lower() == "user-agent":
+                req_headers.pop("User-Agent", None)
+            req_headers[k] = v
+    req = urllib.request.Request(url, headers=req_headers)
     try:
         with build_safe_opener(deadline_at).open(req, timeout=timeout) as resp:
             data = resp.read(max_bytes + 1)
     except (OSError, http.client.HTTPException) as e:
+        if isinstance(e, urllib.error.HTTPError):
+            try:
+                e.close()
+            except Exception:
+                pass
         reason = getattr(e, "reason", None)
         if isinstance(reason, FetchDeadlineExceeded):
             raise FetchDeadlineExceeded(f"Remote fetch exceeded its {total:g}s deadline.") from e

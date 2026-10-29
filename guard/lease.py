@@ -17,9 +17,11 @@ corrupt lease store fails closed (every enforced environment is re-locked).
 from __future__ import annotations
 
 import errno
+import math
 import os
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -71,18 +73,120 @@ class UnlockLease:
     scheduler_detail: str = ""
     closing_started: float = 0.0
     relock_attempts: int = 0
+    had_pre_existing_drift: bool = False
+    pre_hashes: Dict[str, str] = field(default_factory=dict)
+    watcher_pid: int = 0
 
     @property
     def remaining_seconds(self) -> float:
-        return max(0.0, self.expires_at - time.time())
+        if (
+            isinstance(self.expires_at, bool)
+            or not isinstance(self.expires_at, (int, float))
+            or not math.isfinite(float(self.expires_at))
+        ):
+            return 0.0
+        return max(0.0, float(self.expires_at) - time.time())
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+    @staticmethod
+    def _require_finite_timestamp(value: Any, field_name: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise TypeError(f"Lease field '{field_name}' must be a finite number, got {value!r}")
+        return float(value)
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> UnlockLease:
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        if not isinstance(data, dict):
+            raise TypeError("Lease record must be a mapping")
+        has_granted = "granted_at" in data
+        has_created = "created_at" in data
+        if not has_granted and not has_created:
+            raise KeyError("granted_at")
+        created_val = cls._require_finite_timestamp(data["created_at"], "created_at") if has_created else None
+        granted_at = (
+            cls._require_finite_timestamp(data["granted_at"], "granted_at")
+            if has_granted
+            else float(created_val)  # type: ignore[arg-type]
+        )
+        if "expires_at" not in data:
+            raise KeyError("expires_at")
+        expires_at = cls._require_finite_timestamp(data["expires_at"], "expires_at")
+        closing_started = cls._require_finite_timestamp(data.get("closing_started", 0.0), "closing_started")
+
+        lease_id = data.get("lease_id")
+        env_id = data.get("env_id")
+        if not isinstance(lease_id, str) or not lease_id:
+            raise TypeError(f"Lease field 'lease_id' must be a non-empty string, got {lease_id!r}")
+        if not isinstance(env_id, str) or not env_id:
+            raise TypeError(f"Lease field 'env_id' must be a non-empty string, got {env_id!r}")
+
+        env_name = data.get("env_name", env_id)
+        if not isinstance(env_name, str):
+            raise TypeError(f"Lease field 'env_name' must be a string, got {env_name!r}")
+        reason = data.get("reason", "")
+        if not isinstance(reason, str):
+            raise TypeError(f"Lease field 'reason' must be a string, got {reason!r}")
+
+        if "duration_seconds" in data:
+            raw_dur = data["duration_seconds"]
+            if isinstance(raw_dur, bool) or not isinstance(raw_dur, int):
+                raise TypeError(f"Lease field 'duration_seconds' must be an int, got {raw_dur!r}")
+            duration_seconds = raw_dur
+        else:
+            duration_seconds = max(1, int(round(expires_at - granted_at)))
+
+        is_active = data.get("is_active", True)
+        if not isinstance(is_active, bool):
+            raise TypeError(f"Lease field 'is_active' must be a bool, got {is_active!r}")
+
+        state = data.get("state", STATE_OPEN)
+        if not isinstance(state, str):
+            raise TypeError(f"Lease field 'state' must be a string, got {state!r}")
+
+        scheduler_detail = data.get("scheduler_detail", "")
+        if not isinstance(scheduler_detail, str):
+            raise TypeError("Lease field 'scheduler_detail' must be a string")
+
+        relock_attempts = data.get("relock_attempts", 0)
+        if isinstance(relock_attempts, bool) or not isinstance(relock_attempts, int):
+            raise TypeError("Lease field 'relock_attempts' must be an int")
+
+        had_pre_existing_drift = data.get("had_pre_existing_drift", False)
+        if not isinstance(had_pre_existing_drift, bool):
+            raise TypeError("Lease field 'had_pre_existing_drift' must be a bool")
+
+        target_paths = data.get("target_paths", [])
+        if not isinstance(target_paths, list) or not all(isinstance(p, str) for p in target_paths):
+            raise TypeError("Lease field 'target_paths' must be a list of strings")
+
+        pre_hashes = data.get("pre_hashes", {})
+        if not isinstance(pre_hashes, dict):
+            raise TypeError("Lease field 'pre_hashes' must be a dict")
+
+        watcher_pid = data.get("watcher_pid", 0)
+        if isinstance(watcher_pid, bool) or not isinstance(watcher_pid, int):
+            raise TypeError("Lease field 'watcher_pid' must be an int")
+
+        return cls(
+            lease_id=lease_id,
+            env_id=env_id,
+            env_name=env_name,
+            reason=reason,
+            duration_seconds=duration_seconds,
+            granted_at=granted_at,
+            expires_at=expires_at,
+            target_paths=list(target_paths),
+            is_active=is_active,
+            state=state,
+            scheduler_detail=scheduler_detail,
+            closing_started=closing_started,
+            relock_attempts=relock_attempts,
+            had_pre_existing_drift=had_pre_existing_drift,
+            pre_hashes=dict(pre_hashes),
+            watcher_pid=watcher_pid,
+        )
 
 
 def guard_command() -> List[str]:
@@ -96,8 +200,31 @@ def watcher_log_path() -> Path:
     return state_dir() / "logs" / "lease-watcher.log"
 
 
-def _spawn_tick(manager: "LeaseManager", wait: int) -> Tuple[bool, str]:
+def _terminate_watcher_pid(pid: int) -> None:
+    """Terminates a detached `lease-tick` watcher process if still alive (never signals self)."""
+    import signal
+
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0 or pid == os.getpid():
+        return
+    if sys.platform.startswith("linux") or Path("/proc").is_dir():
+        proc_cmdline = Path(f"/proc/{pid}/cmdline")
+        try:
+            raw = proc_cmdline.read_bytes().decode("utf-8", errors="ignore")
+        except OSError:
+            return
+        if "lease-tick" not in raw and "guard" not in raw:
+            return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+
+def _spawn_tick(manager: "LeaseManager", wait: int, lease: Optional[UnlockLease] = None) -> Tuple[bool, str]:
     """Starts a detached `agy-guard lease-tick` that sleeps `wait` seconds, then expires due leases."""
+    if lease is not None and lease.watcher_pid > 0:
+        _terminate_watcher_pid(lease.watcher_pid)
+        lease.watcher_pid = 0
     cmd = guard_command() + ["lease-tick", "--wait", str(max(1, int(wait))), "--lease-file", str(manager.lease_file)]
     if manager.registry.config_path:
         cmd += ["--registry", str(manager.registry.config_path)]
@@ -132,18 +259,21 @@ def _spawn_tick(manager: "LeaseManager", wait: int) -> Tuple[bool, str]:
     finally:
         if log_file is not None:
             log_file.close()
+    threading.Thread(target=proc.wait, name="agy-lease-reaper", daemon=True).start()
+    if lease is not None:
+        lease.watcher_pid = proc.pid
     at = datetime.fromtimestamp(time.time() + wait).strftime("%H:%M:%S")
     return True, f"auto-relock watcher pid {proc.pid} fires at {at}"
 
 
 def default_scheduler(lease: UnlockLease, manager: "LeaseManager") -> Tuple[bool, str]:
     """Spawns a detached watcher that relocks when the lease expires (cross-platform)."""
-    return _spawn_tick(manager, int(lease.remaining_seconds) + 1)
+    return _spawn_tick(manager, int(lease.remaining_seconds) + 1, lease=lease)
 
 
 def default_retry_scheduler(lease: UnlockLease, manager: "LeaseManager", delay: int) -> Tuple[bool, str]:
     """Schedules another relock attempt for a lease whose close failed."""
-    return _spawn_tick(manager, delay)
+    return _spawn_tick(manager, delay, lease=lease)
 
 
 class LeaseManager:
@@ -200,7 +330,7 @@ class LeaseManager:
         for env_id, item in raw.items():
             try:
                 lease = UnlockLease.from_dict(item)
-            except (TypeError, KeyError, AttributeError) as e:
+            except (TypeError, KeyError, AttributeError, ValueError) as e:
                 # A malformed record may describe an OPEN environment: fail closed.
                 raise LeaseStoreCorrupt(f"{self.lease_file}: malformed record for '{env_id}' ({e})") from e
             if lease.is_active:
@@ -230,7 +360,8 @@ class LeaseManager:
     def list_leases(self) -> List[UnlockLease]:
         try:
             return list(self._load().values())
-        except LeaseStoreCorrupt:
+        except LeaseStoreCorrupt as e:
+            self._fail_closed(str(e))
             return []
 
     def get_active_lease(self, env_id: Optional[str] = None) -> Optional[UnlockLease]:
@@ -238,7 +369,8 @@ class LeaseManager:
         self.check_and_expire_leases()
         try:
             leases = self._load()
-        except LeaseStoreCorrupt:
+        except LeaseStoreCorrupt as e:
+            self._fail_closed(str(e))
             return None
         if env_id:
             lease = leases.get(env_id)
@@ -270,10 +402,29 @@ class LeaseManager:
         if not env:
             return False, err, None
 
+        root_issue = self.registry.symlinked_root_issue(env)
+        if root_issue:
+            return False, f"Cannot grant unlock lease: {root_issue}", None
+        symlink_seams = [str(p) for p in env.get_governance_paths(existing_only=True) if os.path.islink(p)]
+        if symlink_seams:
+            return (
+                False,
+                f"Cannot grant unlock lease: governance seam(s) {symlink_seams} are symlinks and cannot be "
+                f"re-locked in place. Reinstall in copy mode (python3 install.py) first.",
+                None,
+            )
+
+        try:
+            self._load()
+        except LeaseStoreCorrupt as e:
+            self._fail_closed(str(e))
+            return False, f"The lease store is corrupt ({e}); it was set aside and environments were re-locked. Retry.", None
+
         self.check_and_expire_leases()
         try:
             existing = self._load().get(env.id)
         except LeaseStoreCorrupt as e:
+            self._fail_closed(str(e))
             return False, f"The lease store is corrupt ({e}); it was set aside and environments were re-locked. Retry.", None
         if existing:
             return False, self._already_leased_message(env, existing), None
@@ -307,6 +458,11 @@ class LeaseManager:
                 None,
             )
 
+        pre_monitor = FileIntegrityMonitor.for_environment(env, os_adapter=self.registry.os_adapter)
+        pre_report = pre_monitor.verify()
+        had_pre_drift = pre_report.baseline_status == "ok" and not pre_report.is_intact
+        pre_hashes = pre_monitor.scan_directory()
+
         now = time.time()
         lease = UnlockLease(
             lease_id=uuid.uuid4().hex[:8],
@@ -319,6 +475,8 @@ class LeaseManager:
             target_paths=[str(p) for p in env.get_governance_paths(existing_only=True)],
             is_active=True,
             state=STATE_OPENING,
+            had_pre_existing_drift=had_pre_drift,
+            pre_hashes=pre_hashes,
         )
 
         # Persist BEFORE unlocking: an open environment must never exist without a record.
@@ -332,7 +490,8 @@ class LeaseManager:
                 leases[env.id] = lease
                 self._save(leases)
         except LeaseStoreCorrupt as e:
-            return False, f"The lease store is corrupt ({e}); unlock aborted, nothing was changed.", None
+            self._fail_closed(str(e))
+            return False, f"The lease store is corrupt ({e}); environments were re-locked and unlock was aborted.", None
         except (OSError, TimeoutError) as e:
             return False, f"Could not persist the lease record ({e}); unlock aborted, nothing was changed.", None
 
@@ -345,7 +504,24 @@ class LeaseManager:
         lease.state = STATE_OPEN
         sched_ok, sched_msg = self.scheduler(lease, self)
         lease.scheduler_detail = sched_msg
-        self._update_record(lease)
+        try:
+            updated = self._update_record(lease)
+        except (OSError, TimeoutError, LeaseStoreCorrupt) as e:
+            _terminate_watcher_pid(lease.watcher_pid)
+            lease.watcher_pid = 0
+            relock_ok, relock_msg = self.registry.lock(env.id)
+            try:
+                self._remove_record(lease)
+            except (OSError, TimeoutError, LeaseStoreCorrupt):
+                pass
+            tail = "environment re-locked." if relock_ok else f"RE-LOCK FAILED ({relock_msg})."
+            return False, f"Could not update lease {lease.lease_id} ({e}); {tail}", None
+        if not updated:
+            _terminate_watcher_pid(lease.watcher_pid)
+            lease.watcher_pid = 0
+            relock_ok, relock_msg = self.registry.lock(env.id)
+            tail = "environment re-locked." if relock_ok else f"RE-LOCK FAILED ({relock_msg})."
+            return False, f"Lease {lease.lease_id} was closed concurrently while opening; {tail}", None
 
         audit("lease.granted", lease_id=lease.lease_id, env=env.id, seconds=duration_seconds, reason=reason,
               scheduler_ok=sched_ok, scheduler=sched_msg)
@@ -373,11 +549,13 @@ class LeaseManager:
     # Record helpers (always matched by lease id)
     # ------------------------------------------------------------------
     def _update_record(self, lease: UnlockLease) -> bool:
-        """Writes `lease` back only if the store still holds THIS lease for its environment."""
+        """Writes `lease` back only if the store still holds THIS lease and has not begun/completed closing."""
         with self._file_lock():
             leases = self._load()
             current = leases.get(lease.env_id)
-            if current is not None and current.lease_id != lease.lease_id:
+            if current is None or current.lease_id != lease.lease_id:
+                return False
+            if current.state == STATE_CLOSING and lease.state != STATE_CLOSE_FAILED:
                 return False
             leases[lease.env_id] = lease
             self._save(leases)
@@ -406,6 +584,8 @@ class LeaseManager:
             leases[lease.env_id] = current
             self._save(leases)
             lease.state, lease.closing_started, lease.relock_attempts = current.state, current.closing_started, current.relock_attempts
+            if current.watcher_pid and not lease.watcher_pid:
+                lease.watcher_pid = current.watcher_pid
             return True, ""
 
     # ------------------------------------------------------------------
@@ -413,7 +593,15 @@ class LeaseManager:
     # ------------------------------------------------------------------
     def _write_change_report(self, lease: UnlockLease, env: AgentEnvironment, monitor: FileIntegrityMonitor) -> Tuple[Optional[Path], int]:
         report = monitor.verify()
-        if report.baseline_status in ("ok", "pending_review"):
+        if lease.pre_hashes:
+            post_hashes = monitor.scan_directory()
+            pre_keys = set(lease.pre_hashes.keys())
+            post_keys = set(post_hashes.keys())
+            win_added = post_keys - pre_keys
+            win_deleted = pre_keys - post_keys
+            win_modified = {k for k in (pre_keys & post_keys) if lease.pre_hashes[k] != post_hashes[k]}
+            changes = len(win_added) + len(win_deleted) + len(win_modified)
+        elif report.baseline_status in ("ok", "pending_review"):
             changes = len(report.modified) + len(report.added) + len(report.deleted)
         else:  # nothing to compare against: every file in scope is unreviewed
             changes = report.total_files
@@ -421,6 +609,7 @@ class LeaseManager:
             "lease": lease.to_dict(),
             "closed_at": datetime.now(timezone.utc).isoformat(),
             "baseline_existed": monitor.state_file.exists(),
+            "had_pre_existing_drift": lease.had_pre_existing_drift,
             "integrity": report.to_dict(),
         }
         path = self.reports_dir / f"{lease.lease_id}.json"
@@ -439,12 +628,16 @@ class LeaseManager:
         """
         claimed, claim_msg = self._claim_close(lease)
         if not claimed:
+            if "being closed by another process" in claim_msg:
+                return self.registry.is_locked(lease.env_id).get(lease.env_id, False), claim_msg
             return True, claim_msg
 
         env = self.registry.get_environment(lease.env_id)
         if env is not None and (not env.enabled or env.policy != "enforced"):
             # The policy was lowered while the window was open: nothing will be re-locked, and the
             # notification must say so instead of claiming the environment is protected again.
+            _terminate_watcher_pid(lease.watcher_pid)
+            lease.watcher_pid = 0
             self._remove_record(lease)
             warn("lease.closed_unlocked", lease_id=lease.lease_id, env=lease.env_id, policy=env.policy, enabled=env.enabled)
             self.notifier.notify(
@@ -485,16 +678,33 @@ class LeaseManager:
             monitor = FileIntegrityMonitor.for_environment(env, os_adapter=self.registry.os_adapter)
             report_path, changes = self._write_change_report(lease, env, monitor)
             report_ref = f" (report: {report_path})" if report_path else " (report could not be written)"
-            if changes == 0:
+            if lease.had_pre_existing_drift:
+                report_note = (
+                    f" Pre-existing integrity drift was present before lease {lease.lease_id} "
+                    f"({changes} change(s) during the window{report_ref}); "
+                    f"drift remains active until reviewed with 'agy-guard rebaseline'."
+                )
+            elif changes == 0:
                 report_note = f" 0 change(s) during the window{report_ref}."
             elif acceptor is not None and acceptor(changes, report_path):
-                monitor.save_baseline()
-                report_note = f" {changes} change(s) during the window accepted into the baseline{report_ref}."
+                try:
+                    monitor.save_baseline()
+                    report_note = f" {changes} change(s) during the window accepted into the baseline{report_ref}."
+                except OSError as e:
+                    warn("lease.baseline_write_failed", lease_id=lease.lease_id, error=str(e))
+                    report_note = f" {changes} change(s) during the window could not be saved to baseline ({e}){report_ref}."
             else:
-                monitor.save_pending_baseline(f"lease {lease.lease_id}")
-                report_note = (f" {changes} change(s) during the window await review{report_ref}; "
-                               f"accept them with 'agy-guard rebaseline'.")
+                try:
+                    monitor.save_pending_baseline(f"lease {lease.lease_id}")
+                    report_note = (f" {changes} change(s) during the window await review{report_ref}; "
+                                   f"accept them with 'agy-guard rebaseline'.")
+                except OSError as e:
+                    warn("lease.pending_baseline_write_failed", lease_id=lease.lease_id, error=str(e))
+                    report_note = (f" {changes} change(s) during the window await review (pending baseline write failed: {e})"
+                                   f"{report_ref}; accept them with 'agy-guard rebaseline'.")
 
+        _terminate_watcher_pid(lease.watcher_pid)
+        lease.watcher_pid = 0
         self._remove_record(lease)
         audit("lease.closed", lease_id=lease.lease_id, env=lease.env_id, detail=report_note.strip())
         self.notifier.notify(
