@@ -852,7 +852,7 @@ class TestPorterSanitizerArchiveAndEmitterSeams(HermeticSeamCase):
         tracemalloc.start()
         tracemalloc.reset_peak()
         try:
-            report = inspect_zip(bz2_zip_path, harness_root=REPO_ROOT)
+            report = inspect_zip(bz2_zip_path, harness_root=self.tmp)
             _, peak_bytes = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
