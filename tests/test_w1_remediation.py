@@ -166,6 +166,8 @@ class TestPass1ASecurityCore(SandboxCase):
         self.assertTrue(fim.verify().is_intact)
 
         # Tampering with runtime hook or launcher must be detected by FIM
+        if sys.platform == "darwin":
+            subprocess.run(["chflags", "nouchg", str(launcher_guard)], check=False)
         os.chmod(launcher_guard, 0o755)
         launcher_guard.write_text("#!/bin/sh\necho hijacked\n", encoding="utf-8")
         drift_report = fim.verify()

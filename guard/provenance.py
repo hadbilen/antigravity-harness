@@ -10,6 +10,7 @@ environment overrides, test boundary status, and deterministic reproducibility s
 from __future__ import annotations
 
 import os
+import sys
 import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone

@@ -428,7 +428,7 @@ optdepend = ffmpeg: Media studio audio/video verification and processing
                 target_pkg = self.out_dir / f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
 
             entries = [".PKGINFO"] + sorted(p.name for p in stage.iterdir() if p.name != ".PKGINFO")
-            tar_cmd = shutil.which("tar")
+            tar_cmd = shutil.which("gtar") if sys.platform == "darwin" else shutil.which("tar")
             if tar_cmd and has_zstd:
                 cmd = [
                     tar_cmd,
