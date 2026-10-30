@@ -1579,6 +1579,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         with (
             mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False),
             mock.patch.object(install_mod, "SYSTEM", "Linux"),
+            mock.patch.object(install_mod, "IS_WINDOWS", False),
             mock.patch("install.platform.machine", return_value="x86_64"),
             mock.patch("pathlib.Path.is_file", autospec=True) as mock_isfile,
         ):

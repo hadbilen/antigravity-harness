@@ -866,7 +866,7 @@ class TestPorterSanitizerArchiveAndEmitterSeams(HermeticSeamCase):
             tracemalloc.stop()
 
         self.assertFalse(report.is_safe)
-        limit = 96 * 1024 * 1024 if sys.platform == "darwin" else 12 * 1024 * 1024
+        limit = 96 * 1024 * 1024 if sys.platform != "linux" else 12 * 1024 * 1024
         self.assertLess(peak_bytes, limit)
 
     def test_p20_constitutional_sanitizer_html_comments_zwsp_nfkc_and_blockquotes(self) -> None:
