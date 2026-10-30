@@ -845,8 +845,12 @@ class TestPorterSanitizerArchiveAndEmitterSeams(HermeticSeamCase):
         orig_sz = struct.pack("<I", uncompressed_len)
         fake_sz = struct.pack("<I", 64)
         bz2_zip_path.write_bytes(raw_zip.replace(orig_sz, fake_sz))
+        del raw_zip
 
+        import gc
+        gc.collect()
         tracemalloc.start()
+        tracemalloc.reset_peak()
         try:
             report = inspect_zip(bz2_zip_path, harness_root=REPO_ROOT)
             _, peak_bytes = tracemalloc.get_traced_memory()

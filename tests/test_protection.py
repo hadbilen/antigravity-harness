@@ -149,6 +149,7 @@ class TestRegistry(TempDirCase):
     @posix_only
     def test_global_environment_locks_seams_and_root_but_not_runtime_state(self):
         cfg = Path(os.environ["ANTIGRAVITY_CONFIG_DIR"])
+        hermetic.force_rmtree(cfg)
         cfg.mkdir(parents=True, exist_ok=True)
         (cfg / "GEMINI.md").write_text("rules", encoding="utf-8")
         (cfg / "skills" / "demo").mkdir(parents=True, exist_ok=True)
@@ -173,6 +174,7 @@ class TestRegistry(TempDirCase):
     def test_locked_global_environment_still_allows_atomic_config_saves(self):
         # Antigravity replaces config.json atomically (new file + rename in the root directory).
         cfg = Path(os.environ["ANTIGRAVITY_CONFIG_DIR"])
+        hermetic.force_rmtree(cfg)
         cfg.mkdir(parents=True, exist_ok=True)
         (cfg / "GEMINI.md").write_text("rules", encoding="utf-8")
         (cfg / "config.json").write_text("{}", encoding="utf-8")

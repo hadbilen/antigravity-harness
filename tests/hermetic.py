@@ -13,6 +13,7 @@ import atexit
 import os
 import shutil
 import stat
+import sys
 import tempfile
 from pathlib import Path
 
@@ -36,6 +37,9 @@ def force_rmtree(path) -> None:
     path = Path(path)
     if not os.path.lexists(path):
         return
+    if sys.platform == "darwin":
+        import subprocess
+        subprocess.run(["chflags", "-R", "nouchg", str(path)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
         for name in dirnames + filenames:
             p = os.path.join(dirpath, name)
