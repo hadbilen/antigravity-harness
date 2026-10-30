@@ -489,6 +489,7 @@ class TestInstallerHooks(TempDirCase):
         self.assertTrue(any(k.endswith("hooks.json") for k in report.modified), report.modified)
         self.assertTrue(any("SKILL.md" in k for k in report.modified), report.modified)
 
+    @unittest.skipUnless(os.name != "nt", "POSIX file lock and PID eviction semantics required")
     def test_file_lock_evicts_dead_pid_lock_file(self):
         from guard.paths import file_lock
 

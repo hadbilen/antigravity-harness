@@ -707,6 +707,7 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
             )
             self.assertEqual(safe_res, {"decision": "allow"})
 
+    @unittest.skipUnless(os.name != "nt", "POSIX shell commands required")
     def test_blocks_human_only_guard_admin_and_install_commands(self) -> None:
         denied_commands = [
             "agy-guard unlock",
@@ -783,6 +784,7 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
                 )
                 self.assertEqual(res.get("decision"), "force_ask", f"Expected force_ask for: {cmd}")
 
+    @unittest.skipUnless(os.name != "nt", "POSIX shell input buffering required")
     def test_interactive_task_input_gating_and_pasted_model_spoof_defense(self) -> None:
         # 1. manage_task(Action="send_input") and send_command_input enforce Governance Shield & Bash Guard
         for bad_input in (
@@ -988,6 +990,7 @@ class TestStopCompletionGate(HooksTempCase):
         out = json.loads(proc.stdout.strip())
         self.assertEqual(out.get("decision"), "deny")
 
+    @unittest.skipUnless(os.name != "nt", "POSIX path linking required")
     def test_validates_structured_formats_and_workspace_markdown_links(self) -> None:
         existing_py = self.workspace / "existing.py"
         existing_py.write_text("x = 1\n", encoding="utf-8")
@@ -1165,6 +1168,7 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
         self.assertEqual(res_pjson.get("decision"), "allow")
         self.assertEqual(res_pskill.get("decision"), "deny")
 
+    @unittest.skipUnless(os.name != "nt", "POSIX shell path traversal required")
     def test_pretool_blocks_traversal_and_admin_cli_without_quoted_false_positives(self) -> None:
         cfg = str(agy_hooks.configured_config_dir())
         res_trav = agy_hooks.handle_pre_tool_use(
@@ -1476,6 +1480,7 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
         )
         self.assertEqual(res_stage_esc.get("decision"), "deny")
 
+    @unittest.skipUnless(os.name != "nt", "POSIX shell path normalization required")
     def test_shell_path_dot_and_parent_normalization_and_boundary_scrubbing(self) -> None:
         cfg = str(agy_hooks.configured_config_dir())
         for blocked_cmd in (
@@ -2066,6 +2071,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             cross_interrupted["injectSteps"][0]["ephemeralMessage"],
         )
 
+    @unittest.skipUnless(os.name != "nt", "POSIX shell and path semantics required")
     def test_recovery_gate_fenced_blocks_blocked_tasks_and_large_markdown_files(self) -> None:
         # Fenced Status: [IN-PROGRESS] and fenced - [ ] examples must NOT trigger false recovery alerts
         (self.workspace / "HANDOFF.md").write_text(

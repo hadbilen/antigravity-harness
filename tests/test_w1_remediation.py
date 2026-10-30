@@ -465,6 +465,7 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         )
         self.assertEqual(res_ok.get("decision"), "allow", res_ok)
 
+    @unittest.skipUnless(os.name != "nt", "POSIX shell and symlink semantics required")
     def test_04_05_governance_launcher_snapshot_cwd_globs_vars_heredoc_and_sidecar_ln(self) -> None:
         from guard import agy_hooks
 
@@ -741,6 +742,7 @@ class TestPass1CStopBoundaryConcurrencyAndScanners(SandboxCase):
         )
         self.assertEqual(res.get("decision"), "continue", res)
 
+    @unittest.skipUnless(os.name != "nt", "POSIX inode and fcntl lock semantics required")
     def test_11_persistent_inode_file_lock_and_lease_closing_race_and_watcher_cleanup(self) -> None:
         import fcntl
         from guard.environment import EnvironmentRegistry

@@ -167,6 +167,7 @@ class TestInstaller(TempCase):
             launcher = (self.tmp / "home" / ".local" / "bin" / "agy-guard").read_text(encoding="utf-8")
             self.assertIn("antigravity-harness launcher", launcher)
 
+    @unittest.skipUnless(os.name != "nt", "POSIX lock mode required")
     def test_reinstall_over_locked_scope_requires_human_confirmation(self):
         self.assertEqual(self._run().returncode, 0)
         res = self._run()

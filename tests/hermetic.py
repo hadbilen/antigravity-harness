@@ -37,9 +37,23 @@ def force_rmtree(path) -> None:
     path = Path(path)
     if not os.path.lexists(path):
         return
+    import logging
+    logging.shutdown()
+    try:
+        import guard.audit_log
+        guard.audit_log._configured_for = None
+    except Exception:
+        pass
     if sys.platform == "darwin":
         import subprocess
         subprocess.run(["chflags", "-R", "nouchg", str(path)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif sys.platform == "win32":
+        import subprocess
+        user = os.environ.get("USERNAME") or os.environ.get("USER")
+        if user:
+            subprocess.run(["icacls", str(path), "/remove:d", user, "/t", "/c", "/q"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["icacls", str(path), "/grant", f"{user}:(F)", "/t", "/c", "/q"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["attrib", "-R", f"{path}\\*", "/S", "/D"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
         for name in dirnames + filenames:
             p = os.path.join(dirpath, name)

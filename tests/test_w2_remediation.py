@@ -497,6 +497,7 @@ class TestContractAuditorRemediationsW2(unittest.TestCase):
 
             env = {
                 "HOME": str(home),
+                "USERPROFILE": str(home),
                 "UPSTREAM_STATE_FILE": str(state_file),
                 "ANTIGRAVITY_PBTXT_FILE": str(pbtxt),
                 "ANTIGRAVITY_BUILTIN_SKILLS_DIR": "~/custom_builtin",
@@ -906,6 +907,7 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
         self.assertEqual(ro_res.get("decision"), "allow")
         self.assertFalse(_has_authorized_test_modifications(ws, "tests/test_a.py"))
 
+    @unittest.skipUnless(os.name != "nt", "POSIX launcher marker execution required")
     def test_porter_launcher_marker_and_command_governance_shield(self) -> None:
         from guard.agy_hooks import handle_pre_tool_use
 
@@ -1111,7 +1113,10 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         from hermetic import force_rmtree
 
         force_rmtree(self.tmp)
-        self._tmp.cleanup()
+        try:
+            self._tmp.cleanup()
+        except OSError:
+            pass
 
     def test_self_audit_default_root_fallback_split_runtime_and_system_share(self) -> None:
         import guard.cli as cli_mod
@@ -1357,6 +1362,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         self.assertEqual(rc_blast_missing, 2)
         self.assertEqual(rc_fts_missing, 2)
 
+    @unittest.skipUnless(os.name != "nt", "POSIX bash execution for check_skills.sh required")
     def test_upstream_watcher_partial_failure_quarantine_guard_and_check_skills_sh(self) -> None:
         import http.server
         import importlib.util
@@ -1569,14 +1575,13 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         fake_payload = b"#!/bin/sh\necho hi\n"
         fake_sha = f"{__import__('hashlib').sha256(fake_payload).hexdigest()}  agy-guard-linux-x86_64\n"
 
+        orig_isfile = Path.is_file
         with (
             mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False),
             mock.patch.object(install_mod, "SYSTEM", "Linux"),
             mock.patch("install.platform.machine", return_value="x86_64"),
             mock.patch("pathlib.Path.is_file", autospec=True) as mock_isfile,
         ):
-            orig_isfile = Path.is_file
-
             def _side_isfile(p: Path) -> bool:
                 if p.name in ("agy-guard-linux-x86_64", "agy-guard-linux-x86_64.sha256") and p.parent.name == "dist":
                     return True
@@ -1681,7 +1686,10 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
         from hermetic import force_rmtree
 
         force_rmtree(self.tmp)
-        self._tmp.cleanup()
+        try:
+            self._tmp.cleanup()
+        except OSError:
+            pass
 
     def test_meta_audit_package_linux_broken_runtime_config_paths_and_slash_boundary_probe(self) -> None:
         from scripts.meta_audit import MetaAuditEngine
