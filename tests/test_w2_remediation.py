@@ -1577,7 +1577,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
 
         orig_isfile = Path.is_file
         with (
-            mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False),
+            mock.patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}, clear=False),
             mock.patch.object(install_mod, "SYSTEM", "Linux"),
             mock.patch.object(install_mod, "IS_WINDOWS", False),
             mock.patch("install.platform.machine", return_value="x86_64"),
@@ -1603,7 +1603,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         with (
             mock.patch.dict(
                 os.environ,
-                {"HOME": str(home), "ANTIGRAVITY_CONFIG_DIR": str(cfg), "AGY_GUARD_STATE_DIR": str(st)},
+                {"HOME": str(home), "USERPROFILE": str(home), "ANTIGRAVITY_CONFIG_DIR": str(cfg), "AGY_GUARD_STATE_DIR": str(st)},
                 clear=False,
             ),
             mock.patch("guard.startup.StartupManager.enable", return_value=(False, "systemd unavailable")),
