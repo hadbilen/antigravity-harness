@@ -37,6 +37,7 @@ Act as a relentless, senior technical interviewer. Prevent premature coding, amb
 
 ### 3. Codebase First
 * Before asking the user something that can be answered by reading the codebase (existing types, database schema, existing utilities, configurations), inspect the codebase yourself.
+* When resolving an environment or repository fact requires exploring an unfamiliar subsystem or large documentation (>50 KB), dispatch a read-only `research` subagent in a fresh context window rather than trusting inherited conversation assumptions.
 * Ground your questions in real constraints found in the codebase.
 
 ### 4. Stress-Test Core Boundaries (In Order)

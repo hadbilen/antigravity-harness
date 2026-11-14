@@ -346,7 +346,7 @@ class TestSlashCommandResolution(unittest.TestCase):
                 "def handle_pre_invocation(payload):\n"
                 '    prompt = str((payload or {}).get("prompt") or "")\n'
                 '    if "Inspect src/demo/worker.py" in prompt:\n'
-                '        return {"injectSteps": [{"ephemeralMessage": "[Harness Skill Hint]\\nLoad skills/demo/SKILL.md"}]}\n'
+                '        return {"injectSteps": [{"systemMessage": {"systemMessage": "[Harness Skill Hint]\\nLoad skills/demo/SKILL.md"}}]}\n'
                 "    return {}\n",
                 encoding="utf-8",
             )
@@ -354,7 +354,7 @@ class TestSlashCommandResolution(unittest.TestCase):
             def _mock_pre_inv(payload):
                 prompt = str((payload or {}).get("prompt") or "")
                 if "Inspect src/demo/worker.py" in prompt:
-                    return {"injectSteps": [{"ephemeralMessage": "[Harness Skill Hint]\nLoad skills/demo/SKILL.md"}]}
+                    return {"injectSteps": [{"systemMessage": {"systemMessage": "[Harness Skill Hint]\nLoad skills/demo/SKILL.md"}}]}
                 return {}
 
             with mock.patch("guard.agy_hooks.handle_pre_invocation", side_effect=_mock_pre_inv):

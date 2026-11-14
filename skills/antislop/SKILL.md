@@ -2,7 +2,7 @@
 name: antislop
 description: 'Design and copy quality filter for AI coding agents. Enforces intentionality,
   eliminates AI-slop visual tropes, buzzword copy, and fake UI placeholders across
-  38 rules, a Liveliness Toolkit, and Delivery Gate. Invoke when: designing, building,
+  40 rules, a Liveliness Toolkit, and Delivery Gate. Invoke when: designing, building,
   or reviewing websites, web apps, or interfaces, or when user invokes ''/antislop'',
   ''anti-slop'', or runs a UI delivery gate. Not for code-only comment cleanup without
   UI/copy scope (use ''antislop-code'') or backend-only refactoring (use ''refactoring'').'
@@ -93,7 +93,7 @@ Anything presented as fact (testimonials, statistics, security claims) is real a
 
 ## Part 1: AI Slop Patterns (Warning Signs)
 
-These are the most common patterns found in AI-generated designs. Use this table to **audit** your output: scan for clusters, then ask each one "what does this serve?" A single pattern from this list is fine if it serves a purpose, unless a **Hard Gate** rule in Part 2 forbids it (R-02, R-03, R-17, R-18, R-23 to R-28, R-32 to R-38). What makes a design slop is many of these appearing together with no reason. This is a **diagnostic scan, not a ban list**: Part 1 itself bans nothing, but the Hard Gate rules in Part 2 are absolute, and every other pattern must pass the purpose test (Part 2, Purpose-Gate group).
+These are the most common patterns found in AI-generated designs. Use this table to **audit** your output: scan for clusters, then ask each one "what does this serve?" A single pattern from this list is fine if it serves a purpose, unless a **Hard Gate** rule in Part 2 forbids it (R-02, R-03, R-17, R-18, R-23 to R-28, R-32 to R-40). What makes a design slop is many of these appearing together with no reason. This is a **diagnostic scan, not a ban list**: Part 1 itself bans nothing, but the Hard Gate rules in Part 2 are absolute, and every other pattern must pass the purpose test (Part 2, Purpose-Gate group).
 
 ### Visual & Color
 
@@ -190,9 +190,9 @@ These are the most common patterns found in AI-generated designs. Use this table
 
 ---
 
-## Part 2: Mandatory Rules (R-01 to R-38, grouped)
+## Part 2: Mandatory Rules (R-01 to R-40, grouped)
 
-The 38 rules fall into three groups with different enforcement standards:
+The 40 rules fall into three groups with different enforcement standards:
 
 - **Group 1: Hard Gate** (absolute, no exceptions). If any of these fail, the design fails.
 - **Group 2: Purpose-Gate** (technique allowed, purpose required). Technique is fine, but write down what it serves. If there's no reason, remove it.
@@ -274,6 +274,23 @@ The 38 rules fall into three groups with different enforcement standards:
 #### R-38 — Real Content or Honest Placeholder
 - **Rule:** Use real, contextually accurate content whenever possible.
 - **Fix:** When placeholders are necessary, use honest, self-evident labels (e.g. `[Customer Company Name]`, `[Invoice Total]`), never deceptive fake text.
+
+#### R-39 — Accessible Semantics & Interaction Affordances
+- **Rule:** Interactive controls must announce their affordance, role, state, and accessible label natively.
+- **Fix:**
+  - Enabled clickable controls (`<button>`, `<summary>`, checkbox `<label>`, `[role="button"]`, links) show `cursor: pointer`; disabled controls use `cursor: not-allowed`.
+  - Use `<button type="button">` for actions and `<a href>` for real navigation instead of clickable `<div>`/`<span>`; a custom widget that cannot be native implements full ARIA state and R-32 keyboard support.
+  - Give icon-only controls a descriptive `aria-label` or visually hidden text (`aria-hidden="true"` on the icon), give every `<img>` accurate `alt` (`alt=""` when decorative), and bind every form control to a visible `<label>`.
+  - Expose distinct hover, active, and disabled states (never color alone); pause/disable non-essential motion under `prefers-reduced-motion: reduce`, and provide pause controls for animations exceeding `5s` (continuous `<canvas>` loops in `MODE: GAME & INTERACTIVE` expose pause/reduced-motion controls per `DESIGN.md`).
+  - Only when producing a full HTML document/app shell: include `<html lang>`, a unique `<title>`, landmarks (`header`, `nav`, `main`, `footer`), one `<h1>` with unbroken heading levels, and never disable zoom (`user-scalable=no` or `maximum-scale=1`).
+
+#### R-40 — Performance Mechanisms
+- **Rule:** Ship measurable layout stability and non-blocking script loading without fabricating telemetry.
+- **Fix:**
+  - Set explicit `width` and `height` (or `aspect-ratio`) on every `<img>`, `<video>`, and `<iframe>`, and reserve space for asynchronous embeds/banners.
+  - Render above-the-fold hero `<img>` elements directly in HTML with `fetchpriority="high"` and never `loading="lazy"`.
+  - Keep non-critical scripts `defer`/`async` or interaction-loaded rather than render-blocking in `<head>`; pin any third-party script or bundle cleanly (`GEMINI.md` Rule 12), preserving only the host-required isolated `generative_ui` Tailwind allowance (`Rule 15c`).
+  - Never report unmeasured Lighthouse or Core Web Vitals scores (R-36); report `"not measured"` when browser profiling has not run.
 
 ---
 
@@ -448,6 +465,8 @@ Before delivering any UI work, evaluate against the 4 delivery blocks. Every ite
 - [ ] Handles all 5 UI states: default, loading, empty, error, success (R-27)
 - [ ] Full keyboard accessibility with visible focus rings (R-32)
 - [ ] Both light and dark themes function correctly (R-34)
+- [ ] Accessible semantics & interaction affordances satisfied: native controls (`<button>` / `<a href>`), `cursor: pointer`, accessible names/labels/`alt`, distinct states, `prefers-reduced-motion` support, and full-document landmarks/zoom preservation when shipping a full HTML page (R-39)
+- [ ] Performance mechanisms satisfied: explicit media dimensions, eager `fetchpriority="high"` hero image, pinned non-blocking scripts (`Rule 12` / `Rule 15c`), and zero unmeasured Web Vitals claims (R-40, R-36)
 
 ### Block 2: Purpose-Gate & Positive Geometric Locks
 - [ ] Deterministic UI slop scanner (`python3 skills/antislop/scripts/check_ui_slop.py` or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) exits with `0` findings (`UI-1` through `UI-5`)

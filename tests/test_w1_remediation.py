@@ -602,14 +602,14 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         ):
             res = agy_hooks.handle_pre_invocation({"conversationId": f"sweet-18-{idx}", "prompt": phrase})
             self.assertIn("injectSteps", res, phrase)
-            self.assertIn("`sweetspot`", res["injectSteps"][0]["ephemeralMessage"])
+            self.assertIn("`sweetspot`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # Prototype prompt matching both 2d game & oyun prototipi must co-route vibecoder and game-engineering (H-17)
         res_proto = agy_hooks.handle_pre_invocation(
             {"conversationId": "vibe-suppress-1", "prompt": "Tarayıcıda çalışan 2d oyun ve oyun prototipi tasarlayalım."}
         )
         self.assertIn("injectSteps", res_proto)
-        msg = res_proto["injectSteps"][0]["ephemeralMessage"]
+        msg = res_proto["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`vibecoder`", msg)
         self.assertIn("`game-engineering`", msg)
 

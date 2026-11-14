@@ -308,7 +308,7 @@ class TestRustifySkillAndRoutingSeams(unittest.TestCase):
                     {"conversationId": f"conv-rustify-pos-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res, f"Expected PreInvocation hint for: {prompt}")
-                msg = res["injectSteps"][0]["ephemeralMessage"]
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
                 self.assertIn("`rustify`", msg)
                 self.assertIn("skills/rustify/SKILL.md", msg)
 
@@ -331,7 +331,7 @@ class TestRustifySkillAndRoutingSeams(unittest.TestCase):
                 res = agy_hooks.handle_pre_invocation(
                     {"conversationId": f"conv-rustify-neg-{idx}", "prompt": prompt}
                 )
-                msg = res.get("injectSteps", [{}])[0].get("ephemeralMessage", "")
+                msg = res.get("injectSteps", [{}])[0].get("systemMessage", {}).get("systemMessage", "")
                 self.assertNotIn("`rustify`", msg, f"False positive `rustify` hint injected for: {prompt}")
 
     def test_rustify_porter_inspection_and_cursor_export_globs_and_reference_links(self) -> None:

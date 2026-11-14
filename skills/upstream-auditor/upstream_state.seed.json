@@ -1,32 +1,44 @@
 {
-  "last_audited_model": "Gemini 4 Argon (High)",
-  "last_model_slug": "gemini-4-argon-high",
+  "last_audited_model": "Gemini 4 Hydrogen (XHigh)",
+  "last_model_slug": "gemini-4-hydrogen-xhigh",
   "approved_customization_models": [
-    "claude-opus-5-high",
-    "claude-opus-5.5-high"
+    "claude-opus-5.5-high",
+    "gemini-4-hydrogen-xhigh",
+    "gemini-4-carbon-high",
+    "gemini-4-carbon-xhigh",
+    "gemini-4-argon-high",
+    "orchestrator-carbon-high",
+    "orchestrator-carbon-xhigh",
+    "orchestrator-argon-high",
+    "orchestrator-argon-xhigh"
   ],
   "last_pbtxt_model": "MODEL_PLACEHOLDER_M417",
-  "builtin_skills_hash": "de9b7f32b1ca0f839bf78c59c6f479362ed7d3edce0da0a02579cc003df4798f",
+  "builtin_skills_hash": "34565a8e728e5ba5124bfafb638ef621bb162b70b0391c8534536720192360b9",
   "recorded_builtin_skills": [
     "agy-customizations",
     "antigravity_guide",
     "automation",
     "generative_ui",
+    "mcp-app-development",
+    "migrate-agent-settings",
     "migrate-workflows",
+    "native_swarm",
     "permissioned-github",
     "plugin",
     "run-workflow",
+    "swarm_monitor",
+    "swarm_narrator",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-10-24T10:20:00+03:00",
-  "last_skills_audit_timestamp": "2026-10-24T10:20:00+03:00",
+  "last_audit_timestamp": "2026-11-14T15:30:00+03:00",
+  "last_skills_audit_timestamp": "2026-11-14T16:15:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "671ab15",
+      "last_synced_commit": "35b54dc",
       "target_skills": [
         "antislop",
         "antislop-code",
@@ -39,7 +51,7 @@
     "Chisle": {
       "repo": "JayPokale/Chisle",
       "branch": "main",
-      "last_synced_commit": "1b3203f",
+      "last_synced_commit": "b2e1658",
       "target_skills": [
         "chisle"
       ]
@@ -55,7 +67,7 @@
     "procoder": {
       "repo": "azrtydxb/procoder",
       "branch": "main",
-      "last_synced_commit": "7c7f4b3",
+      "last_synced_commit": "c0032ee",
       "target_skills": [
         "procoder"
       ]
@@ -71,7 +83,7 @@
     "everything-claude-code": {
       "repo": "affaan-m/everything-claude-code",
       "branch": "main",
-      "last_synced_commit": "90606c8",
+      "last_synced_commit": "d2ef268",
       "target_skills": [
         "architecture-decision-records",
         "database-migrations",
@@ -82,7 +94,7 @@
     "mattpocock-skills": {
       "repo": "mattpocock/skills",
       "branch": "main",
-      "last_synced_commit": "5beb35b",
+      "last_synced_commit": "5863806",
       "target_skills": [
         "deep-grill",
         "diagnosing-bugs",

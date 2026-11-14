@@ -160,16 +160,13 @@ one is not stopped; the integrity baseline reports it.
   rebaseline, restore, drift analysis) run off the UI thread, tray callbacks are marshalled onto the Tk loop,
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
-* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends
-  an operator-only notice once per change (a desktop notification plus one context line that tells the agent not
-  to act on it or copy maintenance commands into task prompts); `upstream_watcher.py --ack` silences it until
-  something changes again, `--status` shows the current reasons. Network checks have a hard deadline.
+* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `upstream_watcher.py --ack` silences it until something changes again, `--status` shows the current reasons. Network checks have a hard deadline.
 
 ---
 
 ## 2. The Engineering Constitution (`GEMINI.md`)
 
-About 14 KB of always-on invariants (18 numbered rules); procedures live in the skills and mechanical checks
+About 15 KB of always-on invariants (18 numbered rules); procedures live in the skills and mechanical checks
 in Guard and `scripts/`.
 
 * **Proportional Gate Escalation:** Tier 1 (1–2 files, <20 lines) direct edits; Tier 2 (3–8 files) plans,
@@ -255,7 +252,7 @@ their own tool policies:
   simple cases as Mermaid, interactive ones handed to the built-in `generative_ui`.
 * **`chisle`:** terse, zero-fluff development mode with YAGNI/ladder-first code discipline (never bypasses verification gates or locked acceptance criteria).
 * **`procoder`:** sprint scaffolding for repositories that contain `.procoder/`.
-* **`antislop` suite (6):** `antislop` (core 38-rule filter + structural UI scanner), `antislop-ui`, `antislop-code`,
+* **`antislop` suite (6):** `antislop` (core 40-rule filter + structural UI scanner), `antislop-ui`, `antislop-code`,
   `antislop-copywriting` (with a deterministic scanner for signs of AI-written prose, English and Turkish),
   `antislop-human` (WCAG contrast checker + MCP tool), `antislop-layoutmobile`.
 * **`test-design`**, **`mistake-proofing`**, **`refactoring`**, **`dependency-upgrade`**, **`retro`**,
@@ -305,7 +302,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
 ├── skills/                                # 34 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
-├── tests/                                 # Hermetic unittest suite (570 tests)
+├── tests/                                 # Hermetic unittest suite (589 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -443,7 +440,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (570 tests)
+# Hermetic unit test suite (589 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

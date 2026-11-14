@@ -151,7 +151,9 @@ class WatcherTestBase(unittest.TestCase):
     def notice(self, result) -> str:
         self.assertIn("injectSteps", result)
         self.assertEqual(len(result["injectSteps"]), 1)
-        return result["injectSteps"][0]["ephemeralMessage"]
+        sm = result["injectSteps"][0]["systemMessage"]
+        self.assertEqual(sm["systemMessage"], "")
+        return sm["metadata"]["user_markdown"]
 
 
 class TestUpstreamWatcherNotice(WatcherTestBase):
@@ -503,7 +505,9 @@ class TestUpstreamWatcherProcess(WatcherTestBase):
         proc = self.run_process(payload)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(proc.stdout.isascii())
-        message = json.loads(proc.stdout)["injectSteps"][0]["ephemeralMessage"]
+        sm = json.loads(proc.stdout)["injectSteps"][0]["systemMessage"]
+        self.assertEqual(sm["systemMessage"], "")
+        message = sm["metadata"]["user_markdown"]
         self.assertTrue(message.startswith(NOTICE_PREFIX))
         self.assertEqual(json.loads(self.run_process(payload).stdout), {})
 

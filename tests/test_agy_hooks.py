@@ -57,7 +57,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
         }
         res1 = agy_hooks.handle_pre_invocation(payload)
         self.assertIn("injectSteps", res1)
-        msg1 = res1["injectSteps"][0]["ephemeralMessage"]
+        msg1 = res1["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`test-design`", msg1)
 
         # Second turn in the same conversation with the same skill intent must be deduplicated
@@ -84,7 +84,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-skill-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_ignores_fenced_code_pasted_content_and_short_continuations(self) -> None:
         for short_msg in ("devam et", "evet", "ok", "proceed", "tamam."):
@@ -131,7 +131,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             {"conversationId": "conv-transcript", "transcriptPath": str(transcript)}
         )
         self.assertIn("injectSteps", res)
-        self.assertIn("`diagnosing-bugs`", res["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("`diagnosing-bugs`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_technical_writing_and_data_analysis_skill_hints(self) -> None:
         cases = [
@@ -146,7 +146,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-doc-data-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_marathon_and_sweetspot_skill_hints(self) -> None:
         cases = [
@@ -161,7 +161,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-marathon-sweet-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_sweetspot_memory_and_disk_skill_hints(self) -> None:
         cases = [
@@ -178,7 +178,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-sweet-mem-disk-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_sweetspot_flags_and_network_skill_hints(self) -> None:
         cases = [
@@ -195,7 +195,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-sweet-net-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_vibecoder_and_full_catalog_skill_hints(self) -> None:
         cases = [
@@ -222,7 +222,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-full-catalog-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(f"`{expected_skill}`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_ecosystem_subagent_and_mcp_routing_hints(self) -> None:
         cases = [
@@ -260,7 +260,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 conv_id = f"conv-eco-route-{idx}"
                 res = agy_hooks.handle_pre_invocation({"conversationId": conv_id, "prompt": prompt})
                 self.assertIn("injectSteps", res)
-                msg = res["injectSteps"][0]["ephemeralMessage"]
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
                 self.assertIn("[Harness Ecosystem Routing]", msg)
                 self.assertIn(expected_token, msg)
                 # Second call in the same conversation is deduplicated
@@ -280,7 +280,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-vibe-sandbox-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn("`vibecoder`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn("`vibecoder`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         builtin_cases = [
             (
@@ -334,7 +334,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-builtin-route-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                msg = res["injectSteps"][0]["ephemeralMessage"]
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
                 self.assertIn("[Harness Ecosystem Routing]", msg)
                 self.assertIn(expected_token, msg)
 
@@ -351,13 +351,13 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-media-studio-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res)
-                self.assertIn("`media-studio`", res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn("`media-studio`", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # Negative boundary: non-media prompt must not inject media-studio
         neg_res = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-media-studio-neg", "prompt": "Write a database schema migration with rollback."}
         )
-        self.assertNotIn("`media-studio`", neg_res.get("injectSteps", [{}])[0].get("ephemeralMessage", ""))
+        self.assertNotIn("`media-studio`", neg_res.get("injectSteps", [{}])[0].get("systemMessage", {}).get("systemMessage", ""))
 
     def test_external_skill_evaluation_and_turkish_customization_stems(self) -> None:
         wrapped_prompt = (
@@ -374,7 +374,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             {"conversationId": "conv-ext-tr-1", "prompt": wrapped_prompt}
         )
         self.assertIn("injectSteps", res)
-        msg = res["injectSteps"][0]["ephemeralMessage"]
+        msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`porter`", msg)
         self.assertIn("builtin/skills/agy-customizations/SKILL.md", msg)
         self.assertNotIn("`diagnosing-bugs`", msg)
@@ -399,7 +399,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-iso-branch-{idx}", "prompt": clause}
                 )
                 self.assertIn("injectSteps", iso_res, f"Missing hint for: {clause}")
-                self.assertIn(expected_substr, iso_res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(expected_substr, iso_res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # Standalone short slash/dollar commands (< MIN_PROMPT_CHARS = 15) wrapped in <USER_REQUEST>
         short_cmd_cases = (
@@ -417,7 +417,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     {"conversationId": f"conv-short-cmd-{idx}", "prompt": short_prompt}
                 )
                 self.assertIn("injectSteps", short_res, f"Dropped short command: {short_prompt}")
-                self.assertIn(expected_substr, short_res["injectSteps"][0]["ephemeralMessage"])
+                self.assertIn(expected_substr, short_res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # Negative boundaries: generic app customization, internal skill paths, or short non-command continuations
         for neg_idx, neg_prompt in enumerate(
@@ -449,7 +449,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             {"conversationId": "conv-paste-spoof-1", "prompt": spoof_wrapped}
         )
         self.assertIn("injectSteps", res_wrapped)
-        msg_wrapped = res_wrapped["injectSteps"][0]["ephemeralMessage"]
+        msg_wrapped = res_wrapped["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`porter`", msg_wrapped)
         self.assertNotIn("`unlazy`", msg_wrapped)
 
@@ -473,7 +473,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             {"conversationId": "conv-fenced-mask", "prompt": fenced_mask}
         )
         self.assertIn("injectSteps", res_fenced)
-        self.assertIn("`audit`", res_fenced["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("`audit`", res_fenced["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # ReDoS regression bounds on repeated unclosed @[... and unclosed long backtick runs
         t0 = time.monotonic()
@@ -495,7 +495,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             }
         )
         self.assertIn("injectSteps", res)
-        msg = res["injectSteps"][0]["ephemeralMessage"]
+        msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`porter`", msg)
         self.assertIn("`diagnosing-bugs`", msg)
         self.assertLess(msg.index("`porter`"), msg.index("`diagnosing-bugs`"))
@@ -516,7 +516,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                     "prompt": f"Sistem bozuldu ve boolean trap var ama önce {cmd_token} çalıştır.",
                 }
             )
-            msg_alias = res_alias["injectSteps"][0]["ephemeralMessage"]
+            msg_alias = res_alias["injectSteps"][0]["systemMessage"]["systemMessage"]
             self.assertIn(expected_skill, msg_alias)
             self.assertLess(msg_alias.index(expected_skill), msg_alias.index("`diagnosing-bugs`"))
 
@@ -527,7 +527,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 "prompt": "Sistem bozuldu ve boolean trap var; ayrıca sweetspot analizi ve /chisle uygula.",
             }
         )
-        msg_slug = res_slug["injectSteps"][0]["ephemeralMessage"]
+        msg_slug = res_slug["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`chisle`", msg_slug)
         self.assertIn("`sweetspot`", msg_slug)
         self.assertLess(msg_slug.index("`chisle`"), msg_slug.index("`sweetspot`"))
@@ -539,7 +539,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 "prompt": "Sistem bozuldu ve boolean trap var ama vitrin için silk-design kullan.",
             }
         )
-        msg_hyph = res_hyph["injectSteps"][0]["ephemeralMessage"]
+        msg_hyph = res_hyph["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`silk-design`", msg_hyph)
         self.assertLess(msg_hyph.index("`silk-design`"), msg_hyph.index("`diagnosing-bugs`"))
 
@@ -549,7 +549,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 "prompt": "Sistem bozuldu, boolean trap var ve ayrıca security audit yapılacak.",
             }
         )
-        msg_generic = res_generic_word["injectSteps"][0]["ephemeralMessage"]
+        msg_generic = res_generic_word["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`diagnosing-bugs`", msg_generic)
         self.assertIn("`mistake-proofing`", msg_generic)
         self.assertNotIn("`audit`", msg_generic)
@@ -561,7 +561,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 "prompt": "Lütfen /opt/docs/porter/notes.txt notuna bak; sistem bozuldu ve boolean trap var.",
             }
         )
-        msg_path = res_path["injectSteps"][0]["ephemeralMessage"]
+        msg_path = res_path["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`diagnosing-bugs`", msg_path)
         self.assertIn("`mistake-proofing`", msg_path)
         self.assertNotIn("`porter`", msg_path)
@@ -573,7 +573,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 "prompt": "Bu ikili dosyayı disassemble et, check contrast yap ve /plugin ile paketle.",
             }
         )
-        msg_eco = res_eco["injectSteps"][0]["ephemeralMessage"]
+        msg_eco = res_eco["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("builtin/skills/plugin/SKILL.md", msg_eco)
         self.assertIn('ServerName="rea_rea"', msg_eco)
 
@@ -583,7 +583,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
                 "prompt": "Disassemble binary, check contrast ratio, and run /audit --meta now.",
             }
         )
-        msg_meta_eco = res_meta_eco["injectSteps"][0]["ephemeralMessage"]
+        msg_meta_eco = res_meta_eco["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("Subagent `meta-auditor`", msg_meta_eco)
         self.assertIn('ServerName="rea_rea"', msg_meta_eco)
         self.assertNotIn("antislop-contrast", msg_meta_eco)
@@ -616,7 +616,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
         }
         res_slash = agy_hooks.handle_pre_invocation(slash_payload)
         self.assertIn("injectSteps", res_slash)
-        slash_msg = res_slash["injectSteps"][0]["ephemeralMessage"]
+        slash_msg = res_slash["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`audit`", slash_msg)
         self.assertIn("Subagent `meta-auditor`", slash_msg)
 
@@ -658,7 +658,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             }
         )
         self.assertIn("injectSteps", res_cooled)
-        cooled_msg = res_cooled["injectSteps"][0]["ephemeralMessage"]
+        cooled_msg = res_cooled["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("`audit`", cooled_msg)
         self.assertIn("Subagent `meta-auditor`", cooled_msg)
 
@@ -668,7 +668,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
         r_tx1 = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-tx-step", "transcriptPath": str(tx), "initialNumSteps": 1}
         )
-        self.assertIn("`chisle`", r_tx1["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("`chisle`", r_tx1["injectSteps"][0]["systemMessage"]["systemMessage"])
         self.assertEqual(
             agy_hooks.handle_pre_invocation(
                 {"conversationId": "conv-tx-step", "transcriptPath": str(tx), "initialNumSteps": 1}
@@ -683,7 +683,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
         r_tx2 = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-tx-step", "transcriptPath": str(tx), "initialNumSteps": 3}
         )
-        self.assertIn("`chisle`", r_tx2["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("`chisle`", r_tx2["injectSteps"][0]["systemMessage"]["systemMessage"])
 
 
 class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
@@ -1728,7 +1728,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             }
         )
         self.assertIn("injectSteps", res_resume)
-        msg = res_resume["injectSteps"][0]["ephemeralMessage"]
+        msg = res_resume["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("[Harness Recovery & Continuity Gate]", msg)
         self.assertIn("`src/feature.py`", msg)
         self.assertIn("refs/harness/pre-edit", msg)
@@ -1801,7 +1801,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             }
         )
         self.assertIn("injectSteps", handoff_conv)
-        h_msg = handoff_conv["injectSteps"][0]["ephemeralMessage"]
+        h_msg = handoff_conv["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("[Harness Recovery & Continuity Gate]", h_msg)
         self.assertIn("`HANDOFF.md` has `Status: [IN-PROGRESS]`", h_msg)
         self.assertIn("1 `[ ]` pending", h_msg)
@@ -1991,7 +1991,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             {"conversationId": "conv-q2", "workspace": str(self.workspace), "prompt": "devam et"}
         )
         self.assertIn("injectSteps", cross_warn)
-        self.assertIn("unresolved `Stop` gate finding(s)", cross_warn["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("unresolved `Stop` gate finding(s)", cross_warn["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_flight_recorder_stop_blocked_cross_session_alert_and_readonly_turn_preservation(self) -> None:
         self._init_git_workspace()
@@ -2025,7 +2025,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             {"conversationId": "conv-readonly-2", "workspace": str(self.workspace), "prompt": "devam et"}
         )
         self.assertIn("injectSteps", pre_2)
-        self.assertIn("unresolved `Stop` gate finding(s)", pre_2["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("unresolved `Stop` gate finding(s)", pre_2["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         agy_hooks.handle_stop(
             {
@@ -2044,7 +2044,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             {"conversationId": "conv-3", "workspace": str(self.workspace), "prompt": "devam et"}
         )
         self.assertIn("injectSteps", pre_3)
-        self.assertIn("unresolved `Stop` gate finding(s)", pre_3["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("unresolved `Stop` gate finding(s)", pre_3["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # Corrupt flight_recorder.json is quarantined via move_aside (.corrupt-*) rather than crashing
         flight_file = agy_hooks._flight_recorder_file()
@@ -2068,7 +2068,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
         self.assertIn("injectSteps", cross_interrupted)
         self.assertIn(
             "unrecovered mid-flight interruption on `src/clean.py`",
-            cross_interrupted["injectSteps"][0]["ephemeralMessage"],
+            cross_interrupted["injectSteps"][0]["systemMessage"]["systemMessage"],
         )
 
     @unittest.skipUnless(os.name != "nt", "POSIX shell and path semantics required")
@@ -2098,7 +2098,7 @@ class TestFlightRecorderAndCrashRecovery(HooksTempCase):
             {"conversationId": "conv-large-blocked", "workspace": str(self.workspace), "prompt": "devam et"}
         )
         self.assertIn("injectSteps", res_blocked)
-        self.assertIn("1 `[!]` blocked", res_blocked["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("1 `[!]` blocked", res_blocked["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_write_target_extraction_covers_notebook_and_multiedit_paths(self) -> None:
         # notebookedit targeting governance tree must be denied

@@ -130,9 +130,21 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
             old_audited = state.get("last_audited_model")
             state["last_audited_model"] = seed_model
             state["current_model"] = seed_model
-            state["last_model_slug"] = re.sub(r"[^a-z0-9.]+", "-", seed_model.lower()).strip("-")
             if state.get("last_seen_model") == old_audited:
                 state.pop("last_seen_model", None)
+            changed = True
+        seed_slug = seed.get("last_model_slug")
+        target_slug = (
+            seed_slug.strip()
+            if isinstance(seed_slug, str) and seed_slug.strip()
+            else (re.sub(r"[^a-z0-9.]+", "-", seed_model.lower()).strip("-") if seed_model else "")
+        )
+        if target_slug and state.get("last_model_slug") != target_slug:
+            state["last_model_slug"] = target_slug
+            changed = True
+        seed_pbtxt = _clean_model_name(seed.get("last_pbtxt_model"))
+        if seed_pbtxt and state.get("last_pbtxt_model") != seed_pbtxt:
+            state["last_pbtxt_model"] = seed_pbtxt
             changed = True
         if "environment_Target" in seed and state.get("environment_Target") != seed.get("environment_Target"):
             state["environment_Target"] = seed["environment_Target"]
@@ -140,6 +152,17 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
     elif not _clean_model_name(state.get("last_audited_model")) and _clean_model_name(seed.get("last_audited_model")):
         seed_model = _clean_model_name(seed.get("last_audited_model"))
         state["last_audited_model"] = seed_model
+        seed_slug = seed.get("last_model_slug")
+        target_slug = (
+            seed_slug.strip()
+            if isinstance(seed_slug, str) and seed_slug.strip()
+            else re.sub(r"[^a-z0-9.]+", "-", seed_model.lower()).strip("-")
+        )
+        if not state.get("last_model_slug") and target_slug:
+            state["last_model_slug"] = target_slug
+        seed_pbtxt = _clean_model_name(seed.get("last_pbtxt_model"))
+        if not _clean_model_name(state.get("last_pbtxt_model")) and seed_pbtxt:
+            state["last_pbtxt_model"] = seed_pbtxt
         changed = True
 
     if seed_ts is not None and (state_ts is None or seed_ts > state_ts):
@@ -178,8 +201,12 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
                         changed = True
                 elif isinstance(cur, dict) and can_sync_existing:
                     for rk in ("repo", "branch", "track", "path", "last_synced_commit", "target_skills"):
-                        if rk in seed_info and cur.get(rk) != seed_info.get(rk):
-                            cur[rk] = copy.deepcopy(seed_info[rk])
+                        if rk in seed_info:
+                            if cur.get(rk) != seed_info.get(rk):
+                                cur[rk] = copy.deepcopy(seed_info[rk])
+                                changed = True
+                        elif rk in ("track", "path") and rk in cur:
+                            cur.pop(rk, None)
                             changed = True
                     if isinstance(pending, dict) and name in pending:
                         pend_entry = pending.get(name)
@@ -190,7 +217,8 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
                             pending.pop(name, None)
                             changed = True
 
-    if state.get("_reconciled_seed_digest") != seed_digest:
+    tracked_schema_ok = not isinstance(seed_repos, dict) or isinstance(state.get("tracked_repositories"), dict)
+    if tracked_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
         state["_reconciled_seed_digest"] = seed_digest
         changed = True
 
@@ -242,14 +270,20 @@ class UpstreamAuditorBridge:
             else:
                 self.state_file = candidate_state
         self.last_load_error: Optional[str] = None
+        self.last_seed_error: Optional[str] = None
 
     def _load_seed(self) -> Dict[str, Any]:
+        self.last_seed_error = None
         if self.seed_file is None or not self.seed_file.is_file():
             return {}
         try:
             data = json.loads(self.seed_file.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
+            if not isinstance(data, dict):
+                self.last_seed_error = f"Upstream seed file {self.seed_file} is not a JSON object."
+                return {}
+            return data
+        except (OSError, ValueError) as exc:
+            self.last_seed_error = f"Corrupt or unreadable upstream seed file {self.seed_file}: {exc}"
             return {}
 
     def load_state(self) -> Dict[str, Any]:
@@ -278,13 +312,13 @@ class UpstreamAuditorBridge:
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
                     "branch": "main",
-                    "last_synced_commit": "671ab15",
+                    "last_synced_commit": "35b54dc",
                     "target_skills": ["antislop", "antislop-code", "antislop-ui", "antislop-human", "antislop-copywriting", "antislop-layoutmobile"],
                 },
                 "Chisle": {
                     "repo": "JayPokale/Chisle",
                     "branch": "main",
-                    "last_synced_commit": "1b3203f",
+                    "last_synced_commit": "b2e1658",
                     "target_skills": ["chisle"],
                 },
                 "unlazy": {
@@ -296,7 +330,7 @@ class UpstreamAuditorBridge:
                 "procoder": {
                     "repo": "azrtydxb/procoder",
                     "branch": "main",
-                    "last_synced_commit": "7c7f4b3",
+                    "last_synced_commit": "c0032ee",
                     "target_skills": ["procoder"],
                 },
                 "silk-design": {
@@ -308,7 +342,7 @@ class UpstreamAuditorBridge:
                 "everything-claude-code": {
                     "repo": "affaan-m/everything-claude-code",
                     "branch": "main",
-                    "last_synced_commit": "90606c8",
+                    "last_synced_commit": "d2ef268",
                     "target_skills": [
                         "architecture-decision-records",
                         "database-migrations",
@@ -319,7 +353,7 @@ class UpstreamAuditorBridge:
                 "mattpocock-skills": {
                     "repo": "mattpocock/skills",
                     "branch": "main",
-                    "last_synced_commit": "5beb35b",
+                    "last_synced_commit": "5863806",
                     "target_skills": ["deep-grill", "diagnosing-bugs", "test-design", "retro"],
                 },
                 "rea": {
@@ -335,6 +369,18 @@ class UpstreamAuditorBridge:
     def check_repositories(self, timeout: float = 3.0) -> List[Dict[str, Any]]:
         """Queries tracked repositories in parallel to detect upstream commit drift."""
         state = self.load_state()
+        if self.last_load_error:
+            return [
+                {
+                    "name": "<upstream_state>",
+                    "repo": "",
+                    "branch": "",
+                    "local_sha": "",
+                    "remote_sha": "",
+                    "status": f"Invalid state ledger: {self.last_load_error}",
+                    "commit_message": "",
+                }
+            ]
         tracked = state.get("tracked_repositories", {})
         if not isinstance(tracked, dict):
             return [
@@ -501,12 +547,15 @@ class UpstreamAuditorBridge:
             active_model, source = "Unknown (not detected)", "none"
         tracked_raw = state.get("tracked_repositories", {})
         tracked_count = len(tracked_raw) if isinstance(tracked_raw, dict) else 0
-        return {
+        out = {
             "active_model": active_model,
             "model_source": source,
             "context_saturation_guard": "Constitution rule (turn count is not measured by Guard)",
             "tracked_ecosystems": str(tracked_count),
         }
+        if self.last_load_error:
+            out["state_error"] = self.last_load_error
+        return out
 
     def get_summary(self) -> Dict[str, Any]:
         """Returns a health and synchronization summary surfacing corrupt state and failed audits."""
@@ -517,6 +566,8 @@ class UpstreamAuditorBridge:
         warnings: List[str] = []
         if corrupt and self.last_load_error:
             warnings.append(self.last_load_error)
+        if self.last_seed_error:
+            warnings.append(self.last_seed_error)
         schema_mismatch = False
         tracked_raw = state.get("tracked_repositories", {})
         if not isinstance(tracked_raw, dict):
@@ -533,7 +584,7 @@ class UpstreamAuditorBridge:
             warnings.append(f"Last upstream repository check failed in {self.state_file}.")
         if corrupt:
             status = "FAIL"
-        elif audit_failed or schema_mismatch:
+        elif audit_failed or schema_mismatch or bool(self.last_seed_error):
             status = "WARN"
         else:
             status = "OK"

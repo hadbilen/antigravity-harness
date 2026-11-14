@@ -2,6 +2,14 @@
 
 All notable changes to Antigravity Harness are documented in this file.
 
+## [Unreleased]
+- **Antigravity `v2.32.0` compatibility & hook contract modernization (`ADR-0005`):**
+  - Updated `skills/upstream-auditor/upstream_state.seed.json` and `guard/agy_hooks.py` for `Gemini 4 Hydrogen (XHigh)`, `Gemini 4 Carbon` (`High`/`XHigh`), `Orchestrator (Carbon/Argon)` comma-separated effort parsing, and the `14` built-in Antigravity skills (`sha256` synchronized) while preserving `"Gemini 4 Argon (High)"` backward compatibility and Rule 17 highest-effort enforcement.
+  - Migrated `PreInvocation` hook output (`guard/agy_hooks.py`) and `skills/upstream-auditor/scripts/upstream_watcher.py` from deprecated `ephemeralMessage` to native `systemMessage` schema (`metadata.user_markdown` with empty `systemMessage` body for operator-only watchdog notices), updated `scripts/meta_audit.py` `_extract_pre_invocation_text`, and wired `Stop` `continuationActive` / `fullyIdle` awareness without suppressing diff/`TestBoundaryGuard` gates.
+  - Added `swarm` to `PRE_TOOL_USE_MATCHER_TOOLS`, `hooks.json`, `guard/agy_hooks.py` (blocking two-step worker/coordinator customization model downgrades and gating `call_tool("swarm", ...)` in `run_workflow`), added `ECOSYSTEM_ROUTING_HINTS` entries for `native_swarm`, `migrate-agent-settings`, and `mcp-app-development`, and documented built-in resolutions in `GEMINI.md` Rule 15 `(f)–(h)`.
+  - Tightened Knowledge Work hygiene in `guard/agy_hooks.py`: non-git workspaces receive file-based recovery hints without `git status`/`git diff`, non-harness `skills/`/`agents/` folders no longer trigger customization gates unless targeting `SKILL.md`/`.agents`/governance files, and `SKILL_HINTS` narrows `sweetspot`/`deep-grill` phrases cleanly.
+- **Tracked upstream repository synchronization:** synced verified improvements from `miqdadbadjuber/anti-slop` (`R-39`, `R-40`, `Scaffold Sidebar`, copywriting tells; `40` rules total) and `mattpocock/skills` (fresh-context `research` subagent guidance in `deep-grill`), verified `JayPokale/Chisle`, `affaan-m/ECC`, and `azrtydxb/procoder` deltas, and noted `morluto/rea` `rea-agents-6.9.0` (retaining `rea-agents-6.7.0` in seed until human-unlocked plugin upgrade).
+
 ## [2.0.0] - 2026-10-19
 Native Antigravity 2.0 lifecycle hooks (`PreInvocation`, `PreToolUse`, `Stop`), full ecosystem auto-routing (skills, auditor subagents, MCP servers, and plugins), AST/dataflow/FTS5 code mapping (`scripts/code_map.py`), domain-aware UI archetypes (`MODE: UTILITY`, `MODE: EDITORIAL`, `MODE: GAME & INTERACTIVE`), deterministic UI slop scanning (`check_ui_slop.py`), 13 new engineering skills (34 total), and 2 new auditor subagents (9 total).
 

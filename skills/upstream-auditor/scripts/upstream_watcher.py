@@ -17,6 +17,7 @@ Operator commands:
 """
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -33,6 +34,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
 
 WATCHER_VERSION = "1.4"
 USER_AGENT = f"UpstreamAuditor-Watchdog/{WATCHER_VERSION}"
@@ -239,11 +245,61 @@ def atomic_write_json(path: str, data: dict) -> None:
         raise
 
 
+_STATE_LOCK_LOCAL = threading.local()
+
+
+@contextlib.contextmanager
+def _state_file_lock():
+    """Reentrant advisory lock around STATE_FILE using POSIX flock when available."""
+    if fcntl is None:
+        yield
+        return
+    depth = getattr(_STATE_LOCK_LOCAL, "depth", 0)
+    if depth > 0:
+        _STATE_LOCK_LOCAL.depth = depth + 1
+        try:
+            yield
+        finally:
+            _STATE_LOCK_LOCAL.depth = depth
+        return
+    lock_path = STATE_FILE + ".lock"
+    fd = None
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as exc:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            fd = None
+        print(f"[WARN] upstream_watcher state lock unavailable ({type(exc).__name__}): {exc}", file=sys.stderr)
+        yield
+        return
+    _STATE_LOCK_LOCAL.depth = 1
+    try:
+        yield
+    finally:
+        _STATE_LOCK_LOCAL.depth = 0
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
 def save_state(state: dict) -> bool:
     try:
-        atomic_write_json(STATE_FILE, state)
+        with _state_file_lock():
+            atomic_write_json(STATE_FILE, state)
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] upstream_watcher failed to write {STATE_FILE}: {type(exc).__name__}: {exc}", file=sys.stderr)
         return False
 
 
@@ -664,13 +720,30 @@ def check_tracked_skills(state: dict, now=None) -> bool:
 # ----------------------------------------------------------------------
 # Findings
 # ----------------------------------------------------------------------
+_ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _sanitize_notice_fragment(value, max_len: int = 160) -> str:
+    """Strips ANSI/control sequences and escapes Markdown/HTML metacharacters in dynamic fields."""
+    text = _ANSI_ESC_RE.sub("", str(value or ""))
+    text = _CONTROL_CHARS_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    for ch, rep in (("\\", "\\\\"), ("[", "\\["), ("]", "\\]"), ("<", "\\<"), (">", "\\>"), ("`", "\\`")):
+        text = text.replace(ch, rep)
+    if len(text) > max_len:
+        text = text[: max_len - 3] + "..."
+    return text
+
+
 def collect_reasons(state: dict, payload_model: str = "") -> list:
     """Returns the current findings as short human-readable strings (no network access)."""
     reasons = []
 
     collisions = check_skill_namespace_collisions()
     if collisions:
-        reasons.append(f"Namespace collision / shadowing detected: {', '.join(collisions)}")
+        safe_colls = [_sanitize_notice_fragment(c) for c in collisions]
+        reasons.append(f"Namespace collision / shadowing detected: {', '.join(safe_colls)}")
 
     current_builtin_hash = compute_builtin_hash()
     recorded_hash = state.get("builtin_skills_hash", "")
@@ -678,8 +751,8 @@ def collect_reasons(state: dict, payload_model: str = "") -> list:
         current_builtins = get_builtin_skills_list()
         raw_rb = state.get("recorded_builtin_skills")
         recorded_builtins = [s for s in raw_rb if isinstance(s, str)] if isinstance(raw_rb, list) else []
-        added = sorted(set(current_builtins) - set(recorded_builtins))
-        removed = sorted(set(recorded_builtins) - set(current_builtins))
+        added = [_sanitize_notice_fragment(s) for s in sorted(set(current_builtins) - set(recorded_builtins))]
+        removed = [_sanitize_notice_fragment(s) for s in sorted(set(recorded_builtins) - set(current_builtins))]
         details = []
         if recorded_builtins and added:
             details.append(f"added: {', '.join(added)}")
@@ -699,10 +772,14 @@ def collect_reasons(state: dict, payload_model: str = "") -> list:
     norm_recorded_pbtxt = normalize_model_name(recorded_pbtxt)
     if norm_payload and norm_payload != "auto" and norm_recorded:
         if norm_payload != norm_recorded and not is_pro_flash_switch(norm_recorded, norm_payload):
-            reasons.append(f"Model change: '{recorded_model}' -> '{payload_model}'")
+            reasons.append(
+                f"Model change: '{_sanitize_notice_fragment(recorded_model)}' -> '{_sanitize_notice_fragment(payload_model)}'"
+            )
     elif norm_current_pbtxt and norm_recorded_pbtxt and norm_current_pbtxt != norm_recorded_pbtxt:
         if not is_pro_flash_switch(norm_recorded_pbtxt, norm_current_pbtxt):
-            reasons.append(f"Model configuration change: '{recorded_pbtxt}' -> '{current_pbtxt_model}'")
+            reasons.append(
+                f"Model configuration change: '{_sanitize_notice_fragment(recorded_pbtxt)}' -> '{_sanitize_notice_fragment(current_pbtxt_model)}'"
+            )
 
     tracked = state.get("tracked_repositories") or {}
     pending = state.get("pending_repo_updates") or {}
@@ -718,7 +795,9 @@ def collect_reasons(state: dict, payload_model: str = "") -> list:
                 continue
             if str(info.get("last_synced_commit", "")).strip() != recorded:
                 continue  # the ledger was synchronized since this finding
-            updates.append(f"{name} ({_short_ref(recorded)}->{_short_ref(remote_val)})")
+            updates.append(
+                f"{_sanitize_notice_fragment(name)} ({_sanitize_notice_fragment(_short_ref(recorded))}->{_sanitize_notice_fragment(_short_ref(remote_val))})"
+            )
     if updates:
         reasons.append(f"New commits in tracked repositories ({', '.join(updates)})")
     return reasons
@@ -859,51 +938,62 @@ def run_hook(payload: dict) -> dict:
     if invocation_num > 1:
         return {}
 
-    state, _ = load_state(write=True)
-    if state is None:
-        return {}
+    with _state_file_lock():
+        state, state_msg = load_state(write=True)
+        if state is None:
+            print(f"[WARN] upstream_watcher state unavailable ({state_msg})", file=sys.stderr)
+            return {}
 
-    payload_model = _payload_model(payload)
-    dirty = False
-    if payload_model and normalize_model_name(payload_model) != "auto" and state.get("last_seen_model") != payload_model:
-        state["last_seen_model"] = payload_model  # lets `--ack` record the model without a payload
-        dirty = True
-
-    check_tracked_skills(state)
-
-    raw_pending = state.get("pending_repo_updates")
-    if isinstance(raw_pending, dict):
-        cleaned_pending = {}
-        for repo_name, pend_entry in raw_pending.items():
-            if not isinstance(pend_entry, dict):
-                dirty = True
-                continue
-            rec_tag = str(pend_entry.get("recorded", "")).strip()
-            rem_tag = str(pend_entry.get("remote", "")).strip()
-            if not _valid_tag_or_ref(rec_tag) or not _valid_tag_or_ref(rem_tag):
-                dirty = True
-                continue
-            cleaned_pending[repo_name] = pend_entry
-        if len(cleaned_pending) != len(raw_pending):
-            state["pending_repo_updates"] = cleaned_pending
-
-    active = unacknowledged(state, collect_reasons(state, payload_model))
-    now = _now()
-    inject, first_time = (False, False)
-    if active:
-        signature = reasons_signature(active)
-        session = session_key(payload)
-        inject, first_time = should_notice(state, signature, session, now)
-        if inject:
-            record_notice(state, signature, session, now)
+        payload_model = _payload_model(payload)
+        dirty = False
+        if payload_model and normalize_model_name(payload_model) != "auto" and state.get("last_seen_model") != payload_model:
+            state["last_seen_model"] = payload_model  # lets `--ack` record the model without a payload
             dirty = True
-    if dirty and not save_state(state):
-        return {}  # never inject a notice that could not be remembered (it would repeat every turn)
-    if not inject:
-        return {}
+
+        check_tracked_skills(state)
+
+        raw_pending = state.get("pending_repo_updates")
+        if isinstance(raw_pending, dict):
+            cleaned_pending = {}
+            for repo_name, pend_entry in raw_pending.items():
+                if not isinstance(pend_entry, dict):
+                    dirty = True
+                    continue
+                rec_tag = str(pend_entry.get("recorded", "")).strip()
+                rem_tag = str(pend_entry.get("remote", "")).strip()
+                if not _valid_tag_or_ref(rec_tag) or not _valid_tag_or_ref(rem_tag):
+                    dirty = True
+                    continue
+                cleaned_pending[repo_name] = pend_entry
+            if len(cleaned_pending) != len(raw_pending):
+                state["pending_repo_updates"] = cleaned_pending
+
+        active = unacknowledged(state, collect_reasons(state, payload_model))
+        now = _now()
+        inject, first_time = (False, False)
+        if active:
+            signature = reasons_signature(active)
+            session = session_key(payload)
+            inject, first_time = should_notice(state, signature, session, now)
+            if inject:
+                record_notice(state, signature, session, now)
+                dirty = True
+        if dirty and not save_state(state):
+            return {}  # never inject a notice that could not be remembered (it would repeat every turn)
+        if not inject:
+            return {}
     if first_time:
         spawn_desktop_notification(active)
-    return {"injectSteps": [{"ephemeralMessage": build_notice(active, first_time=first_time)}]}
+    return {
+        "injectSteps": [
+            {
+                "systemMessage": {
+                    "systemMessage": "",
+                    "metadata": {"user_markdown": build_notice(active, first_time=first_time)},
+                }
+            }
+        ]
+    }
 
 
 def cmd_status(model: str = "") -> int:
@@ -1017,7 +1107,8 @@ if __name__ == "__main__":
         sys.exit(main())
     try:
         main()
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] upstream_watcher fatal fallback error: {type(exc).__name__}: {exc}", file=sys.stderr)
         sys.stdout.write("{}\n")
         sys.stdout.flush()
     sys.exit(0)

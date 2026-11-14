@@ -434,6 +434,23 @@ class MetaAuditEngine:
         gemini_md = self.repo_root / "GEMINI.md"
         if gemini_md.is_file():
             content = gemini_md.read_text(encoding="utf-8", errors="ignore")
+            gemini_bytes = len(content.encode("utf-8"))
+            if gemini_bytes > 24000:
+                self._add(
+                    "CRITICAL",
+                    name,
+                    "GEMINI.md",
+                    f"GEMINI.md is {gemini_bytes} UTF-8 bytes, exceeding Antigravity's 24,000-byte per-file rule cap.",
+                    "Condense verbose guidance or offload procedures into skills/ while maintaining <= 20,000 bytes.",
+                )
+            elif gemini_bytes > 20000:
+                self._add(
+                    "WARNING",
+                    name,
+                    "GEMINI.md",
+                    f"GEMINI.md is {gemini_bytes} UTF-8 bytes, exceeding the 20,000-byte operational ceiling below Antigravity's 24,000-byte cap.",
+                    "Trim redundant wording to preserve headroom under the 24,000-byte per-file rule cap.",
+                )
             g_no_code = re.sub(r"```.*?```", "", content, flags=re.DOTALL)
             for agent in sorted(_extract_subagents(g_no_code)):
                 if agent not in available_agents:
@@ -1361,12 +1378,24 @@ class MetaAuditEngine:
         hso = res.get("hookSpecificOutput")
         if isinstance(hso, dict) and hso.get("additionalContext"):
             parts.append(str(hso["additionalContext"]))
-        if res.get("systemMessage"):
-            parts.append(str(res["systemMessage"]))
+        top_sm = res.get("systemMessage")
+        if isinstance(top_sm, dict):
+            if top_sm.get("systemMessage"):
+                parts.append(str(top_sm["systemMessage"]))
+        elif top_sm:
+            parts.append(str(top_sm))
         inj = res.get("injectSteps")
         if isinstance(inj, list):
             for step in inj:
-                if isinstance(step, dict) and step.get("ephemeralMessage"):
+                if not isinstance(step, dict):
+                    continue
+                step_sm = step.get("systemMessage")
+                if isinstance(step_sm, dict):
+                    if step_sm.get("systemMessage"):
+                        parts.append(str(step_sm["systemMessage"]))
+                elif step_sm:
+                    parts.append(str(step_sm))
+                if step.get("ephemeralMessage"):
                     parts.append(str(step["ephemeralMessage"]))
         return "\n".join(parts)
 

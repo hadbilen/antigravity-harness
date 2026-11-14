@@ -18,7 +18,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "run_command|bash|execute_command|shell|send_command_input|manage_task|run_workflow|invoke_subagent|call_mcp_tool|mcp_.*|write_to_file|write_file|replace_file_content|multi_replace_file_content|edit_file|create_file|write|edit|multiedit|notebookedit",
+        "matcher": "run_command|bash|execute_command|shell|send_command_input|manage_task|run_workflow|invoke_subagent|swarm|call_mcp_tool|mcp_.*|write_to_file|write_file|replace_file_content|multi_replace_file_content|edit_file|create_file|write|edit|multiedit|notebookedit",
         "hooks": [
           {
             "type": "command",

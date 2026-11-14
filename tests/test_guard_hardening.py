@@ -360,6 +360,7 @@ class TestInstallerHooks(TempDirCase):
             "manage_task",
             "run_workflow",
             "invoke_subagent",
+            "swarm",
             "call_mcp_tool",
             "mcp_.*",
             "write_to_file",
@@ -394,7 +395,7 @@ class TestInstallerHooks(TempDirCase):
             set(
                 agy_hooks.COMMAND_TOOL_NAMES
                 | agy_hooks.WRITE_TOOL_NAMES
-                | {"run_workflow", "invoke_subagent", "call_mcp_tool", "mcp_.*"}
+                | {"run_workflow", "invoke_subagent", "swarm", "call_mcp_tool", "mcp_.*"}
             ),
         )
         self.assertEqual(repo_set, expected_tools)

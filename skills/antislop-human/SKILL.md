@@ -143,6 +143,40 @@ The layout mechanics behind mobile (breakpoints, scale, grids, overflow, tap tar
 - **Why:** a form the user cannot see or reach is a form they cannot complete. It is a mobile-only exclusion (R-03).
 - **Fix:** when an input is focused, ensure it scrolls into view above the keyboard using `scroll-margin-bottom` and safe-area/bottom padding so the focused field is never covered. Test with a real device or emulated viewport when available, or verify CSS scroll-margin/padding rules and declare physical mobile-keyboard testing under `Not verified` (`GEMINI.md` Rule 8).
 
+## Interaction Affordances
+
+Enforced by R-39: small signals that communicate usability; keyboard and focus remain anchored by R-32 and target size by R-03.
+
+### Clickable Without a Pointer Cursor
+
+- **Tell:** a `<button>`, `<summary>`, checkbox `<label>`, `[role="button"]`, clickable card, or styled `<select>` keeping the default arrow cursor (common under CSS resets).
+- **Why:** cursor feedback is the first pointer affordance; an arrow over an interactive control signals inert text.
+- **Fix:** apply `cursor: pointer` to enabled interactive controls in the base layer (not on passive elements, R-26) and `cursor: not-allowed` on disabled controls.
+
+### Div or Span Pretending to Be a Control
+
+- **Tell:** `<div onClick>`, `<span onClick>`, `<a>` without `href`, or `<a href="#" onClick>` acting as a command button.
+- **Why:** non-native elements lose role semantics, keyboard activation, and screen-reader announcements.
+- **Fix:** use `<button type="button">` for actions and `<a href>` for real destinations; custom controls that cannot be native need explicit `role`, ARIA states (`aria-pressed`, `aria-expanded`), and R-32 keyboard handlers.
+
+### Icon-Only Control With No Name
+
+- **Tell:** icon-only close, menu, search, or copy buttons lacking visible text, `aria-label`, or visually hidden text.
+- **Why:** screen readers and voice control announce only an unnamed button.
+- **Fix:** give every icon button an explicit `aria-label` or `.sr-only` label matching its visible action, and mark decorative `<svg>`/`<span>` icons `aria-hidden="true"`.
+
+### Missing Hover, Active, or Disabled State
+
+- **Tell:** buttons or links with no distinct hover, active, or disabled styling, or disabled controls that still fire clicks.
+- **Why:** users rely on visual state change to confirm hits and disablement.
+- **Fix:** pair clear `:hover`, `:active`, and disabled visuals meeting 3:1 non-text contrast; prefer native `disabled` or block activation in code alongside `aria-disabled="true"`.
+
+### Motion Ignoring User Setting & Unlabeled Form Fields
+
+- **Tell:** non-essential animations running under `prefers-reduced-motion: reduce`, looping motion over `5s` without a pause control, placeholder-only inputs, or whole HTML pages missing `<html lang>`, `<title>`, `<main>` landmarks, ordered headings (`<h1>`), or zoom (`user-scalable=no`).
+- **Why:** ignores vestibular protections, leaves screen readers without input labels or landmarks, and prevents text zoom.
+- **Fix:** guard non-essential motion with `@media (prefers-reduced-motion: no-preference)`, provide pause controls for animations over `5s`, pair every input with `<label for>`, and apply full-document semantics whenever generating a complete HTML page or app shell (R-39).
+
 ## Human Skill Checklist
 
 Run these alongside the core Delivery Gate when the task involves UI. All answers must be **yes**:
@@ -153,3 +187,4 @@ Run these alongside the core Delivery Gate when the task involves UI. All answer
 - [ ] Is every interactive element reachable and operable by keyboard, with dialogs closable via Escape and no `outline: none` without a replacement? (R-32, R-26)
 - [ ] Are all five UI lifecycle states (default, loading, empty, error, success) of every data view present and perceivable, not color-only? (R-27, C-4)
 - [ ] Are text containers free of fixed-px font locks / `overflow: hidden` clipping for 200% zoom, and do form inputs include `scroll-margin-bottom` / bottom padding (with any unrun live-device/browser checks declared under `GEMINI.md` Rule 8)? (R-35)
+- [ ] Do enabled interactive controls show `cursor: pointer`, use native `<button>`/`<a href>` semantics, carry accessible names and `<label for>` bindings, expose hover/active/disabled states, and honor `prefers-reduced-motion`? (R-39)

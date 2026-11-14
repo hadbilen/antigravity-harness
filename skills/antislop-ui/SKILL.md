@@ -238,6 +238,12 @@ The patterns above are landing-page shapes. These are the app-side equivalents: 
 - **Why:** it is the landing-page template problem in an app: a layout picked from memory instead of from the work the screen supports. Swap the labels and it belongs to any product.
 - **Fix:** name the screen's job and the one decision the user makes on it, then build the hierarchy around that (C-3, R-20). If the job is "spot the failing job and retry it", the failing jobs are the page and the stat row is a footnote. Sections that survive only because dashboards usually have them get cut (C-3).
 
+### Scaffold Sidebar
+
+- **Tell:** a flat list of eight or more identical sidebar rows whose active item differs only slightly in tint, with no hover/pressed states, clipped labels when collapsed, and a missing trigger on narrow viewports.
+- **Why:** navigation wraps every view, so starter-template neglect compounds across the entire app.
+- **Fix:** group destinations with quiet labels, distinguish active links by shape or weight alongside color, preserve `aria-expanded` on collapse controls and accessible names on collapsed icons (`R-24`, `R-25`, `R-39`), and convert mobile rails into drawer/sheet triggers with Escape/focus restoration (`R-26`, `R-03`, `C-4`).
+
 ### Stat Cards With Invented Numbers
 
 - **Tell:** a row of four cards reading 12,483 / 94.2% / $48.2K / 1,204, each with a green "+12% this week" delta.
@@ -310,4 +316,5 @@ Run these alongside the core Delivery Gate (`python3 skills/antislop/scripts/che
 - [ ] Do empty form fields and table cells stay empty or carry honest placeholders (Your Name, email@example.com) instead of fake-looking data (John Doe, johndoe@example.com)? (R-23, R-38)
 - [ ] Do the empty, loading, and error states name the cause and the next action instead of saying "No data"? (R-27)
 - [ ] Does the page hold up at every breakpoint, theme, and state, and pass keyboard-only use? (R-03, R-34, C-4)
+- [ ] Does every `<img>`/`<video>`/`<iframe>` declare explicit dimensions, load above-the-fold hero imagery in HTML with `fetchpriority="high"` (never `loading="lazy"`), keep scripts pinned/non-blocking (`Rule 12` / `Rule 15c`), and report only measured performance metrics? (R-40, R-36)
 

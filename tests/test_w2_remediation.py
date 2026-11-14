@@ -1008,7 +1008,7 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
 
         for idx, prompt in enumerate(("Bu veritabanı sorgusunu optimize et.", "Bu fonksiyonu hızlandır.")):
             res_tr = handle_pre_invocation({"conversationId": f"w2-tr-{idx}", "prompt": prompt})
-            self.assertIn("`sweetspot`", res_tr["injectSteps"][0]["ephemeralMessage"])
+            self.assertIn("`sweetspot`", res_tr["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_stop_gate_modified_test_stale_negative_multi_occurrence_and_per_func_timebomb(self) -> None:
         from guard.agy_hooks import inspect_git_diff

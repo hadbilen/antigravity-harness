@@ -70,7 +70,7 @@ class TestRenewSkillRouting(unittest.TestCase):
                     {"conversationId": f"conv-renew-pos-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res, f"Expected PreInvocation hint for: {prompt}")
-                msg = res["injectSteps"][0]["ephemeralMessage"]
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
                 self.assertIn("`renew`", msg)
                 self.assertIn("skills/renew/SKILL.md", msg)
 
@@ -88,7 +88,7 @@ class TestRenewSkillRouting(unittest.TestCase):
                 res = agy_hooks.handle_pre_invocation(
                     {"conversationId": f"conv-renew-neg-{idx}", "prompt": prompt}
                 )
-                msg = res.get("injectSteps", [{}])[0].get("ephemeralMessage", "")
+                msg = res.get("injectSteps", [{}])[0].get("systemMessage", {}).get("systemMessage", "")
                 self.assertNotIn("`renew`", msg, f"False positive `renew` hint injected for: {prompt}")
 
 
@@ -602,7 +602,7 @@ class TestMediaStudioExpandedRoutingAndPorterParity(unittest.TestCase):
                     {"conversationId": f"conv-ms-exp-pos-{idx}", "prompt": prompt}
                 )
                 self.assertIn("injectSteps", res, f"Expected media-studio hint for: {prompt}")
-                msg = res["injectSteps"][0]["ephemeralMessage"]
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
                 self.assertIn("`media-studio`", msg)
                 self.assertNotIn("`renew`", msg)
 
@@ -617,7 +617,7 @@ class TestMediaStudioExpandedRoutingAndPorterParity(unittest.TestCase):
                 res = agy_hooks.handle_pre_invocation(
                     {"conversationId": f"conv-ms-exp-neg-{idx}", "prompt": prompt}
                 )
-                msg = res.get("injectSteps", [{}])[0].get("ephemeralMessage", "")
+                msg = res.get("injectSteps", [{}])[0].get("systemMessage", {}).get("systemMessage", "")
                 self.assertNotIn("`media-studio`", msg, f"False positive media-studio hint for: {prompt}")
 
     def test_porter_cursor_export_includes_renew_and_media_studio_reference_subfile(self) -> None:

@@ -99,6 +99,16 @@ description: 'Copy and text deep-dive module for antislop (headlines, tone, CTAs
   > Next.js caches data at multiple layers, including request memoization, the data cache, and the router cache.
 - **Rule:** R-36.
 
+### Temporal Runway Cliches
+
+- **The pattern:** opening a piece, section, or paragraph with a sweeping temporal generalization: "In today's fast-paced world", "In an era of rapid technological disruption", "In today's ever-evolving digital landscape", "In an increasingly connected world".
+- **Why it reads as AI:** it is empty runway that delays the actual claim before stating an ordinary fact.
+- **Before:**
+  > In today's fast-paced digital landscape, engineering teams struggle to keep internal documentation fresh and accurate.
+- **After:**
+  > Engineering teams struggle to keep internal documentation fresh and accurate.
+- **Rule:** R-16, R-36.
+
 ### All-Caps Emphasis
 
 - **The pattern:** a whole sentence, clause, or phrase in ALL CAPS inside a paragraph to shout emphasis: "The launch is ready and WE NEED TO MOVE NOW before the window closes."
@@ -172,6 +182,16 @@ description: 'Copy and text deep-dive module for antislop (headlines, tone, CTAs
   > Then the old rules were gone. No templates. No defaults. No safety.
 - **After:**
   > The old rules no longer applied, and every page had to be designed from scratch.
+- **Rule:** R-36.
+
+### Theatrical Takeaways
+
+- **The pattern:** dramatic single-line stage directions and conclusion-labeling: "Read that again.", "Let that sink in.", "The message is clear:", "That distinction matters.", "The takeaway is simple:", "Here is the bottom line:".
+- **Why it reads as AI:** it tells readers how to react to an ordinary statement instead of letting the evidence carry weight.
+- **Before:**
+  > Automated rollbacks cut customer downtime by 40%. Read that again. Let that sink in.
+- **After:**
+  > Automated rollbacks cut customer downtime by 40%.
 - **Rule:** R-36.
 
 ### Synonym Cycling
@@ -288,6 +308,12 @@ description: 'Copy and text deep-dive module for antislop (headlines, tone, CTAs
   > The update improves the interface, speeds up load times, and encrypts data in transit.
 - **Rule:** R-36.
 - **Carve-out:** the `- **Tell:**` / `- **Why:**` / `- **Fix:**` headers that structure every antislop skill entry are a documentation convention, not the header-restates-the-item habit above, and are exempt.
+
+### Title Case in List Elements
+
+- **The pattern:** capitalizing every word inside regular bullet lists or feature items: `- Comprehensive Security Audits Across All Repositories`.
+- **Why it reads as AI:** sentence case reads faster and avoids mechanical template formatting; proper nouns, acronyms, and genuine titles keep their capitalization.
+- **Rule:** R-36.
 
 ### Emojis in Headings
 
@@ -476,6 +502,7 @@ Run these alongside the core Delivery Gate when the task is copy work. Every lin
 - [ ] No all-caps emphasis clauses: emphasis written into the sentence, not shouted with caps (R-36)
 - [ ] Every sentence names its actor: no actorless passive, no abstraction given a human verb, where a real subject was available (R-16)
 - [ ] CTAs specific to the action, not generic templates (R-15)
-- [ ] No AI-rhythm tells: no forced rule of three, no negative parallelism, no staccato drama, no aphorism formulas, no false ranges (R-36)
+- [ ] No AI-rhythm tells: no forced rule of three, no negative parallelism, no staccato drama, no theatrical takeaways, no aphorism formulas, no false ranges (R-36)
+- [ ] No temporal runway clichés padding section openings and regular bullet items use natural sentence case rather than mechanical title case (R-16, R-36)
 - [ ] Voice present: the copy has a real voice (the user's sample or a clearly chosen tone), not a sterile default (R-37)
 - [ ] Read aloud: the copy sounds like a person wrote it, not like a model padded it

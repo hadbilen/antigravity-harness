@@ -42,7 +42,7 @@ Refine the audit scope using targeted flags:
   * Audits only the Antigravity builtin environment (`builtin/skills`) and lifecycle hooks.
 * **Proactive 72-Hour Watchdog & Instant Model/Platform Drift Hook (Two-Stage Trigger):**
   * **Stage 1 — Deterministic `PreInvocation` Detection (`invocationNum == 1`):** The lightweight hook (`skills/upstream-auditor/scripts/upstream_watcher.py` / `skills/upstream-auditor/scripts/check_skills.sh`, installed under `~/.gemini/config/skills/upstream-auditor/scripts/`) inspects active model family/version changes (`modelName` and `antigravity_state.pbtxt`), `builtin/skills` SHA-256 content hashes, and local/builtin skill namespace collisions on turn 1 of every new conversation with zero LLM overhead, and queries commit hashes and release tags for the 8 tracked repositories when 72 hours (3 days) have elapsed since the prior check.
-  * **Stage 2 — First-Seen Operator Alert & Single-Line End-of-Response Notice:** When a new unacknowledged drift signature is first detected (`first_time_seen`), the hook spawns a desktop notification (`agy-guard notify send`) and injects a one-time `ephemeralMessage` on turn 1. To avoid delaying the user's active task, full multi-stage analysis never runs automatically inside a task turn; when a drift signature is seen for the first time, the agent completes the user's request normally and may append a single standalone `Upstream Notice:` line at the very end of the response (after the `Delivery Block`, never inside `tasks.md`, plans, next-step blocks, or `HANDOFF.md` per `GEMINI.md` Rule 5) pointing the operator to `/audit-upstream` (`--model`, `--platform`, `--skills`, or `--all`).
+  * **Stage 2 — First-Seen Operator Alert (`metadata.user_markdown`):** When a new unacknowledged drift signature is first detected (`first_time_seen`), the hook spawns a desktop notification (`agy-guard notify send`) and displays a one-time operator-only notice in the UI (`systemMessage: ""` for the model, with the formatted `Upstream Notice:` banner in `metadata.user_markdown`) on turn 1. To avoid delaying the user's active task, full multi-stage analysis never runs automatically inside a task turn; the notice stays strictly operator-facing and never instructs the agent to repeat or copy maintenance notices into responses, task prompts, plans, next-step blocks, or `HANDOFF.md` (`GEMINI.md` Rule 5), pointing only the human operator to `/audit-upstream` (`--model`, `--platform`, `--skills`, or `--all`).
 
 ---
 
@@ -138,7 +138,7 @@ directly to the Guard-protected runtime file `~/.local/state/antigravity-harness
   "last_model_slug": "<model_slug>",
   "last_pbtxt_model": "<pbtxt_model_id>",
   "builtin_skills_hash": "<computed_sha256>",
-  "recorded_builtin_skills": ["agy-customizations", "antigravity_guide", "automation", "generative_ui", "migrate-workflows", "permissioned-github", "plugin", "run-workflow", "ui-plugin-navigation"],
+  "recorded_builtin_skills": ["agy-customizations", "antigravity_guide", "automation", "generative_ui", "mcp-app-development", "migrate-agent-settings", "migrate-workflows", "native_swarm", "permissioned-github", "plugin", "run-workflow", "swarm_monitor", "swarm_narrator", "ui-plugin-navigation"],
   "last_audit_timestamp": "<ISO_8601_timestamp>",
   "last_skills_audit_timestamp": "<ISO_8601_timestamp>",
   "skills_audit_interval_hours": 72,
@@ -147,7 +147,7 @@ directly to the Guard-protected runtime file `~/.local/state/antigravity-harness
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "671ab15",
+      "last_synced_commit": "35b54dc",
       "target_skills": ["antislop", "antislop-code", "antislop-ui", "antislop-human", "antislop-copywriting", "antislop-layoutmobile"]
     },
     "rea": {

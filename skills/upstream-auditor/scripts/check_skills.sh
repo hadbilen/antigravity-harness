@@ -173,6 +173,8 @@ def reconcile_in_memory(state: dict, seed: dict) -> None:
                     for rk in ("repo", "branch", "track", "path", "last_synced_commit", "target_skills"):
                         if rk in sinfo:
                             cur[rk] = copy.deepcopy(sinfo[rk])
+                        elif rk in ("track", "path") and rk in cur:
+                            cur.pop(rk, None)
 
 
 try:

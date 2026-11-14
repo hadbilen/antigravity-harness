@@ -1110,7 +1110,7 @@ class TestPreInvocationRoutingCollisionMatrix(HermeticSeamCase):
         if not isinstance(steps, list):
             return ""
         return " ".join(
-            str(step.get("ephemeralMessage") or "")
+            str((step.get("systemMessage") or {}).get("systemMessage") or "")
             for step in steps
             if isinstance(step, dict)
         )
@@ -2214,17 +2214,22 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
     def test_rule17_operator_approved_peer_flagship_passes_only_at_highest_effort(self) -> None:
         top_name, allowed = agy_hooks._catalog_top_model_spec()
         self.assertIn("gemini-4-argon-high", allowed)
-        self.assertIn("claude-opus-5-high", allowed)
         self.assertIn("claude-opus-5.5-high", allowed)
+        self.assertIn("gemini-4-hydrogen-extra", allowed)
+        self.assertIn("gemini-4-hydrogen-xhigh", allowed)
 
         evaluate = agy_hooks._evaluate_customization_model_and_effort
         self.assertIsNone(evaluate({"modelName": "Gemini 4 Argon", "effort": "high"}))
-        self.assertIsNone(evaluate({"modelName": "Claude Opus 5", "effort": "high"}))
         self.assertIsNone(evaluate({"modelName": "Claude Opus 5.5 (High)", "effort": "high"}))
+        self.assertIsNone(evaluate({"modelName": "Gemini 4 Hydrogen (XHigh)", "effort": "xhigh"}))
+        self.assertIsNone(evaluate({"modelName": "Gemini 4 Hydrogen", "effort": "extra"}))
 
-        low_effort = evaluate({"modelName": "Claude Opus 5", "effort": "low"})
+        low_effort = evaluate({"modelName": "Claude Opus 5.5", "effort": "low"})
         self.assertIsNotNone(low_effort)
         self.assertEqual(low_effort[0], "deny")
+        hydrogen_low = evaluate({"modelName": "Gemini 4 Hydrogen (Low)", "effort": "low"})
+        self.assertIsNotNone(hydrogen_low)
+        self.assertEqual(hydrogen_low[0], "deny")
         unlisted = evaluate({"modelName": "Claude Sonnet 5", "effort": "high"})
         self.assertIsNotNone(unlisted)
         self.assertEqual(unlisted[0], "deny")
@@ -2271,6 +2276,13 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
             agy_hooks._extract_transcript_model_and_effort({"transcriptPath": str(plain)}),
             ("Gemini 4 Argon (High)", "high"),
         )
+
+        xhigh = _transcript_with("The user changed setting `Model Selection` from Gemini 4 Argon (High) to Gemini 4 Hydrogen (XHigh).")
+        self.assertEqual(
+            agy_hooks._extract_transcript_model_and_effort({"transcriptPath": str(xhigh)}),
+            ("Gemini 4 Hydrogen (XHigh)", "xhigh"),
+        )
+        self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(xhigh)}))
 
         downgraded = _transcript_with("The user changed setting `Model Selection` from Claude Opus 5.5 (High) to Gemini 3.1 Flash (Low).")
         verdict = agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(downgraded)})
