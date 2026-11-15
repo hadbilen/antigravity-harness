@@ -2,9 +2,9 @@
 name: technical-writing
 description: >-
   Technical documentation architecture, Diataxis mode separation (Tutorial, How-To, Reference, Explanation), executable
-  example verification, API reference completeness, and changelog discipline. Invoke with /technical-writing or on
-  "teknik dokümantasyon", "kullanım kılavuzu", "doküman yaz", "sürüm notları". Not for marketing landing pages (use
-  'antislop-copywriting') or architectural decision records (use 'architecture-decision-records').
+  example verification, API reference completeness, changelog discipline, and architecture/flow diagramming. Invoke with
+  /technical-writing or /visualizer, or on "teknik dokümantasyon", "kullanım kılavuzu", "doküman yaz", "sürüm notları".
+  Not for marketing landing pages (use 'antislop') or architectural decision records (use 'harness' ADR).
 ---
 
 # Technical Writing: Verified, Mode-Separated Documentation
@@ -41,8 +41,8 @@ Code blocks and shell commands in documentation are executable contracts, not de
 
 - **Lead with the Prerequisite and Outcome:** Open every guide with what must already be installed or configured and what state the reader will reach at the end.
 - **One Concept Per Step:** Each numbered step performs one logical action and states how to verify it before moving on.
-- **Abbreviation Discipline (`GEMINI.md` Rule 4):** Spell out every domain term or protocol in full before its abbreviation on first use, and keep at most one abbreviation per sentence.
-- **Anti-Slop Technical Profile:** Run `skills/antislop-copywriting/scripts/check_synthetic_markers.py --profile technical` (or `~/.gemini/config/skills/antislop-copywriting/scripts/check_synthetic_markers.py --profile technical`, with `--lang tr` or `--lang auto` for Turkish documentation) on drafted Markdown files to strip signposting announcements (*"In this section we will explore"*, *"İşte bilmeniz gerekenler"*), chatbot leftovers, and brochure inflation while preserving normal engineering tables and lists (`skills/antislop-copywriting/SKILL.md`).
+- **Terminology Clarity:** Spell out unfamiliar domain terms or protocols in full before introducing an acronym on first use so newcomer tutorials and guides never rely on unexplained shorthand.
+- **Anti-Slop Technical Profile:** Run `skills/antislop/scripts/check_synthetic_markers.py --profile technical` (or `~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical`, with `--lang tr` or `--lang auto` for Turkish documentation) on drafted Markdown files to strip signposting announcements (*"In this section we will explore"*, *"İşte bilmeniz gerekenler"*), chatbot leftovers, and brochure inflation while preserving normal engineering tables and lists (`skills/antislop/references/copywriting.md`).
 
 ## 4. Changelog & Release Note Discipline (`CHANGELOG.md`)
 
@@ -52,11 +52,15 @@ When authoring release notes or `CHANGELOG.md` entries:
 - **Actionable Breaking Changes:** Every breaking change must show the old usage, the new usage, and the exact migration command or edit required.
 - **Observable Behavior Only:** Describe what changed for callers, operators, or end users. Do not list internal variable renames or test-file restructuring as user-facing features.
 
-## 5. Delivery Checklist
+## 5. Architecture, Flow & State-Machine Visualization (`/visualizer`)
+
+When diagramming specifications, codebases, state loops, or user journeys (`--arch`, `--code`, `--flow`, `--spec`, `--loop`, `--journey`), load [references/visualizer.md](./references/visualizer.md) to select the matching Mermaid or isolated `generative_ui` lens.
+
+## 6. Delivery Checklist
 
 Before delivering technical documentation, verify:
 - [ ] Each section follows a single Diataxis mode (Tutorial, How-To, Reference, or Explanation) without mode mixing.
 - [ ] Every documented CLI flag, configuration key, and function signature was verified against the codebase source of truth.
 - [ ] Code snippets and structured configuration blocks were executed or syntax-parsed, or declared under `Not verified` (`GEMINI.md` Rule 8).
 - [ ] Relative links and repository paths resolve cleanly (`scripts/meta_audit.py` Pass 2).
-- [ ] `python3 skills/antislop-copywriting/scripts/check_synthetic_markers.py --profile technical <file>` (or `python3 ~/.gemini/config/skills/antislop-copywriting/scripts/check_synthetic_markers.py --profile technical <file>`) exits `0`.
+- [ ] `python3 skills/antislop/scripts/check_synthetic_markers.py --profile technical <file>` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical <file>`) exits `0`.

@@ -18,7 +18,7 @@ On-demand companion to `skills/rustify/SKILL.md` for migrating or bridging garba
 | `if err != nil` + `defer f.Close()` | `#[must_use]` `Result<T, E>` with `?` + automatic `Drop` | Eliminates forgotten `defer` leaks, early-return nil-pointer bugs, and zero-value uninitialized structs (`Go` structs allow missing fields silently; Rust structs require every field at construction). |
 
 ### Key Go -> Rust Migration & `cgo` Interop Traps
-* **Zero-Value Assumptions:** Go code frequently relies on zero-initialized structs (`var mu sync.Mutex`, nil slices behaving like empty slices on `len`/`append`, reading from a nil map returning zero). In Rust, model optional state explicitly (`Option<T>` / `Default` only where an empty default is domain-valid per `skills/mistake-proofing/SKILL.md`).
+* **Zero-Value Assumptions:** Go code frequently relies on zero-initialized structs (`var mu sync.Mutex`, nil slices behaving like empty slices on `len`/`append`, reading from a nil map returning zero). In Rust, model optional state explicitly (`Option<T>` / `Default` only where an empty default is domain-valid per `skills/harness/references/mistake-proofing.md`).
 * **Blocking Inside `async fn`:** Never call `std::fs`, synchronous `reqwest::blocking`, `std::thread::sleep`, or `std::sync::Mutex` across `.await` points inside an async runtime (`clippy::await_holding_lock`); use `tokio::time::sleep` and async `I/O` or `spawn_blocking`.
 * **Go `cgo` Bridge Constraints:** When bridging Go to a Rust `cdylib`/`staticlib` via `cgo`, never retain a Go pointer (`*T` or slice backing buffer) inside Rust after the `cgo` call returns (Go stacks move and Go's garbage collector forbids foreign retention of unpinned Go pointers), and batch records into contiguous byte buffers so `~100 ns` per-call `cgo` stack-switch overhead does not dominate hot loops.
 
@@ -28,7 +28,7 @@ On-demand companion to `skills/rustify/SKILL.md` for migrating or bridging garba
 
 | Python Pattern | Idiomatic Rust Replacement | Soundness & Architectural Rationale |
 | :--- | :--- | :--- |
-| Untyped `dict[str, Any]` payloads | Typed `struct` + `#[derive(Serialize, Deserialize)]` (`#[serde(deny_unknown_fields)]` at strict edges) | Parses unstructured boundary data once (`skills/mistake-proofing/SKILL.md` §3), eliminating downstream `KeyError` and `AttributeError` failures. |
+| Untyped `dict[str, Any]` payloads | Typed `struct` + `#[derive(Serialize, Deserialize)]` (`#[serde(deny_unknown_fields)]` at strict edges) | Parses unstructured boundary data once (`skills/harness/references/mistake-proofing.md` §3), eliminating downstream `KeyError` and `AttributeError` failures. |
 | `T \| S \| None` (`Union` / `isinstance` chains) | `Option<DomainEnum>` with exhaustive `match` | Compiler rejects unhandled variants whenever the schema evolves. |
 | Exception-driven flow control (`try / except`) | `Option<T>` / `Result<T, DomainError>` combinators | Makes recoverable failure modes explicit in signatures; map each `DomainError` variant `1`-to-`1` to the expected Python exception subclass (`PyKeyError`, `PyIndexError`, `PyTypeError`, `PyOSError`, `PyValueError`) at the outer `#[pyfunction]` / `#[pymethods]` seam. |
 | List/dict comprehensions over large arrays | Chained iterators `.iter().filter(...).map(...).collect()` | Fuses transformations into a single pass without intermediate Python object allocations. |

@@ -24,6 +24,23 @@ _MUTATING_AGENT_TOOLS = frozenset({
     "execute", "shell", "rm", "chmod", "killshell", "bashoutput",
 })
 
+_CONSOLIDATED_SKILL_DESCRIPTIONS: Dict[str, Tuple[str, str]] = {
+    "antislop-ui": ("antislop", "Visual UI composition, Anti-Boxification, and HUD rules (consolidated into antislop)"),
+    "antislop-copywriting": ("antislop", "Copywriting, tone, de-AI prose rewrites, and synthetic markers (consolidated into antislop)"),
+    "antislop-human": ("antislop", "Accessibility, WCAG AA contrast verification, and component states (consolidated into antislop)"),
+    "antislop-layoutmobile": ("antislop", "Mobile layout, horizontal overflow, tap targets, and responsive reflow (consolidated into antislop)"),
+    "antislop-code": ("antislop", "Code-comment hygiene removing generic AI-slop comments (consolidated into antislop)"),
+    "silk-design": ("antislop", "Kinetic motion, smooth-scrolling, fluid typography, and MOTION 3 toolkit (consolidated into antislop)"),
+    "marathon": ("harness", "Multi-window goal planning, window partitioning, and HANDOFF.md orchestration (consolidated into harness)"),
+    "unlazy": ("harness", "Tier-3 deep completion engine, Depth Tree, and acceptance gates (consolidated into harness)"),
+    "architecture-decision-records": ("harness", "Architecture Decision Records in docs/adr/ for Tier 3 decisions (consolidated into harness)"),
+    "mistake-proofing": ("harness", "Poka-yoke compile/parse-time interface and state-machine design (consolidated into harness)"),
+    "dependency-upgrade": ("harness", "Behavior-preserving dependency, framework, and runtime version upgrades (consolidated into harness)"),
+    "test-design": ("harness", "Seam-based test design, independent expected values, and boundary mocks (consolidated into harness)"),
+    "visualizer": ("technical-writing", "Architecture, flow, state-machine, and journey diagrams via Mermaid or generative_ui (consolidated into technical-writing)"),
+    "security-review": ("audit", "Pre-deployment security verification checklist for secrets, headers, and transport boundaries (consolidated into audit)"),
+}
+
 
 class SuitabilityAnalyzer:
     """Evaluates external rules for compatibility, safety, and ecosystem fit before any file is written."""
@@ -41,13 +58,17 @@ class SuitabilityAnalyzer:
             for item in skills_dir.iterdir():
                 if item.is_dir():
                     skill_file = item / "SKILL.md"
+                    if not skill_file.is_file():
+                        continue
                     desc = ""
-                    if skill_file.is_file():
-                        try:
-                            desc = frontmatter_description(skill_file.read_text(encoding="utf-8", errors="ignore"))
-                        except OSError:
-                            pass
+                    try:
+                        desc = frontmatter_description(skill_file.read_text(encoding="utf-8", errors="ignore"))
+                    except OSError:
+                        pass
                     skills[item.name.lower()] = desc
+            for slug, (parent, desc) in _CONSOLIDATED_SKILL_DESCRIPTIONS.items():
+                if slug not in skills and (skills_dir / parent / "SKILL.md").is_file():
+                    skills[slug] = desc
         return skills
 
     def _load_known_agents(self) -> Dict[str, str]:

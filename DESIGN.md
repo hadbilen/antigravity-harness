@@ -32,7 +32,7 @@ To prevent every non-dashboard interface from collapsing into a sterile dark-zin
 1. **`MODE: UTILITY` (Default — Engineering Dashboards, Admin Consoles, Data Tables, Developer Tools):**
    - **Dials:** `ENERGY 2 / RHYTHM 2 / MOTION 2`.
    - **Surface & Type:** Zinc/Slate neutral surfaces (`#09090B` / `#18181B` dark, `#FFFFFF` / `#F8FAFC` light) with Cobalt Blue (`#2563EB`) accent, `system-ui` font stack, `tabular-nums` on all numeric columns, and all five data lifecycle states (Section 6.1).
-2. **`MODE: EDITORIAL` (Product Showcases, Marketing Pages, Portfolios, Interactive Narratives — pairs with `silk-design`):**
+2. **`MODE: EDITORIAL` (Product Showcases, Marketing Pages, Portfolios, Interactive Narratives — pairs with `skills/antislop/references/silk-design.md`):**
    - **Dials:** `ENERGY 4 / RHYTHM 4 / MOTION 3`.
    - **Composition & Anti-Boxification:** At most one primary bordered card group per viewport; delineate secondary sections with spatial whitespace (`24px–64px`), typography, or single-edge hairlines (`border-t` / `border-b`) rather than nested bordered boxes. Never place 3+ identical-width sibling cards in a row; use an asymmetric focal split (`55%–65%` dominant element paired with `35%–45%` compact list/rows).
    - **Typography & Scale:** Expressive display + body font pairing (pinned/self-hosted web fonts permitted with `font-display: swap`), fluid viewport scaling (`clamp()`), and a minimum **`3.5:1` size ratio** between the primary display heading and body copy.
@@ -88,7 +88,7 @@ Direction: Modern Zinc/Slate neutral surfaces with a focused Cobalt Blue accent.
 
 ### Measured Contrast Pairs
 
-Computed with the WCAG 2.x relative-luminance formula (`skills/antislop-human/contrast-check.py`).
+Computed with the WCAG 2.x relative-luminance formula (`skills/antislop/scripts/contrast-check.py`).
 The harness self-audit (`scripts/meta_audit.py`, Pass 6) recomputes every row; a stated ratio that
 differs from the measurement, or a pair below its minimum, fails the audit.
 
@@ -127,7 +127,7 @@ differs from the measurement, or a pair below its minimum, fails the audit.
 - **Monospace Font:** Reserved strictly for code snippets, CLI output, hashes, API keys, and UUIDs. Never use monospace as decorative styling for headings.
 - **Tabular Figures (`tabular-nums`):** Financial data, counters, timestamps, and data tables must enforce `font-variant-numeric: tabular-nums` (or Tailwind `tabular-nums`) to prevent layout jitter.
 - **Size Standards (`rem` / Fluid Units):**
-  - Declare font sizes in relative units (`rem` or `clamp()`) rather than fixed `px` rules so text scales cleanly to `200%` zoom (`skills/antislop-human/SKILL.md`).
+  - Declare font sizes in relative units (`rem` or `clamp()`) rather than fixed `px` rules so text scales cleanly to `200%` zoom (`skills/antislop/references/human-a11y.md`).
   - Minimum caption text: `0.75rem` (`12px` equivalent at `16px` root).
   - Standard body text: `0.875rem` / `1rem` (`14px` / `16px` equivalent at `16px` root).
   - Mobile form controls (`input`, `select`): Minimum `1rem` (`16px` equivalent at `16px` root) to prevent iOS auto-zoom on focus while scaling with browser text zoom.

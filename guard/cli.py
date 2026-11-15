@@ -33,10 +33,12 @@ from guard.audit_log import audit
 from guard.doctor import diagnose, recover_or_load_registry
 from guard.environment import (
     ANTIGRAVITY_RUNTIME_ENTRIES,
+    CONSOLIDATED_SKILL_SLUGS,
     VALID_POLICIES,
     AgentEnvironment,
     EnvironmentRegistry,
     RegistryError,
+    migrate_harness_mcp_config,
 )
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.lease import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, LeaseManager
@@ -381,6 +383,10 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
                 tracked_rel.extend(f"agents/{p.name}" for p in sorted((opt_source / "agents").glob("*.md")))
             if (opt_source / "skills").is_dir():
                 tracked_rel.extend(f"skills/{p.name}" for p in sorted((opt_source / "skills").iterdir()) if p.is_dir())
+        for slug in CONSOLIDATED_SKILL_SLUGS:
+            rel_slug = f"skills/{slug}"
+            if rel_slug not in tracked_rel:
+                tracked_rel.append(rel_slug)
             if (opt_source / "templates").is_dir():
                 tracked_rel.extend(
                     f"templates/{p.name}"
@@ -513,6 +519,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     if dry_run:
         print(f"[DRY-RUN] copy governance assets from {source_dir} -> {target_dir}")
         print(f"[DRY-RUN] merge upstream-watchdog & harness-gate into {target_dir / 'hooks.json'}")
+        migrate_harness_mcp_config(target_dir, source_dir, dry_run=True, log_fn=print)
         print(f"[DRY-RUN] establish FIM baseline and {'skip lock (--no-lock)' if no_lock else 'engage OS write protection'}")
         return 0
 
@@ -612,6 +619,11 @@ def cmd_init(args: argparse.Namespace) -> int:
             except OSError:
                 pass
         shutil.move(str(dest), str(btarget))
+        if not is_win and dest.name in ("mcp_config.json", "config.json") and not os.path.islink(btarget):
+            try:
+                os.chmod(btarget, 0o600)
+            except OSError:
+                pass
         backed_up.append((dest, btarget))
         return True
 
@@ -707,7 +719,7 @@ def cmd_init(args: argparse.Namespace) -> int:
                     if (
                         (existing.is_dir() or os.path.islink(existing))
                         and existing.name not in src_skills
-                        and f"skills/{existing.name}" in prior_installed
+                        and (f"skills/{existing.name}" in prior_installed or existing.name in CONSOLIDATED_SKILL_SLUGS)
                     ):
                         _backup_existing(existing)
             for skill_name, skill_dir in src_skills.items():
@@ -750,9 +762,6 @@ def cmd_init(args: argparse.Namespace) -> int:
                         for entry in sdir.rglob("*"):
                             if entry.suffix in (".py", ".sh", ".mjs"):
                                 script_cands.append(entry)
-                ah_dir = skills_root / "antislop-human"
-                if ah_dir.is_dir() and not os.path.islink(ah_dir):
-                    script_cands.extend(ah_dir.glob("contrast-*.py"))
                 for sc in script_cands:
                     if not os.path.islink(sc) and sc.is_file():
                         try:
@@ -825,6 +834,14 @@ def cmd_init(args: argparse.Namespace) -> int:
             installed_paths.append(str(hooks_path))
             if not had_hooks:
                 placed_new.append(hooks_path)
+
+        migrate_harness_mcp_config(
+            target_dir,
+            source_dir,
+            dry_run=False,
+            backup_fn=_backup_existing,
+            log_fn=print,
+        )
 
         installed_rel = [
             str(Path(p).relative_to(target_dir)) if Path(p).is_relative_to(target_dir) else str(p)

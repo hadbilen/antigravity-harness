@@ -4,7 +4,7 @@ description: >-
   Upstream model drift, Antigravity runtime, and tracked external skills auditor with 72h watchdog and RFC staging
   (`--skills`, `--model`, `--platform`, `--skill <name>`). Invoke with /audit-upstream. Use EXCLUSIVELY when auditing
   upstream model, runtime, or tracked skill repository drift; not for general codebase audits (use 'audit') or project
-  dependency upgrades (use 'dependency-upgrade').
+  dependency upgrades (use 'harness' dependency-upgrade).
 ---
 
 # Upstream Auditor — Model Drift, Platform & Skills Synchronization Engine
@@ -64,13 +64,13 @@ flowchart LR
    * Detect new builtin capabilities, updated lifecycle hooks, or modified runtime tools.
 3. **External Community Ecosystem (`--skills`, `--skill <name>`, or `--all`):**
    * Query the 8 tracked repositories in `upstream_state.json` via GitHub API (`commits` with optional `path` filter, or `releases/latest` when `"track": "release"` is set):
-     * `miqdadbadjuber/anti-slop` $\rightarrow$ `antislop` (+ code, ui, human, copywriting, layoutmobile)
+     * `miqdadbadjuber/anti-slop` $\rightarrow$ `antislop` (`skills/antislop/references/{code-comments,ui,human-a11y,copywriting,layoutmobile}.md`)
      * `JayPokale/Chisle` $\rightarrow$ `chisle`
-     * `Leonxlnx/unlazy` $\rightarrow$ `unlazy`
+     * `Leonxlnx/unlazy` $\rightarrow$ `harness` (`skills/harness/references/unlazy.md`)
      * `azrtydxb/procoder` $\rightarrow$ `procoder`
-     * `bendrape1-byte/silk-design` $\rightarrow$ `silk-design`
-     * `affaan-m/everything-claude-code` $\rightarrow$ `architecture-decision-records`, `database-migrations`, `security-review`, `agents/build-error-resolver.md`
-     * `mattpocock/skills` $\rightarrow$ `grill-me` (locally `deep-grill`), `diagnosing-bugs`, `test-design`, `retro`
+     * `bendrape1-byte/silk-design` $\rightarrow$ `antislop` (`skills/antislop/references/silk-design.md`)
+     * `affaan-m/everything-claude-code` $\rightarrow$ `database-migrations`, `harness` (`skills/harness/references/adr.md`), `audit` (`skills/audit/references/security-review.md`), `agents/build-error-resolver.md`
+     * `mattpocock/skills` $\rightarrow$ `grill-me` (locally `deep-grill`), `diagnosing-bugs`, `harness` (`skills/harness/references/test-design.md`), `retro`
      * `morluto/rea` (`track: "release"`) $\rightarrow$ `reverse-engineer-anything` (`plugins/rea` & `rea-agents` Model Context Protocol (MCP) server)
    * Fetch diff between recorded `last_synced_commit` (SHA or release tag) and current remote HEAD or release tag.
 4. **Community Signal Scan (`--all`, via isolated `research` subagent):**
@@ -146,7 +146,7 @@ directly to the Guard-protected runtime file `~/.local/state/antigravity-harness
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
       "last_synced_commit": "35b54dc",
-      "target_skills": ["antislop", "antislop-code", "antislop-ui", "antislop-human", "antislop-copywriting", "antislop-layoutmobile"]
+      "target_skills": ["antislop"]
     },
     "rea": {
       "repo": "morluto/rea",

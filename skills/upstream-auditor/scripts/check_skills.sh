@@ -175,6 +175,8 @@ def reconcile_in_memory(state: dict, seed: dict) -> None:
                             cur[rk] = copy.deepcopy(sinfo[rk])
                         elif rk in ("track", "path") and rk in cur:
                             cur.pop(rk, None)
+                elif isinstance(cur, dict) and "target_skills" in sinfo:
+                    cur["target_skills"] = copy.deepcopy(sinfo["target_skills"])
 
 
 try:

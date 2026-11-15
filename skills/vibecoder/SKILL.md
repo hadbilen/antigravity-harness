@@ -4,7 +4,7 @@ description: >-
   Product-first rapid prototyping for non-coders and exploratory builders: conducts a 3-step UX/aesthetic interview and
   delivers runnable single-file HTML app, game, or interactive sandbox prototypes. Triggers: /vibecode, /vibecoder,
   "fikrim var", "oyun prototipi", "etkileşimli kum havuzu", "vibe coding". Not for multi-file production engineering or
-  Tier 2/3 architecture (use 'harness', 'game-engineering', or 'marathon').
+  Tier 2/3 architecture (use 'harness' or 'game-engineering').
 ---
 
 # Vibe Coder (Product & Experience-First Builder)
@@ -58,7 +58,7 @@ produces interfaces that run with zero setup.
 * Do not put technical friction such as `npm install` or `docker-compose up` in front of the user.
 * Primary output: a **single rich HTML file** that runs by double-clicking it in the browser (`file://`-safe with zero external CORS asset dependencies), or an in-chat **Generative UI** component.
 * **Game Prototype Mode (`Game Vibe Mode`):** When the user wants a game or interactive simulation prototype, deliver a self-contained **single-file rich HTML** game (`<canvas>` 2D/WebGL + inline procedural rendering + WebAudio synthesized sound effects) that runs immediately on double-click without external `.png`/`.mp3` files or a local dev server.
-* **Creative Studio & Sandbox Mode (`Creative & Sandbox Vibe Mode`):** When the user wants an audio/visual synthesizer, drum sequencer, generative art or shader studio, vector/pixel canvas tool, or an interactive algorithm/physics/finance sandbox (distinct from static architecture diagrams owned by `skills/visualizer/SKILL.md` and multi-section marketing sites owned by `skills/silk-design/SKILL.md`), deliver a self-contained **single-file rich HTML** studio with real-time tactile controls, live `<canvas>` / Scalable Vector Graphics (`SVG`) / `WebAudio` synthesis, built-in starter presets, and one-click client-side file export (`.json`, `.svg`, `.png`, or `.wav` via `Blob` URLs).
+* **Creative Studio & Sandbox Mode (`Creative & Sandbox Vibe Mode`):** When the user wants an audio/visual synthesizer, drum sequencer, generative art or shader studio, vector/pixel canvas tool, or an interactive algorithm/physics/finance sandbox (distinct from static architecture diagrams owned by `skills/technical-writing/references/visualizer.md` and multi-section marketing sites owned by `skills/antislop/references/silk-design.md`), deliver a self-contained **single-file rich HTML** studio with real-time tactile controls, live `<canvas>` / Scalable Vector Graphics (`SVG`) / `WebAudio` synthesis, built-in starter presets, and one-click client-side file export (`.json`, `.svg`, `.png`, or `.wav` via `Blob` URLs).
 * On delivery, give a step-by-step **"Where do I click / what keys do I press now?"** guide instead of terminal commands.
 
 ### E. Aesthetic and Quality Shield (`antislop` & `game-engineering` compliance)
@@ -87,7 +87,7 @@ produces interfaces that run with zero setup.
 ### F. Experience Goal & Acceptance Criteria
 * At the start, capture the prototype's goal in one line (audience, feel, the primary one-click outcome) and 2–3 observable acceptance criteria (e.g. "a record can be added and appears in the list", "it still shows after a page reload").
 * The criteria are the prototype's definition of done: they stop endless aesthetic drift, and progress is reported as criteria met ("2/3"), never as a percentage.
-* **Embedded Single-File Promotion Metadata:** Persist Section 1F inside the generated single `.html` file as `<script type="application/json" id="vibecoder-promotion-spec">{"goal": "...", "audience": "...", "mode": "utility|game|sandbox", "acceptance_criteria": [...], "implicit_assumptions": [...]}</script>` so zero extra files are created while `/marathon` (`skills/marathon/SKILL.md` §1) and `skills/harness/SKILL.md` §6 can deterministically read Section 1F in a fresh window.
+* **Embedded Single-File Promotion Metadata:** Persist Section 1F inside the generated single `.html` file as `<script type="application/json" id="vibecoder-promotion-spec">{"goal": "...", "audience": "...", "mode": "utility|game|sandbox", "acceptance_criteria": [...], "implicit_assumptions": [...]}</script>` so zero extra files are created while `/marathon` (`skills/harness/references/marathon.md` §1) and `skills/harness/SKILL.md` §6 can deterministically read Section 1F in a fresh window.
 
 ---
 
@@ -196,7 +196,7 @@ The final message after the code is written must contain these blocks in order, 
    * **Progress:** each acceptance criterion from Section 1F marked met or not met (e.g. `"3/3 acceptance criteria met"`, never a percentage).
    * **Verification Gap Declaration:** list what was verified (`check_ui_slop.py`, HTML/JavaScript syntax check, deterministic headless `stepTick` check where applicable) and what was *not* verified (e.g. live browser visual/WebAudio rendering or physical mobile touch).
    * **Falsification Gate (Popper's Invariant):** state what discriminating edge or falsifying check was executed (or whether any available check was not run).
-   * **Next Step (`marathon` promotion bridge):** end with a single concise line offering `/marathon` (`skills/marathon/SKILL.md`) in a fresh window (reading `#vibecoder-promotion-spec` from the `.html` file—and co-loading `skills/game-engineering/SKILL.md` plus `skills/media-studio/SKILL.md` when `"mode": "game"`) if the user wants to evolve the prototype into a full production build or multi-window architecture plan (with `tasks.md`, `HANDOFF.md`, and per-window model/effort routing).
+   * **Next Step (`marathon` promotion bridge):** end with a single concise line offering `/marathon` (`skills/harness/references/marathon.md`) in a fresh window (reading `#vibecoder-promotion-spec` from the `.html` file—and co-loading `skills/game-engineering/SKILL.md` plus `skills/media-studio/SKILL.md` when `"mode": "game"`) if the user wants to evolve the prototype into a full production build or multi-window architecture plan (with `tasks.md`, `HANDOFF.md`, and per-window model/effort routing).
 
 ---
 
@@ -207,5 +207,5 @@ The final message after the code is written must contain these blocks in order, 
   (`implementation_plan.md`), test-suite scaffolding or `ADR` documents; however, never weaken or modify any existing repository tests (`GEMINI.md` Rule 9).
 * **When to promote:** when all acceptance criteria are met and the user says "let's connect this to
   a real backend and ship it" (or invokes `/marathon`), stop prototyping and switch to `marathon`
-  (`skills/marathon/SKILL.md`) and `harness` Tier 3 standards (co-loading `skills/game-engineering/SKILL.md` and `skills/media-studio/SKILL.md` for `Game Vibe` `"mode": "game"` promotions into modular Web or 3D/native engines); the goal and criteria carry over into
+  (`skills/harness/references/marathon.md`) and `harness` Tier 3 standards (co-loading `skills/game-engineering/SKILL.md` and `skills/media-studio/SKILL.md` for `Game Vibe` `"mode": "game"` promotions into modular Web or 3D/native engines); the goal and criteria carry over into
   `tasks.md` and the exit criteria of `HANDOFF.md`.

@@ -23,6 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from guard.environment import CONSOLIDATED_SKILL_SLUGS
 from porter import __version__ as PORTER_VERSION
 from porter.analyzer import SuitabilityAnalyzer
 from porter.archive import inspect_zip
@@ -219,6 +220,12 @@ def cmd_import(args: argparse.Namespace) -> int:
         print(output_content[:500] + ("\n... [truncated]" if len(output_content) > 500 else ""))
         return 0
 
+    if target_type == "skill" and name.lower() in CONSOLIDATED_SKILL_SLUGS and not args.overwrite:
+        print(
+            f"Error: skill '{name}' overlaps a consolidated ADR-0009 skill slug. Use --overwrite to force import.",
+            file=sys.stderr,
+        )
+        return 1
     if dest_file.exists() and not args.overwrite:
         print(f"Error: {dest_file} already exists. Use --overwrite to replace it.", file=sys.stderr)
         return 1

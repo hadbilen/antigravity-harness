@@ -4,7 +4,7 @@ description: >-
   Audio, video, still image, and animated visual synthesis, timeline editing, damaged-container salvage, restoration,
   upscaling, and EBU R128 mastering (`Probe -> Plan -> Process -> Verify`, `media_qc.py`). Invoke with /media-studio or
   on "ses üret", "video üret", "ses/video düzenle", "bozuk sesi/görüntüyü kurtar", "gürültü temizle", "mastering". Not
-  for single-file UX prototypes (use 'vibecoder'), 60 Hz game loops (use 'game-engineering'), or diagrams (use 'visualizer').
+  for single-file UX prototypes (use 'vibecoder'), 60 Hz game loops (use 'game-engineering'), or diagrams (use 'technical-writing' visualizer).
 ---
 
 # Media Studio — Audio, Video, Still Image & Animated Visual Production, Salvage & Restoration Discipline

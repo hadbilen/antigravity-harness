@@ -1,10 +1,10 @@
 ---
 name: audit
 description: >-
-  Read-only structural, consistency, and security boundary audit engine for codebases, specs, architectures, and schemas.
-  Invoke with /audit, /audit --boundary (alias --resilience), /audit --full (alias --all), /audit --delta, /audit --meta
-  or --self (`--forensics` / `--cognitive`). Read-only inspection: never use to modify, fix, or refactor files (use
-  'harness', 'diagnosing-bugs', or 'refactoring').
+  Read-only structural, consistency, security boundary, and pre-deployment security checklist audit engine for
+  codebases, specs, architectures, and schemas. Invoke with /audit, /audit --boundary (alias --resilience), /audit
+  --full (alias --all), /audit --delta, /audit --meta or --self (`--forensics` / `--cognitive`), or /security-review.
+  Read-only inspection: never use to modify, fix, or refactor files (use 'harness', 'diagnosing-bugs', or 'refactoring').
 ---
 
 # Audit — Autonomous Structural, Consistency & Security Boundary Inspection Engine
@@ -33,7 +33,7 @@ This inspection is not an offensive cyberattack, penetration test, or unauthoriz
 
 * **EXPLICIT CALLS ONLY:** This skill runs ONLY when explicitly invoked. It MUST NOT trigger during routine queries, casual reviews, or quick questions.
 * **Recognized Triggers:**
-  * Slash commands: `/audit`, `/audit --boundary` (`--resilience` is an exact alias), `/audit --full` (`--all` is an exact alias), `/audit --delta`, `/audit --meta` (`--self` is an alias; add `--forensics` and/or `--cognitive` for the harness self-audit dimensions of Mode 4)
+  * Slash commands: `/audit`, `/audit --boundary` (`--resilience` is an exact alias), `/audit --full` (`--all` is an exact alias), `/audit --delta`, `/audit --meta` (`--self` is an alias; add `--forensics` and/or `--cognitive` for the harness self-audit dimensions of Mode 4), `/security-review` (loads [references/security-review.md](./references/security-review.md) and [references/cloud-infrastructure-security.md](./references/cloud-infrastructure-security.md) for pre-deployment secrets, headers, transport, and cloud infrastructure verification)
   * Explicit phrases: *"Audit this"*, *"Full audit"*, *"Run full consistency and boundary audit"*, *"Test boundary conditions and resilience"*, *"Perform consistency analysis"*, *"Inspect design and security boundaries"*, *"Run harness meta-audit"*, *"Self-audit harness"*.
 
 ---

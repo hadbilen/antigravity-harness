@@ -4,7 +4,7 @@ description: >-
   Data science, statistical analysis, exploratory data analysis, and Jupyter notebook (.ipynb) verification: row-count
   accounting, train/test anti-leakage, baseline-first modeling, and honest chart scaling. Invoke with /data-analysis or
   on "veri analizi", "veri bilimi", "istatistiksel analiz", "veri sızıntısı", "notebook". Not for schema migrations (use
-  'database-migrations') or unit test authoring (use 'test-design').
+  'database-migrations') or unit test authoring (use 'harness' test-design).
 ---
 
 # Data Analysis: Reproducible Pipelines, Anti-Leakage, and Honest Reporting
@@ -40,7 +40,7 @@ Target leakage produces high validation scores that collapse in production:
 
 - **Clean Top-to-Bottom Execution:** Every notebook must run cleanly from cell 1 to the final cell in a fresh process (`jupyter nbconvert --to notebook --execute` or script equivalent) with monotonically increasing execution counts (`1..N`) and zero hidden state from deleted or out-of-order cells.
 - **Pin Seeds and Environment:** Set explicit random seeds at the top of the notebook or script and read dependency versions from the lockfile (`skills/harness/SKILL.md` §2).
-- **Extract Reusable Logic:** When a transformation or plotting helper is reused across 3 or more cells (`skills/harness/SKILL.md` §1), extract it into a pure Python module and cover its edge cases (`NaN`, empty input, single-row input, duplicate keys) with unit tests (`skills/test-design/SKILL.md`).
+- **Extract Reusable Logic:** When a transformation or plotting helper is reused across 3 or more cells (`skills/harness/SKILL.md` §1), extract it into a pure Python module and cover its edge cases (`NaN`, empty input, single-row input, duplicate keys) with unit tests (`skills/harness/references/test-design.md`).
 
 ## 5. Honest Charting & Render-and-Inspect Gate
 

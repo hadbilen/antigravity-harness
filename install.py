@@ -42,7 +42,13 @@ from guard import __version__  # noqa: E402
 from guard.agy_hooks import PRE_TOOL_USE_MATCHER  # noqa: E402
 from guard.approval import refusal_message, request_approval  # noqa: E402
 from guard.doctor import recover_or_load_registry  # noqa: E402
-from guard.environment import ANTIGRAVITY_RUNTIME_ENTRIES, EnvironmentRegistry, RegistryError  # noqa: E402
+from guard.environment import (  # noqa: E402
+    ANTIGRAVITY_RUNTIME_ENTRIES,
+    CONSOLIDATED_SKILL_SLUGS,
+    EnvironmentRegistry,
+    RegistryError,
+    migrate_harness_mcp_config,
+)
 from guard.integrity import FileIntegrityMonitor  # noqa: E402
 from guard.lease import LeaseManager  # noqa: E402
 from guard.paths import atomic_write_json, copy_entry, data_dir, state_dir  # noqa: E402
@@ -113,7 +119,7 @@ def _trees_identical(src: Path, dest: Path) -> bool:
 
 
 def ensure_skill_script_permissions(skills_root: Path) -> None:
-    """Ensures 0o755 executable permissions on .py, .sh, .mjs skill scripts and contrast-*.py."""
+    """Ensures 0o755 executable permissions on .py, .sh, and .mjs skill scripts."""
     if IS_WINDOWS or not skills_root.is_dir() or os.path.islink(skills_root):
         return
     candidates: List[Path] = []
@@ -122,9 +128,6 @@ def ensure_skill_script_permissions(skills_root: Path) -> None:
             for entry in scripts_dir.rglob("*"):
                 if entry.suffix in (".py", ".sh", ".mjs"):
                     candidates.append(entry)
-    antislop_human = skills_root / "antislop-human"
-    if antislop_human.is_dir() and not os.path.islink(antislop_human):
-        candidates.extend(antislop_human.glob("contrast-*.py"))
     for script in candidates:
         if not os.path.islink(script) and script.is_file():
             try:
@@ -348,7 +351,7 @@ class Installer:
                 if (
                     (existing.is_dir() or os.path.islink(existing))
                     and existing.name not in src_skills
-                    and f"skills/{existing.name}" in prior_installed
+                    and (f"skills/{existing.name}" in prior_installed or existing.name in CONSOLIDATED_SKILL_SLUGS)
                 ):
                     self.backup(existing)
         for name, skill in src_skills.items():
@@ -456,94 +459,14 @@ class Installer:
 
     def migrate_mcp_config(self) -> None:
         """Repoints harness-owned skill MCP servers to the installed copy and pins bare python to sys.executable."""
-        mcp = self.target_dir / "mcp_config.json"
-        if not mcp.is_file():
-            return
-        try:
-            data = json.loads(mcp.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            self.log(f"[WARN] Could not parse {mcp}: {exc}; skipping MCP path migration.")
-            return
-        if not isinstance(data, dict):
-            self.log(f"[WARN] {mcp} root is not a JSON object; skipping MCP path migration.")
-            return
-        mcp_servers = data.get("mcpServers")
-        if mcp_servers is not None and not isinstance(mcp_servers, dict):
-            self.log(f"[WARN] {mcp} 'mcpServers' is not a JSON object; skipping MCP path migration.")
-            return
-
-        harness_skills = self._harness_skill_names()
-        repo_skills_dir = SCRIPT_DIR / "skills"
-        target_skills_dir = self.target_dir / "skills"
-        bare_python_names = {"python", "python3", "python.exe", "python3.exe"}
-
-        changed = False
-        repointed = False
-        pinned = False
-        for server in (mcp_servers or {}).values():
-            if not isinstance(server, dict):
-                continue
-            args = server.get("args") or []
-            if not isinstance(args, list):
-                continue
-            is_harness_server = False
-            for i, arg in enumerate(args):
-                arg_str = str(arg)
-                raw_path = Path(os.path.expanduser(arg_str))
-                if ".." in raw_path.parts:
-                    continue
-                arg_path = Path(os.path.abspath(raw_path))
-                parts = arg_path.parts
-                skill_indices = [idx for idx, part in enumerate(parts) if part == "skills"]
-                for skills_idx in reversed(skill_indices):
-                    skill_name = parts[skills_idx + 1] if (skills_idx + 1) < len(parts) else ""
-                    if skill_name not in harness_skills:
-                        continue
-                    is_repo_tree = (
-                        (skills_idx > 0 and parts[skills_idx - 1] == "antigravity-harness")
-                        or self._is_within_lexically(arg_path, repo_skills_dir)
-                    )
-                    is_target_tree = self._is_within_lexically(arg_path, target_skills_dir)
-                    if is_repo_tree:
-                        rel = Path(*parts[skills_idx:])
-                        candidate = self.target_dir / rel
-                        if not self._is_within_lexically(candidate, target_skills_dir) or os.path.islink(candidate):
-                            continue
-                        is_harness_server = True
-                        if (candidate.exists() or (self.dry_run and (SCRIPT_DIR / rel).exists())) and str(candidate) != arg_str:
-                            args[i] = str(candidate)
-                            changed = True
-                            repointed = True
-                        break
-                    if is_target_tree:
-                        is_harness_server = True
-                        break
-
-            if is_harness_server:
-                cmd = server.get("command")
-                if (
-                    bool(sys.executable)
-                    and isinstance(cmd, str)
-                    and cmd.strip().lower() in bare_python_names
-                    and cmd != sys.executable
-                ):
-                    server["command"] = sys.executable
-                    changed = True
-                    pinned = True
-
-        if changed:
-            actions: List[str] = []
-            if repointed:
-                actions.append("repoint skill scripts")
-            if pinned:
-                actions.append(f"pin Python to {sys.executable}")
-            summary = " & ".join(actions) or "update harness MCP entries"
-            if self.dry_run:
-                self.log(f"[DRY-RUN] Would update {mcp} ({summary})")
-            else:
-                self.backup(mcp)
-                atomic_write_json(mcp, data, mode=0o600)
-                self.log("[CONFIGURED] mcp_config.json now points to the protected skill copies")
+        migrate_harness_mcp_config(
+            self.target_dir,
+            SCRIPT_DIR,
+            dry_run=self.dry_run,
+            python_executable=sys.executable,
+            backup_fn=self.backup,
+            log_fn=self.log,
+        )
 
     @staticmethod
     def _release_legacy_tree(path: Path) -> None:
@@ -991,6 +914,10 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
             tracked_rel.extend(f"agents/{p.name}" for p in sorted((SCRIPT_DIR / "agents").glob("*.md")))
         if (SCRIPT_DIR / "skills").is_dir():
             tracked_rel.extend(f"skills/{p.name}" for p in sorted((SCRIPT_DIR / "skills").iterdir()) if p.is_dir())
+        for slug in CONSOLIDATED_SKILL_SLUGS:
+            rel_slug = f"skills/{slug}"
+            if rel_slug not in tracked_rel:
+                tracked_rel.append(rel_slug)
         if (SCRIPT_DIR / "templates").is_dir():
             tracked_rel.extend(
                 f"templates/{p.name}"

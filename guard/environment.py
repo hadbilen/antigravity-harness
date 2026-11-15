@@ -9,11 +9,13 @@ directory), so every invocation sees the same environments regardless of cwd.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from guard.audit_log import audit
 from guard.os_adapter import OSProtectionAdapter
@@ -23,6 +25,7 @@ from guard.paths import (
     config_dir,
     config_dir_symlink,
     data_dir,
+    is_within,
     path_key,
     read_json_strict,
     state_dir,
@@ -635,3 +638,199 @@ class EnvironmentLocker:
     def should_lock_after_restore(self) -> bool:
         env = self.registry.get_environment(self.env_id)
         return bool(env and env.enabled and env.policy == "enforced")
+
+
+CONSOLIDATED_SKILL_SLUGS: Tuple[str, ...] = (
+    "antislop-ui",
+    "antislop-copywriting",
+    "antislop-human",
+    "antislop-layoutmobile",
+    "antislop-code",
+    "silk-design",
+    "marathon",
+    "unlazy",
+    "architecture-decision-records",
+    "mistake-proofing",
+    "dependency-upgrade",
+    "test-design",
+    "visualizer",
+    "security-review",
+)
+
+RELOCATED_SKILL_SCRIPTS: Dict[str, str] = {
+    "skills/antislop-human/contrast-mcp.py": "skills/antislop/scripts/contrast-mcp.py",
+    "skills/antislop-human/contrast-check.py": "skills/antislop/scripts/contrast-check.py",
+    "skills/antislop-copywriting/scripts/check_synthetic_markers.py": "skills/antislop/scripts/check_synthetic_markers.py",
+}
+
+
+def _is_within_lexically(path: Path, root: Path) -> bool:
+    try:
+        Path(os.path.abspath(path)).relative_to(Path(os.path.abspath(root)))
+        return True
+    except ValueError:
+        return False
+
+
+def migrate_harness_mcp_config(
+    target_dir: Path,
+    source_dir: Path,
+    *,
+    dry_run: bool = False,
+    python_executable: Optional[str] = None,
+    backup_fn: Optional[Callable[[Path], Any]] = None,
+    log_fn: Optional[Callable[[str], None]] = None,
+) -> bool:
+    """Repoints harness-owned MCP skill scripts (including ADR-0009 relocations) and pins bare python."""
+    _emit = log_fn or (lambda _msg: None)
+    mcp = target_dir / "mcp_config.json"
+    if os.path.islink(mcp):
+        _emit(f"[WARN] {mcp} is a symbolic link; skipping MCP path migration.")
+        return False
+    if not mcp.is_file():
+        return False
+    try:
+        data = json.loads(mcp.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _emit(f"[WARN] Could not parse {mcp}: {exc}; skipping MCP path migration.")
+        return False
+    if not isinstance(data, dict):
+        _emit(f"[WARN] {mcp} root is not a JSON object; skipping MCP path migration.")
+        return False
+    mcp_servers = data.get("mcpServers")
+    if mcp_servers is not None and not isinstance(mcp_servers, dict):
+        _emit(f"[WARN] {mcp} 'mcpServers' is not a JSON object; skipping MCP path migration.")
+        return False
+
+    repo_skills_dir = source_dir / "skills"
+    target_skills_dir = target_dir / "skills"
+    harness_skills: set[str] = set(CONSOLIDATED_SKILL_SLUGS)
+    try:
+        if repo_skills_dir.is_dir():
+            harness_skills.update(p.name for p in repo_skills_dir.iterdir() if p.is_dir())
+    except OSError as exc:
+        _emit(f"[WARN] Could not scan {repo_skills_dir}: {exc}")
+
+    try:
+        target_dir_res: Optional[Path] = target_dir.resolve()
+    except OSError:
+        target_dir_res = None
+    try:
+        source_dir_res: Optional[Path] = source_dir.resolve()
+    except OSError:
+        source_dir_res = None
+    try:
+        target_skills_res: Optional[Path] = target_skills_dir.resolve()
+    except OSError:
+        target_skills_res = None
+
+    bare_python_names = {"python", "python3", "python.exe", "python3.exe"}
+    if getattr(sys, "frozen", False) and (python_executable is None or python_executable == sys.executable):
+        pin_exec = ""
+    else:
+        pin_exec = python_executable if python_executable is not None else sys.executable
+
+    changed = False
+    repointed = False
+    pinned = False
+    for server in (mcp_servers or {}).values():
+        if not isinstance(server, dict):
+            continue
+        args = server.get("args") or []
+        if not isinstance(args, list):
+            continue
+        is_harness_server = False
+        for i, arg in enumerate(args):
+            if not isinstance(arg, str) or not arg.strip() or "\x00" in arg:
+                continue
+            arg_str = arg.strip()
+            raw_path = Path(os.path.expanduser(arg_str))
+            if not raw_path.is_absolute() or ".." in raw_path.parts:
+                continue
+            arg_path = Path(os.path.abspath(raw_path))
+            parts = arg_path.parts
+            skill_indices = [idx for idx, part in enumerate(parts) if part == "skills"]
+            for skills_idx in reversed(skill_indices):
+                skill_name = parts[skills_idx + 1] if (skills_idx + 1) < len(parts) else ""
+                if skill_name not in harness_skills:
+                    continue
+                prefix_dir = Path(*parts[:skills_idx]) if skills_idx > 0 else Path("/")
+                try:
+                    prefix_res: Optional[Path] = prefix_dir.resolve()
+                except OSError:
+                    prefix_res = None
+                is_repo_tree = (
+                    (skills_idx > 0 and parts[skills_idx - 1] == "antigravity-harness")
+                    or _is_within_lexically(arg_path, repo_skills_dir)
+                    or (prefix_res is not None and source_dir_res is not None and prefix_res == source_dir_res)
+                )
+                is_target_tree = _is_within_lexically(arg_path, target_skills_dir) or (
+                    prefix_res is not None and target_dir_res is not None and prefix_res == target_dir_res
+                )
+                raw_rel_posix = "/".join(parts[skills_idx:])
+                mapped_rel_posix = RELOCATED_SKILL_SCRIPTS.get(raw_rel_posix, raw_rel_posix)
+                mapped_rel = Path(*mapped_rel_posix.split("/"))
+                if is_repo_tree or (is_target_tree and mapped_rel_posix != raw_rel_posix):
+                    candidate = target_dir / mapped_rel
+                    try:
+                        cand_within = (
+                            _is_within_lexically(candidate, target_skills_dir)
+                            and not os.path.islink(candidate)
+                            and (
+                                target_skills_res is None
+                                or is_within(candidate.resolve(), target_skills_res)
+                            )
+                        )
+                    except OSError:
+                        cand_within = False
+                    if not cand_within:
+                        _emit(f"[WARN] Skipping unsafe MCP target {candidate}; leaving argument unchanged.")
+                        continue
+                    src_candidate = source_dir / mapped_rel
+                    dest_ready = (not os.path.islink(candidate) and candidate.is_file()) or (
+                        dry_run and not os.path.islink(src_candidate) and src_candidate.is_file()
+                    )
+                    if dest_ready:
+                        is_harness_server = True
+                        if str(candidate) != arg:
+                            args[i] = str(candidate)
+                            changed = True
+                            repointed = True
+                    else:
+                        _emit(f"[WARN] Relocated MCP script target {candidate} not found; leaving argument unchanged.")
+                    break
+                if is_target_tree:
+                    is_harness_server = True
+                    break
+
+        if is_harness_server:
+            cmd = server.get("command")
+            if (
+                bool(pin_exec)
+                and isinstance(cmd, str)
+                and cmd.strip().lower() in bare_python_names
+                and cmd != pin_exec
+            ):
+                server["command"] = pin_exec
+                changed = True
+                pinned = True
+
+    if changed:
+        actions: List[str] = []
+        if repointed:
+            actions.append("repoint skill scripts")
+        if pinned:
+            actions.append(f"pin Python to {pin_exec}")
+        summary = " & ".join(actions) or "update harness MCP entries"
+        if dry_run:
+            _emit(f"[DRY-RUN] Would update {mcp} ({summary})")
+        else:
+            if backup_fn is not None:
+                backup_fn(mcp)
+            atomic_write_json(mcp, data, mode=0o600)
+            if repointed:
+                _emit("[CONFIGURED] mcp_config.json now points to the protected skill copies")
+            else:
+                _emit(f"[CONFIGURED] Updated {mcp} ({summary})")
+        return True
+    return False

@@ -1365,12 +1365,27 @@ def _is_runtime_config_subdir(candidate: Path, root: Path) -> bool:
         return True
     return False
 
+_URI_SCHEME_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+
+
 def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = None) -> bool:
     if not target_path_str:
         return False
     cleaned = target_path_str.split("\x00", 1)[0].strip()
     if not cleaned:
         return False
+    if _URI_SCHEME_PREFIX_RE.match(cleaned):
+        if not cleaned.lower().startswith("file://"):
+            return False
+        parsed_uri = urllib.parse.urlparse(cleaned)
+        if parsed_uri.netloc and parsed_uri.netloc.lower() != "localhost":
+            return False
+        uri_path = urllib.parse.unquote(parsed_uri.path or "")
+        if re.match(r"^/[A-Za-z]:/", uri_path):
+            uri_path = uri_path[1:]
+        cleaned = uri_path.split("\x00", 1)[0].strip()
+        if not cleaned:
+            return False
     expanded = Path(os.path.expanduser(cleaned))
     if not expanded.is_absolute() and base_dir is not None:
         expanded = base_dir / expanded
@@ -6180,10 +6195,11 @@ def _text_mutates_governance_path(
 ) -> bool:
     if not text or not _DELEGATION_MUTATION_VERB_RE.search(text):
         return False
-    bases: List[Optional[Path]] = [None]
+    explicit_bases: List[Path] = []
     for b in (effective_cwd, workspace, *workspaces):
-        if b is not None and b not in bases:
-            bases.append(b)
+        if b is not None and b not in explicit_bases:
+            explicit_bases.append(b)
+    bases: List[Optional[Path]] = list(explicit_bases) if explicit_bases else [None]
     for m in _DELEGATION_PATH_TOKEN_RE.finditer(text):
         tok = m.group(0).rstrip(".,:;!?\"')]`")
         if not tok or ("/" not in tok and "\\" not in tok and "~" not in tok):
@@ -6867,11 +6883,13 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "decision": "deny",
                     "reason": "[Harness Governance Shield] Null bytes in target paths are prohibited.",
                 }
+            write_bases: List[Path] = []
+            for b in (effective_cwd, workspace, *workspaces):
+                if b is not None and b not in write_bases:
+                    write_bases.append(b)
             if (
-                _targets_governance_dir(target)
-                or (workspace is not None and _targets_governance_dir(target, base_dir=workspace))
-                or (effective_cwd is not None and _targets_governance_dir(target, base_dir=effective_cwd))
-                or any(_targets_governance_dir(target, base_dir=ws) for ws in workspaces)
+                (not write_bases and _targets_governance_dir(target))
+                or any(_targets_governance_dir(target, base_dir=b) for b in write_bases)
             ):
                 return {
                     "decision": "deny",

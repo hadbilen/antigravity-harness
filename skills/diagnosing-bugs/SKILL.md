@@ -23,7 +23,7 @@ NEVER propose speculative fixes, wrap code in superficial try/catch blocks, or m
 Label the failure with one or more of: **`CODE`** (application logic is wrong), **`ENVIRONMENT`** (tool/runtime/path/dependency/configuration), **`TOOL`** (an agent tool call failed, timed out or was rejected), **`EXTERNAL`** (a remote service or network endpoint), **`UNKNOWN`** (evidence is insufficient: reproduce and gather traces before changing anything). A failure can carry several labels (code that relies on an Application Programming Interface (API) the installed runtime lacks is `CODE` + `ENVIRONMENT`): fix each part where it lives. Never modify working application code to get around an environment, tool or external failure.
 
 ### Phase 1: Establish a Reproducible Feedback Loop
-* Formulate a single, deterministic command, script, or test case that triggers the failure reliably. Where a test can express the defect, that test is the loop: it becomes the regression test of Phase 5, failing (RED) now and following `test-design`.
+* Formulate a single, deterministic command, script, or test case that triggers the failure reliably. Where a test can express the defect, that test is the loop: it becomes the regression test of Phase 5, failing (RED) now and following `skills/harness/references/test-design.md`.
 * Run the command and verify that it consistently fails (RED).
 * If the defect is interactive or non-deterministic, capture the exact inputs, environment, and state progression before touching code. For a test that passes and fails on the same code, follow **Flaky and Non-Deterministic Tests** below.
 
@@ -46,8 +46,8 @@ Label the failure with one or more of: **`CODE`** (application logic is wrong), 
 ### Phase 5: Fix Root Cause & Prove Green
 * Apply the minimal, cleanest fix addressing the true root cause, not merely suppressing the symptom.
 * Run the feedback loop from Phase 1 and prove that it passes (GREEN).
-* Add a regression test at the contract seam (`test-design`) and watch it fail before or without the fix (if you forced the RED state by mutating code or a fixture, run `diff` against a pristine copy to prove the mutation landed before trusting the failure), then watch it pass with the fix.
-* When a defect of the same shape has recurred, or the root cause is a hazard the code makes easy to repeat, apply `mistake-proofing`: close the structural hazard and grep the codebase for sibling occurrences of the same pattern.
+* Add a regression test at the contract seam (`skills/harness/references/test-design.md`) and watch it fail before or without the fix (if you forced the RED state by mutating code or a fixture, run `diff` against a pristine copy to prove the mutation landed before trusting the failure), then watch it pass with the fix.
+* When a defect of the same shape has recurred, or the root cause is a hazard the code makes easy to repeat, apply `skills/harness/references/mistake-proofing.md`: close the structural hazard and grep the codebase for sibling occurrences of the same pattern.
 
 ### Phase 6: Clean Up & Verify Entire Scope
 * Remove all temporary debug logging, scratch files, and instrumentation.

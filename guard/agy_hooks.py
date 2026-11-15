@@ -58,20 +58,20 @@ PRE_TOOL_USE_MATCHER: str = "|".join(PRE_TOOL_USE_MATCHER_TOOLS)
 
 _SUBMODULE_EXPORTS: Dict[str, Tuple[str, ...]] = {
     "common": tuple((
-        "CONTINUATION_WORDS MAX_CONTEXT_SIGNALS MAX_EXPLICIT_HINTS MAX_HINTS MAX_STRIKES MIN_PROMPT_CHARS REHINT_TURN_GAP _AUTH_HEADING_RE _EMPTY_AUTH_TOKENS _EXPLICIT_CMD_TOKEN_RE "
+        "CONTINUATION_WORDS MAX_CONTEXT_SIGNALS MAX_EXPLICIT_HINTS MAX_HINTS MAX_STRIKES MIN_PROMPT_CHARS REHINT_TURN_GAP _AUTH_HEADING_RE _CONV_ID_FALLBACK_RE _EMPTY_AUTH_TOKENS _EXPLICIT_CMD_TOKEN_RE "
         "_FENCE_RE _HEX_OID_RE _INLINE_CODE_RE _INLINE_TAG_CODE_RE _LazyRegex _PASTED_RE _PATH_WORD_POST _PATH_WORD_PRE _SLASH_POST _SLASH_PRE _UNRECOVERED_FLIGHT_STATES "
-        "_USER_REQUEST_TAG_RE _VIABLE_HINT_TOKEN_RE _conversation_id _extract_latest_user_prompt _extract_normalized_auth_section _extract_user_request_prose _facade_attr _flight_recorder_file "
-        "_is_git_repo_workspace _is_harness_repo_root _iter_jsonl_tail_entries _maybe_record_host_fixture _prune_missing_flight_workspaces _read_bounded_markdown "
-        "_read_bounded_markdown_checked _read_ledger_checked _read_ledger_safe _safe_int _sanitize_host_fixture_payload _strip_non_user_prose _utc_now_iso _workspace_from_payload _workspaces_from_payload"
+        "_USER_REQUEST_TAG_RE _VIABLE_HINT_TOKEN_RE _conversation_id _extract_latest_user_prompt _extract_normalized_auth_section _extract_user_request_prose _extract_user_request_with_inline _facade_attr _flight_recorder_file "
+        "_inspect_transcript_turn_state _is_git_repo_workspace _is_harness_repo_root _iter_jsonl_tail_entries _maybe_record_host_fixture _prune_missing_flight_workspaces _read_bounded_markdown "
+        "_read_bounded_markdown_checked _read_ledger_checked _read_ledger_safe _resolve_transcript_path _safe_int _sanitize_host_fixture_payload _scan_transcript_turn_window _strip_non_user_prose _utc_now_iso _workspace_from_payload _workspaces_from_payload"
     ).split()),
     "pre_invocation": tuple((
-        "ECOSYSTEM_ROUTING_HINTS SKILL_HINTS _ANY_EXPLICIT_SLUG_RE _AUDIO_VIDEO_EXTS _BINARY_ARTIFACT_EXTS _CANVAS_RE _CLEAN_BUILD_PASS_RE _DISTINCTIVE_SKILL_SLUGS _GAME_PKG_RE "
-        "_HANDOFF_IN_PROGRESS_RE _KNOWN_INLINE_EXPLICIT_SLUGS _KNOWN_INLINE_SLASH_ALIASES _MEDIA_ASSET_DIRS _NON_EXEC_READ_TOOLS _RAF_RE _RASTER_MEDIA_EXTS _ROUTE_EXPLICIT_SLUGS "
-        "_ROUTE_HINT_BY_KEY _ROUTE_SLASH_ALIASES _RUST_BRIDGE_RE _SKILL_HINT_BY_NAME _SKILL_SLASH_ALIASES _SPRITE_NAME_RE _TASKS_BLOCKED_RE _TASKS_PARTIAL_RE _TASKS_PENDING_RE "
+        "ECOSYSTEM_ROUTING_HINTS SKILL_HINTS _ANY_EXPLICIT_SLUG_RE _AUDIO_VIDEO_EXTS _BENIGN_SEARCH_VERBS _BENIGN_STDERR_REDIR_RE _BINARY_ARTIFACT_EXTS _CANVAS_RE _CLEAN_BUILD_PASS_RE _COMPILER_TRACE_MARKER_RE _DISTINCTIVE_SKILL_SLUGS _GAME_PKG_RE "
+        "_HANDOFF_IN_PROGRESS_RE _KNOWN_INLINE_EXPLICIT_SLUGS _KNOWN_INLINE_SLASH_ALIASES _MEDIA_ASSET_DIRS _NONZERO_EXIT_CODE_RE _NON_EXEC_READ_TOOLS _RAF_RE _RASTER_MEDIA_EXTS _ROUTE_EXPLICIT_SLUGS "
+        "_ROUTE_HINT_BY_KEY _ROUTE_SLASH_ALIASES _RUST_BRIDGE_RE _SHELL_EXEC_TOOL_NAMES _SKILL_HINT_BY_NAME _SKILL_SLASH_ALIASES _SPRITE_NAME_RE _TASKS_BLOCKED_RE _TASKS_PARTIAL_RE _TASKS_PENDING_RE "
         "_TRACE_ERROR_MARKER_RE _WEB_ICON_IGNORE_RE _WS_SKIP_DIRS _acknowledge_interrupted_flight _collect_context_domain_and_transcript_hints _collect_invocation_skill_hints "
-        "_detect_transcript_tool_signals _detect_workspace_domain_signals _detect_workspace_recovery_hint _extract_explicit_inline_command_tokens _has_any_explicit_slug_mention "
-        "_has_explicit_route_slug_mention _has_explicit_slash_command _has_explicit_slug_mention _is_rea_mcp_available _load_conv_hint_state _optional_plugin_skill_available "
-        "_read_bounded_bytes_nofollow _select_tiered_hints handle_pre_invocation"
+        "_detect_transcript_tool_signals _detect_workspace_domain_signals _detect_workspace_recovery_hint _extract_cmd_from_args_obj _extract_entry_command_line _extract_explicit_inline_command_tokens _has_any_explicit_slug_mention "
+        "_has_explicit_route_slug_mention _has_explicit_slash_command _has_explicit_slug_mention _is_pure_search_or_diff_command _is_rea_mcp_available _load_conv_hint_state _optional_plugin_skill_available "
+        "_read_bounded_bytes_nofollow _scrub_shell_quotes_and_substitutions _select_tiered_hints handle_pre_invocation"
     ).split()),
     "pre_tool_use": tuple((
         "COMMAND_TOOL_NAMES HIGH_RISK_MCP_TOOL_NAMES WRITE_TOOL_NAMES _ALLOWED_STDLIB_WORKFLOW_MODULES _ALLOWED_TOP_EFFORT_VALUES _BACKTICK_SPAN_RE _BROAD_RUNTIME_DOTDIR_SEAMS _CD_SEG_RE "
@@ -87,7 +87,7 @@ _SUBMODULE_EXPORTS: Dict[str, Tuple[str, ...]] = {
         "_SAFE_ENVIRON_READ_METHODS _SAFE_WORKFLOW_BUILTINS _SAFE_WORKFLOW_HOST_CALLABLES _SCRIPT_C_EXTRACT_RE _SETTINGS_EFFORT_RE _SETTINGS_KV_EFFORT_RE _SETTINGS_KV_MODEL_RE _SETTINGS_MODEL_RE "
         "_SHELL_C_EXTRACT_RE _SHELL_DOTDOT_TOKEN_RE _SHELL_MUTATION_INDICATOR_RE _SHELL_PUNCT_CHARS _SHELL_VERB_SKIP_NAMES _SIMPLE_VAR_ASSIGN_RE _SINGLE_WRAPPER_PAT _STDLIB_MODULES "
         "_STR_ARGV_TOKEN_RE _STR_LIST_SEQ_RE _SUBPARSER_OPTS _SWARM_MENTION_RE _SWARM_MUTATION_KEYS _TERMINAL_INJECTION_RE _TERMINAL_MUX_SEGMENT_RE _UNCONDITIONAL_FORBIDDEN_SYS_ATTRS "
-        "_USER_REQUEST_BLOCK_RE _USER_SETTINGS_BLOCK_RE _WORKFLOW_ARCHIVE_READONLY_MODE_RE _WORKFLOW_INSTALL_EXEC_BODY _WORKFLOW_INSTALL_EXEC_RE _WORKFLOW_MAX_ARG_DEPTH _WORKFLOW_MAX_BYTES "
+        "_URI_SCHEME_PREFIX_RE _USER_REQUEST_BLOCK_RE _USER_SETTINGS_BLOCK_RE _WORKFLOW_ARCHIVE_READONLY_MODE_RE _WORKFLOW_INSTALL_EXEC_BODY _WORKFLOW_INSTALL_EXEC_RE _WORKFLOW_MAX_ARG_DEPTH _WORKFLOW_MAX_BYTES "
         "_WORKFLOW_MAX_FOLDED_LEN _WORKFLOW_READONLY_MODE_RE _WRITE_TARGET_ARG_KEYS _allowed_slug_suffixes_for_effort _apply_swarm_entry_mutation _auth_sections_differ "
         "_batch_update_swarm_workers_ledger _blank_quoted_spans _capture_git_baseline _catalog_top_model_spec _check_customization_model_and_effort _check_delegated_model_gate "
         "_check_pep263_cookie _cmd_input_buffer_key _collect_mcp_strings _collect_workflow_arg_strings _command_mutates_customization_in_cwd _command_mutates_customization_structure "
@@ -320,6 +320,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 else:
                     response = {}
             else:
+                sys.stderr.write(f"[Harness Hook] Unhandled internal error in `{event}` ({type(exc).__name__}): {exc}\n")
                 response = {}
 
     sys.stdout.write(json.dumps(response) + "\n")

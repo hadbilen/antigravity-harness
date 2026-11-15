@@ -195,11 +195,6 @@ class LinuxPackager:
                     for sc in sdir.rglob("*"):
                         if sc.suffix in (".py", ".sh", ".mjs") and sc.is_file() and not sc.is_symlink():
                             sc.chmod(0o755)
-            ah_stage = skills_stage / "antislop-human"
-            if ah_stage.is_dir() and not ah_stage.is_symlink():
-                for sc in ah_stage.glob("contrast-*.py"):
-                    if sc.is_file() and not sc.is_symlink():
-                        sc.chmod(0o755)
 
         # 5. Bash completion
         comp_content = """# Bash completion for agy-guard

@@ -267,52 +267,152 @@ def _extract_user_request_prose(raw_prompt: str) -> str:
     blocks = _USER_REQUEST_TAG_RE.findall(sanitized)
     return _strip_non_user_prose("\n".join(blocks), strip_inline_code=True) if blocks else sanitized
 
-def _extract_latest_user_prompt(payload: Dict[str, Any]) -> Tuple[str, int]:
+
+def _extract_user_request_with_inline(raw_prompt: str) -> str:
+    """Strips pasted/fenced blocks while preserving inline backticks for turn-equality comparison."""
+    sanitized = _strip_non_user_prose(raw_prompt or "", strip_inline_code=False)
+    blocks = _USER_REQUEST_TAG_RE.findall(sanitized)
+    return _strip_non_user_prose("\n".join(blocks), strip_inline_code=False) if blocks else sanitized
+
+
+_CONV_ID_FALLBACK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _resolve_transcript_path(payload: Dict[str, Any]) -> Optional[Path]:
+    """Resolves a regular non-symlink transcript JSONL path from payload or active conversation brain dir."""
+    transcript = payload.get("transcriptPath") or payload.get("transcript_path")
+    if isinstance(transcript, str) and transcript.strip():
+        raw_tx = transcript.strip()
+        if "\x00" in raw_tx:
+            return None
+        try:
+            cand = Path(raw_tx).expanduser()
+            if not cand.is_symlink() and cand.is_file():
+                return cand
+        except (OSError, RuntimeError, ValueError):
+            return None
+        return None
+    conv_id = _conversation_id(payload)
+    if conv_id and conv_id != "default" and "\x00" not in conv_id and _CONV_ID_FALLBACK_RE.match(conv_id):
+        try:
+            brain_root = Path.home() / ".gemini" / "antigravity" / "brain"
+            fallback = brain_root / conv_id / ".system_generated" / "logs" / "transcript.jsonl"
+            if (
+                not fallback.is_symlink()
+                and fallback.is_file()
+                and is_within(fallback.resolve(), brain_root.resolve())
+            ):
+                return fallback
+        except (OSError, RuntimeError, ValueError):
+            return None
+    return None
+
+
+def _scan_transcript_turn_window(
+    tx_path: Path, explicit_step: int, max_scan_bytes: int
+) -> Tuple[str, Optional[int], int, int, bool]:
+    trailing_non_user = 0
+    latest_text = ""
+    latest_entry_step: Optional[int] = None
+    user_input_count = 0
+    found_user = False
+
+    for entry in _iter_jsonl_tail_entries(tx_path, max_scan_bytes=max_scan_bytes):
+        step_type = str(entry.get("type", "")).upper()
+        source = str(entry.get("source", "")).upper()
+        if step_type == "USER_INPUT" or source == "USER_EXPLICIT":
+            user_input_count += 1
+            if not found_user:
+                found_user = True
+                content = entry.get("content")
+                if isinstance(content, str) and content.strip():
+                    latest_text = content.strip()[:131072]
+                raw_entry_step = entry.get("step_index")
+                if raw_entry_step is None:
+                    raw_entry_step = entry.get("stepIdx")
+                if raw_entry_step is not None:
+                    latest_entry_step = max(0, _safe_int(raw_entry_step, default=explicit_step))
+        elif not found_user:
+            trailing_non_user += 1
+    return latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user
+
+
+def _inspect_transcript_turn_state(payload: Dict[str, Any]) -> Tuple[str, int, bool, bool]:
     """
-    Returns (user_text, step_idx) from explicit payload fields (`lastUserInput`, `last_user_input`, `prompt`, etc.)
-    or from transcriptPath JSONL.
+    Inspects up to 128 KB (widening to 2 MiB on heavy mid-turn output) at the tail of `transcript.jsonl`:
+      `(latest_user_text, resolved_step_idx, is_mid_turn_continuation, has_transcript)`.
+    `is_mid_turn_continuation` is True when `>= 1` non-`USER_INPUT` entries follow the latest `USER_INPUT`.
     """
     step_raw = payload.get("stepIdx")
     if step_raw is None:
         step_raw = payload.get("initialNumSteps")
     explicit_step = max(0, _safe_int(step_raw, default=0))
 
+    tx_path = _resolve_transcript_path(payload)
+    if tx_path is None:
+        return "", explicit_step, False, False
+
+    latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user = (
+        _scan_transcript_turn_window(tx_path, explicit_step, max_scan_bytes=131072)
+    )
+    if not found_user and trailing_non_user > 0:
+        latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user = (
+            _scan_transcript_turn_window(tx_path, explicit_step, max_scan_bytes=2 * 1024 * 1024)
+        )
+
+    if not found_user:
+        return "", explicit_step, trailing_non_user > 0, True
+
+    explicit_prompt = ""
     for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "userMessage", "user_prompt"):
         val = payload.get(key)
         if isinstance(val, str) and val.strip():
-            return val.strip()[:131072], explicit_step
+            explicit_prompt = val.strip()[:131072]
+            break
 
-    transcript = payload.get("transcriptPath") or payload.get("transcript_path")
-    if isinstance(transcript, str) and transcript.strip():
-        path = Path(transcript).expanduser()
-        if path.is_file():
-            try:
-                # Read up to the last 128 KB of transcript to stay fast on long conversations
-                with path.open("rb") as f:
-                    f.seek(0, os.SEEK_END)
-                    size = f.tell()
-                    f.seek(max(0, size - 131072), os.SEEK_SET)
-                    lines = f.read().decode("utf-8", errors="replace").splitlines()
-                for raw in reversed(lines):
-                    raw = raw.strip()
-                    if not raw.startswith("{"):
-                        continue
-                    try:
-                        entry = json.loads(raw)
-                    except ValueError:
-                        continue
-                    step_type = str(entry.get("type", "")).upper()
-                    source = str(entry.get("source", "")).upper()
-                    if step_type == "USER_INPUT" or source == "USER_EXPLICIT":
-                        content = entry.get("content")
-                        if isinstance(content, str) and content.strip():
-                            raw_entry_step = entry.get("step_index")
-                            if raw_entry_step is None:
-                                raw_entry_step = entry.get("stepIdx")
-                            idx = max(0, _safe_int(raw_entry_step, default=explicit_step))
-                            return content.strip()[:131072], idx
-            except OSError:
-                pass
+    explicit_differs = False
+    if explicit_prompt and latest_text:
+        exp_clean = _extract_user_request_with_inline(explicit_prompt).strip()
+        tx_clean = _extract_user_request_with_inline(latest_text).strip()
+        if exp_clean != tx_clean:
+            explicit_differs = True
+
+    if explicit_step > 0:
+        resolved_step = explicit_step
+    elif latest_entry_step is not None and latest_entry_step > 0:
+        resolved_step = latest_entry_step + (1 if explicit_differs else 0)
+    else:
+        resolved_step = user_input_count + (1 if explicit_differs else 0)
+    is_mid = (trailing_non_user > 0) and (not explicit_differs)
+    return latest_text, resolved_step, is_mid, True
+
+
+def _extract_latest_user_prompt(
+    payload: Dict[str, Any],
+    *,
+    _tx_state: Optional[Tuple[str, int, bool, bool]] = None,
+) -> Tuple[str, int]:
+    """
+    Returns (user_text, step_idx) from explicit payload fields (`lastUserInput`, `last_user_input`, `prompt`, etc.)
+    or from transcriptPath JSONL, incorporating transcript step progression when `stepIdx` is omitted.
+    """
+    step_raw = payload.get("stepIdx")
+    if step_raw is None:
+        step_raw = payload.get("initialNumSteps")
+    explicit_step = max(0, _safe_int(step_raw, default=0))
+
+    tx_text, tx_step, _tx_mid, has_tx = (
+        _tx_state if _tx_state is not None else _inspect_transcript_turn_state(payload)
+    )
+
+    for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "userMessage", "user_prompt"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            resolved = explicit_step if explicit_step > 0 else (tx_step if has_tx else 0)
+            return val.strip()[:131072], resolved
+
+    if has_tx and tx_text:
+        return tx_text, tx_step
     return "", 0
 
 _HEX_OID_RE = re.compile(r"^[0-9a-fA-F]{40,64}$")

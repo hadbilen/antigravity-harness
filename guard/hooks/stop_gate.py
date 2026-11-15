@@ -40,10 +40,12 @@ from .common import (
     _facade_attr,
     _flight_recorder_file,
     _is_git_repo_workspace,
+    _iter_jsonl_tail_entries,
     _prune_missing_flight_workspaces,
     _read_ledger_checked,
     _read_ledger_safe,
     _repo_root,
+    _resolve_transcript_path,
     _safe_int,
     _utc_now_iso,
     _workspaces_from_payload,
@@ -124,30 +126,17 @@ def _extract_latest_assistant_message(payload: Dict[str, Any]) -> str:
         if isinstance(val, str) and val.strip():
             return val.strip()
 
-    transcript = payload.get("transcriptPath") or payload.get("transcript_path")
-    if isinstance(transcript, str) and transcript.strip():
-        path = Path(transcript).expanduser()
-        if path.is_file():
-            try:
-                with path.open("rb") as f:
-                    f.seek(0, os.SEEK_END)
-                    size = f.tell()
-                    f.seek(max(0, size - 131072), os.SEEK_SET)
-                    lines = f.read().decode("utf-8", errors="replace").splitlines()
-                for raw in reversed(lines):
-                    raw = raw.strip()
-                    if not raw.startswith("{"):
-                        continue
-                    try:
-                        entry = json.loads(raw)
-                    except ValueError:
-                        continue
-                    if str(entry.get("type", "")).upper() == "PLANNER_RESPONSE":
-                        content = entry.get("content")
-                        if isinstance(content, str) and content.strip():
-                            return content.strip()
-            except OSError:
-                pass
+    tx_path = _resolve_transcript_path(payload)
+    if tx_path is not None:
+        for entry in _iter_jsonl_tail_entries(tx_path, max_scan_bytes=131072):
+            step_type = str(entry.get("type", "")).upper()
+            source = str(entry.get("source", "")).upper()
+            if step_type == "USER_INPUT" or source == "USER_EXPLICIT":
+                break
+            if step_type == "PLANNER_RESPONSE":
+                content = entry.get("content")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
     return ""
 
 def _record_flight_stop(
@@ -409,7 +398,9 @@ def validate_ui_slop_content(norm_path: str, content: str) -> List[str]:
     Runs check_ui_slop.py (`UI-1`–`UI-5`, mode='auto' detecting game/editorial/utility)
     on modified non-test UI/HTML/game prototype files.
     """
-    if not norm_path.lower().endswith(_UI_SLOP_EXTENSIONS) or norm_path.startswith("skills/silk-design/assets/"):
+    if not norm_path.lower().endswith(_UI_SLOP_EXTENSIONS) or norm_path.startswith(
+        ("skills/antislop/references/silk-design/assets/", "skills/silk-design/assets/")
+    ):
         return []
     mod = _load_ui_slop_scanner()
     if mod is None or not hasattr(mod, "scan_text"):
@@ -521,7 +512,12 @@ def _scan_stale_negative_assertions(
         prod_disk = workspace / prod_path
         prod_current = ""
         try:
-            if prod_disk.is_file() and prod_disk.stat().st_size <= 262144:
+            if (
+                not prod_disk.is_symlink()
+                and prod_disk.is_file()
+                and is_within(prod_disk.resolve(), workspace.resolve())
+                and prod_disk.stat().st_size <= 262144
+            ):
                 prod_current = prod_disk.read_text(encoding="utf-8", errors="replace")
         except OSError:
             pass
@@ -689,7 +685,20 @@ def _unquote_git_diff_path(header_line: str, prefix: str = "b/") -> str:
 
     if not decoded.startswith(prefix):
         return ""
-    return decoded[len(prefix) :].replace("\\", "/")
+    rel = decoded[len(prefix) :].replace("\\", "/")
+    if "\x00" in rel:
+        return ""
+    norm_parts: List[str] = []
+    for seg in rel.split("/"):
+        if not seg or seg == ".":
+            continue
+        if seg == "..":
+            if not norm_parts:
+                return ""
+            norm_parts.pop()
+        else:
+            norm_parts.append(seg)
+    return "/".join(norm_parts)
 
 _STRICT_PY_EQ_RE = _LazyRegex(r"^\s*assert\s+(.+?)\s*==\s*(.+?)(?:\s+#.*)?$")
 
@@ -977,7 +986,12 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
                 continue
             disk_test = workspace / norm_path
             try:
-                if not disk_test.is_file() or disk_test.is_symlink() or disk_test.stat().st_size > 262144:
+                if (
+                    not disk_test.is_file()
+                    or disk_test.is_symlink()
+                    or not is_within(disk_test.resolve(), workspace.resolve())
+                    or disk_test.stat().st_size > 262144
+                ):
                     continue
                 new_test_src = disk_test.read_text(encoding="utf-8", errors="replace")
                 head_blob = subprocess.run(
@@ -1057,7 +1071,7 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
             if m_iso and _LIVE_CLOCK_CALL_RE.search(joined_test) and not _CLOCK_INJECTION_RE.search(joined_test):
                 findings.append(
                     f"Calendar time-bomb in `{norm_path}` (`{m_iso.group(0)[1:]}`) "
-                    "— inject or mock `now` instead of comparing live clocks against hardcoded dates (skills/test-design/SKILL.md)."
+                    "— inject or mock `now` instead of comparing live clocks against hardcoded dates (skills/harness/references/test-design.md)."
                 )
                 break
 

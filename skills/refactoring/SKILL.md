@@ -5,7 +5,7 @@ description: >-
   wide changes, and proof that the pinning tests can fail. Invoke with /refactoring or when asked to refactor,
   restructure, extract, rename across files, or migrate callers ("refactor et", "yeniden düzenle", "sadeleştir",
   "parçala", "kod tekrarını kaldır"). Not for bug fixes (use 'diagnosing-bugs'), new features (use 'harness'), or
-  comment-only cleanup (use 'antislop-code').
+  comment-only cleanup (use 'antislop' code-comments).
 ---
 
 # Refactoring: Behavior-Preserving Change
@@ -27,7 +27,7 @@ Answer from the codebase and version history, never from memory:
 
 ## 3. Pin the Behavior With Characterization Tests
 
-Where existing tests do not cover the branches to be restructured, write characterization tests before the first code edit (following `skills/test-design/SKILL.md`):
+Where existing tests do not cover the branches to be restructured, write characterization tests before the first code edit (following `skills/harness/references/test-design.md`):
 
 - **The existing code is the oracle.** A characterization test asserts what the code actually produces today, even if that looks questionable. If the code returns `19.27` and a document says `19.28`, the characterization test asserts `19.27` and the discrepancy is reported separately.
 - **Literal inputs and literal expected outputs**, captured from running the current code.

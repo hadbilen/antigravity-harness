@@ -4,7 +4,7 @@ description: >-
   Bidirectional ecosystem adapter, suitability analyzer, and rule transpiler between Antigravity and external AI coding
   agents (Cursor, Claude Code, Codex, Cline, Windsurf, Aider, etc.). Invoke when porting, exporting, importing,
   converting, or syncing rules, instructions, or skills across AI tools. Not for upgrading application package
-  dependencies or runtimes (use 'dependency-upgrade').
+  dependencies or runtimes (use 'harness' dependency-upgrade).
 ---
 
 # Porter: Universal AI Agent Bridge & Suitability Transpiler

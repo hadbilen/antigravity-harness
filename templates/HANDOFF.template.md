@@ -33,6 +33,6 @@
 - **Where:** {{continue in this window | new window with this HANDOFF.md}}
 - **Window Index:** {{Single-Handoff | Window k/N — <Window Title>}}
 - **Recommended Model & Effort:** {{Top Reasoning / Balanced / Fast Model Tier (<Effort Level>) — <1-line rationale>}}
-- **Required Skills to Load:** {{e.g. `harness`, `marathon` (`skills/harness/SKILL.md`, `skills/marathon/SKILL.md`)}}
+- **Required Skills to Load:** {{e.g. `harness`, `marathon` (`skills/harness/SKILL.md`, `skills/harness/references/marathon.md`)}}
 - **Immediate Next Action:** The single next justified step: exact file, symbol or command to run on turn 1, and the skill to load if any.
 - **Ready-to-Use Prompt:** A short task prompt that carries only the coordinates above (goal, exit criteria, required skills, next action). Task prompts never include harness maintenance commands.

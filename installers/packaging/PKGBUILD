@@ -51,7 +51,7 @@ EOF
     python3 -c 'import json, sys; from pathlib import Path; p = Path(sys.argv[1]) / "usr/share/antigravity-harness/hooks.json"; raw = p.read_text(encoding="utf-8"); u, g = "skills/upstream-auditor/scripts/upstream_watcher.py", "guard/agy_hooks.py"; assert u in raw and g in raw, "expected hook script paths missing in hooks.json"; out = raw.replace(u, "/usr/share/antigravity-harness/" + u).replace(g, "/usr/lib/antigravity-guard/" + g); assert isinstance(json.loads(out), dict); p.write_text(out, encoding="utf-8")' "$pkgdir"
     install -Dm644 .harness/manifest.json "$pkgdir/usr/share/antigravity-harness/.harness/manifest.json"
     cp -r templates skills agents "$pkgdir/usr/share/antigravity-harness/"
-    find "$pkgdir/usr/share/antigravity-harness/skills" -type f \( -path '*/scripts/*.py' -o -path '*/scripts/*.sh' -o -path '*/scripts/*.mjs' -o -name 'contrast-*.py' \) -exec chmod 755 {} +
+    find "$pkgdir/usr/share/antigravity-harness/skills" -type f \( -path '*/scripts/*.py' -o -path '*/scripts/*.sh' -o -path '*/scripts/*.mjs' \) -exec chmod 755 {} +
 
     # Bash completion
     install -dm755 "$pkgdir/usr/share/bash-completion/completions"

@@ -44,7 +44,7 @@ Inside `update(dt)`, `render(alpha)`, and collision broad/narrow phases:
 
 ---
 
-## 3. Entity State Machines & Mistake-Proofing (`skills/mistake-proofing/SKILL.md`)
+## 3. Entity State Machines & Mistake-Proofing (`skills/harness/references/mistake-proofing.md`)
 
 Boolean flag soup (`isGrounded`, `isDashing`, `isAttacking`, `isStunned`, `isDead`) creates $2^N$ implicit states where illegal combinations (attacking while dead, dashing while stunned) inevitably occur.
 

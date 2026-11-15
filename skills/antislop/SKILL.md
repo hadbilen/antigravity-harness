@@ -1,11 +1,11 @@
 ---
 name: antislop
-description: 'Design and copy quality filter for AI coding agents. Enforces intentionality,
-  eliminates AI-slop visual tropes, buzzword copy, and fake UI placeholders across
-  40 rules, a Liveliness Toolkit, and Delivery Gate. Invoke when: designing, building,
-  or reviewing websites, web apps, or interfaces, or when user invokes ''/antislop'',
-  ''anti-slop'', or runs a UI delivery gate. Not for code-only comment cleanup without
-  UI/copy scope (use ''antislop-code'') or backend-only refactoring (use ''refactoring'').'
+description: >-
+  Design, copy, accessibility, mobile layout, kinetic motion, and code-comment quality filter for AI coding agents across
+  40 rules, Liveliness Toolkit, and Delivery Gate. Invoke with /antislop, /antislop-ui, /antislop-copywriting,
+  /antislop-human, /antislop-layoutmobile, /antislop-code, or /silk-design when designing, auditing, or building UI,
+  copy, contrast, or comment hygiene. Not for backend-only behavior-preserving refactoring (use 'refactoring') or
+  developer API documentation (use 'technical-writing').
 ---
 
 # antislop
@@ -207,12 +207,12 @@ The 40 rules fall into three groups with different enforcement standards:
 - **Banned:** "Streamline", "supercharge", "unlock", "seamless", "revolutionary", "game-changing", "cutting-edge", "next-gen", "tailored", "elevate", "fast-paced world".
 - **Fix:** State what the product actually does in plain language. If a sentence has no real information, delete it.
 - **Voice & Direction Scope:** The ban governs copy authored by the agent. If the user provides a writing sample or brand guide with deliberate stylistic patterns or punctuation (e.g. em dashes), that sample is an explicit direction, not agent copy. Follow the R-37 conflict protocol: name the element, name the rule, and ask rather than silently scrubbing or retaining them.
-- **Skill:** `skills/antislop-copywriting/SKILL.md`
+- **Reference:** `skills/antislop/references/copywriting.md`
 
 #### R-03 — Mobile Responsiveness
 - **Rule:** The UI must work correctly at mobile screen sizes (320px–480px) and tablet (768px).
 - **Check:** No horizontal overflow (`overflow-x`), no clipped cards, no colliding text, touch targets at least 44x44px.
-- **Skill:** `skills/antislop-layoutmobile/SKILL.md`
+- **Reference:** `skills/antislop/references/layoutmobile.md`
 
 #### R-17 — Data & Numbers
 - **Rule:** Never invent statistics, metrics, or counter figures ("10,000+ users", "99.9% uptime", "500M requests").
@@ -233,7 +233,7 @@ The 40 rules fall into three groups with different enforcement standards:
 #### R-25 — Color Contrast
 - **Rule:** All text must meet WCAG AA contrast standards: minimum 4.5:1 for normal text, 3:1 for large text (24px+ / 18pt regular or 18.67px+ / 14pt bold).
 - **Fix:** Never use light grey text on white backgrounds or dark grey text on dark backgrounds. Verify with `contrast-check.py` where available.
-- **Skill:** `skills/antislop-human/SKILL.md`
+- **Reference:** `skills/antislop/references/human-a11y.md`
 
 #### R-26 — Interactive Elements
 - **Rule:** Every button, tab, link, toggle, and dropdown must have complete interactive behavior.
@@ -250,7 +250,7 @@ The 40 rules fall into three groups with different enforcement standards:
 #### R-32 — Keyboard Accessibility
 - **Rule:** The entire interface must be operable with a keyboard alone.
 - **Check:** Logical `Tab` order, visible focus rings (never `outline: none` without an alternative), `Enter`/`Space` activates buttons, `Escape` closes modals.
-- **Skill:** `skills/antislop-human/SKILL.md`
+- **Reference:** `skills/antislop/references/human-a11y.md`
 
 #### R-33 — No File/CSS Patching via Scripts
 - **Rule:** Never inject inline `<style>` patches via runtime JavaScript to override broken CSS.
@@ -455,12 +455,12 @@ The scanner deterministically flags cloned 3+ sibling card grids (`UI-1`), neste
 Before delivering any UI work, evaluate against the 4 delivery blocks. Every item must pass:
 
 ### Block 1: Hard Gate (Absolute)
-- [ ] No marketing buzzwords or generic hype (R-02; verified via `skills/antislop-copywriting/scripts/check_synthetic_markers.py` or `~/.gemini/config/skills/antislop-copywriting/scripts/check_synthetic_markers.py` on prose/copy)
+- [ ] No marketing buzzwords or generic hype (R-02; verified via `skills/antislop/scripts/check_synthetic_markers.py` or `~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py` on prose/copy)
 - [ ] Mobile responsive without horizontal overflow (R-03)
 - [ ] No invented numbers or fake statistics (R-17)
 - [ ] No fake testimonials or customer logos (R-18)
 - [ ] All navigation links point to real routes (R-24; zero `UI-5` dead anchors)
-- [ ] Text meets WCAG AA contrast (R-25; verified via `skills/antislop-human/contrast-check.py` or `~/.gemini/config/skills/antislop-human/contrast-check.py`)
+- [ ] Text meets WCAG AA contrast (R-25; verified via `skills/antislop/scripts/contrast-check.py` or `~/.gemini/config/skills/antislop/scripts/contrast-check.py`)
 - [ ] Complete hover/focus/active states for all interactive elements (R-26)
 - [ ] Handles all 5 UI states: default, loading, empty, error, success (R-27)
 - [ ] Full keyboard accessibility with visible focus rings (R-32)
@@ -483,4 +483,17 @@ Before delivering any UI work, evaluate against the 4 delivery blocks. Every ite
 - [ ] Consistent border radius and spacing scale across all components (R-05, R-11)
 - [ ] Clear visual hierarchy with a single primary CTA per view (R-15)
 - [ ] Distinct domain identity verified: consistent typography tokens (max 2 font families per `DESIGN.md` §4), explicit Domain Archetype alignment (`UTILITY`, `EDITORIAL`, or `GAME & INTERACTIVE`), and zero generic template placeholders (`UI-1`–`UI-5`)
+
+---
+
+## On-Demand Deep-Dive Modules (`references/` & `scripts/`)
+
+Load only the specific reference module needed for the active task:
+- **Visual Composition & HUDs (`/antislop-ui`):** [references/ui.md](./references/ui.md) + `scripts/check_ui_slop.py`
+- **Copywriting & De-AI Prose (`/antislop-copywriting`):** [references/copywriting.md](./references/copywriting.md) + `scripts/check_synthetic_markers.py`
+- **WCAG AA Contrast & Keyboard A11y (`/antislop-human`):** [references/human-a11y.md](./references/human-a11y.md) + `scripts/contrast-check.py` & `scripts/contrast-mcp.py`
+- **Mobile Overflow & Tap Targets (`/antislop-layoutmobile`):** [references/layoutmobile.md](./references/layoutmobile.md)
+- **Code-Comment Hygiene (`/antislop-code`):** [references/code-comments.md](./references/code-comments.md)
+- **Kinetic Showcase Motion — `MOTION 3` (`/silk-design`):** [references/silk-design.md](./references/silk-design.md) (`references/silk-design/assets/`, `references/silk-design/references/`, `references/silk-design/templates/`)
+
 

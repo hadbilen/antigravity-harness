@@ -39,6 +39,7 @@ from .common import (
     _facade,
     _facade_attr,
     _flight_recorder_file,
+    _inspect_transcript_turn_state,
     _is_git_repo_workspace,
     _is_harness_repo_root,
     _iter_jsonl_tail_entries,
@@ -47,6 +48,7 @@ from .common import (
     _read_ledger_checked,
     _read_ledger_safe,
     _repo_root,
+    _resolve_transcript_path,
     _safe_int,
     _strip_non_user_prose,
     _workspaces_from_payload,
@@ -81,7 +83,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "test-design",
-        "skills/test-design/SKILL.md",
+        "skills/harness/references/test-design.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/test-design{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"test\s+design|design\s+tests?|coverage\s+gaps?|property[- ]based\s+test|"
@@ -97,7 +99,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "mistake-proofing",
-        "skills/mistake-proofing/SKILL.md",
+        "skills/harness/references/mistake-proofing.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/mistake-proofing{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"poka[- ]?yoke|mistake[- ]proof(?:ing)?|parse[,\s]+don'?t\s+validate|"
@@ -126,7 +128,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "dependency-upgrade",
-        "skills/dependency-upgrade/SKILL.md",
+        "skills/harness/references/dependency-upgrade.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/dependency-upgrade{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"upgrade\s+(?:dependenc(?:y|ies)|packages?)|bump\s+version|version\s+bump|major\s+upgrade|"
@@ -285,7 +287,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "marathon",
-        "skills/marathon/SKILL.md",
+        "skills/harness/references/marathon.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/marathon{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"marathon\s+plan|multi[- ]window\s+(?:plan|rework|build)|split\s+into\s+windows|"
@@ -346,67 +348,67 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "antislop-ui",
-        "skills/antislop-ui/SKILL.md",
+        "skills/antislop/references/ui.md",
         re.compile(
-            rf"{_PATH_WORD_PRE}(?:"
+            rf"(?:{_SLASH_PRE}/antislop-ui{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]ui|visual\s+slop\s+audit|audit\s+ui\s+components?|anti[- ]boxification|sibling\s+symmetry|"
             r"görsel\s+slop|bileşen\s+denetimi|kart\s+simetrisi"
-            rf"){_PATH_WORD_POST}",
+            rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
         "Anti-Boxification, Sibling Symmetry Cap, Typographic Scale Lock & HUD vitality",
     ),
     (
         "antislop-copywriting",
-        "skills/antislop-copywriting/SKILL.md",
+        "skills/antislop/references/copywriting.md",
         re.compile(
-            rf"{_PATH_WORD_PRE}(?:"
+            rf"(?:{_SLASH_PRE}/antislop-copywriting{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]copy(?:writing)?|write\s+copy|de[- ]ai\s+(?:prose|text|copy)|synthetic\s+markers?|anti[- ]ai\s+tone|"
             r"metin\s+yazımı|pazarlama\s+metni|yapay\s+zeka\s+dili(?:ni)?\s+temizle"
-            rf"){_PATH_WORD_POST}",
+            rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
         "de-AI prose rewrites, tone calibration & EN/TR synthetic-marker scanning",
     ),
     (
         "antislop-human",
-        "skills/antislop-human/SKILL.md",
+        "skills/antislop/references/human-a11y.md",
         re.compile(
-            rf"{_PATH_WORD_PRE}(?:"
+            rf"(?:{_SLASH_PRE}/antislop-human{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]human|check\s+contrast|wcag\s+contrast|accessibility\s+audit|a11y\s+audit|color\s+contrast\s+ratio|"
             r"renk\s+kontrast(?:ı|i)|erişilebilirlik\s+denetimi|wcag\s+uyumu"
-            rf"){_PATH_WORD_POST}",
+            rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
         "WCAG AA contrast verification, keyboard navigation & 5 component states",
     ),
     (
         "antislop-layoutmobile",
-        "skills/antislop-layoutmobile/SKILL.md",
+        "skills/antislop/references/layoutmobile.md",
         re.compile(
-            rf"{_PATH_WORD_PRE}(?:"
+            rf"(?:{_SLASH_PRE}/antislop-layoutmobile{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]layoutmobile|mobile\s+layout|fix\s+overflow|horizontal\s+overflow|tap[- ]target\s+siz(?:e|ing)|responsive\s+check|"
             r"mobil\s+yerleşim|yatay\s+taşma|mobil\s+uyumluluk|dokunma\s+hedefi"
-            rf"){_PATH_WORD_POST}",
+            rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
         "mobile horizontal-overflow elimination, 44px tap targets & responsive reflow",
     ),
     (
         "antislop-code",
-        "skills/antislop-code/SKILL.md",
+        "skills/antislop/references/code-comments.md",
         re.compile(
-            rf"{_PATH_WORD_PRE}(?:"
+            rf"(?:{_SLASH_PRE}/antislop-code{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]code|clean\s+comments|comment\s+hygiene|remove\s+slop\s+comments|"
             r"yorum\s+temizli(?:ği|gi)|gereksiz\s+yorumlar(?:ı|i)\s+(?:sil|temizle|kaldır)"
-            rf"){_PATH_WORD_POST}",
+            rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
         "code-comment hygiene: strips AI-slop comments while preserving why/contract notes",
     ),
     (
         "silk-design",
-        "skills/silk-design/SKILL.md",
+        "skills/antislop/references/silk-design.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/silk-design{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"silk[- ]design|kinetic\s+(?:motion|typography)|smooth[- ]scroll(?:ing)?|motion\s+3|lenis\s+scroll|"
@@ -418,7 +420,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "visualizer",
-        "skills/visualizer/SKILL.md",
+        "skills/technical-writing/references/visualizer.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/visualizer{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"visualize\s+(?:architecture|workflow|state|codebase|journey)|architecture\s+diagram|mermaid\s+diagram|sequence\s+diagram|"
@@ -462,7 +464,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "architecture-decision-records",
-        "skills/architecture-decision-records/SKILL.md",
+        "skills/harness/references/adr.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/adr{_SLASH_POST}|(?<![/\w\\-])docs/adr(?![\w-])|{_PATH_WORD_PRE}(?:"
             r"record\s+adr|architecture\s+decision\s+records?|write\s+an\s+adr|"
@@ -474,7 +476,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "security-review",
-        "skills/security-review/SKILL.md",
+        "skills/audit/references/security-review.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/security-review{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"security\s+review\s+checklist|pre[- ]deployment\s+security|transport\s+security\s+headers|"
@@ -519,7 +521,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
     ),
     (
         "unlazy",
-        "skills/unlazy/SKILL.md",
+        "skills/harness/references/unlazy.md",
         re.compile(
             rf"(?:{_SLASH_PRE}[/\$]unlazy{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"tree\s+\d+|do\s+not\s+stop\s+until\s+it\s+is\s+done|bitene\s+kadar\s+durma"
@@ -966,11 +968,14 @@ def _detect_workspace_recovery_hint(
     workspace: Optional[Path],
     conv_id: str,
     first_turn_in_conv: bool,
+    *,
+    is_mid_turn: bool = False,
 ) -> Tuple[bool, Optional[Tuple[str, str, Optional[int]]]]:
     """
     Inspects `state_dir() / "flight_recorder.json"`, `HANDOFF.md`, and `tasks.md` to detect:
       1. Mid-turn interruptions (`status == "in_flight"`, where a write tool ran and `Stop`
-         never executed due to quota exhaustion, network disconnect, or power loss),
+         never executed due to quota exhaustion, network disconnect, or power loss; suppressed
+         during active mid-turn tool continuations in the same conversation),
       2. Cross-session blocked or interrupted turns (`status in ("in_progress_blocked", "interrupted_notified")`
          from a prior session),
       3. Active `HANDOFF.md` (`Status: [IN-PROGRESS]`) or unfinished `tasks.md` (`[ ]`, `[~]`, `[!]`)
@@ -1010,7 +1015,7 @@ def _detect_workspace_recovery_hint(
                     flight_entry = dict(ledger[ws_key])
                     status = str(flight_entry.get("status") or "")
                     rec_conv = str(flight_entry.get("conversation_id") or "")
-                    if status == "in_flight":
+                    if status == "in_flight" and not (is_mid_turn and rec_conv == conv_id):
                         flight_alert_reason = "in_flight"
                         ack_seq = _safe_int(flight_entry.get("seq"), default=0)
                     elif first_turn_in_conv and rec_conv != conv_id and status in (
@@ -1234,14 +1239,128 @@ _BINARY_ARTIFACT_EXTS = frozenset({
     ".pak",
 })
 
-_TRACE_ERROR_MARKER_RE = re.compile(
+_COMPILER_TRACE_MARKER_RE = re.compile(
     r"(?:"
     r"\berror\s+TS\d+\b|\berror\[E\d+\]|Traceback\s*\(most\s+recent\s+call\s+last\):|"
-    r"\bFAILED\s*\(|\bCommand\s+exited\s+with\s+code\s+[1-9]\d*\b|"
+    r"\bFAILED\s*\(|"
     r"\b(?:AssertionError|SyntaxError|TypeError|ImportError|ModuleNotFoundError|ReferenceError):|"
     r"\bfatal\s+error:|\b(?:COMPILATION|BUILD|TYPECHECK)\s+FAILED\b"
     r")"
 )
+
+_NONZERO_EXIT_CODE_RE = re.compile(r"\bCommand\s+exited\s+with\s+code\s+([1-9]\d*)\b")
+
+_TRACE_ERROR_MARKER_RE = re.compile(
+    rf"(?:{_COMPILER_TRACE_MARKER_RE.pattern}|{_NONZERO_EXIT_CODE_RE.pattern})"
+)
+
+_SHELL_EXEC_TOOL_NAMES = frozenset({"run_command", "bash", "execute_command", "shell"})
+_BENIGN_SEARCH_VERBS = frozenset({"grep", "egrep", "fgrep", "rg", "diff", "cmp", "test", "["})
+_BENIGN_STDERR_REDIR_RE = re.compile(r"(?<!\w)(?:\d*>\s*&\d+|&>\s*/dev/null|\d*>\s*/dev/null)(?!\S)")
+
+
+def _extract_cmd_from_args_obj(args_obj: Any) -> str:
+    if isinstance(args_obj, str):
+        s = args_obj.strip()
+        if s.startswith("{"):
+            try:
+                args_obj = json.loads(s)
+            except ValueError:
+                return ""
+        else:
+            return ""
+    if isinstance(args_obj, dict):
+        for k in ("CommandLine", "command", "cmd", "command_line"):
+            v = args_obj.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return ""
+
+
+def _extract_entry_command_line(entry: Dict[str, Any]) -> str:
+    for k in ("CommandLine", "command", "cmd"):
+        v = entry.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    for ak in ("args", "tool_args", "arguments", "input"):
+        c = _extract_cmd_from_args_obj(entry.get(ak))
+        if c:
+            return c
+    return ""
+
+
+def _scrub_shell_quotes_and_substitutions(cmd_line: str) -> Optional[str]:
+    """Scrubs quoted literals and escaped chars; returns None on command substitution or unclosed quotes."""
+    out: List[str] = []
+    n = len(cmd_line)
+    i = 0
+    mode = ""
+    while i < n:
+        ch = cmd_line[i]
+        if not mode:
+            if ch == "\\":
+                if i + 1 >= n:
+                    return None
+                out.append("_")
+                i += 2
+                continue
+            if ch == "`" or (ch == "$" and i + 1 < n and cmd_line[i + 1] == "("):
+                return None
+            if ch in ("'", '"'):
+                mode = ch
+                out.append("__Q__")
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+        elif mode == "'":
+            if ch == "'":
+                mode = ""
+            i += 1
+        else:
+            if ch == "\\":
+                if i + 1 >= n:
+                    return None
+                i += 2
+                continue
+            if ch == "`" or (ch == "$" and i + 1 < n and cmd_line[i + 1] == "("):
+                return None
+            if ch == '"':
+                mode = ""
+            i += 1
+    if mode:
+        return None
+    return "".join(out)
+
+
+def _is_pure_search_or_diff_command(cmd_line: str) -> bool:
+    """Returns True only when every simple command in `cmd_line` invokes grep/rg/diff/cmp/test/[."""
+    if not cmd_line or not cmd_line.strip():
+        return False
+    scrubbed = _scrub_shell_quotes_and_substitutions(cmd_line)
+    if scrubbed is None:
+        return False
+    scrubbed = _BENIGN_STDERR_REDIR_RE.sub(" ", scrubbed)
+    segments = [seg.strip() for seg in re.split(r"(?:&&|\|\||&|;|\||\n)", scrubbed) if seg.strip()]
+    if not segments:
+        return False
+    for seg in segments:
+        if ">" in seg or "<" in seg:
+            return False
+        tokens = [t.strip("()") for t in seg.split() if t.strip("()")]
+        idx = 0
+        while idx < len(tokens):
+            tok = tokens[idx]
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok) or tok in ("command", "builtin", "!"):
+                idx += 1
+                continue
+            break
+        if idx >= len(tokens):
+            return False
+        verb = Path(tokens[idx]).name.lower()
+        if verb not in _BENIGN_SEARCH_VERBS:
+            return False
+    return True
 
 _CLEAN_BUILD_PASS_RE = re.compile(
     r"(?:Ran\s+\d+\s+tests?(?:\s+in\s+[^\n]+)?\s+\bOK\b|\b\d+\s+passed\b|\bFinished\s+`(?:dev|test|release)`|\b0\s+errors?\b|Found\s+0\s+errors?|\bok\s+\S+\s+[0-9.]+s\b|Success:\s+no\s+issues\s+found\b|All\s+checks?\s+passed\b)"
@@ -1402,10 +1521,9 @@ def _detect_workspace_domain_signals(workspaces: Sequence[Path]) -> Tuple[List[s
 
 def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[str, str]]:
     """Detects post-user >500-line, truncated, or repeated compiler/test error traces in transcript tail."""
-    transcript = payload.get("transcriptPath") or payload.get("transcript_path")
-    if not isinstance(transcript, str) or not transcript.strip():
+    tx_path = _resolve_transcript_path(payload)
+    if tx_path is None:
         return None
-    tx_path = Path(transcript).expanduser()
 
     rev_tail: List[Dict[str, Any]] = []
     for entry in _iter_jsonl_tail_entries(tx_path, max_scan_bytes=2 * 1024 * 1024):
@@ -1424,9 +1542,23 @@ def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[s
     heavy_fail = False
     consec_build_fails = 0
     snippets: List[str] = []
+    pending_shell_cmds: List[str] = []
     for entry in tail_entries:
         step_type = str(entry.get("type", "")).upper()
-        if step_type in {"USER_INPUT", "PLANNER_RESPONSE"}:
+        if step_type == "USER_INPUT":
+            continue
+        if step_type == "PLANNER_RESPONSE":
+            pending_shell_cmds.clear()
+            tcs = entry.get("tool_calls")
+            if isinstance(tcs, list):
+                for tc in tcs:
+                    if not isinstance(tc, dict):
+                        continue
+                    tc_name = str(tc.get("name") or tc.get("tool_name") or tc.get("tool") or "").strip().lower()
+                    if tc_name in _SHELL_EXEC_TOOL_NAMES:
+                        pending_shell_cmds.append(
+                            _extract_cmd_from_args_obj(tc.get("args") or tc.get("arguments") or tc.get("input"))
+                        )
             continue
         status = str(entry.get("status", "")).upper()
         err_field = entry.get("error")
@@ -1439,11 +1571,23 @@ def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[s
             and not re.search(r"\bCommand\s+exited\s+with\s+code\s+[1-9]", content)
         ):
             continue
+        cmd_line = _extract_entry_command_line(entry)
+        is_shell_result = tool_name in _SHELL_EXEC_TOOL_NAMES or (
+            not tool_name
+            and ("Command exited with code" in content or "[Harness PreToolUse" in content)
+        )
+        if is_shell_result and pending_shell_cmds:
+            queued_cmd = pending_shell_cmds.pop(0)
+            if not cmd_line:
+                cmd_line = queued_cmd
         is_error_status = status == "ERROR" or (
             isinstance(err_field, str) and bool(err_field.strip())
         ) or (isinstance(err_field, dict) and bool(err_field))
         is_clean_exit_zero = bool(re.search(r"\bCommand\s+exited\s+with\s+code\s+0\b", content)) and not is_error_status
-        has_trace_marker = False if is_clean_exit_zero else bool(_TRACE_ERROR_MARKER_RE.search(content))
+        has_compiler_marker = False if is_clean_exit_zero else bool(_COMPILER_TRACE_MARKER_RE.search(content))
+        m_nonzero = None if is_clean_exit_zero else _NONZERO_EXIT_CODE_RE.search(content)
+        exit_code = _safe_int(m_nonzero.group(1), default=0) if m_nonzero else 0
+        has_trace_marker = has_compiler_marker or (exit_code > 0)
 
         if is_clean_exit_zero and _CLEAN_BUILD_PASS_RE.search(content):
             consec_build_fails = 0
@@ -1453,6 +1597,15 @@ def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[s
 
         is_truncated_content = isinstance(truncated, list) and "content" in truncated
         line_count = content.count("\n") + (1 if content else 0)
+        if (
+            exit_code in (1, 2)
+            and not has_compiler_marker
+            and line_count <= 500
+            and not is_truncated_content
+            and _is_pure_search_or_diff_command(cmd_line)
+        ):
+            continue
+
         is_failing = (is_error_status or has_trace_marker) and not is_clean_exit_zero
         if not is_failing:
             continue
@@ -1463,7 +1616,7 @@ def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[s
             heavy_fail = True
             snippets.append(content[-400:] if content else str(err_field)[:400])
 
-        if has_trace_marker or (is_error_status and bool(re.search(r"\bCommand\s+exited\s+with\s+code\s+[1-9]", content))):
+        if has_trace_marker or (is_error_status and exit_code > 0):
             consec_build_fails += 1
             snippets.append(content[:300] if content else str(err_field)[:300])
 
@@ -1627,24 +1780,36 @@ def _collect_invocation_skill_hints(
     return matched, matched_routes
 
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
-    raw_prompt, step_idx = _extract_latest_user_prompt(payload)
-    if not raw_prompt:
+    tx_state = _inspect_transcript_turn_state(payload)
+    _tx_text, _tx_step, tx_mid_turn, has_tx = tx_state
+    inv_raw = payload.get("invocationNum")
+    if inv_raw is None:
+        inv_raw = payload.get("invocation_num")
+    inv_num = _safe_int(inv_raw, default=1)
+    if inv_raw is not None and inv_num == 1:
+        is_mid_turn = False
+    else:
+        is_mid_turn = (inv_num > 1) or tx_mid_turn
+
+    raw_prompt, step_idx = _extract_latest_user_prompt(payload, _tx_state=tx_state)
+    if not raw_prompt and not is_mid_turn:
         return {}
 
-    cleaned = _extract_user_request_prose(raw_prompt).strip()
+    cleaned = _extract_user_request_prose(raw_prompt).strip() if raw_prompt else ""
     scan_text = cleaned[:16384]
-    inline_cmd_surface = _extract_explicit_inline_command_tokens(raw_prompt)
+    inline_cmd_surface = _extract_explicit_inline_command_tokens(raw_prompt) if raw_prompt else ""
     explicit_text = f"{scan_text} {inline_cmd_surface}".strip() if inline_cmd_surface else scan_text
     normalized = re.sub(r"[.!?,;:]+$", "", scan_text.lower()).strip()
     has_explicit_cmd = bool(
-        _EXPLICIT_CMD_TOKEN_RE.search(explicit_text) or _has_any_explicit_slug_mention(explicit_text)
+        explicit_text
+        and (_EXPLICIT_CMD_TOKEN_RE.search(explicit_text) or _has_any_explicit_slug_mention(explicit_text))
     )
     is_short_or_continuation = (not has_explicit_cmd) and (
         len(scan_text) < MIN_PROMPT_CHARS or normalized in CONTINUATION_WORDS
     )
     workspaces = _workspaces_from_payload(payload)
 
-    if is_short_or_continuation and not workspaces:
+    if not is_mid_turn and is_short_or_continuation and not workspaces:
         return {}
 
     conv_id = _conversation_id(payload)
@@ -1653,7 +1818,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     pending_acks: List[Tuple[Path, int]] = []
     matched: List[Tuple[str, str, str]] = []
     matched_routes: List[Tuple[str, str]] = []
-    prompt_hash = hashlib.sha256(scan_text.encode("utf-8")).hexdigest()[:12]
+    prompt_hash = hashlib.sha256(explicit_text.encode("utf-8")).hexdigest()[:12]
     current_sig = f"{step_idx}:{prompt_hash}"
 
     try:
@@ -1663,15 +1828,12 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 sys.stderr.write(f"[Harness PreInvocation] Quarantine/read fallback on `{hints_file}`.\n")
             seen_turns, turn_num, last_sig = _load_conv_hint_state(ledger.get(conv_id))
             first_turn_in_conv = "__workspace_checked__" not in seen_turns
-            is_new_user_turn = (not is_short_or_continuation) and (current_sig != last_sig)
-            inv_raw = payload.get("invocationNum")
-            if inv_raw is None:
-                inv_raw = payload.get("invocation_num")
-            inv_num = _safe_int(inv_raw, default=1)
-            if inv_num > 1 and not is_new_user_turn and (not workspaces or not first_turn_in_conv):
+            is_distinct_user_turn = (not is_mid_turn) and (current_sig != last_sig)
+            is_new_user_turn = (not is_short_or_continuation) and is_distinct_user_turn
+            if is_mid_turn and not is_distinct_user_turn:
                 active_turn = max(turn_num, 1)
                 tx_keys: set[str] = set()
-                if payload.get("transcriptPath") or payload.get("transcript_path"):
+                if has_tx or payload.get("transcriptPath") or payload.get("transcript_path"):
                     tx_sig = _detect_transcript_tool_signals(payload)
                     if tx_sig is not None:
                         route_key, tx_digest_key = tx_sig
@@ -1698,7 +1860,10 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 while len(ledger) > 50:
                     oldest = next(iter(ledger))
                     del ledger[oldest]
-                atomic_write_json(hints_file, ledger)
+                try:
+                    atomic_write_json(hints_file, ledger)
+                except OSError as exc:
+                    sys.stderr.write(f"[Harness PreInvocation] Failed to write `{hints_file}`: {exc}\n")
                 routes_fast = "; ".join(directive for _key, directive in matched_routes)
                 msg_fast = (
                     f"[Harness Ecosystem Routing] Relevant subagent(s) / MCP server(s): {routes_fast}. "
@@ -1707,7 +1872,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 return {"injectSteps": [{"systemMessage": {"systemMessage": msg_fast}}]}
 
             state_dirty = False
-            if is_new_user_turn:
+            if is_distinct_user_turn:
                 turn_num += 1
                 last_sig = current_sig
                 state_dirty = True
@@ -1723,6 +1888,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                         ws,
                         conv_id,
                         first_turn_in_conv=first_turn_in_conv,
+                        is_mid_turn=is_mid_turn,
                     )
                     if not inspect_ok:
                         all_inspect_ok = False
@@ -1784,32 +1950,42 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                     _acknowledge_interrupted_flight(ack_ws, ack_seq_val)
     except (OSError, TimeoutError) as exc:
         sys.stderr.write(f"[Harness PreInvocation] Failed to lock `{hints_file}` ({type(exc).__name__}): {exc}\n")
-        for ws in workspaces:
-            _inspect_ok, recovery = _facade_attr(
-                "_detect_workspace_recovery_hint", _detect_workspace_recovery_hint
-            )(ws, conv_id, first_turn_in_conv=False)
-            if recovery is not None:
-                recovery_msgs.append(recovery[1])
-        matched, matched_routes = _collect_invocation_skill_hints(
-            scan_text,
-            workspaces,
-            {},
-            is_short_or_continuation=is_short_or_continuation,
-            is_new_user_turn=not is_short_or_continuation,
-            has_explicit_cmd=has_explicit_cmd,
-            active_turn=1,
-            explicit_text=explicit_text,
-        )
-        matched, matched_routes, _ctx_keys = _collect_context_domain_and_transcript_hints(
-            payload,
-            workspaces,
-            {},
-            matched,
-            matched_routes,
-            is_short_or_continuation=is_short_or_continuation,
-            is_new_user_turn=not is_short_or_continuation,
-            active_turn=1,
-        )
+        if is_mid_turn:
+            if has_tx or payload.get("transcriptPath") or payload.get("transcript_path"):
+                tx_sig_fb = _detect_transcript_tool_signals(payload)
+                if tx_sig_fb is not None:
+                    route_tuple_fb = _ROUTE_HINT_BY_KEY.get(tx_sig_fb[0])
+                    if route_tuple_fb is not None:
+                        matched_routes.append(route_tuple_fb)
+            if not matched_routes:
+                return {}
+        else:
+            for ws in workspaces:
+                _inspect_ok, recovery = _facade_attr(
+                    "_detect_workspace_recovery_hint", _detect_workspace_recovery_hint
+                )(ws, conv_id, first_turn_in_conv=False, is_mid_turn=False)
+                if recovery is not None:
+                    recovery_msgs.append(recovery[1])
+            matched, matched_routes = _collect_invocation_skill_hints(
+                scan_text,
+                workspaces,
+                {},
+                is_short_or_continuation=is_short_or_continuation,
+                is_new_user_turn=not is_short_or_continuation,
+                has_explicit_cmd=has_explicit_cmd,
+                active_turn=1,
+                explicit_text=explicit_text,
+            )
+            matched, matched_routes, _ctx_keys = _collect_context_domain_and_transcript_hints(
+                payload,
+                workspaces,
+                {},
+                matched,
+                matched_routes,
+                is_short_or_continuation=is_short_or_continuation,
+                is_new_user_turn=not is_short_or_continuation,
+                active_turn=1,
+            )
 
     if not recovery_msgs and not matched and not matched_routes:
         return {}

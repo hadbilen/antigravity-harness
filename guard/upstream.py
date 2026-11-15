@@ -229,6 +229,10 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
                         ):
                             pending.pop(name, None)
                             changed = True
+                elif isinstance(cur, dict) and "target_skills" in seed_info:
+                    if cur.get("target_skills") != seed_info.get("target_skills"):
+                        cur["target_skills"] = copy.deepcopy(seed_info["target_skills"])
+                        changed = True
 
     tracked_schema_ok = not isinstance(seed_repos, dict) or isinstance(state.get("tracked_repositories"), dict)
     if tracked_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
@@ -322,22 +326,22 @@ class UpstreamAuditorBridge:
             "last_skills_audit_timestamp": None,
             "skills_audit_interval_hours": 72,
             "approved_customization_models": [
-                "Gemini 4 Hydrogen (XHigh)",
-                "Gemini 4 Carbon (XHigh)",
-                "Gemini 4 Carbon (High)",
-                "Gemini 4 Argon (High)",
-                "Claude Opus 5.5 (High)",
-                "orchestrator-carbon-xhigh",
+                "claude-opus-5.5-high",
+                "gemini-4-hydrogen-xhigh",
+                "gemini-4-carbon-high",
+                "gemini-4-carbon-xhigh",
+                "gemini-4-argon-high",
                 "orchestrator-carbon-high",
-                "orchestrator-argon-xhigh",
+                "orchestrator-carbon-xhigh",
                 "orchestrator-argon-high",
+                "orchestrator-argon-xhigh",
             ],
             "tracked_repositories": {
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
                     "branch": "main",
                     "last_synced_commit": "35b54dc",
-                    "target_skills": ["antislop", "antislop-code", "antislop-ui", "antislop-human", "antislop-copywriting", "antislop-layoutmobile"],
+                    "target_skills": ["antislop"],
                 },
                 "Chisle": {
                     "repo": "JayPokale/Chisle",
@@ -349,7 +353,7 @@ class UpstreamAuditorBridge:
                     "repo": "Leonxlnx/unlazy",
                     "branch": "main",
                     "last_synced_commit": "1667149",
-                    "target_skills": ["unlazy"],
+                    "target_skills": ["skills/harness/references/unlazy.md"],
                 },
                 "procoder": {
                     "repo": "azrtydxb/procoder",
@@ -361,16 +365,16 @@ class UpstreamAuditorBridge:
                     "repo": "bendrape1-byte/silk-design",
                     "branch": "main",
                     "last_synced_commit": "0f530f0",
-                    "target_skills": ["silk-design"],
+                    "target_skills": ["skills/antislop/references/silk-design.md"],
                 },
                 "everything-claude-code": {
                     "repo": "affaan-m/everything-claude-code",
                     "branch": "main",
                     "last_synced_commit": "d2ef268",
                     "target_skills": [
-                        "architecture-decision-records",
                         "database-migrations",
-                        "security-review",
+                        "skills/harness/references/adr.md",
+                        "skills/audit/references/security-review.md",
                         "agents/build-error-resolver.md",
                     ],
                 },
@@ -378,7 +382,7 @@ class UpstreamAuditorBridge:
                     "repo": "mattpocock/skills",
                     "branch": "main",
                     "last_synced_commit": "5863806",
-                    "target_skills": ["deep-grill", "diagnosing-bugs", "test-design", "retro"],
+                    "target_skills": ["deep-grill", "diagnosing-bugs", "skills/harness/references/test-design.md", "retro"],
                 },
                 "rea": {
                     "repo": "morluto/rea",

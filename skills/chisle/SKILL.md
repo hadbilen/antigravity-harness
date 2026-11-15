@@ -6,7 +6,7 @@ description: >
   for fun and bills by the syllable. Trigger: /chisle.
   Deactivate: "stop chisle" / "normal mode".
   Use EXCLUSIVELY when user says "chisle mode", "activate chisle", "chislify", or invokes /chisle;
-  not for multi-window planning (use 'marathon') or rapid single-file HTML discovery prototypes (use 'vibecoder').
+  not for multi-window planning (use 'harness' marathon) or rapid single-file HTML discovery prototypes (use 'vibecoder').
 ---
 
 # Chisle
@@ -20,8 +20,8 @@ Off only when one of the deactivation triggers in the next section occurs. One m
 
 ## Mutual Exclusion and Mode Precedence
 - **Activation (Trigger):** `/chisle` or the explicit chisle keywords in the description (`"chisle mode"`, `"activate chisle"`, `"chislify"`).
-- **Scope of priority:** chisle governs prose compression and YAGNI/ladder-first code minimality within the active scope. It never
-  overrides the `harness` verification gates, locked Acceptance Criteria (`AC-1..N`), the Tier 2/3 artifact requirements (`implementation_plan.md`, `tasks.md`) of `GEMINI.md`, Rule 4's abbreviation discipline, Rule 5/8's Delivery Block, or Rule 2's demand for
+- **Scope of priority:** chisle governs prose compression and YAGNI/ladder-first code minimality (`GEMINI.md` Rule 4) within the active scope. It never
+  overrides the `harness` verification gates, locked Acceptance Criteria (`AC-1..N`), the Tier 2/3 artifact requirements (`implementation_plan.md`, `tasks.md`) of `GEMINI.md`, Rule 5/8's Delivery Block, or Rule 2's demand for
   depth on architectural and root-cause questions.
 - **Suspend Scaffolding Ceremony:** While `chisle` is active, `unlazy` (Depth Tree) and `procoder` sprint ceremonies are suspended. Tier 2/3 `implementation_plan.md` and `tasks.md` remain mandatory, written in terse bullet form; produce the minimal working diff.
 - **Deactivation (single definition):** "stop chisle", `/chisle off`, an explicit `/unlazy` invocation (unlazy supersedes chisle), or "normal mode" (which resets `chisle` presentation/prose style to standard `harness` prose without canceling an active `marathon` or `unlazy` execution ledger unless explicitly named).
@@ -37,9 +37,8 @@ Chisle is an efficiency, terse communication, and YAGNI code filter; it is NOT a
 Default to fragments. Drop: articles (a/an/the), filler (just/really/basically/actually/
 simply), pleasantries (sure/certainly/of course/happy to), hedging, and linking verbs
 where meaning survives. One word over a phrase. Short synonyms (big not extensive). Show
-causality with arrows (X → Y) instead of "because/therefore/which means". Follow `GEMINI.md`
-Rule 4: name a concept in full before its abbreviation (at most one abbreviation per sentence);
-never invent new acronyms. Technical terms, code, API names,
+causality with arrows (X → Y) instead of "because/therefore/which means". Expand unfamiliar
+domain acronyms on first use and never invent new acronyms. Technical terms, code, API names,
 error strings: exact, verbatim, never abbreviated. Code blocks unchanged.
 
 **Terse ≠ incomplete — this is the whole game.** Keep every decisive fact: the fix, the

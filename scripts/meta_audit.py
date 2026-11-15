@@ -485,7 +485,7 @@ class MetaAuditEngine:
                                   f"{s_target} references `{agent}` subagent, but agents/{agent}.md is missing.",
                                   f"Create agents/{agent}.md or update the reference.")
 
-        top_dirs = {"skills", "agents", "scripts", "guard", "porter", "templates", "installers", "tests", "bin"}
+        top_dirs = {"skills", "agents", "scripts", "guard", "porter", "templates", "installers", "tests", "bin", "references", "assets"}
         config_mapped_heads = {"GEMINI.md", "DESIGN.md", "MISTAKES.md", "skills", "agents", "templates", "scripts", "guard", "porter"}
         code_dirs = {"scripts", "guard", "porter", "tests"}
         is_split_layout = not (self.repo_root / "scripts").is_dir() and (self.repo_root / "GEMINI.md").is_file()
@@ -507,7 +507,7 @@ class MetaAuditEngine:
             if REPO_ROOT.is_dir() and REPO_ROOT not in runtime_roots and REPO_ROOT != self.repo_root:
                 runtime_roots.append(REPO_ROOT)
 
-        is_split_p2, _, managed_agents_p2, _ = self._split_layout_managed_sets()
+        is_split_p2, managed_skills_p2, managed_agents_p2, _ = self._split_layout_managed_sets()
         hooks_py = self._resolve_hooks_py_for_audit(
             allow_split_fallback=bool(is_split_p2 and managed_agents_p2)
         )
@@ -707,6 +707,52 @@ class MetaAuditEngine:
                     "Fix JSON syntax in hooks.json.",
                 )
 
+        gemini_md = self.repo_root / "GEMINI.md"
+        if gemini_md.is_file():
+            try:
+                gemini_raw = gemini_md.read_bytes()
+            except OSError:
+                gemini_raw = b""
+            if len(gemini_raw) > 6500:
+                self._add(
+                    "WARNING",
+                    name,
+                    "GEMINI.md",
+                    f"GEMINI.md exceeds ADR-0009 6,500-byte ceiling ({len(gemini_raw)} bytes)",
+                    "Trim GEMINI.md back within the <= 6,500 UTF-8 byte budget.",
+                )
+            for gline in gemini_raw.decode("utf-8", errors="replace").splitlines():
+                if re.match(r"^\s*15\.\s+\*\*", gline):
+                    r15_bytes = len(gline.encode("utf-8"))
+                    if r15_bytes > 550:
+                        self._add(
+                            "WARNING",
+                            name,
+                            "GEMINI.md",
+                            f"GEMINI.md Rule 15 exceeds ADR-0009 550-byte ceiling ({r15_bytes} bytes)",
+                            "Keep Rule 15 compact (<= 550 UTF-8 bytes) and move details to skills.",
+                        )
+                    break
+
+        skills_root_p2 = self.repo_root / "skills"
+        if skills_root_p2.is_dir():
+            fm_total_bytes = 0
+            for sk_md in sorted(skills_root_p2.glob("*/SKILL.md")):
+                if is_split_layout and managed_skills_p2 is not None and sk_md.parent.name not in managed_skills_p2:
+                    continue
+                sk_text = self._read_text(sk_md)
+                m_fm = re.match(r"\A---\r?\n.*?\r?\n---", sk_text, re.DOTALL)
+                if m_fm:
+                    fm_total_bytes += len(m_fm.group(0).encode("utf-8"))
+            if fm_total_bytes > 10800:
+                self._add(
+                    "WARNING",
+                    name,
+                    "skills/",
+                    f"Aggregate skills/*/SKILL.md frontmatter exceeds ADR-0009 10,800-byte ceiling ({fm_total_bytes} bytes)",
+                    "Consolidate specialist supplements under references/ or tighten frontmatter descriptions.",
+                )
+
         basenames = self._collect_basenames(self.repo_root)
         for rt in runtime_roots:
             basenames |= self._collect_basenames(rt)
@@ -876,6 +922,8 @@ class MetaAuditEngine:
                                     f"Broken internal section reference `§{m_own.group(1)}` in `{target}`",
                                     f"Update `§{m_own.group(1)}` to match an actual numbered heading in `{target}`.",
                                 )
+            if is_historical:
+                continue
             for token in set(re.findall(r"`([^`\s]+)`", text_no_code)):
                 clean = token.rstrip(".,:;)")
                 if clean.startswith("~/.gemini/config/") and not any(c in clean for c in "<>*{}$"):
@@ -970,12 +1018,32 @@ class MetaAuditEngine:
     # ------------------------------------------------------------------
     # Pass 3
     # ------------------------------------------------------------------
+    _CONSOLIDATED_MODE_SKILL_PATHS = {
+        "marathon": "skills/harness/references/marathon.md",
+        "unlazy": "skills/harness/references/unlazy.md",
+    }
+
     def pass3_directive_collision_and_mutex(self) -> None:
         name = "Pass 3 (Directive Collision & Mutex)"
         skills_dir = self.repo_root / "skills"
         for skill in MODE_SKILLS:
             f = skills_dir / skill / "SKILL.md"
+            rel_f = f"skills/{skill}/SKILL.md"
+            if not f.is_file() and skill in self._CONSOLIDATED_MODE_SKILL_PATHS:
+                rel_f = self._CONSOLIDATED_MODE_SKILL_PATHS[skill]
+                f = self.repo_root / rel_f
             if not f.is_file():
+                if (
+                    skill in self._CONSOLIDATED_MODE_SKILL_PATHS
+                    and (skills_dir / "harness" / "SKILL.md").is_file()
+                ):
+                    self._add(
+                        "WARNING",
+                        name,
+                        rel_f,
+                        f"Consolidated mode reference '{rel_f}' is missing while 'skills/harness/SKILL.md' is present.",
+                        f"Restore '{rel_f}' or update _CONSOLIDATED_MODE_SKILL_PATHS in scripts/meta_audit.py.",
+                    )
                 continue
             content = self._read_text(f)
             section = re.search(r"(?ims)^#+\s*mutual exclusion[^\n]*\n(.*?)(?=^#+\s|\Z)", content)
@@ -992,12 +1060,12 @@ class MetaAuditEngine:
                 if not re.search(deact_re, body):
                     missing.append("a deactivation condition")
             if missing:
-                self._add("WARNING", name, f"skills/{skill}/SKILL.md",
+                self._add("WARNING", name, rel_f,
                           f"Skill '{skill}' lacks an explicit mutual exclusion barrier with 'harness' (missing {', '.join(missing)}).",
                           "Add a '## Mutual Exclusion' section naming the trigger, the deactivation and 'harness'.")
 
         thresholds = {}
-        for rel in ("GEMINI.md", "skills/harness/SKILL.md", "skills/unlazy/SKILL.md"):
+        for rel in ("GEMINI.md", "skills/harness/SKILL.md", "skills/harness/references/unlazy.md", "skills/unlazy/SKILL.md"):
             p = self.repo_root / rel
             if p.is_file():
                 m = re.search(r"(?is)tier\s*3[^\n]*?\n?.{0,300}?(?:>\s*(\d+)\s*files|\b(\d+)\+\s*files)", self._read_text(p))
@@ -1159,6 +1227,10 @@ class MetaAuditEngine:
 
         sources = [("GEMINI.md", manifest.constitution.get("raw", "")), ("DESIGN.md", manifest.design_contract.get("raw", ""))]
         sources += [(f"skills/{s['name']}/SKILL.md", s["raw"]) for s in manifest.skills]
+        for s in manifest.skills:
+            for sub_rel, sub_val in sorted((s.get("subfiles") or {}).items()):
+                if str(sub_rel).lower().endswith(".md") and isinstance(sub_val, str):
+                    sources.append((f"skills/{s['name']}/{sub_rel}", sub_val))
         sources += [(f"agents/{a['name']}.md", a["raw"]) for a in manifest.agents]
         for rel, text in sources:
             hits = find_directives(text)
@@ -1312,7 +1384,7 @@ class MetaAuditEngine:
             actual = contrast_ratio(fg, bg)
             if abs(actual - stated_v) > 0.05:
                 self._add("CRITICAL", name, "DESIGN.md", f"{pair}: stated {stated_v:.2f}:1 but {fg}/{bg} measures {actual:.2f}:1",
-                          "Recompute with skills/antislop-human/contrast-check.py.")
+                          "Recompute with skills/antislop/scripts/contrast-check.py.")
             if actual + 1e-9 < minimum_v:
                 self._add("CRITICAL", name, "DESIGN.md", f"{pair}: {actual:.2f}:1 is below the required {minimum_v:.1f}:1",
                           "Choose a color pair that meets the minimum.")
@@ -1475,8 +1547,13 @@ class MetaAuditEngine:
                     raw_skill_hints = mod.SKILL_HINTS if (has_lazy_facade or "SKILL_HINTS" in mod.__dict__) else ()
                     for s_name, s_rel, s_rx, _reason in raw_skill_hints:
                         hint_map[s_name] = (s_rel, s_rx)
+                        s_parts = str(s_rel).split("/")
+                        s_parent = s_parts[1] if len(s_parts) >= 2 else ""
+                        check_hint_file = (not is_split) or (
+                            managed_skills is not None and s_parent in managed_skills
+                        )
                         if (
-                            not is_split
+                            check_hint_file
                             and str(s_rel).startswith("skills/")
                             and not (self.repo_root / s_rel).is_file()
                         ):
@@ -1653,10 +1730,14 @@ class MetaAuditEngine:
                         f"Register '{d.name}' in SKILL_HINTS inside guard/agy_hooks.py.",
                     )
                 else:
-                    _, s_rx = hint_map[d.name]  # type: ignore[misc]
+                    candidate_rxs = [
+                        cand_rx
+                        for cand_name, (cand_rel, cand_rx) in hint_map.items()  # type: ignore[misc]
+                        if cand_name == d.name or str(cand_rel).startswith(f"skills/{d.name}/")
+                    ]
                     pos_desc = pos_clause_split.split(desc, maxsplit=1)[0]
                     for slash_cmd in sorted(set(re.findall(r"(?<![\w/.])(/[a-z][a-z0-9-]*)", pos_desc))):
-                        if not s_rx.search(slash_cmd):  # type: ignore[union-attr]
+                        if not any(cand_rx.search(slash_cmd) for cand_rx in candidate_rxs):  # type: ignore[union-attr]
                             self._add(
                                 "WARNING",
                                 name,
@@ -1665,7 +1746,7 @@ class MetaAuditEngine:
                                 f"Add `{slash_cmd}` to the `{d.name}` trigger regex in guard/agy_hooks.py.",
                             )
                         path_probe = f"src{slash_cmd}/worker.py"
-                        if s_rx.search(path_probe):  # type: ignore[union-attr]
+                        if any(cand_rx.search(path_probe) for cand_rx in candidate_rxs):  # type: ignore[union-attr]
                             self._add(
                                 "WARNING",
                                 name,

@@ -4,7 +4,7 @@ description: >-
   Architectural migration, porting, and FFI bridging (`cbindgen`, `cxx`, `PyO3`) of C, C++, Go, or Python codebases
   into memory-safe, compiler-verified Rust (`rustc`, `clippy`, `miri`, sanitizers). Invoke with /rustify or on "rust'a
   çevir", "rust'a taşı", "c/c++'dan rust'a". Not for intra-Rust restructuring (use 'refactoring'), Rust optimization
-  (use 'sweetspot'), Cargo version bumps (use 'dependency-upgrade'), or non-Rust legacy revival (use 'renew').
+  (use 'sweetspot'), Cargo version bumps (use 'harness' dependency-upgrade), or non-Rust legacy revival (use 'renew').
 ---
 
 # Rustify — Architectural Migration & Memory-Safe Interop Discipline
@@ -16,7 +16,7 @@ Translating source files line-by-line from C, C++, Go, or Python into Rust produ
 ## 1. Adjacent-Skill Boundaries & Co-Loading Map
 
 * **vs. `skills/refactoring/SKILL.md` & `skills/sweetspot/SKILL.md`:** Use `refactoring` when restructuring code that is *already* in Rust with zero contract shift, and use `sweetspot` when profiling/optimizing an already-working Rust crate (`--time`, `--memory`, `--disk`, `--net`). Never mix premature Single Instruction, Multiple Data (`SIMD`) or custom-allocator micro-tuning into the initial cross-language migration pass.
-* **vs. `skills/dependency-upgrade/SKILL.md`:** Use `dependency-upgrade` when bumping crate versions in `Cargo.toml` / `Cargo.lock` or upgrading the Rust toolchain edition (`2021` -> `2024`) within an existing Rust project.
+* **vs. `skills/harness/references/dependency-upgrade.md`:** Use `dependency-upgrade` when bumping crate versions in `Cargo.toml` / `Cargo.lock` or upgrading the Rust toolchain edition (`2021` -> `2024`) within an existing Rust project.
 * **vs. `skills/renew/SKILL.md` (Handoff vs. Co-Load):**
   * *Active/buildable C, C++, Go, or Python module -> Rust:* Use `rustify` directly.
   * *Obsolete/unbuildable 15+ year legacy software or classic game revived into a Rust target stack:* **Co-load** `skills/renew/SKILL.md` with `rustify`: combine both Stage 1 autopsies and a single merged Stage 2 contract gate (`<= 4` questions), pin once in Stage 3, apply `renew` Stage 4.2 legacy vulnerability sanitization (plus `renew` Section 6 for classic games) alongside `rustify` Stage 4, and pass both Stage 5 gates.
@@ -25,8 +25,8 @@ Translating source files line-by-line from C, C++, Go, or Python into Rust produ
   * *Go services/concurrency or Python `PyO3` / `maturin` extensions:* Read [references/managed-go-python.md](./references/managed-go-python.md).
 * **Co-Loaded Capabilities When Applicable:**
   * *Compiled-only `.so` / `.dll` / `.a` / firmware binaries lacking source:* Co-load `reverse-engineer-anything` (`rea_rea` Model Context Protocol (`MCP`) server when available) to extract symbol graphs and calling conventions first.
-  * *Domain type & typestate design:* Apply `skills/mistake-proofing/SKILL.md` and `skills/mistake-proofing/languages.md` (`Rust` section: `Prevented` vs. `Announced`).
-  * *Multi-window (`>8` files) migrations:* Partition via `skills/marathon/SKILL.md` (`W1: Characterization & Leaf Types`, `W2: Interop Seam & Intermediate Logic`, `W3: Unsafe Purification & Audit`). Record target profile and binary layout decisions via `skills/architecture-decision-records/SKILL.md`.
+  * *Domain type & typestate design:* Apply `skills/harness/references/mistake-proofing.md` and `skills/harness/references/mistake-proofing-languages.md` (`Rust` section: `Prevented` vs. `Announced`).
+  * *Multi-window (`>8` files) migrations:* Partition via `skills/harness/references/marathon.md` (`W1: Characterization & Leaf Types`, `W2: Interop Seam & Intermediate Logic`, `W3: Unsafe Purification & Audit`). Record target profile and binary layout decisions via `skills/harness/references/adr.md`.
 
 ---
 
@@ -62,10 +62,10 @@ Default new or migrated crates to **Rust `2024` Edition** targeting **Rust `1.10
 
 ## 4. Stage 3 — Differential Pinning & Leaf-to-Root Redesign
 
-1. **Pin Source Oracle First (`skills/refactoring/SKILL.md` §3 & `skills/test-design/SKILL.md`):**
+1. **Pin Source Oracle First (`skills/refactoring/SKILL.md` §3 & `skills/harness/references/test-design.md`):**
    * Capture golden edge-case vectors from the untouched source implementation (empty/zero-length buffers, boundary integers `0`, `INT_MIN`, `INT_MAX`, `UINT_MAX`, malformed frames, non-UTF-8 byte sequences) or record a `file:line` **Equivalence Ledger** in `scratch/equivalence_ledger.md` when the source target cannot execute locally.
    * **Immutable Cross-Language Test Discipline (`GEMINI.md` Rule 9):** Never delete, comment out, or weaken existing C, C++, Go, or Python test suites to pass a gate. Keep superseded legacy test files on disk and running across `incremental-ffi` seams until replacement Rust public-seam and differential tests are green, the user authorizes `## Authorized Test Modifications` in `tasks.md` (`[Legacy Test Transition Request]`), and the human operator seals a fresh `agy-guard test-boundary snapshot`.
-2. **Redesign Data Models Before Function Bodies (`skills/mistake-proofing/languages.md`):**
+2. **Redesign Data Models Before Function Bodies (`skills/harness/references/mistake-proofing-languages.md`):**
    * Replace nullable pointers and magic sentinels (`NULL`, `-1`, `nil`, `None`) with `Option<T>` (`Option<&T>` / `Option<&mut T>` / `NonNull<T>` inside low-level wrappers).
    * Replace `errno`, out-parameters, and unchecked exceptions with `#[must_use]` `Result<T, DomainError>` enums, using `Vec::try_reserve_exact` plus explicit byte-cap bounds on untrusted wire lengths so corrupt lengths return `Err(...)` instead of aborting on allocation failure.
    * Replace invalid flag combinations and closed `virtual` Object-Oriented Programming (`OOP`) hierarchies with algebraic `enum` variants (`Prevented` at compile time), using `trait` + `dyn Trait` only for genuinely open extension seams. Map templates/`SFINAE` to generics with `where` bounds, Standard Template Library (`STL`) views (`std::string_view`, `std::span`, `std::expected`) to `&str`/`&[T]`/`Result`, non-destructive `std::move` patterns to destructive Rust moves (`core::mem::take`/`replace`), scoped C `goto cleanup` blocks to `core::mem::DropGuard` (`DropGuard::new` / `dismiss`), and custom arenas to `core::alloc::Allocator` (`references/c-cpp-abi-and-embedded.md`).

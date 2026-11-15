@@ -9,19 +9,19 @@ licenses require. Adapted files may have been modified for this harness.
 
 | Upstream | License | Skills & Agents in this repository |
 |---|---|---|
-| [miqdadbadjuber/anti-slop](https://github.com/miqdadbadjuber/anti-slop) | MIT | `antislop`, `antislop-code`, `antislop-ui`, `antislop-human`, `antislop-copywriting`, `antislop-layoutmobile` |
+| [miqdadbadjuber/anti-slop](https://github.com/miqdadbadjuber/anti-slop) | MIT | `antislop` (`skills/antislop/references/{code-comments,ui,human-a11y,copywriting,layoutmobile}.md`) |
 | [JayPokale/Chisle](https://github.com/JayPokale/Chisle) | MIT | `chisle` |
-| [Leonxlnx/unlazy](https://github.com/Leonxlnx/unlazy) | MIT | `unlazy` |
+| [Leonxlnx/unlazy](https://github.com/Leonxlnx/unlazy) | MIT | `harness` (`skills/harness/references/unlazy.md`) |
 | [azrtydxb/procoder](https://github.com/azrtydxb/procoder) | Apache-2.0 | `procoder` |
-| [bendrape1-byte/silk-design](https://github.com/bendrape1-byte/silk-design) | MIT | `silk-design` |
-| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `architecture-decision-records`, `database-migrations`, `security-review`, `harness` (acceptance criteria), `build-error-resolver`, `silent-failure-hunter` |
-| [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `deep-grill`, `diagnosing-bugs`, `test-design`, `retro` |
-| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `test-design`, `diagnosing-bugs` (condition polling), `test-adequacy-auditor` |
+| [bendrape1-byte/silk-design](https://github.com/bendrape1-byte/silk-design) | MIT | `antislop` (`skills/antislop/references/silk-design.md`) |
+| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `database-migrations`, `harness` (`skills/harness/references/adr.md` & acceptance criteria), `audit` (`skills/audit/references/security-review.md`), `build-error-resolver`, `silent-failure-hunter` |
+| [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `deep-grill`, `diagnosing-bugs`, `harness` (`skills/harness/references/test-design.md`), `retro` |
+| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `harness` (`skills/harness/references/test-design.md`), `diagnosing-bugs` (condition polling), `test-adequacy-auditor` |
 | [bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) | MIT | `test-adequacy-auditor`, `consistency-auditor`, `harness` (verification of returned findings) |
 | [datadog-labs/agent-skills](https://github.com/datadog-labs/agent-skills) | MIT | `diagnosing-bugs` (flaky and non-deterministic test classes) |
-| [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Apache-2.0 | `refactoring`, `dependency-upgrade` |
-| [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) | MIT | `dependency-upgrade` |
-| [rainmanjam/poka-yoke](https://github.com/rainmanjam/poka-yoke) / [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `mistake-proofing` (`SKILL.md`, `hazards.md`, `languages.md`) |
+| [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Apache-2.0 | `refactoring`, `harness` (`skills/harness/references/dependency-upgrade.md`) |
+| [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) | MIT | `harness` (`skills/harness/references/dependency-upgrade.md`) |
+| [rainmanjam/poka-yoke](https://github.com/rainmanjam/poka-yoke) / [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `harness` (`skills/harness/references/mistake-proofing.md`, `skills/harness/references/mistake-proofing-hazards.md`, `skills/harness/references/mistake-proofing-languages.md`) |
 | [garrytan/gstack](https://github.com/garrytan/gstack) | MIT | `test-adequacy-auditor` (negative assertion check & branch tree), `harness` (helper reuse threshold) |
 | [karpathy/autoresearch](https://github.com/karpathy/autoresearch) & [karpathy/llm-council](https://github.com/karpathy/llm-council) | MIT | `diagnosing-bugs` (Simplicity Criterion & experiment ledger), `harness` (anonymized auditor evaluation) |
 

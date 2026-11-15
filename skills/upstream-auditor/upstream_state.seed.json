@@ -40,12 +40,7 @@
       "branch": "main",
       "last_synced_commit": "35b54dc",
       "target_skills": [
-        "antislop",
-        "antislop-code",
-        "antislop-ui",
-        "antislop-human",
-        "antislop-copywriting",
-        "antislop-layoutmobile"
+        "antislop"
       ]
     },
     "Chisle": {
@@ -61,7 +56,7 @@
       "branch": "main",
       "last_synced_commit": "1667149",
       "target_skills": [
-        "unlazy"
+        "skills/harness/references/unlazy.md"
       ]
     },
     "procoder": {
@@ -77,7 +72,7 @@
       "branch": "main",
       "last_synced_commit": "0f530f0",
       "target_skills": [
-        "silk-design"
+        "skills/antislop/references/silk-design.md"
       ]
     },
     "everything-claude-code": {
@@ -85,9 +80,9 @@
       "branch": "main",
       "last_synced_commit": "d2ef268",
       "target_skills": [
-        "architecture-decision-records",
         "database-migrations",
-        "security-review",
+        "skills/harness/references/adr.md",
+        "skills/audit/references/security-review.md",
         "agents/build-error-resolver.md"
       ]
     },
@@ -98,7 +93,7 @@
       "target_skills": [
         "deep-grill",
         "diagnosing-bugs",
-        "test-design",
+        "skills/harness/references/test-design.md",
         "retro"
       ]
     },
