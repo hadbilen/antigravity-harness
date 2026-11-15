@@ -160,6 +160,7 @@ one is not stopped; the integrity baseline reports it.
   rebaseline, restore, drift analysis) run off the UI thread, tray callbacks are marshalled onto the Tk loop,
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
+* **Event-scoped lifecycle hooks (`hooks.json`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/agy_hooks.py` acts as a thin lazy CLI router and PEP 562 compatibility facade that loads only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`).
 * **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `upstream_watcher.py --ack` silences it until something changes again, `--status` shows the current reasons. Network checks have a hard deadline.
 
 ---
@@ -264,7 +265,7 @@ Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_
 
 ### Bilingual Architecture (Canonical English + Native Turkish Intent Bridge)
 While all core invariants, formal specifications, architectural decision records (`docs/adr/`), and agent contracts are canonical English (`GEMINI.md` Rule 6), Antigravity Harness provides **first-class bilingual intent recognition**:
-* **Zero-Friction Prompt Matching:** Skill hint tables (`guard/agy_hooks.py`) and frontmatter triggers accept both standard English commands/phrases and native Turkish colloquial intents (`"hata var"`, `"sadeleştir"`, `"hızlandır"`, `"veri analizi"`).
+* **Zero-Friction Prompt Matching:** Skill hint tables (`guard/agy_hooks.py` / `guard/hooks/pre_invocation.py`) and frontmatter triggers accept both standard English commands/phrases and native Turkish colloquial intents (`"hata var"`, `"sadeleştir"`, `"hızlandır"`, `"veri analizi"`).
 * **Localized Anti-Slop Scanner:** `check_synthetic_markers.py` features automatic language detection (`detect_language`) and dedicated Turkish LLM synthetic-marker detection rules (`TR-1` through `TR-7`) alongside universal English markers.
 * **Extensibility:** The bilingual intent tables serve as a reference implementation for contributors wishing to bridge additional languages into Antigravity 2.0 lifecycle hooks.
 
@@ -293,8 +294,10 @@ antigravity-harness/
 ├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
 ├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
-│                                          #   notifier, approval, audit_log, doctor, paths, startup,
-│                                          #   test_boundary, provenance, porter_bridge, upstream, agy_hooks, cli, gui, tray
+│   │                                      #   notifier, approval, audit_log, doctor, paths, startup,
+│   │                                      #   test_boundary, provenance, porter_bridge, upstream, cli, gui, tray
+│   ├── agy_hooks.py                       #   lazy CLI router & PEP 562 compatibility facade (ADR-0008)
+│   └── hooks/                             #   event-scoped lifecycle hooks: common, pre_invocation, pre_tool_use, stop_gate
 ├── porter/                                # analyzer, sanitizer, frontmatter, manifest, net, archive, emitters/
 ├── scripts/
 │   ├── code_map.py                        # AST caller/dataflow/blast-radius map, runtime tracer & FTS5 search
@@ -302,7 +305,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
 ├── skills/                                # 34 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
-├── tests/                                 # Hermetic unittest suite (652 tests)
+├── tests/                                 # Hermetic unittest suite (670 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -440,7 +443,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (652 tests)
+# Hermetic unit test suite (670 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings
