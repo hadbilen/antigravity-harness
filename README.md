@@ -11,7 +11,7 @@
 
 Autonomous coding agents suffer from **environment mutation drift**, **sycophancy**, **test weakening
 (Goodhart's Curse)**, **context bloat**, and **ecosystem fragmentation**. Antigravity Harness counters
-them with an engineering constitution (`GEMINI.md`), 34 modular skills, 9 independent auditor
+them with an engineering constitution (`GEMINI.md`), 20 modular skills, 9 independent auditor
 subagents, Porter (a rule importer/exporter for Claude Code, Cursor, Aider and `AGENTS.md` tools),
 and Antigravity Guard, which write-protects the governance files, detects drift, and gates changes
 behind human confirmation.
@@ -167,7 +167,7 @@ one is not stopped; the integrity baseline reports it.
 
 ## 2. The Engineering Constitution (`GEMINI.md`)
 
-About 17 KB of always-on invariants (18 numbered rules); procedures live in the skills and mechanical checks
+Under 6.5 KB of always-on invariants (18 numbered rules, including `Rule 4: Simplicity First (YAGNI)`); procedures live in the skills and mechanical checks
 in Guard and `scripts/`.
 
 * **Proportional Gate Escalation:** Tier 1 (1–2 files, <20 lines) direct edits; Tier 2 (3–8 files) plans,
@@ -219,7 +219,7 @@ their own tool policies:
 * **SSRF-hardened fetcher (`porter/net.py`):** http/https only, globally routable destinations only
   (CGNAT, link-local, private, 6to4/NAT64, IPv4-mapped/-compatible/-translated loopback are rejected), DNS
   pinning against rebinding, per-redirect validation, proxies ignored, an overall deadline, 10 MB cap.
-* **Canonical manifest:** all 34 skills with every support file, executable bit and in-skill symlink, all 9
+* **Canonical manifest:** all 20 skills with every support file, executable bit and in-skill symlink, all 9
   subagents, the templates, the constitution and the design contract. CI fails if the committed manifest is
   stale (`porter.py manifest --check`).
 * **Verified export:** Claude Code (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/` with `tools:`, verbatim
@@ -236,30 +236,23 @@ their own tool policies:
 
 ## 5. Modular Skill Ecosystem (`/skills`)
 
-34 capability packages:
+20 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `antislop`, `technical-writing`, and `audit` per `ADR-0009`):
 
-* **`harness`:** engineering harness, verification gates, task lifecycle.
-* **`marathon`:** proactive multi-window goal planning, minimum-window packing, per-window model/effort/skill routing, and `HANDOFF.md` orchestration with mid-marathon scope lock.
+* **`harness`:** engineering harness, verification gates, task lifecycle, plus on-demand reference modules for `marathon` (`/marathon` multi-window goal planning and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
 * **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net`) with the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
 * **`media-studio`:** high-fidelity audio, video, still-image (`JPG`, `PNG`, `TIFF`, `BMP`), and animated visual (`MP4`, `WebM`, `Animated WebP`, `GIF`, `APNG`, `WAV`, `FLAC`, `Opus`, `AAC`) synthesis, timeline editing, container/header salvage (`salvage`), signal restoration, two-tier fidelity-bounded quality enhancement, two-pass `EBU R128` loudness mastering, and the deterministic `media_qc.py` quality gate (`MEDIA-1..MEDIA-7`, `GAME-1..GAME-3`, `LUFS`, `dBTP`, aspect-locked `compare` `SSIM`/`PSNR`, `ab-sheet`, game SFX peak normalization, Ogg Vorbis/Opus, loop-seam, pixel-art, and sprite-atlas checks).
 * **`renew`:** generational legacy software and classic game modernization, dead-runtime/toolkit porting, and unbuildable codebase revival via a 5-stage contract-first pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover -> Parity Gate`) with a Legacy Game & Interactive Simulation Remaster profile.
 * **`rustify`:** architectural C, C++, Go, and Python -> memory-safe Rust migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`) via a 5-stage contract-first pipeline (`Silent Build & ABI Autopsy -> Migration Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, and conditional `cargo kani` formal proofs).
 * **`porter`:** ecosystem adapter, suitability analyzer, transpiler.
 * **`vibecoder`:** product-first rapid prototyping with zero-friction single-file rich HTML application, game (`Game Vibe Mode`), and creative studio / interactive sandbox (`Creative & Sandbox Vibe Mode`) delivery.
-* **`unlazy`:** Tier 3 (>8 files) deep completion engine with depth trees and ledger-based verification.
 * **`deep-grill`:** Socratic trade-off interviewer: product and business-rule boundaries first,
   `[NEEDS CLARIFICATION: ...]` parking, paraphrase check-ins, a decision ledger ending in exit criteria.
-* **`visualizer`:** chooses the lens (structure, flow, state/rules, journey) and abstraction for a diagram;
-  simple cases as Mermaid, interactive ones handed to the built-in `generative_ui`.
 * **`chisle`:** terse, zero-fluff development mode with YAGNI/ladder-first code discipline (never bypasses verification gates or locked acceptance criteria).
 * **`procoder`:** sprint scaffolding for repositories that contain `.procoder/`.
-* **`antislop` suite (6):** `antislop` (core 40-rule filter + structural UI scanner), `antislop-ui`, `antislop-code`,
-  `antislop-copywriting` (with a deterministic scanner for signs of AI-written prose, English and Turkish),
-  `antislop-human` (WCAG contrast checker + MCP tool), `antislop-layoutmobile`.
-* **`test-design`**, **`mistake-proofing`**, **`refactoring`**, **`dependency-upgrade`**, **`retro`**,
-  **`technical-writing`**, **`data-analysis`**, **`game-engineering`**.
-* **`diagnosing-bugs`**, **`upstream-auditor`**, **`database-migrations`**, **`security-review`**,
-  **`architecture-decision-records`**, **`silk-design`**, **`audit`**.
+* **`antislop`:** core 40-rule UI/copy filter + structural UI scanner (`check_ui_slop.py`), bundling on-demand reference modules and tools for UI geometry (`/antislop-ui`), code-comment hygiene (`/antislop-code`), prose scanning (`/antislop-copywriting` + `check_synthetic_markers.py` for English and Turkish), WCAG contrast (`/antislop-human` + `contrast-check.py` / `contrast-mcp.py`), mobile layout (`/antislop-layoutmobile`), and kinetic motion (`/silk-design`).
+* **`technical-writing`:** Diataxis documentation, executable example verification, and `/visualizer` diagramming (`skills/technical-writing/references/visualizer.md`; Mermaid or built-in `generative_ui`).
+* **`audit`:** read-only structural, consistency, and security boundary audit engine, bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
+* **`refactoring`**, **`retro`**, **`data-analysis`**, **`game-engineering`**, **`diagnosing-bugs`**, **`upstream-auditor`**, **`database-migrations`**.
 
 Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
@@ -304,8 +297,8 @@ antigravity-harness/
 │   ├── meta_audit.py                      # 7-pass harness self-audit (Rule 17)
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
-├── skills/                                # 34 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
-├── tests/                                 # Hermetic unittest suite (670 tests)
+├── skills/                                # 20 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
+├── tests/                                 # Hermetic unittest suite (680 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -443,7 +436,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (670 tests)
+# Hermetic unit test suite (680 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

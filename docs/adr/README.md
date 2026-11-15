@@ -10,3 +10,4 @@
 | [0006](0006-ecosystem-routing-overhaul-and-five-skill-modernization.md) | Ecosystem Routing Overhaul, Rust 2024 / 1.100.0 Parity, Game-Media-REA Pipeline Integration, and Network/Legacy Boundary Hardening | accepted | 2026-11-14 |
 | [0007](0007-swarm-topology-hook-coverage-and-placeholder-hardening.md) | Swarm Execution Role Alignment, PreToolUse Hook Coverage Expansion, Model Placeholder Gate, and Linked-Worktree Boundary Hardening | accepted | 2026-11-15 |
 | [0008](0008-agy-hooks-lazy-package-modularization.md) | Event-Scoped Lazy Package Modularization of `guard/agy_hooks.py` into `guard/hooks/` | accepted | 2026-11-15 |
+| [0009](0009-cognitive-slimming-skill-consolidation-and-midturn-hook-silence.md) | Constitutional Slimming, 34-to-20 Skill Consolidation, and Mid-Turn PreInvocation Silence | accepted | 2026-11-15 |
