@@ -402,6 +402,10 @@ def scan_directory(base_path: Path) -> List[Tuple[str, str, str]]:
     except ImportError as imp_err:
         raise CheckUnavailable(f"required scanner guard.agy_hooks could not be imported: {imp_err}") from imp_err
     validate_fn = validate_structured_content
+    is_harness_checkout = (
+        (base_path / ".harness" / "manifest.json").is_file()
+        or ((base_path / "guard" / "agy_hooks.py").is_file() and (base_path / "porter" / "sanitizer.py").is_file())
+    )
 
     def _on_walk_error(err: OSError) -> None:
         raise CheckUnavailable(f"cannot traverse directory {err.filename or base_path}: {err}") from err
@@ -437,7 +441,7 @@ def scan_directory(base_path: Path) -> List[Tuple[str, str, str]]:
                 not is_test_file
                 and not self_test
                 and file_path.suffix.lower() in _C9_CODE_SUFFIXES
-                and not any(rel_path.endswith(sfx) for sfx in _SCANNER_EXEMPT_SUFFIXES)
+                and not (is_harness_checkout and rel_path in _SCANNER_EXEMPT_SUFFIXES)
             )
             check_slop = bool(slop_patterns and _ANY_SLOP_RE.search(content))
             check_test = bool(is_test_file and _ANY_TEST_LINE_RE.search(content))

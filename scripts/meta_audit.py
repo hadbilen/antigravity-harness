@@ -512,15 +512,36 @@ class MetaAuditEngine:
             allow_split_fallback=bool(is_split_p2 and managed_agents_p2)
         )
         h_text = hooks_py.read_text(encoding="utf-8", errors="ignore") if hooks_py.is_file() else ""
-        if available_agents and hooks_py.is_file():
-            for m in re.finditer(r"(?<!Built-in\s)Subagents?\s+((?:`[a-z0-9-]+`(?:\s*(?:&|,|and)\s*)?)+)", h_text):
-                for agent in re.findall(r"`([a-z0-9-]+)`", m.group(1)):
-                    if agent in ("self",):
-                        continue
-                    if agent not in available_agents:
-                        self._add("WARNING", name, "guard/agy_hooks.py",
-                                  f"guard/agy_hooks.py routes to repo Subagent `{agent}`, but agents/{agent}.md is missing (prefix with 'Built-in Subagent' if platform-provided).",
-                                  f"Create agents/{agent}.md or label as 'Built-in Subagent `{agent}`'.")
+        hooks_pkg_dir = hooks_py.parent / "hooks"
+        if hooks_py.is_file() and "_SUBMODULE_EXPORTS" in h_text:
+            for req_sub in ("__init__.py", "common.py", "pre_invocation.py", "pre_tool_use.py", "stop_gate.py"):
+                if not (hooks_pkg_dir / req_sub).is_file():
+                    self._add(
+                        "CRITICAL",
+                        name,
+                        f"guard/hooks/{req_sub}",
+                        f"guard/agy_hooks.py declares lazy submodule package, but guard/hooks/{req_sub} is missing.",
+                        f"Restore guard/hooks/{req_sub} or synchronize _SUBMODULE_EXPORTS in guard/agy_hooks.py.",
+                    )
+        if available_agents or agents_dir.is_dir():
+            hook_subagent_sources: List[Tuple[str, str]] = []
+            if hooks_py.is_file():
+                hook_subagent_sources.append(("guard/agy_hooks.py", h_text))
+            if hooks_pkg_dir.is_dir():
+                for sub_py in sorted(hooks_pkg_dir.glob("*.py")):
+                    if sub_py.is_file():
+                        hook_subagent_sources.append(
+                            (f"guard/hooks/{sub_py.name}", sub_py.read_text(encoding="utf-8", errors="ignore"))
+                        )
+            for h_rel, src_text in hook_subagent_sources:
+                for m in re.finditer(r"(?<!Built-in\s)Subagents?\s+((?:`[a-z0-9-]+`(?:\s*(?:&|,|and)\s*)?)+)", src_text):
+                    for agent in re.findall(r"`([a-z0-9-]+)`", m.group(1)):
+                        if agent in ("self",):
+                            continue
+                        if agent not in available_agents:
+                            self._add("WARNING", name, h_rel,
+                                      f"{h_rel} routes to repo Subagent `{agent}`, but agents/{agent}.md is missing (prefix with 'Built-in Subagent' if platform-provided).",
+                                      f"Create agents/{agent}.md or label as 'Built-in Subagent `{agent}`'.")
 
         hooks_json = self.repo_root / "hooks.json"
         if hooks_json.is_file():
@@ -1435,7 +1456,13 @@ class MetaAuditEngine:
         hint_map: Dict[str, object] = {}
         eco_hints: List[Tuple[str, object, str]] = []
         hooks_mod = None
-        if hooks_py.is_file() and ("SKILL_HINTS" in self._read_text(hooks_py) or "ECOSYSTEM_ROUTING_HINTS" in self._read_text(hooks_py)):
+        pre_inv_fn = None
+        h_p7_text = self._read_text(hooks_py) if hooks_py.is_file() else ""
+        if hooks_py.is_file() and (
+            "SKILL_HINTS" in h_p7_text
+            or "ECOSYSTEM_ROUTING_HINTS" in h_p7_text
+            or (hooks_py.parent / "hooks" / "pre_invocation.py").is_file()
+        ):
             try:
                 import importlib.util
 
@@ -1444,7 +1471,9 @@ class MetaAuditEngine:
                     mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(mod)
                     hooks_mod = mod
-                    for s_name, s_rel, s_rx, _reason in getattr(mod, "SKILL_HINTS", ()):
+                    has_lazy_facade = isinstance(mod.__dict__.get("_SYMBOL_TO_SUBMODULE"), dict)
+                    raw_skill_hints = mod.SKILL_HINTS if (has_lazy_facade or "SKILL_HINTS" in mod.__dict__) else ()
+                    for s_name, s_rel, s_rx, _reason in raw_skill_hints:
                         hint_map[s_name] = (s_rel, s_rx)
                         if (
                             not is_split
@@ -1458,9 +1487,19 @@ class MetaAuditEngine:
                                 f"SKILL_HINTS entry `{s_name}` points to missing file `{s_rel}`",
                                 f"Restore `{s_rel}` or update SKILL_HINTS in guard/agy_hooks.py.",
                             )
-                    for r_entry in getattr(mod, "ECOSYSTEM_ROUTING_HINTS", ()):
+                    raw_eco_hints = (
+                        mod.ECOSYSTEM_ROUTING_HINTS
+                        if (has_lazy_facade or "ECOSYSTEM_ROUTING_HINTS" in mod.__dict__)
+                        else ()
+                    )
+                    for r_entry in raw_eco_hints:
                         if isinstance(r_entry, tuple) and len(r_entry) == 3:
                             eco_hints.append(r_entry)
+                    pre_inv_fn = (
+                        mod.handle_pre_invocation
+                        if (has_lazy_facade or "handle_pre_invocation" in mod.__dict__)
+                        else None
+                    )
             except Exception as exc:
                 self._add(
                     "CRITICAL",
@@ -1500,7 +1539,6 @@ class MetaAuditEngine:
                             )
                             break
 
-            pre_inv_fn = getattr(hooks_mod, "handle_pre_invocation", None)
             if callable(pre_inv_fn):
                 hint_headers = (
                     "[Harness Skill Hint]",
