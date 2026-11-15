@@ -664,5 +664,498 @@ class TestMediaStudioExpandedRoutingAndPorterParity(unittest.TestCase):
         )
 
 
+def _write_test_png_rgba(path: Path, width: int, height: int, pixels: bytes) -> None:
+    """Write an uncompressed/zlib RGBA PNG with zero external dependencies beyond stdlib."""
+    import binascii
+    import zlib
+
+    assert len(pixels) == width * height * 4
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", binascii.crc32(body) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    rows = bytearray()
+    stride = width * 4
+    for y in range(height):
+        rows.append(0)
+        rows.extend(pixels[y * stride : (y + 1) * stride])
+    idat = zlib.compress(bytes(rows))
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b""))
+
+
+def _write_sine_wav(
+    path: Path,
+    duration_sec: float,
+    freq_hz: float = 440.0,
+    amp: float = 0.2,
+    sample_rate: int = 48000,
+    fade_ms: float = 0.0,
+) -> None:
+    import math
+    import wave
+
+    n_frames = max(1, int(round(duration_sec * sample_rate)))
+    fade_frames = int(round(fade_ms * sample_rate / 1000.0))
+    buf = bytearray()
+    for i in range(n_frames):
+        val = amp * math.sin(2.0 * math.pi * freq_hz * (i / sample_rate)) if amp > 0.0 else 0.0
+        if fade_frames > 0:
+            if i < fade_frames:
+                val *= 0.5 * (1.0 - math.cos(math.pi * i / fade_frames))
+            elif i >= n_frames - fade_frames:
+                rem = n_frames - 1 - i
+                val *= 0.5 * (1.0 - math.cos(math.pi * rem / fade_frames))
+        sample_i16 = max(-32767, min(32767, int(round(val * 32767.0))))
+        buf.extend(struct.pack("<h", sample_i16))
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(bytes(buf))
+
+
+class TestGameAudioAndPixelArtQC(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="agy_game_media_"))
+        self.ffmpeg = shutil.which("ffmpeg")
+        self.ffprobe = shutil.which("ffprobe")
+        self.assertIsNotNone(self.ffmpeg, "ffmpeg binary must be available on PATH")
+        self.assertIsNotNone(self.ffprobe, "ffprobe binary must be available on PATH")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_game_sfx_short_clip_peak_normalization_vorbis_and_silence_guard(self) -> None:
+        short_wav = self.tmp / "click_150ms.wav"
+        silent_wav = self.tmp / "mute_150ms.wav"
+        _write_sine_wav(short_wav, duration_sec=0.15, freq_hz=660.0, amp=0.08, fade_ms=8.0)
+        _write_sine_wav(silent_wav, duration_sec=0.15, freq_hz=440.0, amp=0.0)
+
+        # Default loudnorm cannot measure <400ms gated LUFS and must still reject silent/short inputs explicitly.
+        with self.assertRaises(ValueError):
+            media_qc.master_audio(short_wav, self.tmp / "loudnorm_fail.wav")
+
+        # Default ogg codec preserves libopus backwards compatibility.
+        sfx_opus = self.tmp / "click_opus.ogg"
+        res_opus = media_qc.master_audio(short_wav, sfx_opus, game_sfx=True)
+        self.assertTrue(res_opus["passed"], res_opus)
+        self.assertEqual(res_opus["mode"], "peak_game_sfx")
+        self.assertEqual(media_qc.probe_media(sfx_opus)["audio_streams"][0]["codec_name"], "opus")
+
+        # Opt-in --ogg-codec vorbis emits libvorbis for game engines (Unity/Godot/Unreal).
+        sfx_vorbis = self.tmp / "click_vorbis.ogg"
+        res_vorbis = media_qc.master_audio(short_wav, sfx_vorbis, game_sfx=True, ogg_codec="vorbis")
+        self.assertTrue(res_vorbis["passed"], res_vorbis)
+        self.assertEqual(media_qc.probe_media(sfx_vorbis)["audio_streams"][0]["codec_name"], "vorbis")
+
+        with self.assertRaises(ValueError):
+            media_qc.master_audio(short_wav, self.tmp / "bad.wav", ogg_codec="vorbis")
+
+        # Audible <150ms click passes check_media(..., game_sfx=True), whereas genuinely silent clip still fails MEDIA-3.
+        self.assertEqual(media_qc.main(["check", str(sfx_vorbis), "--game-sfx", "--json"]), 0)
+        res_mute = media_qc.check_media(silent_wav, game_sfx=True)
+        self.assertFalse(res_mute["passed"])
+        self.assertTrue(any(f["rule_id"] == "MEDIA-3" for f in res_mute["findings"]))
+
+    def test_audio_loop_seam_detection_and_zero_crossing_trim(self) -> None:
+        seamless_wav = self.tmp / "loop_seamless.wav"
+        cut_wav = self.tmp / "loop_cut.wav"
+        trimmed_wav = self.tmp / "loop_trimmed.wav"
+
+        _write_sine_wav(seamless_wav, duration_sec=1.0, freq_hz=440.0, amp=0.20)
+        # 0.5005s at 440Hz ends mid-cycle with a large sample step & slope discontinuity.
+        _write_sine_wav(cut_wav, duration_sec=0.5005, freq_hz=440.0, amp=0.20)
+
+        res_ok = media_qc.check_media(seamless_wav, check_loop=True)
+        self.assertTrue(res_ok["passed"], res_ok)
+        self.assertTrue(res_ok["loop_metrics"]["seamless"])
+
+        res_bad = media_qc.check_media(cut_wav, check_loop=True)
+        self.assertFalse(res_bad["passed"])
+        self.assertEqual(res_bad["findings"][0]["rule_id"], "GAME-1")
+
+        m_trim = media_qc.master_audio(cut_wav, trimmed_wav, target_lufs=-16.0, trim_loop=True)
+        self.assertTrue(m_trim["passed"], m_trim)
+        self.assertEqual(m_trim["trim_loop"]["method"], "zero_crossing")
+        res_trimmed_check = media_qc.check_media(trimmed_wav, check_loop=True)
+        self.assertTrue(res_trimmed_check["passed"], res_trimmed_check)
+
+    def test_pixel_art_nearest_neighbor_and_lanczos_rejection(self) -> None:
+        ref_8 = self.tmp / "sprite_8x8.png"
+        good_32 = self.tmp / "sprite_32_neighbor.png"
+        blur_32 = self.tmp / "sprite_32_lanczos.png"
+        odd_25 = self.tmp / "sprite_25_neighbor.png"
+        ab_out = self.tmp / "sprite_ab.png"
+
+        px = bytearray()
+        for y in range(8):
+            for x in range(8):
+                if 2 <= x <= 5 and 2 <= y <= 5:
+                    px.extend((64, 210, 180, 255))
+                else:
+                    px.extend((64, 210, 180, 0))
+        _write_test_png_rgba(ref_8, 8, 8, bytes(px))
+
+        for out_p, w, h, flg in (
+            (good_32, 32, 32, "neighbor"),
+            (blur_32, 32, 32, "lanczos"),
+            (odd_25, 25, 25, "neighbor"),
+        ):
+            proc = subprocess.run(
+                [self.ffmpeg, "-y", "-i", str(ref_8), "-vf", f"scale={w}:{h}:flags={flg}", str(out_p)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        self.assertTrue(media_qc.check_media(good_32, pixel_art=True)["passed"])
+        blur_chk = media_qc.check_media(blur_32, pixel_art=True)
+        self.assertFalse(blur_chk["passed"])
+        self.assertTrue(any(f["rule_id"] == "GAME-2" for f in blur_chk["findings"]))
+
+        cmp_ok = media_qc.compare_media(ref_8, good_32, min_ssim=0.99, min_psnr=40.0, pixel_art=True)
+        self.assertTrue(cmp_ok["passed"], cmp_ok)
+        self.assertEqual(cmp_ok["scale_factor"], 4)
+        self.assertEqual(cmp_ok["non_uniform_blocks"], 0)
+
+        cmp_blur = media_qc.compare_media(ref_8, blur_32, min_ssim=0.80, min_psnr=20.0, pixel_art=True)
+        self.assertFalse(cmp_blur["passed"])
+        self.assertFalse(cmp_blur["block_uniform_ok"])
+
+        cmp_odd = media_qc.compare_media(ref_8, odd_25, min_ssim=0.50, min_psnr=10.0, pixel_art=True)
+        self.assertFalse(cmp_odd["passed"])
+        self.assertFalse(cmp_odd["integer_scale_ok"])
+
+        ab_res = media_qc.extract_ab_sheet(ref_8, good_32, ab_out, tile_width=64, samples=1, pixel_art=True)
+        self.assertTrue(ab_res["pixel_art"])
+        self.assertTrue(ab_out.is_file())
+
+    def test_sprite_atlas_pot_tile_alignment_alpha_bleed_and_edge_touch(self) -> None:
+        # Valid 64x64 atlas (2x2 tiles of 32x32) with inner sprite padding and dilated transparent RGB.
+        good_atlas = self.tmp / "atlas_64x64_ok.png"
+        px_ok = bytearray([220, 180, 90, 0] * (64 * 64))
+        for ty in range(2):
+            for tx in range(2):
+                for y in range(ty * 32 + 4, (ty + 1) * 32 - 4):
+                    for x in range(tx * 32 + 4, (tx + 1) * 32 - 4):
+                        off = (y * 64 + x) * 4
+                        px_ok[off : off + 4] = bytes((220, 180, 90, 255))
+        _write_test_png_rgba(good_atlas, 64, 64, bytes(px_ok))
+
+        res_ok = media_qc.check_media(good_atlas, sprite_atlas=True, tile_size="32x32", require_pot=True)
+        self.assertTrue(res_ok["passed"], res_ok)
+
+        # Unaligned tile size -> GAME-3
+        res_bad_tile = media_qc.check_media(good_atlas, sprite_atlas=True, tile_size="24x24")
+        self.assertFalse(res_bad_tile["passed"])
+        self.assertTrue(any(f["rule_id"] == "GAME-3" for f in res_bad_tile["findings"]))
+
+        # Non-Power-of-Two 96x64 atlas passes tile_size 32x32 without require_pot, fails with require_pot=True.
+        npot_atlas = self.tmp / "atlas_96x64.png"
+        px_npot = bytearray([200, 200, 200, 0] * (96 * 64))
+        for y in range(6, 26):
+            for x in range(6, 26):
+                off = (y * 96 + x) * 4
+                px_npot[off : off + 4] = bytes((200, 200, 200, 255))
+        _write_test_png_rgba(npot_atlas, 96, 64, bytes(px_npot))
+        self.assertTrue(media_qc.check_media(npot_atlas, sprite_atlas=True, tile_size="32x32")["passed"])
+        npot_fail = media_qc.check_media(npot_atlas, sprite_atlas=True, tile_size="32x32", require_pot=True)
+        self.assertFalse(npot_fail["passed"])
+        self.assertTrue(any(f["rule_id"] == "GAME-3" for f in npot_fail["findings"]))
+
+        # Un-dilated white sprite over (0, 0, 0, 0) black transparent background triggers alpha-bleed GAME-3.
+        bleed_atlas = self.tmp / "atlas_bleed.png"
+        px_bleed = bytearray([0, 0, 0, 0] * (64 * 64))
+        for y in range(8, 24):
+            for x in range(8, 24):
+                off = (y * 64 + x) * 4
+                px_bleed[off : off + 4] = bytes((255, 255, 255, 255))
+        _write_test_png_rgba(bleed_atlas, 64, 64, bytes(px_bleed))
+        bleed_fail = media_qc.check_media(bleed_atlas, sprite_atlas=True, check_alpha_bleed=True)
+        self.assertFalse(bleed_fail["passed"])
+        self.assertGreater(bleed_fail["game_visual_metrics"]["alpha_bleed_pixels"], 0)
+
+        # Full-bleed edge-touching tile borders fail by default and pass with --allow-edge-touch.
+        edge_atlas = self.tmp / "atlas_edge.png"
+        px_edge = bytearray((220, 180, 90, 255)) * (64 * 64)
+        _write_test_png_rgba(edge_atlas, 64, 64, bytes(px_edge))
+        edge_fail = media_qc.check_media(edge_atlas, sprite_atlas=True, tile_size="32x32")
+        self.assertFalse(edge_fail["passed"])
+        self.assertGreater(edge_fail["game_visual_metrics"]["edge_touch_pixels"], 0)
+        self.assertTrue(
+            media_qc.check_media(edge_atlas, sprite_atlas=True, tile_size="32x32", allow_edge_touch=True)["passed"]
+        )
+
+    def test_game_engineering_profiles_rea_brownfield_and_vibecoder_bridge(self) -> None:
+        ge_text = (REPO_ROOT / "skills" / "game-engineering" / "SKILL.md").read_text(encoding="utf-8")
+        vc_text = (REPO_ROOT / "skills" / "vibecoder" / "SKILL.md").read_text(encoding="utf-8")
+        hs_text = (REPO_ROOT / "skills" / "harness" / "SKILL.md").read_text(encoding="utf-8")
+        ms_text = (REPO_ROOT / "skills" / "media-studio" / "SKILL.md").read_text(encoding="utf-8")
+
+        for needle in (
+            "Profile A",
+            "Profile B",
+            "schemaVersion",
+            "Input Buffering",
+            "Asset Preload",
+            "reverse-engineer-anything",
+            "rea_rea",
+            "diagnosing-bugs",
+            "sweetspot",
+            "skills/renew/SKILL.md",
+            "skills/media-studio/SKILL.md",
+        ):
+            self.assertIn(needle, ge_text)
+
+        self.assertIn("skills/game-engineering/SKILL.md", vc_text)
+        self.assertIn("skills/media-studio/SKILL.md", vc_text)
+        self.assertIn('"mode": "game"', hs_text)
+        self.assertIn("skills/game-engineering/SKILL.md", hs_text)
+        self.assertIn("skills/media-studio/SKILL.md", hs_text)
+        for needle in ("--game-sfx", "--ogg-codec vorbis", "--check-loop", "--trim-loop", "--pixel-art", "--sprite-atlas"):
+            self.assertIn(needle, ms_text)
+
+
+class TestW3MediaQcHardeningAndEdgeBoundaries(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="agy_w3_media_"))
+        self.ffmpeg = shutil.which("ffmpeg")
+        self.ffprobe = shutil.which("ffprobe")
+        self.assertIsNotNone(self.ffmpeg, "ffmpeg binary must be available on PATH")
+        self.assertIsNotNone(self.ffprobe, "ffprobe binary must be available on PATH")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_analyze_audio_loop_seam_non_finite_samples_fail_explicitly(self) -> None:
+        dummy_wav = self.tmp / "dummy.wav"
+        _write_sine_wav(dummy_wav, duration_sec=0.1, freq_hz=440.0, amp=0.1)
+        for bad_val in (float("nan"), float("inf")):
+            with self.subTest(bad_val=bad_val), mock.patch.object(
+                media_qc,
+                "_decode_audio_f32le",
+                return_value=([0.0, bad_val, 0.1, 0.0], 1, 48000, 0.1),
+            ):
+                res = media_qc.analyze_audio_loop_seam(dummy_wav)
+                self.assertFalse(res["seamless"])
+                self.assertIsNone(res["seam_step"])
+                self.assertIn("non-finite", res["reason"].lower())
+
+        # Rotated 90-deg stream dimensions swap displayed width/height for atlas geometry & pixel buffer decoding
+        rot_stream = {"width": 16, "height": 8, "rotation": 90}
+        self.assertEqual(media_qc._effective_dimensions(rot_stream), (8, 16))
+        self.assertEqual(media_qc._effective_dimensions({"width": 16, "height": 8, "rotation": -270}), (8, 16))
+        self.assertEqual(media_qc._effective_dimensions({"width": 16, "height": 8, "rotation": 180}), (16, 8))
+
+    def test_antiphase_stereo_trim_loop_uses_per_channel_zero_crossings(self) -> None:
+        import math
+        import wave
+
+        sr = 48000
+        n_frames = int(round(0.5005 * sr))
+        raw = bytearray()
+        for i in range(n_frames):
+            val = 0.25 * math.sin(2.0 * math.pi * 440.0 * (i / sr))
+            l_s = max(-32767, min(32767, int(round(val * 32767.0))))
+            r_s = max(-32767, min(32767, int(round(-val * 32767.0))))
+            raw.extend(struct.pack("<hh", l_s, r_s))
+        anti_wav = self.tmp / "antiphase_stereo.wav"
+        with wave.open(str(anti_wav), "wb") as wf:
+            wf.setnchannels(2)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(bytes(raw))
+
+        trimmed = self.tmp / "antiphase_trimmed.wav"
+        m_res = media_qc.master_audio(anti_wav, trimmed, target_lufs=-16.0, trim_loop=True)
+        self.assertTrue(m_res["passed"], m_res)
+        self.assertEqual(m_res["trim_loop"]["method"], "zero_crossing")
+        self.assertTrue(media_qc.check_media(trimmed, check_loop=True)["passed"])
+
+    def test_multiframe_apng_semi_alpha_and_multistream_mkv(self) -> None:
+        # 1. Multi-frame animated APNG: frame 1 crisp, frame 2 has semi-transparent pixels -> caught by pixel_art=True
+        f1 = self.tmp / "apng_f1.png"
+        f2 = self.tmp / "apng_f2.png"
+        _write_test_png_rgba(f1, 8, 8, bytes((40, 180, 90, 255)) * 64)
+        _write_test_png_rgba(f2, 8, 8, bytes((40, 180, 90, 128)) * 64)
+        apng = self.tmp / "anim.apng"
+        proc_apng = subprocess.run(
+            [self.ffmpeg, "-y", "-framerate", "2", "-i", str(self.tmp / "apng_f%d.png"), "-plays", "0", str(apng)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc_apng.returncode, 0, proc_apng.stderr)
+        chk_apng = media_qc.check_media(apng, pixel_art=True)
+        self.assertFalse(chk_apng["passed"])
+        self.assertEqual(chk_apng["game_visual_metrics"]["frames_checked"], 2)
+        self.assertTrue(any(f["rule_id"] == "GAME-2" for f in chk_apng["findings"]))
+
+        # 2. Multi-stream MKV (2 video + 2 audio streams): -map 0:v:0 / -filter:a handle multi-stream containers cleanly
+        multi_mkv = self.tmp / "multi_streams.mkv"
+        proc_mkv = subprocess.run(
+            [
+                self.ffmpeg,
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x224466:s=64x64:d=0.6:r=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x112233:s=32x32:d=0.6:r=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=0.6:sample_rate=48000",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=660:duration=0.6:sample_rate=48000",
+                "-map",
+                "0:v",
+                "-map",
+                "1:v",
+                "-map",
+                "2:a",
+                "-map",
+                "3:a",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                str(multi_mkv),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc_mkv.returncode, 0, proc_mkv.stderr)
+        raw_frame = media_qc._decode_image_rgba_frames(multi_mkv, 64, 64, max_frames=1)
+        self.assertEqual(len(raw_frame), 64 * 64 * 4)
+
+        out_multi_mkv = self.tmp / "multi_norm.mkv"
+        m_mkv = media_qc.master_audio(multi_mkv, out_multi_mkv, game_sfx=True, peak_db=-2.0)
+        self.assertTrue(m_mkv["passed"], m_mkv)
+        out_probe = media_qc.probe_media(out_multi_mkv)
+        self.assertEqual(len(out_probe["audio_streams"]), 2)
+
+    def test_odd_pixel_art_compare_5x5_and_identity_4x4(self) -> None:
+        px5 = bytearray()
+        for y in range(5):
+            for x in range(5):
+                px5.extend(((x * 45) % 256, (y * 50) % 256, 160, 255))
+        ref5 = self.tmp / "spr5.png"
+        cand10 = self.tmp / "spr10.png"
+        _write_test_png_rgba(ref5, 5, 5, bytes(px5))
+        proc5 = subprocess.run(
+            [self.ffmpeg, "-y", "-i", str(ref5), "-vf", "scale=10:10:flags=neighbor", str(cand10)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc5.returncode, 0, proc5.stderr)
+        res5 = media_qc.compare_media(ref5, cand10, min_ssim=0.99, min_psnr=40.0, pixel_art=True)
+        self.assertTrue(res5["passed"], res5)
+        self.assertEqual(res5["scale_factor"], 2)
+        self.assertEqual(res5["non_uniform_blocks"], 0)
+
+        ref4 = self.tmp / "spr4.png"
+        _write_test_png_rgba(ref4, 4, 4, bytes((10, 120, 220, 255)) * 16)
+        res4 = media_qc.compare_media(ref4, ref4, min_ssim=0.99, min_psnr=40.0, pixel_art=True)
+        self.assertTrue(res4["passed"], res4)
+        self.assertEqual(res4["scale_factor"], 1)
+
+    def test_master_audio_rejects_muxed_trim_loop_and_consistent_sfx_bypass(self) -> None:
+        muxed_mp4 = self.tmp / "muxed.mp4"
+        proc = subprocess.run(
+            [
+                self.ffmpeg,
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x112233:s=64x64:d=0.6:r=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=0.6:sample_rate=48000",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                str(muxed_mp4),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with self.assertRaises(ValueError):
+            media_qc.master_audio(muxed_mp4, self.tmp / "muxed_trim.wav", trim_loop=True)
+
+        short_wav = self.tmp / "short_150ms.wav"
+        short_out = self.tmp / "short_150ms_norm.wav"
+        _write_sine_wav(short_wav, duration_sec=0.15, freq_hz=550.0, amp=0.15, fade_ms=5.0)
+        self.assertEqual(
+            media_qc.main(["master-audio", str(short_wav), str(short_out), "--game-sfx", "--peak-db", "-2.0"]),
+            0,
+        )
+        chk = media_qc.check_media(short_out, target_lufs=-14.0, lufs_tolerance=0.5, game_sfx=True)
+        self.assertTrue(chk["passed"], chk)
+
+    def test_parameter_validation_and_cli_game_gates(self) -> None:
+        loop_wav = self.tmp / "loop_cli.wav"
+        _write_sine_wav(loop_wav, duration_sec=1.0, freq_hz=440.0, amp=0.2)
+
+        with self.assertRaises(ValueError):
+            media_qc.check_media(loop_wav, max_true_peak=1.0)
+        with self.assertRaises(ValueError):
+            media_qc.master_audio(loop_wav, self.tmp / "bad_tp.wav", target_tp=0.5)
+        with self.assertRaises(ValueError):
+            media_qc.master_audio(loop_wav, self.tmp / "bad_pk.wav", peak_db=0.5)
+        with self.assertRaises(ValueError):
+            media_qc.compare_media(loop_wav, loop_wav, min_ssim=1.5)
+        self.assertEqual(media_qc.main(["check", str(loop_wav), "--max-true-peak", "1.0"]), 2)
+        self.assertEqual(media_qc.main(["check", str(loop_wav), "--check-loop", "--json"]), 0)
+
+        atlas_ok = self.tmp / "atlas_cli.png"
+        px = bytearray()
+        for y in range(32):
+            for x in range(32):
+                lx, ly = x % 16, y % 16
+                if 2 <= lx <= 13 and 2 <= ly <= 13:
+                    px.extend((80, 200, 140, 255))
+                else:
+                    px.extend((0, 0, 0, 0))
+        _write_test_png_rgba(atlas_ok, 32, 32, bytes(px))
+        self.assertEqual(
+            media_qc.main(["check", str(atlas_ok), "--pixel-art", "--sprite-atlas", "--tile-size", "16x16", "--require-pot", "--json"]),
+            0,
+        )
+
+        ref8 = self.tmp / "ref8.png"
+        cand32 = self.tmp / "cand32.png"
+        ab_png = self.tmp / "ab_pixel.png"
+        _write_test_png_rgba(ref8, 8, 8, bytes((220, 80, 40, 255)) * 64)
+        proc = subprocess.run(
+            [self.ffmpeg, "-y", "-i", str(ref8), "-vf", "scale=32:32:flags=neighbor", str(cand32)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(media_qc.main(["ab-sheet", str(ref8), str(cand32), str(ab_png), "--pixel-art"]), 0)
+        self.assertTrue(ab_png.is_file() and ab_png.stat().st_size > 100)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -75,7 +75,7 @@ produces interfaces that run with zero setup.
     * **Fixed-Timestep & Seeded Loop:** Separate fixed simulation ticks (`FIXED_DT = 1 / 60` s with clamped frame accumulator) from `render(alpha)`, use an explicit seeded PRNG (`mulberry32`), and expose `globalThis.__stepTick = globalThis.stepTick = stepTick` (`stepTick(state, input)`) for deterministic headless inspection.
     * **Cohesive World Palette & Offline Display Typography (`UI-4` & `DESIGN.md` §2.1):** Use a 5–7 color world palette with distinct luminance and shape silhouettes; raw uncalibrated hex primaries (`#FF0000`, `#00FF00`, `#0000FF`, `#FFFF00`, `#FF00FF`, `#00FFFF`) are forbidden. Avoid `system-ui` on game title screens, combat callouts, and diegetic HUD banners using offline-compliant single-file typography: an inline `data:font/woff2;base64` subset (`<= 32 KB`), procedural `<canvas>`/`<svg>` display glyphs, or named local non-`system-ui` stacks (such as `'Trebuchet MS', Georgia, serif`).
     * **Input Feedback Triad ("Juice"):** Every primary player action triggers at least two synchronous channels inside the single HTML file: visual squash-stretch/hit-flash/pooled particles, decaying trauma screen shake (disabled under `prefers-reduced-motion: reduce`), and synthesized WebAudio SFX (`AudioContext` + `OscillatorNode`/noise burst envelope with a visible mute button).
-    * Pass `python3 skills/antislop/scripts/check_ui_slop.py <path.html> --mode game` (or `~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) with zero `UI-1`–`UI-5` findings.
+    * Pass `python3 skills/antislop/scripts/check_ui_slop.py <path.html> --mode game` (or `~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) with zero `UI-1`–`UI-5` findings; whenever external sprites or audio files are introduced beyond single-file inline synthesis, **co-load** `skills/media-studio/SKILL.md` (`media_qc.py`).
   * **Creative Studios, Synthesizers & Interactive Sandboxes (`3C`):**
     * **Zero-Latency Parameter Coupling (`<= 16.6ms` Frame Budget):** Sliders, rotary dials, XY pads, and step-grid toggles update the `<canvas>`, `SVG`, or `WebAudio` graph within a single `requestAnimationFrame` tick (`<= 16.6ms` at 60Hz) on `input`/`pointermove` without requiring a "Submit" button, displaying live numeric readouts in `tabular-nums`.
     * **Audio & Motion Safety Guards:** Audio synthesizers must initialize or resume `AudioContext` strictly on an explicit user gesture, clamp master output gain (`GainNode` `<= 0.8` or `DynamicsCompressorNode` limiter), and expose a visible **Mute / Panic** button; high-frequency visual shaders and particle emitters must honor `@media (prefers-reduced-motion: reduce)` and `window.matchMedia('(prefers-reduced-motion: reduce)')`.
@@ -88,7 +88,7 @@ produces interfaces that run with zero setup.
 ### F. Experience Goal & Acceptance Criteria
 * At the start, capture the prototype's goal in one line (audience, feel, the primary one-click outcome) and 2–3 observable acceptance criteria (e.g. "a record can be added and appears in the list", "it still shows after a page reload").
 * The criteria are the prototype's definition of done: they stop endless aesthetic drift, and progress is reported as criteria met ("2/3"), never as a percentage.
-* **Embedded Single-File Promotion Metadata:** Persist Section 1F inside the generated single `.html` file as `<script type="application/json" id="vibecoder-promotion-spec">{"goal": "...", "audience": "...", "mode": "...", "acceptance_criteria": [...], "implicit_assumptions": [...]}</script>` so zero extra files are created while `/marathon` (`skills/marathon/SKILL.md` §1) and `skills/harness/SKILL.md` §6 can deterministically read Section 1F in a fresh window.
+* **Embedded Single-File Promotion Metadata:** Persist Section 1F inside the generated single `.html` file as `<script type="application/json" id="vibecoder-promotion-spec">{"goal": "...", "audience": "...", "mode": "utility|game|sandbox", "acceptance_criteria": [...], "implicit_assumptions": [...]}</script>` so zero extra files are created while `/marathon` (`skills/marathon/SKILL.md` §1) and `skills/harness/SKILL.md` §6 can deterministically read Section 1F in a fresh window.
 
 ---
 
@@ -197,7 +197,7 @@ The final message after the code is written must contain these blocks in order, 
    * **Progress:** each acceptance criterion from Section 1F marked met or not met (e.g. `"3/3 acceptance criteria met"`, never a percentage).
    * **Verification Gap Declaration:** list what was verified (`check_ui_slop.py`, HTML/JavaScript syntax check, deterministic headless `stepTick` check where applicable) and what was *not* verified (e.g. live browser visual/WebAudio rendering or physical mobile touch).
    * **Falsification Gate (Popper's Invariant):** state what discriminating edge or falsifying check was executed (or whether any available check was not run).
-   * **Next Step (`marathon` promotion bridge):** end with a single concise line offering `/marathon` (`skills/marathon/SKILL.md`) in a fresh window (reading `#vibecoder-promotion-spec` from the `.html` file) if the user wants to evolve the prototype into a full production build or multi-window architecture plan (with `tasks.md`, `HANDOFF.md`, and per-window model/effort routing).
+   * **Next Step (`marathon` promotion bridge):** end with a single concise line offering `/marathon` (`skills/marathon/SKILL.md`) in a fresh window (reading `#vibecoder-promotion-spec` from the `.html` file—and co-loading `skills/game-engineering/SKILL.md` plus `skills/media-studio/SKILL.md` when `"mode": "game"`) if the user wants to evolve the prototype into a full production build or multi-window architecture plan (with `tasks.md`, `HANDOFF.md`, and per-window model/effort routing).
 
 ---
 
@@ -208,5 +208,5 @@ The final message after the code is written must contain these blocks in order, 
   (`implementation_plan.md`), test-suite scaffolding or `ADR` documents; however, never weaken or modify any existing repository tests (`GEMINI.md` Rule 9).
 * **When to promote:** when all acceptance criteria are met and the user says "let's connect this to
   a real backend and ship it" (or invokes `/marathon`), stop prototyping and switch to `marathon`
-  (`skills/marathon/SKILL.md`) and `harness` Tier 3 standards; the goal and criteria carry over into
+  (`skills/marathon/SKILL.md`) and `harness` Tier 3 standards (co-loading `skills/game-engineering/SKILL.md` and `skills/media-studio/SKILL.md` for `Game Vibe` `"mode": "game"` promotions into modular Web or 3D/native engines); the goal and criteria carry over into
   `tasks.md` and the exit criteria of `HANDOFF.md`.

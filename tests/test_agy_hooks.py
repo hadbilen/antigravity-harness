@@ -3009,6 +3009,549 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
         self.assertEqual(ok_res, {"decision": "allow"}, ok_res)
 
 
+class TestW1RoutingAndContextSignals(HooksTempCase):
+    def test_explicit_slug_and_slash_evaluated_before_regex_skip_and_multi_skill_composition(self) -> None:
+        fake_home = self.tmp / "fake_home"
+        (fake_home / ".gemini" / "antigravity" / "mcp" / "rea_rea").mkdir(parents=True)
+        with mock.patch("pathlib.Path.home", return_value=fake_home):
+            slug_cases = [
+                ("Use deep-grill before coding this module.", "`deep-grill`"),
+                ("Apply mistake-proofing on the parser state.", "`mistake-proofing`"),
+                ("Review test-design before editing anything.", "`test-design`"),
+                ("Invoke build-error-resolver on this module.", "Subagent `build-error-resolver`"),
+                ("Run security-boundary-verifier and contract-change-auditor.", "`security-boundary-verifier`"),
+                ("Render a widget using generative_ui or native_swarm.", "generative_ui"),
+                ("Inspect theme contrast using antislop-contrast.", "antislop-contrast"),
+                ("Unpack target binary with rea_rea.", 'ServerName="rea_rea"'),
+            ]
+            for idx, (prompt, expected) in enumerate(slug_cases):
+                with self.subTest(slug_case=prompt):
+                    res = agy_hooks.handle_pre_invocation(
+                        {"conversationId": f"conv-w1-slug-{idx}", "prompt": prompt}
+                    )
+                    self.assertIn("injectSteps", res, f"Expected hint for {prompt}")
+                    msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
+                    self.assertIn(expected, msg)
+
+        # Multi-skill explicit composition emits up to MAX_EXPLICIT_HINTS (= 4) explicit skills
+        multi_res = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-w1-multi",
+                "prompt": "Apply deep-grill, test-design, game-engineering, and media-studio together.",
+            }
+        )
+        multi_msg = multi_res["injectSteps"][0]["systemMessage"]["systemMessage"]
+        for expected in ("`deep-grill`", "`test-design`", "`game-engineering`", "`media-studio`"):
+            self.assertIn(expected, multi_msg)
+
+        # Generic regex saturation without explicit commands/slugs stays bounded at MAX_HINTS = 2
+        gen_res = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-w1-gen-cap",
+                "prompt": "Fix this intermittent regression crash, refactor the class into modules, and tune RAM usage.",
+            }
+        )
+        gen_msg = gen_res["injectSteps"][0]["systemMessage"]["systemMessage"]
+        hint_section = gen_msg.split("Relevant skill(s) for this request:", 1)[1].split("Read the corresponding", 1)[0]
+        self.assertLessEqual(hint_section.count("SKILL.md"), agy_hooks.MAX_HINTS)
+
+    def test_bilingual_routing_matrix_and_sprite_sheet_fix(self) -> None:
+        fake_home = self.tmp / "fake_home_matrix"
+        (fake_home / ".gemini" / "antigravity" / "mcp" / "rea_rea").mkdir(parents=True)
+
+        # Verify sprite sheets route strictly to media-studio, never game-engineering
+        for idx, sprite_prompt in enumerate(
+            (
+                "Generate a 16-frame sprite sheet PNG for the idle walk cycle.",
+                "Oyun karakteri için sprite sheet ve ses efekti (SFX) üret.",
+            )
+        ):
+            res = agy_hooks.handle_pre_invocation(
+                {"conversationId": f"conv-w1-sprite-{idx}", "prompt": sprite_prompt}
+            )
+            msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
+            self.assertIn("`media-studio`", msg)
+            self.assertNotIn("`game-engineering`", msg)
+
+        matrix = [
+            ("Keep fixed timestep physics deterministic with spatial grid culling.", "`game-engineering`"),
+            ("Oyun fizik döngüsünde sabit timestep simülasyonu kur.", "`game-engineering`"),
+            ("Port this C++ decoder using Rust 2024 extern unsafe FFI and cxx bridge.", "`rustify`"),
+            ("Mevcut C++ modülünü Rust'a taşı ve güvenli FFI katmanı yaz.", "`rustify`"),
+            ("Modernize this legacy Visual Basic 6 and Windows-1254 desktop utility.", "`renew`"),
+            ("Eski Delphi programını Windows-1254'ten UTF-8'e yenile.", "`renew`"),
+            ("Debug this flaky assertion error and isolate the root cause.", "`diagnosing-bugs`"),
+            ("Aralıklı patlayan flaky testi ve regresyon hatasını ayıkla.", "`diagnosing-bugs`"),
+            ("Profile memory footprint and reduce --net waterfall latency.", "`sweetspot`"),
+            ("Ağ gecikmesini ve bellek tüketimini optimize et.", "`sweetspot`"),
+            ("Upgrade dependency react without changing application behavior.", "`dependency-upgrade`"),
+            ("Bağımlılık sürümünü davranış değiştirmeden yükselt.", "`dependency-upgrade`"),
+            ("Write unit tests with boundary value analysis for the parser.", "`test-design`"),
+            ("Sınır değerleri için birim test ve regresyon testi yaz.", "`test-design`"),
+            ("Extract helper functions and restructure modules without behavior change.", "`refactoring`"),
+            ("Kod tekrarını kaldır ve fonksiyonları yeniden düzenle.", "`refactoring`"),
+            ("Unpack app.asar and disassemble the compiled executable.", 'ServerName="rea_rea"'),
+            ("Derlenmiş ikili dosyayı disassemble ve decompile et.", 'ServerName="rea_rea"'),
+            ("Check the color contrast ratio for WCAG compliance.", "antislop-contrast"),
+            ("Butonlardaki renk kontrastı oranını denetle.", "antislop-contrast"),
+            ("Verify the authentication boundary and eliminate TOCTOU race condition.", "`security-boundary-verifier`"),
+            ("Kimlik doğrulama ve yetkilendirme sınırını denetle.", "`security-boundary-verifier`"),
+            ("Review this breaking wire protocol change and migration rollback safety.", "`contract-change-auditor`"),
+            ("Check formal specification axioms for state machine invariant consistency.", "`consistency-auditor`"),
+            ("Resolve these TypeScript build errors in tsc compiler output.", "Subagent `build-error-resolver`"),
+            ("Read the official external SDK docs for the latest API behavior.", "Subagent `research`"),
+        ]
+        with mock.patch("pathlib.Path.home", return_value=fake_home):
+            for idx, (prompt, expected) in enumerate(matrix):
+                with self.subTest(matrix_idx=idx, prompt=prompt):
+                    res = agy_hooks.handle_pre_invocation(
+                        {"conversationId": f"conv-w1-matrix-{idx}", "prompt": prompt}
+                    )
+                    self.assertIn("injectSteps", res, f"Expected routing hint for: {prompt}")
+                    msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
+                    self.assertIn(expected, msg, f"Prompt `{prompt}` produced: {msg}")
+
+    def test_negative_controls_and_path_non_collision(self) -> None:
+        negatives = [
+            "What time is our team standup tomorrow morning?",
+            "Create a brand new Rust 2024 CLI crate using Cargo and clap.",
+            "Please renew the TLS certificate before expiration on Friday.",
+            "Auto-renew OAuth access tokens every thirty minutes in session.",
+            "Show me src/rustify/worker.py and app/game-engineering/runner.py.",
+            "Open docs/deep-grill/notes.md and lib/test-design/helpers.py.",
+            "Compare foo/antislop-contrast/styles.css with bar/media-studio/clip.py.",
+            "Inspect src/build-error-resolver/parser.py around line twelve.",
+            "Format this JSON config file using two-space indentation.",
+            "Rename local loop variable i to idx in this tiny helper.",
+            "What is the standard HTTP status code for Too Many Requests?",
+            "Add a favicon link inside index.html header metadata.",
+            "Explain the TCP three-way handshake steps in simple prose.",
+            "List the environment variables currently exported in bash.",
+            "Where does PostgreSQL keep postgresql.conf on Debian Linux?",
+            "Convert UTC timestamps to Europe/Istanbul timezone in Python.",
+        ]
+        for idx, prompt in enumerate(negatives):
+            with self.subTest(negative_idx=idx, prompt=prompt):
+                res = agy_hooks.handle_pre_invocation(
+                    {"conversationId": f"conv-w1-neg-{idx}", "prompt": prompt}
+                )
+                self.assertEqual(res, {}, f"Unexpected trigger on benign prompt `{prompt}`: {res}")
+
+    def test_workspace_domain_signals_and_false_positive_guards(self) -> None:
+        # 1. Pure Rust crate (even with a helper .py script) must NOT emit rustify
+        pure_rust_ws = self.tmp / "pure_rust"
+        (pure_rust_ws / "src").mkdir(parents=True)
+        (pure_rust_ws / "scripts").mkdir()
+        (pure_rust_ws / "Cargo.toml").write_text('[package]\nname = "cli"\nedition = "2024"\n', encoding="utf-8")
+        (pure_rust_ws / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+        (pure_rust_ws / "scripts" / "bench.py").write_text("print('ok')\n", encoding="utf-8")
+        res_pure = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-pure-rust", "workspace": str(pure_rust_ws), "prompt": "Add a help flag to main."}
+        )
+        self.assertEqual(res_pure, {})
+
+        # 2. Mixed Cargo.toml + C/C++ source triggers rustify (first non-short turn only; deduped on next turn)
+        mixed_ws = self.tmp / "mixed_rust_c"
+        (mixed_ws / "csrc").mkdir(parents=True)
+        (mixed_ws / "Cargo.toml").write_text('[package]\nname = "ffi_port"\n', encoding="utf-8")
+        (mixed_ws / "csrc" / "legacy.c").write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        res_mixed = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-mixed", "workspace": str(mixed_ws), "prompt": "Inspect the project files."}
+        )
+        self.assertIn("`rustify`", res_mixed["injectSteps"][0]["systemMessage"]["systemMessage"])
+        res_mixed_turn2 = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-mixed", "workspace": str(mixed_ws), "prompt": "List all exported functions."}
+        )
+        self.assertEqual(res_mixed_turn2, {})
+
+        # 3. Short continuation prompt must suppress workspace domain signals
+        res_short = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-short", "workspace": str(mixed_ws), "prompt": "devam et"}
+        )
+        self.assertEqual(res_short, {})
+
+        # 4. Web dashboard (<canvas> without requestAnimationFrame) + favicon must NOT emit game/media
+        dash_ws = self.tmp / "dash_ws"
+        (dash_ws / "public").mkdir(parents=True)
+        (dash_ws / "index.html").write_text("<html><body><canvas id='chart'></canvas></body></html>", encoding="utf-8")
+        (dash_ws / "public" / "favicon.png").write_bytes(b"png")
+        (dash_ws / "tests" / "sprites").mkdir(parents=True)
+        (dash_ws / "tests" / "sprites" / "hero.png").write_bytes(b"png")
+        res_dash = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-dash", "workspace": str(dash_ws), "prompt": "Adjust the chart padding."}
+        )
+        self.assertEqual(res_dash, {})
+
+        # 5. Game (<canvas> + requestAnimationFrame) + real media asset emits both
+        game_ws = self.tmp / "game_ws"
+        (game_ws / "assets").mkdir(parents=True)
+        (game_ws / "game.js").write_text(
+            "const ctx = cvs.getContext('2d'); function tick() { requestAnimationFrame(tick); }",
+            encoding="utf-8",
+        )
+        (game_ws / "assets" / "jump.ogg").write_bytes(b"ogg")
+        res_game = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-game", "workspace": str(game_ws), "prompt": "Check movement physics."}
+        )
+        msg_game = res_game["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("`game-engineering`", msg_game)
+        self.assertIn("`media-studio`", msg_game)
+
+        # 6. Harness repository root itself must skip workspace marker auto-injection
+        res_self = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-self", "workspace": str(REPO_ROOT), "prompt": "Summarize workspace layout."}
+        )
+        self_msg = res_self.get("injectSteps", [{}])[0].get("systemMessage", {}).get("systemMessage", "")
+        self.assertNotIn("[Harness Skill Hint]", self_msg)
+        for domain_skill in ("`rustify`", "`game-engineering`", "`media-studio`"):
+            self.assertNotIn(domain_skill, self_msg)
+
+        # 7. Cargo.toml declaring pyo3 + binary artifact (.asar when rea_rea exists) trigger rustify / rea_rea
+        pyo3_ws = self.tmp / "pyo3_ws"
+        pyo3_ws.mkdir()
+        (pyo3_ws / "Cargo.toml").write_text('[dependencies]\npyo3 = "0.22"\n', encoding="utf-8")
+        res_pyo3 = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-ws-pyo3", "workspace": str(pyo3_ws), "prompt": "Review binding exports."}
+        )
+        self.assertIn("`rustify`", res_pyo3["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        fake_home = self.tmp / "fake_home_ws_bin"
+        (fake_home / ".gemini" / "antigravity" / "mcp" / "rea_rea").mkdir(parents=True)
+        bin_ws = self.tmp / "bin_ws"
+        bin_ws.mkdir()
+        (bin_ws / "app.asar").write_bytes(b"asar")
+        with mock.patch("pathlib.Path.home", return_value=fake_home):
+            res_bin = agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-ws-bin", "workspace": str(bin_ws), "prompt": "Inspect files in directory."}
+            )
+        self.assertIn('ServerName="rea_rea"', res_bin["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+    def test_transcript_tail_tool_signals_and_dedup(self) -> None:
+        # 1. Pre-USER_INPUT errors and exit-code-0 truncated outputs must NOT fire build-error-resolver
+        clean_tx = self.tmp / "clean_tx.jsonl"
+        old_trace = "\n".join(f"src/a.ts({i},1): error TS2304: Cannot find name 'x'." for i in range(520))
+        exit_zero_trunc = json.dumps(
+            {
+                "type": "GENERIC",
+                "status": "DONE",
+                "content": "Command exited with code 0\n" + ("row\n" * 600),
+                "truncated_fields": ["content"],
+            }
+        )
+        clean_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": old_trace}),
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Inspect latest run."}),
+                    exit_zero_trunc,
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-tx-clean", "transcriptPath": str(clean_tx), "prompt": "What happened next?"}
+            ),
+            {},
+        )
+
+        # 2. >500-line error trace strictly after USER_INPUT triggers build-error-resolver once (then dedups)
+        heavy_tx = self.tmp / "heavy_tx.jsonl"
+        heavy_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Compile project"}),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1\n" + old_trace}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        res_heavy = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-tx-heavy", "transcriptPath": str(heavy_tx), "prompt": "Inspect latest failure."}
+        )
+        self.assertIn("Subagent `build-error-resolver`", res_heavy["injectSteps"][0]["systemMessage"]["systemMessage"])
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-tx-heavy", "transcriptPath": str(heavy_tx), "prompt": "Try next diagnosis."}
+            ),
+            {},
+        )
+
+        # 3. Consecutive failing build/test outputs after USER_INPUT trigger build-error-resolver, cleared by clean test pass
+        consec_tx = self.tmp / "consec_tx.jsonl"
+        consec_entries = [
+            json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Run checks"}),
+            json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1\nerror[E0308]: mismatched types"}),
+            json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1\nerror[E0308]: mismatched types"}),
+        ]
+        consec_tx.write_text("\n".join(consec_entries) + "\n", encoding="utf-8")
+        res_consec = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-tx-consec", "transcriptPath": str(consec_tx), "prompt": "Look at these errors."}
+        )
+        self.assertIn("Subagent `build-error-resolver`", res_consec["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        consec_entries.append(
+            json.dumps({"type": "GENERIC", "status": "DONE", "content": "Command exited with code 0\nRan 12 tests in 0.1s\nOK"})
+        )
+        consec_tx.write_text("\n".join(consec_entries) + "\n", encoding="utf-8")
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-tx-resolved", "transcriptPath": str(consec_tx), "prompt": "Look at these errors."}
+            ),
+            {},
+        )
+
+        # 4. Truncated compiler error output (<500 lines but truncated_fields=["content"]) triggers build-error-resolver
+        trunc_tx = self.tmp / "trunc_tx.jsonl"
+        trunc_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Check tsc"}),
+                    json.dumps(
+                        {
+                            "type": "GENERIC",
+                            "status": "ERROR",
+                            "content": "Command exited with code 2\nsrc/index.ts(10,5): error TS2304: Cannot find name 'foo'.",
+                            "truncated_fields": ["content"],
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        res_trunc = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-tx-trunc", "transcriptPath": str(trunc_tx), "prompt": "What failed here?"}
+        )
+        self.assertIn("Subagent `build-error-resolver`", res_trunc["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+
+class TestW3HookHardeningAndPrecision(HooksTempCase):
+    def test_short_explicit_slug_and_inline_backtick_prompts_are_not_skipped(self) -> None:
+        for idx, (prompt, expected) in enumerate(
+            (
+                ("use deep-grill", "`deep-grill`"),
+                ("run rustify", "`rustify`"),
+                ("check `deep-grill` now", "`deep-grill`"),
+                ("run `/deep-grill`", "`deep-grill`"),
+            )
+        ):
+            with self.subTest(prompt=prompt):
+                res = agy_hooks.handle_pre_invocation(
+                    {"conversationId": f"conv-w3-short-explicit-{idx}", "prompt": prompt}
+                )
+                self.assertIn("injectSteps", res, f"Expected explicit hint for: {prompt}")
+                self.assertIn(expected, res["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation({"conversationId": "conv-w3-tiny-neg", "prompt": "hi"}),
+            {},
+        )
+
+    def test_rustify_c_cpp_go_precision_and_non_false_positive(self) -> None:
+        res_cpp = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-w3-cpp",
+                "prompt": "Generate Rust FFI bindings for C/C++ audio mixer modules.",
+            }
+        )
+        self.assertIn("`rustify`", res_cpp["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        res_go_back = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-w3-go-back",
+                "prompt": "Let us go back to Rust 2024 edition naming conventions later.",
+            }
+        )
+        self.assertEqual(res_go_back, {})
+
+    def test_rea_and_image_generator_precision_boundaries(self) -> None:
+        fake_home = self.tmp / "fake_home_w3"
+        (fake_home / ".gemini" / "antigravity" / "mcp" / "rea_rea").mkdir(parents=True)
+        with mock.patch("pathlib.Path.home", return_value=fake_home):
+            self.assertEqual(
+                agy_hooks.handle_pre_invocation(
+                    {
+                        "conversationId": "conv-w3-disasm-neg",
+                        "prompt": "Please disassemble this legacy service conceptually before splitting it.",
+                    }
+                ),
+                {},
+            )
+            res_bin = agy_hooks.handle_pre_invocation(
+                {
+                    "conversationId": "conv-w3-disasm-bin",
+                    "prompt": "Please decompile this binary and extract its symbols.",
+                }
+            )
+            self.assertIn('ServerName="rea_rea"', res_bin["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        res_img_neg = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-w3-img-neg",
+                "prompt": "Refactor the image-generator queue worker without changing public outputs.",
+            }
+        )
+        msg_img = res_img_neg["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("`refactoring`", msg_img)
+        self.assertNotIn("Subagent `image-generator`", msg_img)
+
+    def test_read_bounded_bytes_nofollow_blocks_null_byte_symlink_and_fifo(self) -> None:
+        real_f = self.tmp / "real.txt"
+        real_f.write_text("hello", encoding="utf-8")
+        link_f = self.tmp / "link.txt"
+        link_f.symlink_to(real_f)
+
+        self.assertEqual(agy_hooks._read_bounded_bytes_nofollow(real_f, 64), b"hello")
+        self.assertIsNone(agy_hooks._read_bounded_bytes_nofollow(link_f, 64))
+        self.assertIsNone(agy_hooks._read_bounded_bytes_nofollow(Path(f"{real_f}\x00evil"), 64))
+
+        if hasattr(os, "mkfifo"):
+            fifo_f = self.tmp / "pipe.fifo"
+            os.mkfifo(fifo_f)
+            self.assertIsNone(agy_hooks._read_bounded_bytes_nofollow(fifo_f, 64))
+
+    def test_transcript_tail_streaming_large_line_boundary_and_non_exec_read_filter(self) -> None:
+        # 1. >131KB JSONL entry AFTER the 501-line failing build step must not hide the error trace
+        big_pad = "x" * 170_000
+        long_fail_body = "\n".join(f"line {i}" for i in range(501)) + "\nTraceback (most recent call last):\nRuntimeError: boom"
+        big_tx = self.tmp / "big_tx.jsonl"
+        big_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Run test suite"}),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": long_fail_body}),
+                    json.dumps({"type": "GENERIC", "status": "DONE", "content": big_pad}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        res_big = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-w3-big-tx", "transcriptPath": str(big_tx), "prompt": "What failed in CI?"}
+        )
+        self.assertIn("Subagent `build-error-resolver`", res_big["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        # 2. Exact 500-line failing single step (without >500 or 2 consecutive fails) stays below heavy threshold
+        exact_500_body = "Traceback (most recent call last):\n" + "\n".join(f"line {i}" for i in range(499))
+        tx_500 = self.tmp / "tx_500.jsonl"
+        tx_500.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Check"}),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": exact_500_body}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-w3-500-edge", "transcriptPath": str(tx_500), "prompt": "Inspect this result."}
+            ),
+            {},
+        )
+
+        # 3. Non-exec read_file step containing Traceback text in file source must NOT trigger build-error-resolver
+        read_tx = self.tmp / "read_tx.jsonl"
+        read_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Read file"}),
+                    json.dumps(
+                        {
+                            "type": "GENERIC",
+                            "tool_name": "read_file",
+                            "status": "DONE",
+                            "content": "Traceback (most recent call last):\nAssertionError: example",
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "GENERIC",
+                            "tool": "grep_search",
+                            "status": "DONE",
+                            "content": "Traceback (most recent call last):\nAssertionError: second",
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-w3-non-exec-read", "transcriptPath": str(read_tx), "prompt": "Summarize file structure."}
+            ),
+            {},
+        )
+
+        # 4. Clean Go/pytest exit-0 pass resets prior consecutive failures
+        go_pass_tx = self.tmp / "go_pass_tx.jsonl"
+        go_pass_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Run go test"}),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1\nFAIL"}),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1\nFAIL"}),
+                    json.dumps({"type": "GENERIC", "status": "DONE", "content": "Command exited with code 0\nok pkg/mod 0.42s"}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-w3-go-pass", "transcriptPath": str(go_pass_tx), "prompt": "Check go module status."}
+            ),
+            {},
+        )
+
+    def test_workspace_signal_promotion_under_cooldown_and_pure_c_negative(self) -> None:
+        # Cooled-down rustify + game-engineering must still let 3rd signal (media-studio) promote!
+        multi_ws = self.tmp / "multi_ws_w3"
+        (multi_ws / "assets").mkdir(parents=True)
+        (multi_ws / "Cargo.toml").write_text('[package]\nname = "g"\n', encoding="utf-8")
+        (multi_ws / "native.c").write_text("int f(void){return 1;}\n", encoding="utf-8")
+        (multi_ws / "main.js").write_text(
+            "const c = el.getContext('2d'); requestAnimationFrame(() => {});", encoding="utf-8"
+        )
+        (multi_ws / "assets" / "bgm.ogg").write_bytes(b"ogg")
+
+        hints_file = self.state_dir / "hook_hints.json"
+        hints_file.write_text(
+            json.dumps(
+                {
+                    "conv-w3-promo": {
+                        "__turn__": 1,
+                        "__last_sig__": "0:old",
+                        "__workspace_checked__": 1,
+                        "rustify": 1,
+                        "game-engineering": 1,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        res_promo = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-w3-promo", "workspace": str(multi_ws), "prompt": "Review asset pipeline setup."}
+        )
+        self.assertIn("`media-studio`", res_promo["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        # Pure C/C++ project without Cargo.toml must NOT inject rustify
+        pure_c_ws = self.tmp / "pure_c_ws"
+        pure_c_ws.mkdir()
+        (pure_c_ws / "main.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-w3-pure-c", "workspace": str(pure_c_ws), "prompt": "Compile this C binary locally."}
+            ),
+            {},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 

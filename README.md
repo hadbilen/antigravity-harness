@@ -166,7 +166,7 @@ one is not stopped; the integrity baseline reports it.
 
 ## 2. The Engineering Constitution (`GEMINI.md`)
 
-About 15 KB of always-on invariants (18 numbered rules); procedures live in the skills and mechanical checks
+About 17 KB of always-on invariants (18 numbered rules); procedures live in the skills and mechanical checks
 in Guard and `scripts/`.
 
 * **Proportional Gate Escalation:** Tier 1 (1–2 files, <20 lines) direct edits; Tier 2 (3–8 files) plans,
@@ -240,7 +240,7 @@ their own tool policies:
 * **`harness`:** engineering harness, verification gates, task lifecycle.
 * **`marathon`:** proactive multi-window goal planning, minimum-window packing, per-window model/effort/skill routing, and `HANDOFF.md` orchestration with mid-marathon scope lock.
 * **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net`) with the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
-* **`media-studio`:** high-fidelity audio, video, still-image (`JPG`, `PNG`, `TIFF`, `BMP`), and animated visual (`MP4`, `WebM`, `Animated WebP`, `GIF`, `APNG`, `WAV`, `FLAC`, `Opus`, `AAC`) synthesis, timeline editing, container/header salvage (`salvage`), signal restoration, two-tier fidelity-bounded quality enhancement, two-pass `EBU R128` loudness mastering, and the deterministic `media_qc.py` quality gate (`MEDIA-1..MEDIA-7`, `LUFS`, `dBTP`, aspect-locked `compare` `SSIM`/`PSNR`, `ab-sheet`).
+* **`media-studio`:** high-fidelity audio, video, still-image (`JPG`, `PNG`, `TIFF`, `BMP`), and animated visual (`MP4`, `WebM`, `Animated WebP`, `GIF`, `APNG`, `WAV`, `FLAC`, `Opus`, `AAC`) synthesis, timeline editing, container/header salvage (`salvage`), signal restoration, two-tier fidelity-bounded quality enhancement, two-pass `EBU R128` loudness mastering, and the deterministic `media_qc.py` quality gate (`MEDIA-1..MEDIA-7`, `GAME-1..GAME-3`, `LUFS`, `dBTP`, aspect-locked `compare` `SSIM`/`PSNR`, `ab-sheet`, game SFX peak normalization, Ogg Vorbis/Opus, loop-seam, pixel-art, and sprite-atlas checks).
 * **`renew`:** generational legacy software and classic game modernization, dead-runtime/toolkit porting, and unbuildable codebase revival via a 5-stage contract-first pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover -> Parity Gate`) with a Legacy Game & Interactive Simulation Remaster profile.
 * **`rustify`:** architectural C, C++, Go, and Python -> memory-safe Rust migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`) via a 5-stage contract-first pipeline (`Silent Build & ABI Autopsy -> Migration Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, and conditional `cargo kani` formal proofs).
 * **`porter`:** ecosystem adapter, suitability analyzer, transpiler.
@@ -302,7 +302,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
 ├── skills/                                # 34 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
-├── tests/                                 # Hermetic unittest suite (589 tests)
+├── tests/                                 # Hermetic unittest suite (613 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -440,7 +440,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (589 tests)
+# Hermetic unit test suite (613 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

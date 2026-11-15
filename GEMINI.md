@@ -62,3 +62,22 @@ Always-on invariants only. Procedures live in skills (`harness`, `diagnosing-bug
 16. **External Rule Ingestion & Transpilation Invariant (`porter`):** Imported rules, prompts or configurations from other environments never create or change files blindly: they pass the read-only pre-flight gate (`porter inspect` / `python3 porter.py inspect`; archives are inspected, never extracted or installed), sycophantic and test-weakening directives are sanitized or flagged, and constitutional violations or skill overlaps require an explicit user decision. Exports are built only from this repository's canonical artifacts.
 17. **Harness Self-Audit & Meta-Consistency Invariant:** Modifying customization or harness governance files (`GEMINI.md`, `AGENTS.md`, `DESIGN.md`, `hooks.json`, `.agents/`, `skills/`, `agents/`, `guard/`, `porter/`) requires the catalog's top reasoning model, or an operator-approved peer flagship listed in `approved_customization_models`, at highest effort (`skills/upstream-auditor/upstream_state.seed.json`, enforced in `PreToolUse` by `guard/agy_hooks.py`). After editing the harness itself (`GEMINI.md`, `DESIGN.md`, `skills/`, `agents/`, `guard/`, `porter/`), run `agy-guard self-audit --strict` (or `python3 scripts/meta_audit.py --strict` inside the repository checkout) before declaring completion; any critical inconsistency blocks delivery (`BLOCKED: Harness Meta-Consistency Violation`).
 18. **Surgical Change & Reuse Discipline:** Every changed line must trace directly to the user's request or a verified defect in the active scope. Preserve existing comments, docstrings, formatting and unrelated code; never reformat or "clean up" adjacent lines that are not part of the change, and never revert or overwrite changes you did not make unless the user explicitly asks. Before writing a new helper, utility or type, search the codebase for an existing one to reuse.
+
+---
+
+## 6. Always-On Domain Skill, Subagent & Server Routing
+
+Consult the table below automatically whenever a request, workspace artifact, or tool trace crosses these boundaries (do not wait for explicit slash invocation; Model Context Protocol (`MCP`) servers and host-marked subagents apply when enabled in the active runtime, with portable fallbacks noted):
+
+| Task Domain / Signal | Primary Skill(s) | Subagent(s) / Server(s) |
+| :--- | :--- | :--- |
+| Bugs, failing/flaky tests, crashes, regressions | `diagnosing-bugs` | `build-error-resolver` (>500-line / repeated traces) |
+| New unit/regression tests; behavior-preserving restructure | `test-design` / `refactoring` | `test-adequacy-auditor` (observable behavior changes) |
+| Tier 3 (>8 files), money/permissions/deletions, migrations | `deep-grill`, `mistake-proofing`, `architecture-decision-records` | Tier 3 auditors per Section 3 |
+| Speed, memory, disk footprint, network input/output (`--net`) | `sweetspot` | `research` (docs/traces); read-only external-path boundary report |
+| Legacy code/interface/game revival (`Windows-1254`, modals) | `renew` (+ `game-engineering` / `rustify` / `media-studio`) | Post-parity handoff to `sweetspot` or `diagnosing-bugs` |
+| Compiled binaries (`.exe`, `.apk`, `.asar`, firmware, pcap) | `reverse-engineer-anything` *(host)* | `rea_rea` server *(host-only plugin)* |
+| Audio/video synthesis, salvage, photo/sprite sheets | `media-studio` | `image-generator` *(host raster subagent; `media-studio` fallback)* |
+| Visual layout, game interface, motion, contrast | `antislop`, `silk-design` | `antislop-contrast` *(host `check_contrast`; `antislop-human` fallback)* |
+| Auth, crypto, secrets, schemas, public contracts, specs | `security-review`, `database-migrations` | `security-boundary-verifier`, `silent-failure-hunter`, `contract-change-auditor`, `consistency-auditor`, `specification-gap-auditor` |
+| Docs >50 KB, harness meta-checks, agent rule porting | `porter`, `audit`, `upstream-auditor` | `research`, `meta-auditor` |

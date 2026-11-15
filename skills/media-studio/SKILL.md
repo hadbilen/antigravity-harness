@@ -49,16 +49,16 @@ Every audio, video, or animated visual task executes four ordered phases:
 ## 2. Audio Synthesis, Timeline Editing & Signal Restoration
 
 ### A. Programmatic Audio Synthesis (`NumPy`, `SciPy`, `SoundFile`, `Librosa` & `FFmpeg lavfi`)
-When synthesizing sound effects, musical stems, ambient textures, UI cues, or calibration signals from scratch:
+When synthesizing sound effects, musical stems, ambient textures, UI cues, or calibration signals from scratch (Keep creative Digital Signal Processing (`DSP`) synthesis inside Python/`NumPy`/`SciPy`/`SoundFile`/`FFmpeg lavfi`; `media_qc.py` owns probing, mastering, loop trimming, and quality gates rather than sound generation):
 
-1. **64-Bit Floating-Point Digital Signal Processing (`DSP`):** Construct waveforms, Frequency Modulation (`FM`) / subtractive synth patches, biquad/Butterworth filter sweeps (`scipy.signal.butter`, `scipy.signal.sosfilt`), and room impulse convolutions (`scipy.signal.fftconvolve`) in `float64` arrays at `48000 Hz` (or `44100 Hz` when matching an existing timeline).
+1. **64-Bit Floating-Point DSP (`float64`):** Construct waveforms, Frequency Modulation (`FM`) / subtractive synth patches, biquad/Butterworth filter sweeps (`scipy.signal.butter`, `scipy.signal.sosfilt`), and room impulse convolutions (`scipy.signal.fftconvolve`) in `float64` arrays at `48000 Hz` (or `44100 Hz` when matching an existing timeline).
 2. **Click-Free Envelope & Zero-DC Discipline:**
    * Subtract mean DC offset (`signal = signal - np.mean(signal)`) after synthesis and nonlinear waveshaping.
    * Apply an explicit Attack-Decay-Sustain-Release (`ADSR`) envelope or at least a `5 ms` raised-cosine (`hann`) fade-in and fade-out ramp so waveforms never start or terminate at a non-zero sample step.
    * Normalize peak amplitude below `-1.0 dBTP` (`peak_limit = 10 ** (-1.0 / 20.0)`) before writing to disk.
-3. **Lossless Master & Delivery Formats:**
+3. **Lossless Master, Game Engine `.ogg` & Delivery Formats:**
    * Write archival or intermediate stems as 24-bit signed Pulse-Code Modulation (`PCM_24` via `soundfile.write(..., subtype="PCM_24")` or `-c:a pcm_s24le` / `-c:a flac`).
-   * Encode compressed delivery assets with `-c:a libopus -b:a 160k` (WebM/Ogg) or `-c:a aac -b:a 192k` (MP4/M4A).
+   * Encode compressed Web/streaming delivery assets with `-c:a libopus -b:a 160k` (`.ogg`/`.opus`/`.webm`, default in `media_qc.py`) or `-c:a aac -b:a 192k` (MP4/M4A). For Unity, Godot, Unreal, or seamless `.ogg` game loops, pass `--ogg-codec vorbis` (`-c:a libvorbis -q:a 5`).
 
 ### B. Audio Timeline Editing & Mixing
 * **Pop-Free Trimming & Silence Removal:** Detect dead air with `silencedetect=noise=-38dB:d=0.4` and join trimmed segments using `acrossfade=d=0.03:c1=tri:c2=tri` (`30 ms` triangular crossfade) or `afade` micro-ramps to prevent splice clicks.
@@ -92,6 +92,10 @@ When repairing noisy, clipped, uneven, or off-spec audio, apply filters in this 
      * Web / Streaming / Social Video (YouTube, Spotify, Reels): `-14.0 LUFS`, True Peak `<= -1.0 dBTP`
      * Podcast / Voiceover / Dialogue: `-16.0 LUFS`, True Peak `<= -1.5 dBTP`
      * Broadcast Television (`EBU R128` / `ITU-R BS.1770`): `-23.0 LUFS`, True Peak `<= -1.5 dBTP`
+6. **Short Game Sound Effects (`< 0.5 s`), Engine `.ogg` & Seamless Audio Loops (`skills/game-engineering/SKILL.md`):**
+   * ITU-R BS.1770 gated `loudnorm` / `ebur128` requires a `400 ms` integration window, so on ultra-short UI clicks, footsteps, or impact impulses `loudnorm` emits `input_i: "-inf"` and `ebur128` can report `-70.0 LUFS` or unstable readings even for loud transients (`check --game-sfx` uses a conservative `< 0.5 s` safety cutoff to bypass `MEDIA-4`).
+   * Pass `--game-sfx` (or explicit `--peak-db -1.0`) to `python3 "$MEDIA_QC" master-audio <in> <out> --game-sfx` for linear peak normalization (on lossy `.ogg`, `.opus`, `.webm`, `.mp3`, `.aac`, `.m4a` targets, default peak target clamps to `min(target_tp - 0.6, -1.6) dBFS` to protect against inter-sample codec overshoot unless `--peak-db` is pinned), `--ogg-codec vorbis` when targeting game engines expecting Ogg Vorbis, and `--trim-loop` to snap seamless ambience/music loops onto matched rising zero-crossings (`--check-loop` verifies zero splice clicks).
+   * Always use `--game-sfx`—**never** `--allow-silent`—when validating active `< 0.5 s` SFX via `check`: `--allow-silent` disables silence detection completely, whereas `--game-sfx` validates `astats` Peak `dBFS` so genuinely muted SFX still fail `MEDIA-3`.
 
 ---
 
@@ -141,8 +145,10 @@ When fixing visual defects in existing footage, apply filters in this order:
      ```text
      zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p
      ```
-5. **Scaling, Detail Recovery & Motion Interpolation:**
-   * Upscale with `scale=<W>:<H>:flags=lanczos,setsar=1` followed by subtle luma-only sharpening (`unsharp=5:5:0.45:5:5:0.0`).
+5. **Scaling, Detail Recovery, Pixel Art & Motion Interpolation:**
+   * Continuous-tone video/photos: upscale with `scale=<W>:<H>:flags=lanczos,setsar=1` followed by subtle luma-only sharpening (`unsharp=5:5:0.45:5:5:0.0`).
+   * **Pixel Art & Retro Sprites:** Never apply `lanczos` or `unsharp` to pixel art; scale strictly by integer factors using `scale=<W>:<H>:flags=neighbor,setsar=1` and validate with `--pixel-art` across `check`, `compare`, and `ab-sheet`.
+   * **Sprite Atlases & GPU Textures:** Verify power-of-two geometry (`--require-pot`), grid divisibility (`--tile-size WxH`), RGB edge dilation (`--check-alpha-bleed`), and internal tile gutters (`--sprite-atlas`, or `--allow-edge-touch` for seamless full-bleed tilesets).
    * For smooth frame-rate conversion (when motion interpolation is explicitly requested): `minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`.
 
 ### D. Corrupted Container Salvage, Still-Image Restoration & Fidelity-Bounded Enhancement
@@ -186,7 +192,15 @@ python3 "$MEDIA_QC" ab-sheet <reference_file> <output_file> <scratch_dir>/ab_she
 python3 "$MEDIA_QC" master-audio <input_file> <output_file> \
   --target-lufs -14.0 --target-tp -1.0 --target-lra 11.0 --highpass 75 --denoise fft --declip
 
-# 7. Extract a tiled keyframe contact sheet and inspect via read_file (for video/animated outputs)
+# 7. Game Audio / Sprite QC (when co-loaded with game-engineering)
+python3 "$MEDIA_QC" check <short_sfx.wav> --game-sfx --json
+python3 "$MEDIA_QC" master-audio <raw_sfx.wav> <sfx.ogg> --ogg-codec vorbis --game-sfx
+python3 "$MEDIA_QC" check <music_loop.ogg> --target-lufs -14.0 --check-loop --json
+python3 "$MEDIA_QC" master-audio <raw_loop.wav> <loop.ogg> --ogg-codec vorbis --target-lufs -14.0 --trim-loop
+python3 "$MEDIA_QC" check <sprite_or_atlas.png> --pixel-art --sprite-atlas --tile-size 32x32 --require-pot
+python3 "$MEDIA_QC" compare <sprite_1x.png> <sprite_4x.png> --pixel-art
+
+# 8. Extract a tiled keyframe contact sheet and inspect via read_file (for video/animated outputs)
 python3 "$MEDIA_QC" keyframes <output_file> <scratch_dir>/contact_sheet.png \
   --cols 4 --rows 2 --tile-width 320
 ```
@@ -194,10 +208,13 @@ python3 "$MEDIA_QC" keyframes <output_file> <scratch_dir>/contact_sheet.png \
 ### Enforced Quality Rules (`media_qc.py check`)
 * **`MEDIA-1` (Stream, Duration & Still-Image Decode Integrity):** File must exist, be non-empty, have positive duration (`> 0 s` for timed containers; still/animated image streams such as `gif`, `webp`, `webp_pipe`, `apng`, `image2`, `png_pipe`, `jpeg_pipe`, `mjpeg`, `tiff_pipe`, `bmp_pipe` are exempt from container duration), and decode every frame/packet with zero fatal `ffmpeg` stream errors (including full scanline decode verification on still images).
 * **`MEDIA-2` (Audio-Video Sync Drift & Even Geometry):** When both video and audio streams are present, their durations must agree within `<= 100 ms` (`0.10 s`), and odd pixel dimensions on `4:2:0` (`yuv420p`) streams are rejected.
-* **`MEDIA-3` (True Peak Clipping & Silence Guard):** Audio True Peak (`dBTP`) must not exceed `--max-true-peak` (default `-1.0 dBTP`), and silent audio streams (`integrated_lufs <= -70.0 LUFS` unless `--allow-silent` is passed) are flagged.
-* **`MEDIA-4` (Loudness Target Compliance):** When `--target-lufs` is specified, integrated loudness (`LUFS`) must fall within `target_lufs ± lufs_tolerance` (default `--lufs-tolerance 1.5` LU).
+* **`MEDIA-3` (True Peak Clipping & Silence Guard):** Audio True Peak (`dBTP`) must not exceed `--max-true-peak` (default `-1.0 dBTP`), and silent audio streams (`integrated_lufs <= -70.0 LUFS`, or `peak_level_db <= -70.0 dBFS` on `< 0.5 s` clips under `--game-sfx`; never silence-bypass with `--allow-silent` on live SFX) are flagged.
+* **`MEDIA-4` (Loudness Target Compliance):** When `--target-lufs` is specified, integrated loudness (`LUFS`) must fall within `target_lufs ± lufs_tolerance` (default `--lufs-tolerance 1.5` LU; bypassed consistently on `< 0.5 s` clips under `--game-sfx` due to ITU-R BS.1770 `400 ms` gating limits).
 * **`MEDIA-5` (DC Offset Guard):** Absolute audio DC offset (`astats` `DC_offset`) must remain `<= --max-dc-offset` (default `0.02`).
 * **`MEDIA-6` (Decoder & Pixel Format Compatibility):** `H.264` (`h264`) `.mp4`, `.m4v`, and `.mov` deliverables must use web-safe `yuv420p`, `yuvj420p`, or `nv12` rather than `yuv444p`/`yuv422p` that fail in standard web and mobile players (unless `--allow-high-chroma` is explicitly set for studio archival).
 * **`MEDIA-7` (Black / Frozen Video Frame Guard):** Video outputs that are `>= 90%` (`0.90`) black frames (`blackdetect`) or `>= 95%` (`0.95`) frozen frames (`freezedetect` on videos `> 1.0 s`, unless `--allow-static` is set) are rejected.
+* **`GAME-1` (Opt-In Audio Loop Seam Guard `--check-loop`):** Normalized wrap step (`<= 0.15`) and wrap slope impulse (`<= 0.05`) across `s[-1] -> s[0]` ensure click-free audio loops; non-finite (`NaN`/`Inf`) samples or missing/corrupt audio streams fail `GAME-1` explicitly.
+* **`GAME-2` (Opt-In Pixel-Art Nearest-Neighbor Guard `--pixel-art`):** Rejects blurry semi-transparent alpha edge fringes (`0 < a < 255 > 1%` on `check`) and non-integer scales or non-uniform `k x k` texel blocks (on `compare --pixel-art`).
+* **`GAME-3` (Opt-In Sprite Atlas Geometry & Alpha Bleed Guard):** Rejects non-Power-of-Two canvases (`--require-pot`), unaligned tile grids (`--tile-size WxH`), un-dilated transparent RGB edge halos (`--check-alpha-bleed` / `--sprite-atlas` without `--pixel-art`), and opaque pixels touching internal tile dividers (unless `--allow-edge-touch`).
 
 For every visual or animated deliverable, inspect the generated tiled `contact_sheet.png` with `read_file` (`skills/harness/SKILL.md` §3B Step 4b) to confirm zero text clipping, aspect-ratio distortion, color banding, or framing defects before delivery.

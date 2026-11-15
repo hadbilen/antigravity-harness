@@ -381,5 +381,89 @@ class TestRustifySkillAndRoutingSeams(unittest.TestCase):
         self.assertIn(".cursor/skills/rustify/references/managed-go-python.md", body)
 
 
+class TestRustify2024DocsAndCodeMapLimits(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="agy_rustify_2024_"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_rustify_edition_2024_1_100_and_cpp_guidance_contracts(self) -> None:
+        """Verifies Edition 2024 FFI syntax, Rust 1.100.0 stabilizations, C++ migration depth, and clean analyzer hygiene."""
+        skill_text = (REPO_ROOT / "skills" / "rustify" / "SKILL.md").read_text(encoding="utf-8")
+        ref_text = (REPO_ROOT / "skills" / "rustify" / "references" / "c-cpp-abi-and-embedded.md").read_text(
+            encoding="utf-8"
+        )
+
+        analyzer = SuitabilityAnalyzer(REPO_ROOT)
+        for src_name, text in (("SKILL.md", skill_text), ("c-cpp-abi-and-embedded.md", ref_text)):
+            report = analyzer.analyze(text, source_identifier=src_name)
+            self.assertEqual(report.constitutional_score, 100, f"{src_name}: {report.issues}")
+            self.assertEqual(report.issues, [], f"{src_name}: {report.issues}")
+
+        # Edition 2024 FFI syntax & lints
+        for needle in (
+            "2024",
+            "#[unsafe(no_mangle)]",
+            "unsafe extern \"C\"",
+            "static_mut_refs",
+            "unsafe_op_in_unsafe_fn",
+        ):
+            self.assertIn(needle, skill_text)
+            self.assertIn(needle, ref_text)
+        self.assertIn("pub safe fn", ref_text)
+        self.assertIn("&raw mut", ref_text)
+        # Ensure bare #[no_mangle] is only mentioned inside an explicit Edition 2024 deprecation warning, never emitted as live guidance.
+        self.assertNotIn('#[no_mangle] pub unsafe extern "C"', ref_text)
+
+        # Rust 1.100.0 & Cargo cooldown features
+        for needle in (
+            "1.100.0",
+            "DropGuard",
+            "Allocator",
+            "never type",
+            "global-min-publish-age",
+            "min-publish-age",
+            "unused_dependencies",
+            "*-sys",
+            "*-core",
+            "*-ffi",
+        ):
+            self.assertIn(needle, skill_text)
+        for needle in (
+            "core::mem::DropGuard",
+            "core::alloc::Allocator",
+            "Infallible",
+            "std::move",
+            "dyn Trait",
+            "std::string_view",
+            "compile_commands.json",
+            "clangd",
+        ):
+            self.assertIn(needle, ref_text)
+
+    def test_codemap_documented_cpp_macro_expansion_boundary(self) -> None:
+        """Confirms documented limitation: `code_map.py` single-pass `#` blanking does not expand C/C++ macro calls."""
+        hdr = self.root / "hooks.hpp"
+        hdr.write_text(
+            "int secret_target(int x);\n"
+            "#define DISPATCH_HOOK(val) secret_target(val)\n",
+            encoding="utf-8",
+        )
+        src = self.root / "runner.cpp"
+        src.write_text(
+            '#include "hooks.hpp"\n'
+            "int direct_caller(int n) { return secret_target(n); }\n"
+            "int macro_caller(int n) { return DISPATCH_HOOK(n); }\n",
+            encoding="utf-8",
+        )
+        callers = find_callers("secret_target", [self.root], base_dir=self.root)
+        caller_scopes = {c["enclosing_scope"] for c in callers}
+        self.assertIn("direct_caller", caller_scopes)
+        self.assertNotIn("macro_caller", caller_scopes)
+        blast = compute_blast_radius("secret_target", [self.root], base_dir=self.root)
+        self.assertIn("runner.cpp", blast.get("affected_files", []))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,20 @@ To eliminate over-engineering, latency, and context bloat, tasks are partitioned
   * *Real-time games, canvas/WebGL loops, and interactive simulations* follow the `game-engineering` skill alongside `DESIGN.md` `MODE: GAME & INTERACTIVE`: fixed-timestep `update(dt)` / `render(alpha)` separation, zero per-frame heap allocation, explicit entity state unions (`mistake-proofing`), seeded determinism, and a `1,000+` tick headless simulation test.
   * *Audio, video, still image, and animated visual synthesis, timeline editing, damaged-container salvage, archival restoration, fidelity-bounded upscaling, and mastering* follow the `media-studio` skill (`skills/media-studio/SKILL.md` & `skills/media-studio/references/salvage-and-enhancement.md`): 4-stage `Probe -> Plan -> Process -> Verify` pipeline, stream-copy container salvage (`salvage`), two-pass EBU R128 loudness normalization, ordered spectral/temporal/photo restoration filters, two-pass GIF palette generation, and the deterministic `media_qc.py` quality gate (`check`, aspect-locked `compare`, `ab-sheet`, `keyframes`).
 
+### Multi-Skill Orchestration Recipes
+
+Complex requests compose domain skills strictly in sequential phases—never mix incompatible gates inside a single unverified pass:
+
+* **Compiled / Legacy Program -> Modern Port -> Optimization Pipeline:**
+  1. *Artifact Recovery (`reverse-engineer-anything` / `rea_rea` MCP):* Decompile binaries, extract assets, and freeze a clean-room reconstruction obligation ledger before editing.
+  2. *Deterministic Port (`renew` + domain adapter):* Capture offline oracle / `[HARDWARE/ENV SHIM]` replay fixtures first, then pair with `game-engineering` (classic games), `rustify` (C/C++/PyO3 native kernels), `database-migrations` (legacy schemas), and `media-studio` (corrupt audio/video/spritesheet assets) through the Stage 5 `100%` Parity Gate.
+  3. *Post-Parity Tuning (`sweetspot` or `diagnosing-bugs`):* Hand off ONLY after parity is green—optimize hot paths/bundles via `sweetspot` or isolate newly surfaced runtime bugs via `diagnosing-bugs`.
+* **New Game / Interactive Simulation Composition:**
+  1. *Spec & Simulation Core (`deep-grill` -> `game-engineering`):* Lock core mechanics, fixed-timestep loop (`FIXED_DT`), zero per-frame allocations, and headless tick verification first.
+  2. *Assets & HUD Polish (`media-studio` + `antislop`):* Generate/normalize audio & sprite sheets via `media-studio` and enforce `DESIGN.md` (`MODE: GAME & INTERACTIVE`) + `antislop-contrast` (`check_contrast`) on HUD overlays.
+  3. *Frame-Pacing & Bundle Pass (`sweetspot`):* Profile and trim frame spikes or delivery size after gameplay behavior is verified.
+* **Anti-Mixing Sequencing Rule:** Never apply `refactoring` or `sweetspot` micro-optimizations while a legacy parity port (`renew` / `rustify`) or active fault diagnosis (`diagnosing-bugs`) is still failing; restore a green oracle or bug-free baseline before crossing phases.
+
 ### The Efficiency Ladder & Helper Reuse Threshold (`GEMINI.md` Rule 18)
 
 Before writing new code or introducing an abstraction, evaluate the seven-rung efficiency ladder in order and stop at the first rung that holds:
@@ -223,7 +237,7 @@ Every finding returned by a subagent, linter, or external review is a **hypothes
 As codebases evolve, documentation, decision records (`ADR`), and rules diverge from implementation. Harness enforces periodic audits:
 * **`MISTAKES.md` Rule Promotion (`retro`):** A failure pattern recurring three times in `MISTAKES.md` (counted via the `retro` skill) is promoted to a mechanical check (script, hook, test) or a skill rule first; it enters `GEMINI.md` only when no mechanical or skill-level home exists (Constitution Rule 10). Every promoted check is verified against its historical occurrences as positive test cases alongside a clean negative control.
 * **Broken Contract Audits:** When API schemas or shared types change, run `contract-change-auditor` and update dependent documentation and contract tests in the same session.
-* **First Production Version from a `vibecoder` Prototype:** When promoting a prototype into a production system (optionally planned across sequential windows via `skills/marathon/SKILL.md`), treat it as Tier 3 regardless of file count, read its `PRODUCT.md` specification (if present, or the embedded `<script type="application/json" id="vibecoder-promotion-spec">` Section 1F metadata inside the single-file `.html` prototype) first, surface all implicit prototype choices (e.g. browser-only storage, missing authentication) as explicit assumptions for user confirmation in `AC-1..N`, and enforce `antislop`'s Delivery Gate on all screens.
+* **First Production Version from a `vibecoder` Prototype:** When promoting a prototype into a production system (optionally planned across sequential windows via `skills/marathon/SKILL.md`), treat it as Tier 3 regardless of file count, read its `PRODUCT.md` specification (if present, or the embedded `<script type="application/json" id="vibecoder-promotion-spec">` Section 1F metadata inside the single-file `.html` prototype) first, surface all implicit prototype choices (e.g. browser-only storage, missing authentication) as explicit assumptions for user confirmation in `AC-1..N`, and enforce `antislop`'s Delivery Gate on all screens. When promoting a `Game Vibe` (`"mode": "game"`) prototype into a modular Web or 3D/native game, **co-load** `skills/game-engineering/SKILL.md` (selecting its Web/Canvas or 3D/Engine profile) and `skills/media-studio/SKILL.md` whenever external audio or sprite assets are introduced.
 
 ---
 

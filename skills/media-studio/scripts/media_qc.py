@@ -7,19 +7,22 @@ Python standard library + system ffmpeg/ffprobe; runs on Python 3.10 and later.
 Rule families (enforced by `check`):
   MEDIA-1  Stream & duration integrity    (missing/empty file, unreadable container, 0 streams, or duration <= 0s)
   MEDIA-2  Stream geometry & sync drift   (audio/video duration drift > 100ms, or odd dimensions on yuv420p video)
-  MEDIA-3  Audio true-peak & silence      (True Peak > --max-true-peak dBTP, or silent audio track <= -70 LUFS)
-  MEDIA-4  Loudness target compliance     (Integrated loudness outside --target-lufs +/- --lufs-tolerance LU)
+  MEDIA-3  Audio true-peak & silence      (True Peak > --max-true-peak dBTP, or silent audio track <= -70 LUFS / Peak dBFS under --game-sfx)
+  MEDIA-4  Loudness target compliance     (Integrated loudness outside --target-lufs +/- --lufs-tolerance LU; skipped <0.5s under --game-sfx)
   MEDIA-5  Audio DC offset guard          (Absolute DC offset > --max-dc-offset)
   MEDIA-6  Decoder pixel-format safety    (H.264 MP4 using non-yuv420p chroma subsampling without --allow-high-chroma)
   MEDIA-7  Black or frozen video guard    (Video stream >= 90% black frames or >= 95% frozen frames on >1s clips)
+  GAME-1   Opt-in audio loop seam guard   (--check-loop: normalized wrap step <= --max-seam-step and slope impulse <= --max-seam-impulse)
+  GAME-2   Opt-in pixel-art guard         (--pixel-art: semi-transparent fringe <= 1%; compare integer scale & uniform kxk blocks)
+  GAME-3   Opt-in sprite-atlas guard      (--sprite-atlas / --tile-size / --require-pot / --check-alpha-bleed geometry, halos & gutter edges)
 
 Subcommands:
   probe         Inspect container and stream metadata (codec, pix_fmt, color space, VFR/CFR, duration, channels)
-  check         Run EBU R128, astats, blackdetect, freezedetect & still-image decode quality gate (MEDIA-1..MEDIA-7)
+  check         Run EBU R128, astats, blackdetect, freezedetect & still-image decode QC (MEDIA-1..MEDIA-7, optional GAME-1..GAME-3)
   salvage       Non-destructively recover truncated headers or damaged container indices via stream-copy first
-  compare       Compute objective SSIM, PSNR & aspect-ratio fidelity against a reference image or video
-  ab-sheet      Render a side-by-side Reference vs. Enhanced PNG sheet for visual anti-hallucination inspection
-  master-audio  Execute Two-Pass EBU R128 loudnorm mastering with optional restoration filters
+  compare       Compute objective SSIM, PSNR, aspect-ratio fidelity & optional pixel-art integer scaling against reference
+  ab-sheet      Render a side-by-side Reference vs. Enhanced PNG sheet (LANCZOS or --pixel-art nearest-neighbor)
+  master-audio  Execute Two-Pass EBU R128 loudnorm or --game-sfx/--peak-db linear peak mastering (--ogg-codec, --trim-loop)
   keyframes     Extract a tiled keyframe contact-sheet PNG for visual inspection (read_file)
 
 Exit codes: 0 clean / passed, 1 quality findings or threshold failure, 2 argument or runtime tool error.
@@ -28,6 +31,7 @@ Exit codes: 0 clean / passed, 1 quality findings or threshold failure, 2 argumen
 from __future__ import annotations
 
 import argparse
+import array
 import contextlib
 import json
 import math
@@ -37,6 +41,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
@@ -58,6 +64,11 @@ _PLAYLIST_HEADER_PREFIXES = (b"#extm3u", b"ffconcat", b"rtsp/", b"<mpd")
 DEFAULT_SUBPROCESS_TIMEOUT = float(os.environ.get("MEDIA_QC_TIMEOUT_SEC", "120"))
 MAX_AB_CANVAS_DIM = 8192
 MAX_AB_CANVAS_PIXELS = 33_554_432
+MAX_GAME_AUDIO_SEC = 300.0
+MAX_GAME_AUDIO_SR = 384_000
+MAX_GAME_AUDIO_BYTES = 268_435_456
+MAX_GAME_VISUAL_PIXELS = 67_108_864
+_TILE_SIZE_RE = re.compile(r"^\s*(\d+)\s*[xX]\s*(\d+)\s*$")
 
 
 def _run_media_subprocess(
@@ -80,6 +91,103 @@ def _run_media_subprocess(
     except subprocess.TimeoutExpired as exc:
         tool_name = Path(cmd[0]).name if cmd else "subprocess"
         raise TimeoutError(f"{tool_name} timed out after {eff_timeout:.1f}s") from exc
+
+
+def _run_media_subprocess_bounded_bytes(
+    cmd: Sequence[str],
+    max_bytes: int,
+    timeout: Optional[float] = None,
+) -> Tuple[int, bytes, bytes]:
+    eff_timeout = DEFAULT_SUBPROCESS_TIMEOUT if timeout is None else float(timeout)
+    _require_finite_param("timeout", eff_timeout)
+    if eff_timeout <= 0:
+        raise ValueError(f"Parameter 'timeout' must be > 0 (got {eff_timeout!r}).")
+    if max_bytes <= 0:
+        raise ValueError(f"Parameter 'max_bytes' must be > 0 (got {max_bytes!r}).")
+    tool_name = Path(cmd[0]).name if cmd else "subprocess"
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+    )
+    stderr_chunks: List[bytes] = []
+    stdout_chunks: List[bytes] = []
+    total_stdout = 0
+    timed_out = threading.Event()
+    overflowed = False
+
+    def _on_timeout() -> None:
+        timed_out.set()
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    def _drain_stderr() -> None:
+        if proc.stderr is None:
+            return
+        err_total = 0
+        try:
+            while True:
+                chunk = proc.stderr.read(8192)
+                if not chunk:
+                    break
+                if err_total < 65536:
+                    stderr_chunks.append(chunk)
+                    err_total += len(chunk)
+        except OSError:
+            pass
+
+    timer = threading.Timer(eff_timeout, _on_timeout)
+    timer.daemon = True
+    err_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    timer.start()
+    err_thread.start()
+    try:
+        assert proc.stdout is not None
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            total_stdout += len(chunk)
+            if total_stdout > max_bytes:
+                overflowed = True
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                break
+            stdout_chunks.append(chunk)
+        returncode = proc.wait(timeout=max(0.5, eff_timeout))
+    except subprocess.TimeoutExpired as exc:
+        timed_out.set()
+        try:
+            proc.kill()
+            proc.wait(timeout=1.0)
+        except OSError:
+            pass
+        raise TimeoutError(f"{tool_name} timed out after {eff_timeout:.1f}s") from exc
+    finally:
+        timer.cancel()
+        if proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+        err_thread.join(timeout=2.0)
+        if proc.stderr is not None:
+            try:
+                proc.stderr.close()
+            except OSError:
+                pass
+
+    if timed_out.is_set():
+        raise TimeoutError(f"{tool_name} timed out after {eff_timeout:.1f}s")
+    if overflowed:
+        raise ValueError(f"Decoded stream from {tool_name} exceeded {max_bytes}-byte safety ceiling.")
+    return returncode, b"".join(stdout_chunks), b"".join(stderr_chunks)
 
 
 def _require_tool(name: str) -> str:
@@ -407,7 +515,11 @@ def _analyze_audio_signal(path: Path, timeout: Optional[float] = None) -> Dict[s
         "file",
         "-i",
         _safe_media_arg(path),
+        "-map",
+        "0:a:0",
         "-vn",
+        "-sn",
+        "-dn",
         "-af",
         "astats=reset=0,ebur128=peak=true",
         "-f",
@@ -640,6 +752,561 @@ def _verify_full_decode(path: Path) -> Tuple[bool, List[str]]:
     return _verify_stream_decode(path, include_audio=True)
 
 
+def _parse_tile_size(tile_size: Optional[str]) -> Optional[Tuple[int, int]]:
+    if tile_size is None:
+        return None
+    m = _TILE_SIZE_RE.match(str(tile_size))
+    if not m:
+        raise ValueError(f"Invalid --tile-size '{tile_size}'; expected 'WxH' with positive integers (e.g. 32x32).")
+    tw, th = int(m.group(1)), int(m.group(2))
+    if tw <= 0 or th <= 0:
+        raise ValueError(f"Tile dimensions must be > 0 (got {tw}x{th}).")
+    return tw, th
+
+
+def _is_power_of_two(n: int) -> bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+
+def _decode_audio_f32le(
+    path: Path,
+    sample_rate: Optional[int] = None,
+    pre_filter: Optional[str] = None,
+    max_duration_sec: float = MAX_GAME_AUDIO_SEC,
+    timeout: Optional[float] = None,
+) -> Tuple[array.array, int, int, Dict[str, Any]]:
+    ffmpeg = _require_tool("ffmpeg")
+    _guard_local_media_file(path)
+    info = probe_media(path, timeout=timeout)
+    if not info["audio_streams"]:
+        raise ValueError(f"Input file contains no audio streams: {path}")
+    dur = info.get("duration_sec")
+    if dur is not None and (not math.isfinite(dur) or dur > max_duration_sec):
+        raise ValueError(
+            f"Audio duration ({dur:.1f}s) exceeds {max_duration_sec:.0f}s PCM buffer limit for game loop analysis."
+        )
+    aus = info["audio_streams"][0]
+    channels = max(1, min(8, int(aus.get("channels") or 1)))
+    sr = int(sample_rate or aus.get("sample_rate") or 48000)
+    if sr <= 0 or sr > MAX_GAME_AUDIO_SR:
+        raise ValueError(
+            f"Audio sample rate {sr} Hz exceeds supported (0, {MAX_GAME_AUDIO_SR}] Hz range for PCM analysis."
+        )
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-nostdin",
+        "-v",
+        "error",
+        "-err_detect",
+        "explode",
+        "-protocol_whitelist",
+        "file",
+        "-i",
+        _safe_media_arg(path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+    ]
+    if pre_filter:
+        cmd.extend(["-af", pre_filter])
+    cmd.extend(
+        [
+            "-ac",
+            str(channels),
+            "-ar",
+            str(sr),
+            "-t",
+            f"{max_duration_sec + 0.1:.3f}",
+            "-f",
+            "f32le",
+            "-acodec",
+            "pcm_f32le",
+            "pipe:1",
+        ]
+    )
+    rc, raw, stderr_b = _run_media_subprocess_bounded_bytes(
+        cmd,
+        max_bytes=MAX_GAME_AUDIO_BYTES,
+        timeout=timeout,
+    )
+    if rc != 0:
+        err_txt = (stderr_b or b"").decode("utf-8", errors="replace")[-600:]
+        raise RuntimeError(f"ffmpeg PCM decode failed (exit {rc}):\n{err_txt}")
+    frame_bytes = 4 * channels
+    usable = len(raw) - (len(raw) % frame_bytes)
+    decoded_sec = (usable // frame_bytes) / float(sr)
+    if decoded_sec > max_duration_sec + 0.02:
+        raise ValueError(
+            f"Decoded audio duration ({decoded_sec:.2f}s) exceeds {max_duration_sec:.0f}s PCM buffer limit."
+        )
+    samples = array.array("f")
+    samples.frombytes(memoryview(raw)[:usable])
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples, channels, sr, info
+
+
+def analyze_audio_loop_seam(
+    path: Path,
+    max_seam_step: float = 0.15,
+    max_seam_impulse: float = 0.05,
+    timeout: Optional[float] = None,
+) -> Dict[str, Any]:
+    _require_finite_param("max_seam_step", max_seam_step)
+    _require_finite_param("max_seam_impulse", max_seam_impulse)
+    if max_seam_step < 0.0:
+        raise ValueError(f"Parameter 'max_seam_step' must be >= 0 (got {max_seam_step}).")
+    if max_seam_impulse < 0.0:
+        raise ValueError(f"Parameter 'max_seam_impulse' must be >= 0 (got {max_seam_impulse}).")
+    samples, channels, sr, _ = _decode_audio_f32le(path, sample_rate=None, timeout=timeout)
+    n_frames = len(samples) // channels
+    if n_frames < 4:
+        return {
+            "loop_checked": True,
+            "seamless": False,
+            "sample_rate": sr,
+            "channels": channels,
+            "n_frames": n_frames,
+            "seam_step": None,
+            "seam_impulse": None,
+            "max_seam_step": max_seam_step,
+            "max_seam_impulse": max_seam_impulse,
+            "reason": "Audio stream has fewer than 4 frames for loop seam analysis.",
+        }
+
+    worst_step_norm = 0.0
+    worst_imp_norm = 0.0
+    peak_overall = 0.0
+    for c in range(channels):
+        ch_slice = samples[c::channels]
+        ch_peak = 0.0
+        for v in ch_slice:
+            if not math.isfinite(v):
+                return {
+                    "loop_checked": True,
+                    "seamless": False,
+                    "sample_rate": sr,
+                    "channels": channels,
+                    "n_frames": n_frames,
+                    "peak_amp": None,
+                    "seam_step": None,
+                    "seam_impulse": None,
+                    "max_seam_step": max_seam_step,
+                    "max_seam_impulse": max_seam_impulse,
+                    "reason": "Audio stream contains non-finite (NaN/Inf) PCM samples.",
+                }
+            av = abs(v)
+            if av > ch_peak:
+                ch_peak = av
+        if ch_peak > peak_overall:
+            peak_overall = ch_peak
+        scale = ch_peak if ch_peak >= 1e-4 else 1.0
+        s0 = ch_slice[0]
+        s1 = ch_slice[1]
+        s_last = ch_slice[-1]
+        s_prev = ch_slice[-2]
+        step = abs(s0 - s_last) / scale
+        d_end = s_last - s_prev
+        d_start = s1 - s0
+        d_wrap = s0 - s_last
+        impulse = max(abs(d_wrap - d_end), abs(d_start - d_wrap)) / scale
+        if step > worst_step_norm:
+            worst_step_norm = step
+        if impulse > worst_imp_norm:
+            worst_imp_norm = impulse
+
+    if not (
+        math.isfinite(peak_overall)
+        and math.isfinite(worst_step_norm)
+        and math.isfinite(worst_imp_norm)
+    ):
+        return {
+            "loop_checked": True,
+            "seamless": False,
+            "sample_rate": sr,
+            "channels": channels,
+            "n_frames": n_frames,
+            "peak_amp": None,
+            "seam_step": None,
+            "seam_impulse": None,
+            "max_seam_step": max_seam_step,
+            "max_seam_impulse": max_seam_impulse,
+            "reason": "Loop seam calculation produced non-finite amplitude or discontinuity metrics.",
+        }
+
+    seamless = bool(worst_step_norm <= max_seam_step and worst_imp_norm <= max_seam_impulse)
+    return {
+        "loop_checked": True,
+        "seamless": seamless,
+        "sample_rate": sr,
+        "channels": channels,
+        "n_frames": n_frames,
+        "peak_amp": round(peak_overall, 6),
+        "seam_step": round(worst_step_norm, 6),
+        "seam_impulse": round(worst_imp_norm, 6),
+        "max_seam_step": max_seam_step,
+        "max_seam_impulse": max_seam_impulse,
+    }
+
+
+def _find_zero_crossing_loop_bounds(
+    samples: array.array,
+    channels: int,
+    sample_rate: int,
+    max_window_ms: float = 50.0,
+) -> Optional[Tuple[int, int]]:
+    n_frames = len(samples) // channels
+    if n_frames < 32:
+        return None
+    win = min(n_frames // 4, max(4, int(round(sample_rate * max_window_ms / 1000.0))))
+    if win < 4:
+        return None
+
+    tail_start = max(win + 2, n_frames - win)
+    inspected_indices = list(range(0, win + 2)) + list(range(max(0, tail_start - 2), n_frames))
+    peak = 0.0
+    for idx in inspected_indices:
+        base = idx * channels
+        for c in range(channels):
+            val = samples[base + c]
+            if not math.isfinite(val):
+                return None
+            av = abs(val)
+            if av > peak:
+                peak = av
+    scale = peak if peak >= 1e-4 else 1.0
+
+    def _frame_mono(idx: int) -> float:
+        base = idx * channels
+        return sum(samples[base + c] for c in range(channels)) / channels
+
+    head_set: set[int] = set()
+    tail_set: set[int] = set()
+    # Collect rising zero crossings per channel AND from mono sum so anti-phase stereo still yields candidates.
+    probes: List[Callable[[int], float]] = [
+        (lambda idx, ch=c: samples[idx * channels + ch]) for c in range(channels)
+    ]
+    if channels > 1:
+        probes.append(_frame_mono)
+
+    for probe_fn in probes:
+        prev_val = probe_fn(0)
+        if abs(prev_val) <= 1e-4 and probe_fn(1) > prev_val:
+            head_set.add(0)
+        for i in range(1, win):
+            cur_val = probe_fn(i)
+            if prev_val <= 0.0 < cur_val:
+                head_set.add(i)
+            prev_val = cur_val
+
+        t_prev = probe_fn(tail_start - 1)
+        for j in range(tail_start, n_frames):
+            t_cur = probe_fn(j)
+            # Exclusive end boundary `j` means kept final sample is `j - 1` (rising through zero into `j`).
+            if t_prev <= 0.0 and (t_cur > 0.0 or (j == n_frames - 1 and abs(t_cur) <= 1e-4)):
+                tail_set.add(j)
+            t_prev = t_cur
+
+    head_crossings = sorted(head_set)
+    tail_crossings = sorted(tail_set)
+    if not head_crossings or not tail_crossings:
+        return None
+
+    best_bounds: Optional[Tuple[int, int]] = None
+    best_cost = float("inf")
+    for s in head_crossings[:48]:
+        for e in tail_crossings[-48:]:
+            if e - s < 16:
+                continue
+            step_max = 0.0
+            imp_max = 0.0
+            for c in range(channels):
+                s0 = samples[s * channels + c]
+                s1 = samples[(s + 1) * channels + c]
+                s_last = samples[(e - 1) * channels + c]
+                s_prev = samples[(e - 2) * channels + c]
+                step = abs(s0 - s_last) / scale
+                d_end = s_last - s_prev
+                d_start = s1 - s0
+                d_wrap = s0 - s_last
+                imp = max(abs(d_wrap - d_end), abs(d_start - d_wrap)) / scale
+                if step > step_max:
+                    step_max = step
+                if imp > imp_max:
+                    imp_max = imp
+            if not (math.isfinite(step_max) and math.isfinite(imp_max)):
+                continue
+            trim_penalty = 1e-4 * ((s + (n_frames - e)) / max(1, win))
+            cost = imp_max + 0.25 * step_max + trim_penalty
+            if cost < best_cost:
+                best_cost = cost
+                best_bounds = (s, e)
+    return best_bounds
+
+
+def _measure_peak_db_after_filter(
+    path: Path,
+    filter_expr: Optional[str],
+    timeout: Optional[float] = None,
+) -> Dict[str, Any]:
+    ffmpeg = _require_tool("ffmpeg")
+    _guard_local_media_file(path)
+    af = f"{filter_expr},astats=reset=0" if filter_expr else "astats=reset=0"
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-nostdin",
+        "-protocol_whitelist",
+        "file",
+        "-i",
+        _safe_media_arg(path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-af",
+        af,
+        "-f",
+        "null",
+        "-",
+    ]
+    proc = _run_media_subprocess(cmd, timeout=timeout)
+    log = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    if proc.returncode != 0:
+        raise RuntimeError(f"Pre-normalization peak measurement failed (exit {proc.returncode}):\n{log[-600:]}")
+    overall_blocks = re.split(r"\[Parsed_astats[^\]]*\]\s*Overall", log)
+    astats_block = overall_blocks[-1] if len(overall_blocks) > 1 else ""
+    m_peak = re.search(r"Peak level dB:\s*([+-]?\d+(?:\.\d+)?|-inf|inf)", astats_block)
+    m_rms = re.search(r"RMS level dB:\s*([+-]?\d+(?:\.\d+)?|-inf|inf)", astats_block)
+    m_dc = re.search(r"DC offset:\s*([+-]?\d+(?:\.\d+)?)", astats_block)
+    return {
+        "peak_level_db": _safe_float(m_peak.group(1)) if m_peak else None,
+        "rms_level_db": _safe_float(m_rms.group(1)) if m_rms else None,
+        "dc_offset": _safe_float(m_dc.group(1)) if m_dc else None,
+    }
+
+
+def _decode_image_rgba_frames(
+    path: Path,
+    width: int,
+    height: int,
+    *,
+    max_frames: int = 1,
+    timeout: Optional[float] = None,
+) -> bytes:
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid image dimensions {width}x{height}.")
+    if max_frames < 1:
+        raise ValueError(f"Parameter 'max_frames' must be >= 1 (got {max_frames}).")
+    frame_pixels = width * height
+    if frame_pixels > MAX_GAME_VISUAL_PIXELS:
+        raise ValueError(
+            f"Image pixel count ({width}x{height}={frame_pixels}) exceeds {MAX_GAME_VISUAL_PIXELS} RGBA buffer limit."
+        )
+    eff_max_frames = min(max_frames, max(1, MAX_GAME_VISUAL_PIXELS // frame_pixels))
+    frame_bytes = frame_pixels * 4
+    max_bytes = eff_max_frames * frame_bytes
+    ffmpeg = _require_tool("ffmpeg")
+    _guard_local_media_file(path)
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-nostdin",
+        "-v",
+        "error",
+        "-err_detect",
+        "explode",
+        "-xerror",
+        "-protocol_whitelist",
+        "file",
+        "-i",
+        _safe_media_arg(path),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-sn",
+        "-dn",
+        "-fps_mode",
+        "passthrough",
+        "-frames:v",
+        str(eff_max_frames),
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgba",
+        "pipe:1",
+    ]
+    rc, raw, stderr_b = _run_media_subprocess_bounded_bytes(cmd, max_bytes=max_bytes, timeout=timeout)
+    if rc != 0:
+        err_txt = (stderr_b or b"").decode("utf-8", errors="replace")[-600:]
+        raise RuntimeError(f"ffmpeg RGBA decode failed (exit {rc}):\n{err_txt}")
+    if len(raw) == 0 or (len(raw) % frame_bytes) != 0:
+        raise RuntimeError(
+            f"Unexpected RGBA buffer size for {width}x{height}: got {len(raw)} bytes (frame size {frame_bytes})."
+        )
+    if max_frames == 1 and len(raw) != frame_bytes:
+        raise RuntimeError(f"Unexpected RGBA buffer size for {width}x{height}: got {len(raw)} bytes, expected {frame_bytes}.")
+    return raw
+
+
+def _decode_image_rgba(
+    path: Path,
+    width: int,
+    height: int,
+    timeout: Optional[float] = None,
+) -> bytes:
+    return _decode_image_rgba_frames(path, width, height, max_frames=1, timeout=timeout)
+
+
+def _analyze_game_visual(
+    path: Path,
+    width: int,
+    height: int,
+    *,
+    pixel_art: bool = False,
+    sprite_atlas: bool = False,
+    tile_dims: Optional[Tuple[int, int]] = None,
+    require_pot: bool = False,
+    check_alpha_bleed: bool = False,
+    allow_edge_touch: bool = False,
+    all_frames: bool = False,
+    timeout: Optional[float] = None,
+) -> Dict[str, Any]:
+    pot_ok = _is_power_of_two(width) and _is_power_of_two(height)
+    tile_aligned = True if tile_dims is None else (width % tile_dims[0] == 0 and height % tile_dims[1] == 0)
+
+    do_bleed = bool(check_alpha_bleed or (sprite_atlas and not pixel_art))
+    need_rgba = bool(pixel_art or do_bleed or (tile_dims is not None and not allow_edge_touch))
+
+    semi_alpha_count = 0
+    semi_alpha_ratio = 0.0
+    alpha_bleed_count = 0
+    edge_touch_count = 0
+    total_pixels = width * height
+    n_frames = 1
+
+    if need_rgba:
+        frame_budget = max(1, MAX_GAME_VISUAL_PIXELS // max(1, total_pixels)) if all_frames else 1
+        raw = _decode_image_rgba_frames(path, width, height, max_frames=frame_budget, timeout=timeout)
+        frame_bytes = total_pixels * 4
+        n_frames = max(1, len(raw) // frame_bytes)
+        mv = memoryview(raw)
+        alpha_plane = bytes(mv[3::4])
+        if pixel_art:
+            semi_alpha_count = len(alpha_plane) - alpha_plane.count(0) - alpha_plane.count(255)
+            semi_alpha_ratio = semi_alpha_count / max(1, len(alpha_plane))
+
+        if do_bleed:
+            eff_budget = DEFAULT_SUBPROCESS_TIMEOUT if timeout is None else float(timeout)
+            deadline = time.monotonic() + max(5.0, eff_budget)
+            for f_idx in range(n_frames):
+                a_start = f_idx * total_pixels
+                a_frame = alpha_plane[a_start : a_start + total_pixels]
+                trans_count = a_frame.count(0)
+                if trans_count == 0 or trans_count == total_pixels:
+                    continue
+                f_off = f_idx * frame_bytes
+                for y in range(height):
+                    if (y & 63) == 0 and time.monotonic() > deadline:
+                        raise TimeoutError("Alpha bleed inspection exceeded wall-clock time budget.")
+                    row_off = y * width
+                    for x in range(width):
+                        idx = row_off + x
+                        if a_frame[idx] != 0:
+                            continue
+                        idx4 = f_off + idx * 4
+                        r0, g0, b0 = raw[idx4], raw[idx4 + 1], raw[idx4 + 2]
+                        bleed_hit = False
+                        if x > 0 and a_frame[idx - 1] >= 128:
+                            n4 = idx4 - 4
+                            if max(abs(r0 - raw[n4]), abs(g0 - raw[n4 + 1]), abs(b0 - raw[n4 + 2])) > 48:
+                                bleed_hit = True
+                        if not bleed_hit and x + 1 < width and a_frame[idx + 1] >= 128:
+                            n4 = idx4 + 4
+                            if max(abs(r0 - raw[n4]), abs(g0 - raw[n4 + 1]), abs(b0 - raw[n4 + 2])) > 48:
+                                bleed_hit = True
+                        if not bleed_hit and y > 0 and a_frame[idx - width] >= 128:
+                            n4 = idx4 - width * 4
+                            if max(abs(r0 - raw[n4]), abs(g0 - raw[n4 + 1]), abs(b0 - raw[n4 + 2])) > 48:
+                                bleed_hit = True
+                        if not bleed_hit and y + 1 < height and a_frame[idx + width] >= 128:
+                            n4 = idx4 + width * 4
+                            if max(abs(r0 - raw[n4]), abs(g0 - raw[n4 + 1]), abs(b0 - raw[n4 + 2])) > 48:
+                                bleed_hit = True
+                        if bleed_hit:
+                            alpha_bleed_count += 1
+
+        if tile_dims is not None and not allow_edge_touch:
+            tw, th = tile_dims
+            for f_idx in range(n_frames):
+                f_px_off = f_idx * total_pixels
+                if tw >= 2 and width > tw:
+                    for m in range(1, width // tw):
+                        seam_l = m * tw - 1
+                        seam_r = m * tw
+                        if seam_r >= width:
+                            continue
+                        for y in range(height):
+                            base = f_px_off + y * width
+                            if alpha_plane[base + seam_l] >= 128 or alpha_plane[base + seam_r] >= 128:
+                                edge_touch_count += 1
+                if th >= 2 and height > th:
+                    for n in range(1, height // th):
+                        seam_t = n * th - 1
+                        seam_b = n * th
+                        if seam_b >= height:
+                            continue
+                        top_base = f_px_off + seam_t * width
+                        bot_base = f_px_off + seam_b * width
+                        for x in range(width):
+                            if alpha_plane[top_base + x] >= 128 or alpha_plane[bot_base + x] >= 128:
+                                edge_touch_count += 1
+
+    return {
+        "width": width,
+        "height": height,
+        "frames_checked": n_frames,
+        "is_pot": pot_ok,
+        "require_pot": require_pot,
+        "tile_size": f"{tile_dims[0]}x{tile_dims[1]}" if tile_dims else None,
+        "tile_aligned": tile_aligned,
+        "pixel_art": pixel_art,
+        "semi_alpha_pixels": semi_alpha_count,
+        "semi_alpha_ratio": round(semi_alpha_ratio, 6),
+        "alpha_bleed_pixels": alpha_bleed_count,
+        "edge_touch_pixels": edge_touch_count,
+    }
+
+
+def _check_integer_scale_blocks(cand_rgba: bytes | bytearray | memoryview, rw: int, rh: int, k: int) -> int:
+    if k <= 1:
+        return 0
+    cw = rw * k
+    stride = cw * 4
+    cand_bytes = cand_rgba if isinstance(cand_rgba, (bytes, bytearray)) else bytes(cand_rgba)
+    non_uniform = 0
+    for by in range(rh):
+        y0 = by * k
+        for bx in range(rw):
+            x0 = bx * k
+            first_off = y0 * stride + x0 * 4
+            ref_px = cand_bytes[first_off : first_off + 4]
+            expected_row = ref_px * k
+            uniform = True
+            for dy in range(k):
+                row_off = (y0 + dy) * stride + x0 * 4
+                if cand_bytes[row_off : row_off + k * 4] != expected_row:
+                    uniform = False
+                    break
+            if not uniform:
+                non_uniform += 1
+    return non_uniform
+
+
 def check_media(
     path: Path,
     target_lufs: Optional[float] = None,
@@ -649,11 +1316,35 @@ def check_media(
     allow_silent: bool = False,
     allow_high_chroma: bool = False,
     allow_static: bool = False,
+    game_sfx: bool = False,
+    check_loop: bool = False,
+    max_seam_step: float = 0.15,
+    max_seam_impulse: float = 0.05,
+    pixel_art: bool = False,
+    sprite_atlas: bool = False,
+    tile_size: Optional[str] = None,
+    require_pot: bool = False,
+    check_alpha_bleed: bool = False,
+    allow_edge_touch: bool = False,
 ) -> Dict[str, Any]:
     _require_finite_param("target_lufs", target_lufs)
     _require_finite_param("lufs_tolerance", lufs_tolerance)
     _require_finite_param("max_true_peak", max_true_peak)
     _require_finite_param("max_dc_offset", max_dc_offset)
+    _require_finite_param("max_seam_step", max_seam_step)
+    _require_finite_param("max_seam_impulse", max_seam_impulse)
+    if lufs_tolerance < 0.0:
+        raise ValueError(f"Parameter 'lufs_tolerance' must be >= 0 (got {lufs_tolerance}).")
+    if max_true_peak > 0.0:
+        raise ValueError(f"Parameter 'max_true_peak' must be <= 0.0 dBTP (got {max_true_peak}).")
+    if max_dc_offset < 0.0:
+        raise ValueError(f"Parameter 'max_dc_offset' must be >= 0 (got {max_dc_offset}).")
+    if max_seam_step < 0.0:
+        raise ValueError(f"Parameter 'max_seam_step' must be >= 0 (got {max_seam_step}).")
+    if max_seam_impulse < 0.0:
+        raise ValueError(f"Parameter 'max_seam_impulse' must be >= 0 (got {max_seam_impulse}).")
+    parsed_tile_dims = _parse_tile_size(tile_size)
+    run_game_visual = bool(pixel_art or sprite_atlas or parsed_tile_dims is not None or require_pot or check_alpha_bleed)
 
     findings: List[Finding] = []
     try:
@@ -690,6 +1381,24 @@ def check_media(
                 "high",
                 "Container holds zero video or audio streams.",
                 "Ensure at least one valid audio or video stream is mapped (-map) into the output.",
+            )
+        )
+    if check_loop and not a_streams:
+        findings.append(
+            Finding(
+                "GAME-1",
+                "high",
+                "Loop seam check (--check-loop) requested, but input contains no audio stream.",
+                "Provide a file with an audio stream or remove --check-loop.",
+            )
+        )
+    if run_game_visual and not v_streams:
+        findings.append(
+            Finding(
+                "GAME-2" if pixel_art else "GAME-3",
+                "high",
+                "Visual game-asset check requested, but input contains no image or video stream.",
+                "Provide a visual image/video asset or remove visual game flags.",
             )
         )
     if (not math.isfinite(duration) or duration <= 0.0) and not is_still_or_anim_image:
@@ -766,7 +1475,20 @@ def check_media(
                 )
             )
 
-        if not allow_silent and (lufs is None or lufs <= -70.0):
+        peak_db = audio_metrics.get("peak_level_db")
+        is_short_sfx_clip = game_sfx and duration < 0.5
+        if is_short_sfx_clip and (lufs is None or not math.isfinite(lufs) or lufs <= -70.0):
+            is_actually_silent = peak_db is None or not math.isfinite(peak_db) or peak_db <= -70.0
+            if not allow_silent and is_actually_silent:
+                findings.append(
+                    Finding(
+                        "MEDIA-3",
+                        "high",
+                        f"Short game SFX stream is silent or near-silent (Peak Level: {peak_db} dBFS <= -70.0 dBFS).",
+                        "Verify SFX synthesis gain or pass --allow-silent when a mute track is intentional.",
+                    )
+                )
+        elif not allow_silent and (lufs is None or lufs <= -70.0):
             findings.append(
                 Finding(
                     "MEDIA-3",
@@ -784,7 +1506,7 @@ def check_media(
                     "Run 'media_qc.py master-audio' with --target-tp -1.0 or apply a true-peak limiter.",
                 )
             )
-        if target_lufs is not None and lufs is not None and math.isfinite(lufs):
+        if target_lufs is not None and lufs is not None and math.isfinite(lufs) and not is_short_sfx_clip:
             delta = abs(lufs - target_lufs)
             if delta > lufs_tolerance:
                 findings.append(
@@ -858,7 +1580,149 @@ def check_media(
                 )
             )
 
-    return {
+    loop_metrics: Optional[Dict[str, Any]] = None
+    if a_streams and check_loop:
+        if audio_metrics and audio_metrics.get("decode_error"):
+            loop_metrics = {
+                "loop_checked": False,
+                "seamless": False,
+                "seam_step": None,
+                "seam_impulse": None,
+                "max_seam_step": max_seam_step,
+                "max_seam_impulse": max_seam_impulse,
+                "reason": "Skipped loop seam analysis because audio decoding failed.",
+            }
+            findings.append(
+                Finding(
+                    "GAME-1",
+                    "high",
+                    "Audio loop seam check skipped due to corrupted or undecodable audio stream.",
+                    "Salvage or re-encode the audio stream cleanly before verifying loop seams.",
+                )
+            )
+        else:
+            try:
+                loop_metrics = analyze_audio_loop_seam(
+                    path, max_seam_step=max_seam_step, max_seam_impulse=max_seam_impulse
+                )
+                if not loop_metrics.get("seamless"):
+                    reason_note = f" ({loop_metrics['reason']})" if loop_metrics.get("reason") else ""
+                    findings.append(
+                        Finding(
+                            "GAME-1",
+                            "high",
+                            f"Audio loop seam discontinuity detected "
+                            f"(step={loop_metrics.get('seam_step')} [max {max_seam_step}], "
+                            f"impulse={loop_metrics.get('seam_impulse')} [max {max_seam_impulse}]){reason_note}.",
+                            "Trim endpoints cleanly on matched rising zero-crossings via 'media_qc.py master-audio --trim-loop'.",
+                        )
+                    )
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                loop_metrics = {
+                    "loop_checked": False,
+                    "seamless": False,
+                    "seam_step": None,
+                    "seam_impulse": None,
+                    "max_seam_step": max_seam_step,
+                    "max_seam_impulse": max_seam_impulse,
+                    "reason": str(exc),
+                }
+                findings.append(
+                    Finding(
+                        "GAME-1",
+                        "high",
+                        f"Audio loop seam analysis failed: {exc}",
+                        "Verify audio stream integrity, sample rate (<= 384 kHz), and duration (<= 300s) before loop checking.",
+                    )
+                )
+
+    game_visual_metrics: Optional[Dict[str, Any]] = None
+    if v_streams and run_game_visual and not (video_metrics and video_metrics.get("decode_error")):
+        try:
+            vw, vh = _effective_dimensions(v_streams[0])
+        except ValueError as exc:
+            findings.append(
+                Finding(
+                    "MEDIA-1",
+                    "high",
+                    f"Video stream #0 has invalid visual dimensions for game analysis: {exc}",
+                    "Re-encode or repair container stream dimensions.",
+                )
+            )
+            vw, vh = 0, 0
+        if vw > 0 and vh > 0:
+            try:
+                game_visual_metrics = _analyze_game_visual(
+                    path,
+                    vw,
+                    vh,
+                    pixel_art=pixel_art,
+                    sprite_atlas=sprite_atlas,
+                    tile_dims=parsed_tile_dims,
+                    require_pot=require_pot,
+                    check_alpha_bleed=check_alpha_bleed,
+                    allow_edge_touch=allow_edge_touch,
+                    all_frames=is_still_or_anim_image,
+                )
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                findings.append(
+                    Finding(
+                        "GAME-2" if pixel_art else "GAME-3",
+                        "high",
+                        f"Game visual inspection failed on {vw}x{vh} asset: {exc}",
+                        "Ensure visual frames are valid and within supported pixel/time inspection bounds.",
+                    )
+                )
+            if game_visual_metrics is not None:
+                if pixel_art and game_visual_metrics["semi_alpha_ratio"] > 0.01:
+                    findings.append(
+                        Finding(
+                            "GAME-2",
+                            "high",
+                            f"Pixel-art surface has {game_visual_metrics['semi_alpha_pixels']} semi-transparent fringe pixels "
+                            f"({game_visual_metrics['semi_alpha_ratio'] * 100:.2f}% > 1.00%), indicating bilinear/lanczos blur.",
+                            "Re-scale pixel art strictly with integer factors and '-sws_flags neighbor' (flags=neighbor).",
+                        )
+                    )
+                if require_pot and not game_visual_metrics["is_pot"]:
+                    findings.append(
+                        Finding(
+                            "GAME-3",
+                            "high",
+                            f"Texture/atlas dimensions {vw}x{vh} are not Power-of-Two (--require-pot).",
+                            "Pack sprites onto a power-of-two canvas (e.g. 256x256, 512x512, 1024x512).",
+                        )
+                    )
+                if parsed_tile_dims is not None and not game_visual_metrics["tile_aligned"]:
+                    tw, th = parsed_tile_dims
+                    findings.append(
+                        Finding(
+                            "GAME-3",
+                            "high",
+                            f"Atlas dimensions {vw}x{vh} are not divisible by tile size {tw}x{th}.",
+                            f"Adjust sprite-atlas canvas dimensions to exact multiples of {tw}x{th}.",
+                        )
+                    )
+                if game_visual_metrics["alpha_bleed_pixels"] > 0:
+                    findings.append(
+                        Finding(
+                            "GAME-3",
+                            "medium",
+                            f"Detected {game_visual_metrics['alpha_bleed_pixels']} transparent edge pixels with un-dilated RGB halo risk (> 48 delta).",
+                            "Dilate adjacent sprite RGB colors into transparent neighbor texels (alpha bleeding fix) before atlas export.",
+                        )
+                    )
+                if game_visual_metrics["edge_touch_pixels"] > 0:
+                    findings.append(
+                        Finding(
+                            "GAME-3",
+                            "medium",
+                            f"Detected {game_visual_metrics['edge_touch_pixels']} opaque pixels touching internal tile grid borders without gutter padding.",
+                            "Add >= 1px transparent padding/extrusion around tiles or pass --allow-edge-touch for seamless full-bleed tilesets.",
+                        )
+                    )
+
+    result: Dict[str, Any] = {
         "path": str(path),
         "passed": len(findings) == 0,
         "findings": [f.to_dict() for f in findings],
@@ -866,6 +1730,11 @@ def check_media(
         "audio_metrics": audio_metrics,
         "video_metrics": video_metrics,
     }
+    if loop_metrics is not None:
+        result["loop_metrics"] = loop_metrics
+    if game_visual_metrics is not None:
+        result["game_visual_metrics"] = game_visual_metrics
+    return result
 
 
 def _stream_sar(vs: Dict[str, Any]) -> float:
@@ -1135,7 +2004,14 @@ def salvage_media(
     }
 
 
-def _select_compare_pix_fmt(ref_vs: Dict[str, Any], cand_vs: Dict[str, Any], rw: int, rh: int) -> str:
+def _select_compare_pix_fmt(
+    ref_vs: Dict[str, Any],
+    cand_vs: Dict[str, Any],
+    rw: int,
+    rh: int,
+    *,
+    pixel_art: bool = False,
+) -> str:
     ref_pf = str(ref_vs.get("pix_fmt") or "").lower()
     cand_pf = str(cand_vs.get("pix_fmt") or "").lower()
     alpha_tokens = ("rgba", "bgra", "argb", "abgr", "yuva", "gbrap", "ya8", "ya16", "pal8")
@@ -1143,6 +2019,9 @@ def _select_compare_pix_fmt(ref_vs: Dict[str, Any], cand_vs: Dict[str, Any], rw:
         return "yuva444p"
     if "16" in ref_pf or "16" in cand_pf:
         return "gray16le" if ("gray" in ref_pf and "gray" in cand_pf) else "yuv444p16le"
+    # Avoid 4:2:0 subsampling on pixel art or small sprites (<16px halves chroma below ffmpeg ssim's 8x8 window).
+    if pixel_art or rw < 16 or rh < 16:
+        return "yuv444p"
     return "yuv420p" if (rw % 2 == 0 and rh % 2 == 0) else "yuv444p"
 
 
@@ -1153,9 +2032,14 @@ def compare_media(
     min_psnr: float = 35.0,
     allow_aspect_change: bool = False,
     allow_trim: bool = False,
+    pixel_art: bool = False,
 ) -> Dict[str, Any]:
     _require_finite_param("min_ssim", min_ssim)
     _require_finite_param("min_psnr", min_psnr)
+    if not (0.0 <= min_ssim <= 1.0):
+        raise ValueError(f"Parameter 'min_ssim' must be within [0.0, 1.0] (got {min_ssim}).")
+    if min_psnr < 0.0:
+        raise ValueError(f"Parameter 'min_psnr' must be >= 0.0 dB (got {min_psnr}).")
     ffmpeg = _require_tool("ffmpeg")
     ref_info = probe_media(reference)
     cand_info = probe_media(candidate)
@@ -1165,6 +2049,7 @@ def compare_media(
     ref_vs = ref_info["video_streams"][0]
     cand_vs = cand_info["video_streams"][0]
     rw, rh = _effective_dimensions(ref_vs)
+    cw, ch = _effective_dimensions(cand_vs)
 
     ref_aspect = _effective_aspect_ratio(ref_vs)
     cand_aspect = _effective_aspect_ratio(cand_vs)
@@ -1189,11 +2074,55 @@ def compare_media(
         allow_trim or not is_timed or duration_drift_sec <= max(0.12, 0.02 * max(ref_dur, 0.001))
     )
 
-    cmp_pix_fmt = _select_compare_pix_fmt(ref_vs, cand_vs, rw, rh)
+    integer_scale_ok = True
+    block_uniform_ok = True
+    scale_factor: Optional[int] = None
+    non_uniform_blocks: Optional[int] = None
+    cmp_w, cmp_h = rw, rh
+    scale_flags = "bicubic"
+    if pixel_art:
+        scale_flags = "neighbor"
+        integer_scale_ok = bool(
+            cw >= rw and ch >= rh and cw % rw == 0 and ch % rh == 0 and (cw // rw) == (ch // rh)
+        )
+        if integer_scale_ok:
+            scale_factor = cw // rw
+            cmp_w, cmp_h = cw, ch
+            if scale_factor >= 2:
+                frame_pixels = cw * ch
+                frame_budget = (
+                    max(1, MAX_GAME_VISUAL_PIXELS // max(1, frame_pixels))
+                    if _is_still_or_anim_container(cand_info)
+                    else 1
+                )
+                cand_rgba = _decode_image_rgba_frames(candidate, cw, ch, max_frames=frame_budget)
+                frame_bytes = frame_pixels * 4
+                n_cand_frames = max(1, len(cand_rgba) // frame_bytes)
+                mv_cand = memoryview(cand_rgba)
+                non_uniform_blocks = sum(
+                    _check_integer_scale_blocks(
+                        mv_cand[f_idx * frame_bytes : (f_idx + 1) * frame_bytes],
+                        rw,
+                        rh,
+                        scale_factor,
+                    )
+                    for f_idx in range(n_cand_frames)
+                )
+                block_uniform_ok = non_uniform_blocks == 0
+            else:
+                non_uniform_blocks = 0
+        else:
+            block_uniform_ok = False
+
+    cmp_pix_fmt = _select_compare_pix_fmt(ref_vs, cand_vs, cmp_w, cmp_h, pixel_art=pixel_art)
+    upsample_post = ""
+    if cmp_w < 8 or cmp_h < 8:
+        up_k = max(2, math.ceil(8 / max(1, min(cmp_w, cmp_h))))
+        upsample_post = f",scale={cmp_w * up_k}:{cmp_h * up_k}:flags=neighbor"
     # Place reference on input 0 so a truncated candidate cannot prematurely stop framesync at frame 1.
     filtergraph = (
-        f"[0:v]scale={rw}:{rh}:flags=bicubic,format={cmp_pix_fmt},settb=AVTB,setpts=PTS-STARTPTS,split=2[r1][r2];"
-        f"[1:v]scale={rw}:{rh}:flags=bicubic,format={cmp_pix_fmt},settb=AVTB,setpts=PTS-STARTPTS,split=2[c1][c2];"
+        f"[0:v]scale={cmp_w}:{cmp_h}:flags={scale_flags}{upsample_post},format={cmp_pix_fmt},settb=AVTB,setpts=PTS-STARTPTS,split=2[r1][r2];"
+        f"[1:v]scale={cmp_w}:{cmp_h}:flags={scale_flags}{upsample_post},format={cmp_pix_fmt},settb=AVTB,setpts=PTS-STARTPTS,split=2[c1][c2];"
         f"[r1][c1]ssim=eof_action=repeat:shortest=0;"
         f"[r2][c2]psnr=eof_action=repeat:shortest=0"
     )
@@ -1232,9 +2161,18 @@ def compare_media(
     ssim_val = float(m_ssim.group(1))
     psnr_raw = m_psnr.group(1)
     psnr_val = 100.0 if psnr_raw == "inf" else float(psnr_raw)
+    if not (math.isfinite(ssim_val) and math.isfinite(psnr_val)):
+        raise RuntimeError(f"ffmpeg SSIM/PSNR produced non-finite metrics (SSIM={ssim_val}, PSNR={psnr_val}).")
 
-    passed = bool(ssim_val >= min_ssim and psnr_val >= min_psnr and aspect_ok and duration_ok)
-    return {
+    passed = bool(
+        ssim_val >= min_ssim
+        and psnr_val >= min_psnr
+        and aspect_ok
+        and duration_ok
+        and integer_scale_ok
+        and block_uniform_ok
+    )
+    out: Dict[str, Any] = {
         "reference": str(reference),
         "candidate": str(candidate),
         "ssim_all": round(ssim_val, 6),
@@ -1247,6 +2185,17 @@ def compare_media(
         "duration_ok": duration_ok,
         "passed": passed,
     }
+    if pixel_art:
+        out.update(
+            {
+                "pixel_art": True,
+                "scale_factor": scale_factor,
+                "integer_scale_ok": integer_scale_ok,
+                "non_uniform_blocks": non_uniform_blocks,
+                "block_uniform_ok": block_uniform_ok,
+            }
+        )
+    return out
 
 
 def master_audio(
@@ -1258,16 +2207,39 @@ def master_audio(
     highpass_hz: int = 0,
     denoise: str = "none",
     declip: bool = False,
+    game_sfx: bool = False,
+    peak_db: Optional[float] = None,
+    ogg_codec: str = "opus",
+    trim_loop: bool = False,
 ) -> Dict[str, Any]:
     _require_finite_param("target_lufs", target_lufs)
     _require_finite_param("target_tp", target_tp)
     _require_finite_param("target_lra", target_lra)
+    _require_finite_param("peak_db", peak_db)
+    if target_tp > 0.0:
+        raise ValueError(f"Parameter 'target_tp' must be <= 0.0 dBTP (got {target_tp}).")
+    if target_lra <= 0.0:
+        raise ValueError(f"Parameter 'target_lra' must be > 0.0 LU (got {target_lra}).")
+    if highpass_hz < 0:
+        raise ValueError(f"Parameter 'highpass_hz' must be >= 0 Hz (got {highpass_hz}).")
+    if peak_db is not None and peak_db > 0.0:
+        raise ValueError(f"Parameter 'peak_db' must be <= 0.0 dBFS (got {peak_db}).")
+    if ogg_codec not in ("opus", "vorbis"):
+        raise ValueError(f"Unsupported ogg_codec '{ogg_codec}'; choose 'opus' or 'vorbis'.")
+    ext = output_path.suffix.lower()
+    if ogg_codec == "vorbis" and ext != ".ogg":
+        raise ValueError("--ogg-codec vorbis requires a '.ogg' output file path.")
+
     ffmpeg = _require_tool("ffmpeg")
     _check_output_target_safety(output_path, [input_path])
 
     info = probe_media(input_path)
     if not info["audio_streams"]:
         raise ValueError(f"Input file contains no audio streams: {input_path}")
+    if trim_loop and info["video_streams"]:
+        raise ValueError(
+            "--trim-loop is supported only on audio-only assets; container holds video streams that would lose A/V sync."
+        )
 
     pre_filters: List[str] = []
     if highpass_hz > 0:
@@ -1282,61 +2254,120 @@ def master_audio(
     elif denoise != "none":
         raise ValueError(f"Unsupported denoise mode '{denoise}'; choose 'none', 'fft', or 'nlm'.")
 
-    pre_chain = (",".join(pre_filters) + ",") if pre_filters else ""
+    pre_filter_str = ",".join(pre_filters)
+    pre_chain = (pre_filter_str + ",") if pre_filter_str else ""
     safe_in = _safe_media_arg(input_path)
 
-    # Pass 1: Measure EBU R128 parameters after pre-restoration filters
-    pass1_af = f"{pre_chain}loudnorm=I={target_lufs}:TP={target_tp}:LRA={target_lra}:print_format=json"
-    cmd_pass1 = [
-        ffmpeg,
-        "-hide_banner",
-        "-nostdin",
-        "-protocol_whitelist",
-        "file",
-        "-i",
-        safe_in,
-        "-vn",
-        "-af",
-        pass1_af,
-        "-f",
-        "null",
-        "-",
-    ]
-    proc1 = _run_media_subprocess(cmd_pass1)
-    log1 = (proc1.stderr or "") + "\n" + (proc1.stdout or "")
-    if proc1.returncode != 0:
-        raise RuntimeError(f"Pass 1 loudnorm failed (exit {proc1.returncode}):\n{log1[-600:]}")
-    loudnorm_blocks = re.split(r"\[Parsed_loudnorm[^\]]*\]", log1)
-    if len(loudnorm_blocks) <= 1:
-        raise RuntimeError(f"Pass 1 loudnorm filter header missing from output:\n{log1[-600:]}")
-    m_json = re.search(r"\{\s*\"input_i\"\s*:.*?\}", loudnorm_blocks[-1], re.DOTALL)
-    if not m_json:
-        raise RuntimeError(f"Pass 1 loudnorm JSON measurement failed:\n{log1[-600:]}")
-    measured = json.loads(m_json.group(0))
-
-    raw_i = _safe_float(measured.get("input_i"))
-    if raw_i is None or not math.isfinite(raw_i):
-        raise ValueError(
-            f"Input audio is completely silent or unmeasurable (input_i={measured.get('input_i')!r}); "
-            "cannot apply linear loudness normalization."
+    trim_info: Optional[Dict[str, Any]] = None
+    trim_af = ""
+    if trim_loop:
+        pcm_samples, pcm_ch, pcm_sr, _ = _decode_audio_f32le(
+            input_path,
+            sample_rate=48000,
+            pre_filter=pre_filter_str or None,
         )
-    validated_vals: Dict[str, float] = {"input_i": raw_i}
-    for key in ("input_tp", "input_lra", "input_thresh", "target_offset"):
-        fv = _safe_float(measured.get(key))
-        if fv is None or not math.isfinite(fv):
-            raise RuntimeError(f"Pass 1 loudnorm returned non-finite '{key}': {measured.get(key)!r}")
-        validated_vals[key] = fv
+        bounds = _find_zero_crossing_loop_bounds(pcm_samples, pcm_ch, pcm_sr)
+        if bounds is not None:
+            s_idx, e_idx = bounds
+            trim_af = f"aresample=48000,atrim=start_sample={s_idx}:end_sample={e_idx},asetpts=PTS-STARTPTS"
+            trim_info = {
+                "applied": True,
+                "method": "zero_crossing",
+                "start_sample": s_idx,
+                "end_sample": e_idx,
+            }
+        else:
+            dur_s = len(pcm_samples) / float(max(1, pcm_ch * pcm_sr))
+            fade_d = min(0.003, max(0.0005, dur_s * 0.1)) if dur_s > 0.0 else 0.003
+            trim_af = (
+                f"aresample=48000,afade=t=in:st=0:d={fade_d:.4f},"
+                f"areverse,afade=t=in:st=0:d={fade_d:.4f},areverse"
+            )
+            trim_info = {
+                "applied": True,
+                "method": "micro_fade_fallback",
+                "fade_sec": round(fade_d, 4),
+            }
 
-    # Pass 2: Apply linear loudnorm with strictly validated numeric parameters + sample rate 48000 Hz
-    pass2_af = (
-        f"{pre_chain}loudnorm=I={target_lufs}:TP={target_tp}:LRA={target_lra}:"
-        f"measured_I={validated_vals['input_i']:.4f}:measured_TP={validated_vals['input_tp']:.4f}:"
-        f"measured_LRA={validated_vals['input_lra']:.4f}:"
-        f"measured_thresh={validated_vals['input_thresh']:.4f}:offset={validated_vals['target_offset']:.4f}:"
-        f"linear=true:print_format=summary,aresample=48000"
-    )
+    body_prefix_str = ",".join(part for part in (pre_filter_str, trim_af) if part)
+    body_prefix_chain = (body_prefix_str + ",") if body_prefix_str else ""
 
-    ext = output_path.suffix.lower()
+    use_peak_mode = bool(game_sfx or peak_db is not None)
+    eff_peak_target: Optional[float] = None
+    gain_db: Optional[float] = None
+    measured: Optional[Dict[str, Any]] = None
+
+    if use_peak_mode:
+        is_lossy_target = ext in (".ogg", ".opus", ".webm", ".mp3", ".aac", ".m4a")
+        if peak_db is not None:
+            eff_peak_target = float(peak_db)
+        else:
+            eff_peak_target = min(float(target_tp) - 0.6, -1.6) if is_lossy_target else float(target_tp)
+        measured = _measure_peak_db_after_filter(input_path, body_prefix_str or None)
+        in_peak = measured.get("peak_level_db")
+        if in_peak is None or not math.isfinite(in_peak) or in_peak <= -90.0:
+            raise ValueError(
+                f"Input audio is completely silent or unmeasurable (peak_level_db={in_peak!r}); "
+                "cannot apply peak normalization."
+            )
+        gain_db = max(-60.0, min(60.0, eff_peak_target - in_peak))
+        pass2_af = f"{body_prefix_chain}volume={gain_db:.4f}dB,aresample=48000"
+    else:
+        # Pass 1: Measure EBU R128 parameters after pre-restoration filters
+        pass1_af = f"{body_prefix_chain}loudnorm=I={target_lufs}:TP={target_tp}:LRA={target_lra}:print_format=json"
+        cmd_pass1 = [
+            ffmpeg,
+            "-hide_banner",
+            "-nostdin",
+            "-protocol_whitelist",
+            "file",
+            "-i",
+            safe_in,
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-af",
+            pass1_af,
+            "-f",
+            "null",
+            "-",
+        ]
+        proc1 = _run_media_subprocess(cmd_pass1)
+        log1 = (proc1.stderr or "") + "\n" + (proc1.stdout or "")
+        if proc1.returncode != 0:
+            raise RuntimeError(f"Pass 1 loudnorm failed (exit {proc1.returncode}):\n{log1[-600:]}")
+        loudnorm_blocks = re.split(r"\[Parsed_loudnorm[^\]]*\]", log1)
+        if len(loudnorm_blocks) <= 1:
+            raise RuntimeError(f"Pass 1 loudnorm filter header missing from output:\n{log1[-600:]}")
+        m_json = re.search(r"\{\s*\"input_i\"\s*:.*?\}", loudnorm_blocks[-1], re.DOTALL)
+        if not m_json:
+            raise RuntimeError(f"Pass 1 loudnorm JSON measurement failed:\n{log1[-600:]}")
+        measured = json.loads(m_json.group(0))
+
+        raw_i = _safe_float(measured.get("input_i"))
+        if raw_i is None or not math.isfinite(raw_i):
+            raise ValueError(
+                f"Input audio is completely silent or unmeasurable (input_i={measured.get('input_i')!r}); "
+                "cannot apply linear loudness normalization."
+            )
+        validated_vals: Dict[str, float] = {"input_i": raw_i}
+        for key in ("input_tp", "input_lra", "input_thresh", "target_offset"):
+            fv = _safe_float(measured.get(key))
+            if fv is None or not math.isfinite(fv):
+                raise RuntimeError(f"Pass 1 loudnorm returned non-finite '{key}': {measured.get(key)!r}")
+            validated_vals[key] = fv
+
+        # Pass 2: Apply linear loudnorm with strictly validated numeric parameters + sample rate 48000 Hz
+        pass2_af = (
+            f"{body_prefix_chain}loudnorm=I={target_lufs}:TP={target_tp}:LRA={target_lra}:"
+            f"measured_I={validated_vals['input_i']:.4f}:measured_TP={validated_vals['input_tp']:.4f}:"
+            f"measured_LRA={validated_vals['input_lra']:.4f}:"
+            f"measured_thresh={validated_vals['input_thresh']:.4f}:offset={validated_vals['target_offset']:.4f}:"
+            f"linear=true:print_format=summary,aresample=48000"
+        )
+
     if ext == ".wav":
         audio_codec_args = ["-c:a", "pcm_s24le"]
     elif ext == ".flac":
@@ -1344,7 +2375,10 @@ def master_audio(
     elif ext == ".mp3":
         audio_codec_args = ["-c:a", "libmp3lame", "-b:a", "192k"]
     elif ext in (".ogg", ".opus", ".webm"):
-        audio_codec_args = ["-c:a", "libopus", "-b:a", "160k"]
+        if ogg_codec == "vorbis" and ext == ".ogg":
+            audio_codec_args = ["-c:a", "libvorbis", "-q:a", "5"]
+        else:
+            audio_codec_args = ["-c:a", "libopus", "-b:a", "160k"]
     else:
         audio_codec_args = ["-c:a", "aac", "-b:a", "192k"]
 
@@ -1359,7 +2393,7 @@ def master_audio(
         stream_args = ["-vn"]
 
     filter_args = (
-        ["-filter:a:0", pass2_af]
+        ["-filter:a", pass2_af]
         if len(info["audio_streams"]) > 1 and ext in (multi_stream_containers + multi_audio_containers)
         else ["-af", pass2_af]
     )
@@ -1388,20 +2422,67 @@ def master_audio(
         commit_out()
 
     post_metrics = _analyze_audio_signal(output_path)
-    post_lufs = post_metrics.get("integrated_lufs")
-    post_tp = post_metrics.get("true_peak_dbtp")
-    lufs_ok = post_lufs is not None and math.isfinite(post_lufs) and abs(post_lufs - target_lufs) <= 1.5
-    tp_ok = post_tp is not None and post_tp <= (target_tp + 0.2)
     dec_ok = not post_metrics.get("decode_error")
-    return {
-        "input": str(input_path),
-        "output": str(output_path),
-        "target_lufs": target_lufs,
-        "target_tp": target_tp,
-        "passed": bool(dec_ok and lufs_ok and tp_ok),
-        "pass1_measured": measured,
-        "post_metrics": post_metrics,
-    }
+    post_tp = post_metrics.get("true_peak_dbtp")
+    loop_ok = True
+    if trim_info is not None:
+        if not dec_ok:
+            loop_ok = False
+            trim_info["post_loop_seam"] = {
+                "loop_checked": False,
+                "seamless": False,
+                "reason": "Skipped post-render loop seam check due to audio decode failure.",
+            }
+        else:
+            try:
+                post_loop = analyze_audio_loop_seam(output_path)
+                trim_info["post_loop_seam"] = post_loop
+                loop_ok = bool(post_loop.get("seamless"))
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                loop_ok = False
+                trim_info["post_loop_seam"] = {
+                    "loop_checked": False,
+                    "seamless": False,
+                    "reason": str(exc),
+                }
+
+    if use_peak_mode:
+        assert eff_peak_target is not None and gain_db is not None
+        post_peak = post_metrics.get("peak_level_db")
+        peak_ok = post_peak is not None and math.isfinite(post_peak) and abs(post_peak - eff_peak_target) <= 1.5
+        tp_ceiling = min(0.0, max(float(target_tp), float(eff_peak_target)) + 0.2)
+        tp_ok = post_tp is not None and post_tp <= tp_ceiling
+        out_res: Dict[str, Any] = {
+            "input": str(input_path),
+            "output": str(output_path),
+            "mode": "peak_game_sfx",
+            "ogg_codec": ogg_codec if ext in (".ogg", ".opus", ".webm") else None,
+            "target_lufs": None,
+            "target_tp": target_tp,
+            "target_peak_db": eff_peak_target,
+            "gain_db": round(gain_db, 4),
+            "passed": bool(dec_ok and peak_ok and tp_ok and loop_ok),
+            "pass1_measured": measured,
+            "post_metrics": post_metrics,
+        }
+    else:
+        post_lufs = post_metrics.get("integrated_lufs")
+        lufs_ok = post_lufs is not None and math.isfinite(post_lufs) and abs(post_lufs - target_lufs) <= 1.5
+        tp_ok = post_tp is not None and post_tp <= min(0.0, float(target_tp) + 0.2)
+        out_res = {
+            "input": str(input_path),
+            "output": str(output_path),
+            "mode": "ebu_r128",
+            "ogg_codec": ogg_codec if ext in (".ogg", ".opus", ".webm") else None,
+            "target_lufs": target_lufs,
+            "target_tp": target_tp,
+            "passed": bool(dec_ok and lufs_ok and tp_ok and loop_ok),
+            "pass1_measured": measured,
+            "post_metrics": post_metrics,
+        }
+    if trim_info is not None:
+        out_res["trim_loop"] = trim_info
+    return out_res
 
 
 def extract_keyframes(
@@ -1476,6 +2557,7 @@ def _clamp_ab_tile_dimensions(
     aspect: float,
     eff_samples: int,
     min_tile_h: int = 2,
+    scale_flags: str = "lanczos",
 ) -> Tuple[int, int, str]:
     pad_w = 4 if eff_samples == 1 else 12
     pad_h = 0 if eff_samples == 1 else (eff_samples - 1) * 4 + 8
@@ -1511,7 +2593,7 @@ def _clamp_ab_tile_dimensions(
         )
         capped_w = max(2, min(MAX_AB_CANVAS_DIM, int(math.floor(cw * scale2))))
         capped_h = max(2, min(MAX_AB_CANVAS_DIM, int(math.floor(ch * scale2))))
-        post_scale = f",scale={capped_w}:{capped_h}:flags=lanczos:force_original_aspect_ratio=decrease"
+        post_scale = f",scale={capped_w}:{capped_h}:flags={scale_flags}:force_original_aspect_ratio=decrease"
     return tile_w, tile_h, post_scale
 
 
@@ -1521,6 +2603,7 @@ def extract_ab_sheet(
     output_png: Path,
     tile_width: int = 480,
     samples: int = 3,
+    pixel_art: bool = False,
 ) -> Dict[str, Any]:
     ffmpeg = _require_tool("ffmpeg")
     if tile_width < 64:
@@ -1533,6 +2616,7 @@ def extract_ab_sheet(
     cand_info = probe_media(candidate)
     has_ref_v = bool(ref_info["video_streams"])
     has_cand_v = bool(cand_info["video_streams"])
+    right_flags = "neighbor" if pixel_art else "lanczos"
 
     if has_ref_v and has_cand_v:
         modality = "visual"
@@ -1544,15 +2628,22 @@ def extract_ab_sheet(
             raise ValueError("Reference or candidate has invalid duration.")
         duration = min(ref_dur, cand_dur)
         max_samples = max(1, (MAX_AB_CANVAS_DIM - 4) // 20)
-        eff_samples = min(samples, max_samples) if (duration > 0.25 and not _is_still_or_anim_container(cand_info)) else 1
+        cand_nb_frames = int(cand_vs.get("nb_frames") or 0)
+        ref_nb_frames = int(ref_info["video_streams"][0].get("nb_frames") or 0)
+        is_single_frame = (cand_nb_frames == 1) or (ref_nb_frames == 1)
+        eff_samples = min(samples, max_samples) if (duration > 0.25 and not is_single_frame) else 1
         tile_width, tile_h, post_scale = _clamp_ab_tile_dimensions(
-            tile_width, eff_aspect, eff_samples, min_tile_h=2
+            tile_width,
+            eff_aspect,
+            eff_samples,
+            min_tile_h=2,
+            scale_flags=right_flags,
         )
         if eff_samples == 1:
             lavfi = (
                 f"[0:v]scale={tile_width}:{tile_h}:flags=neighbor,setsar=1,"
                 f"pad={tile_width + 4}:{tile_h}:0:0:color=#18181B[left];"
-                f"[1:v]scale={tile_width}:{tile_h}:flags=lanczos,setsar=1[right];"
+                f"[1:v]scale={tile_width}:{tile_h}:flags={right_flags},setsar=1[right];"
                 f"[left][right]hstack=inputs=2{post_scale}"
             )
         else:
@@ -1560,7 +2651,7 @@ def extract_ab_sheet(
             lavfi = (
                 f"[0:v]fps={fps_sample:.6f},scale={tile_width}:{tile_h}:flags=neighbor,setsar=1,"
                 f"pad={tile_width + 4}:{tile_h}:0:0:color=#18181B[left];"
-                f"[1:v]fps={fps_sample:.6f},scale={tile_width}:{tile_h}:flags=lanczos,setsar=1[right];"
+                f"[1:v]fps={fps_sample:.6f},scale={tile_width}:{tile_h}:flags={right_flags},setsar=1[right];"
                 f"[left][right]hstack=inputs=2,tile=1x{eff_samples}:padding=4:margin=4:color=#09090B{post_scale}"
             )
     elif not has_ref_v and not has_cand_v and ref_info["audio_streams"] and cand_info["audio_streams"]:
@@ -1620,6 +2711,7 @@ def extract_ab_sheet(
         "modality": modality,
         "samples": eff_samples,
         "tile_size": f"{tile_width}x{tile_h}",
+        "pixel_art": pixel_art,
         "size_bytes": output_png.stat().st_size,
     }
 
@@ -1635,7 +2727,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_probe.add_argument("path", type=Path, help="Input media file path.")
     p_probe.add_argument("--json", action="store_true", help="Emit JSON output.")
 
-    p_check = sub.add_parser("check", help="Run MEDIA-1..MEDIA-7 audio/video quality gate.")
+    p_check = sub.add_parser("check", help="Run MEDIA-1..MEDIA-7 (+ optional GAME-1..GAME-3) audio/video quality gate.")
     p_check.add_argument("path", type=Path, help="Input media file path.")
     p_check.add_argument("--target-lufs", type=float, default=None, help="Target integrated loudness in LUFS (e.g. -14.0).")
     p_check.add_argument("--lufs-tolerance", type=float, default=1.5, help="Allowed LUFS deviation (+/- LU, default: 1.5).")
@@ -1644,6 +2736,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--allow-silent", action="store_true", help="Allow silent audio streams (<= -70 LUFS).")
     p_check.add_argument("--allow-high-chroma", action="store_true", help="Allow yuv422p/yuv444p in H.264 MP4.")
     p_check.add_argument("--allow-static", action="store_true", help="Allow static/frozen video frames on >1s clips.")
+    p_check.add_argument(
+        "--game-sfx",
+        action="store_true",
+        help="Validate short game SFX (<0.5s) via Peak dBFS rather than ITU-R BS.1770 400ms LUFS gating.",
+    )
+    p_check.add_argument("--check-loop", action="store_true", help="Verify seamless audio wrap continuity (GAME-1).")
+    p_check.add_argument("--max-seam-step", type=float, default=0.15, help="Normalized wrap sample step ceiling (default: 0.15).")
+    p_check.add_argument("--max-seam-impulse", type=float, default=0.05, help="Normalized wrap slope impulse ceiling (default: 0.05).")
+    p_check.add_argument("--pixel-art", action="store_true", help="Verify crisp nearest-neighbor pixel-art alpha edges (GAME-2).")
+    p_check.add_argument("--sprite-atlas", action="store_true", help="Enable sprite-atlas geometry & alpha bleed QC (GAME-3).")
+    p_check.add_argument("--tile-size", type=str, default=None, help="Sprite tile cell dimensions WxH (e.g. 32x32).")
+    p_check.add_argument("--require-pot", action="store_true", help="Require power-of-two texture/atlas width and height (GAME-3).")
+    p_check.add_argument("--check-alpha-bleed", action="store_true", help="Flag transparent edge texels with un-dilated RGB halos.")
+    p_check.add_argument("--allow-edge-touch", action="store_true", help="Allow opaque sprite pixels on internal tile borders.")
     p_check.add_argument("--json", action="store_true", help="Emit JSON output.")
 
     p_salv = sub.add_parser("salvage", help="Recover truncated headers or damaged container indices via stream-copy first.")
@@ -1676,6 +2782,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow timeline duration differences when intentional trimming or speed change was requested.",
     )
+    p_cmp.add_argument(
+        "--pixel-art",
+        action="store_true",
+        help="Verify nearest-neighbor integer upscale factor & uniform kxk pixel blocks.",
+    )
     p_cmp.add_argument("--json", action="store_true", help="Emit JSON output.")
 
     p_ab = sub.add_parser("ab-sheet", help="Render a side-by-side Reference vs. Enhanced PNG comparison sheet.")
@@ -1684,9 +2795,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_ab.add_argument("output_png", type=Path, help="Output side-by-side comparison PNG path.")
     p_ab.add_argument("--tile-width", type=int, default=480, help="Width per side in pixels (default: 480).")
     p_ab.add_argument("--samples", type=int, default=3, help="Timestamp rows to stack for video inputs (default: 3).")
+    p_ab.add_argument("--pixel-art", action="store_true", help="Render both A and B sides with crisp nearest-neighbor scaling.")
     p_ab.add_argument("--json", action="store_true", help="Emit JSON output.")
 
-    p_master = sub.add_parser("master-audio", help="Run Two-Pass EBU R128 loudness normalization & optional cleanup.")
+    p_master = sub.add_parser("master-audio", help="Run Two-Pass EBU R128 loudness normalization or peak game SFX mastering.")
     p_master.add_argument("input", type=Path, help="Input audio/video file.")
     p_master.add_argument("output", type=Path, help="Output mastered file (must differ from input).")
     p_master.add_argument("--target-lufs", type=float, default=-14.0, help="Target integrated loudness in LUFS (default: -14.0).")
@@ -1694,7 +2806,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_master.add_argument("--target-lra", type=float, default=11.0, help="Target Loudness Range in LU (default: 11.0).")
     p_master.add_argument("--highpass", type=int, default=0, help="Optional high-pass filter cutoff in Hz (e.g. 75 for voice).")
     p_master.add_argument("--denoise", choices=("none", "fft", "nlm"), default="none", help="Optional spectral/broadband denoiser.")
-    p_master.add_argument("--declip", action="store_true", help="Apply adeclip and adeclick before loudness normalization.")
+    p_master.add_argument("--declip", action="store_true", help="Apply adeclip and adeclick before normalization.")
+    p_master.add_argument(
+        "--game-sfx",
+        action="store_true",
+        help="Use linear peak normalization instead of two-pass loudnorm (required for <400ms game SFX impulses).",
+    )
+    p_master.add_argument("--peak-db", type=float, default=None, help="Explicit peak target in dBFS (triggers peak normalization mode).")
+    p_master.add_argument(
+        "--ogg-codec",
+        choices=("opus", "vorbis"),
+        default="opus",
+        help="Encoder for .ogg outputs: 'opus' (default, Web/streaming) or 'vorbis' (Unity/Godot/Unreal compatibility).",
+    )
+    p_master.add_argument(
+        "--trim-loop",
+        action="store_true",
+        help="Trim head/tail endpoints onto matched rising zero-crossings for seamless audio loops.",
+    )
     p_master.add_argument("--json", action="store_true", help="Emit JSON output.")
 
     p_kf = sub.add_parser("keyframes", help="Extract a tiled contact-sheet PNG of video keyframes.")
@@ -1719,7 +2848,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.subcommand == "probe":
             res = probe_media(args.path)
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 print(f"File     : {res['path']} ({res['size_bytes']} bytes)")
                 print(f"Format   : {res['format_name']} | Duration: {res['duration_sec']}s | AV Drift: {res['av_drift_sec']}s")
@@ -1745,9 +2874,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 allow_silent=args.allow_silent,
                 allow_high_chroma=args.allow_high_chroma,
                 allow_static=args.allow_static,
+                game_sfx=args.game_sfx,
+                check_loop=args.check_loop,
+                max_seam_step=args.max_seam_step,
+                max_seam_impulse=args.max_seam_impulse,
+                pixel_art=args.pixel_art,
+                sprite_atlas=args.sprite_atlas,
+                tile_size=args.tile_size,
+                require_pot=args.require_pot,
+                check_alpha_bleed=args.check_alpha_bleed,
+                allow_edge_touch=args.allow_edge_touch,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 status = "PASS" if res["passed"] else "FAIL"
                 print(f"[{status}] Media QC Gate -> {res['path']}")
@@ -1755,12 +2894,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     am = res["audio_metrics"]
                     print(
                         f"  Audio : I={am['integrated_lufs']} LUFS | TP={am['true_peak_dbtp']} dBTP | "
-                        f"LRA={am['lra_lu']} LU | DC={am['dc_offset']}"
+                        f"Peak={am['peak_level_db']} dBFS | LRA={am['lra_lu']} LU | DC={am['dc_offset']}"
+                    )
+                if res.get("loop_metrics"):
+                    lm = res["loop_metrics"]
+                    print(
+                        f"  Loop  : seamless={lm['seamless']} | step={lm['seam_step']} | impulse={lm['seam_impulse']}"
                     )
                 if res["video_metrics"]:
                     vm = res["video_metrics"]
                     print(
                         f"  Video : black_ratio={vm['black_ratio']:.3f} | freeze_ratio={vm['freeze_ratio']:.3f}"
+                    )
+                if res.get("game_visual_metrics"):
+                    gm = res["game_visual_metrics"]
+                    print(
+                        f"  Game  : {gm['width']}x{gm['height']} | PoT={gm['is_pot']} | tile={gm['tile_size']} "
+                        f"(aligned={gm['tile_aligned']}) | semi_alpha={gm['semi_alpha_pixels']} | "
+                        f"bleed={gm['alpha_bleed_pixels']} | edge_touch={gm['edge_touch_pixels']}"
                     )
                 for f in res["findings"]:
                     print(f"  [{f['rule_id']}] ({f['severity']}) {f['message']}")
@@ -1775,7 +2926,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 allow_partial=args.allow_partial,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 status = "PASS" if res["passed"] else "FAIL"
                 print(
@@ -1794,16 +2945,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 min_psnr=args.min_psnr,
                 allow_aspect_change=args.allow_aspect_change,
                 allow_trim=args.allow_trim,
+                pixel_art=args.pixel_art,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 status = "PASS" if res["passed"] else "FAIL"
+                extra = (
+                    f" | Scale={res['scale_factor']}x (int_ok={res['integer_scale_ok']}, "
+                    f"non_uniform={res['non_uniform_blocks']})"
+                    if res.get("pixel_art")
+                    else ""
+                )
                 print(
                     f"[{status}] Visual Fidelity Compare: SSIM={res['ssim_all']:.4f} (min {res['min_ssim']}) | "
                     f"PSNR={res['psnr_avg_db']:.2f} dB (min {res['min_psnr']} dB) | "
                     f"AspectDrift={res['aspect_drift_ratio'] * 100:.2f}% (ok={res['aspect_ok']}) | "
-                    f"DurationDrift={res['duration_drift_sec']:.3f}s (ok={res['duration_ok']})"
+                    f"DurationDrift={res['duration_drift_sec']:.3f}s (ok={res['duration_ok']}){extra}"
                 )
             return 0 if res["passed"] else 1
 
@@ -1814,9 +2972,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 args.output_png,
                 tile_width=args.tile_width,
                 samples=args.samples,
+                pixel_art=args.pixel_art,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 print(
                     f"[OK] Extracted {res['samples']}-row A/B comparison sheet ({res['tile_size']} per side) -> "
@@ -1834,16 +2993,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 highpass_hz=args.highpass,
                 denoise=args.denoise,
                 declip=args.declip,
+                game_sfx=args.game_sfx,
+                peak_db=args.peak_db,
+                ogg_codec=args.ogg_codec,
+                trim_loop=args.trim_loop,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 pm = res["post_metrics"]
                 status = "OK" if res["passed"] else "FAIL"
-                print(
-                    f"[{status}] Mastered '{res['input']}' -> '{res['output']}' | "
-                    f"Post I={pm['integrated_lufs']} LUFS, TP={pm['true_peak_dbtp']} dBTP"
-                )
+                if res.get("mode") == "peak_game_sfx":
+                    print(
+                        f"[{status}] Mastered ({res['mode']}) '{res['input']}' -> '{res['output']}' | "
+                        f"Post Peak={pm['peak_level_db']} dBFS, TP={pm['true_peak_dbtp']} dBTP, Gain={res['gain_db']} dB"
+                    )
+                else:
+                    print(
+                        f"[{status}] Mastered '{res['input']}' -> '{res['output']}' | "
+                        f"Post I={pm['integrated_lufs']} LUFS, TP={pm['true_peak_dbtp']} dBTP"
+                    )
             return 0 if res["passed"] else 1
 
         if args.subcommand == "keyframes":
@@ -1855,14 +3024,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 tile_width=args.tile_width,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(res, indent=2, allow_nan=False))
             else:
                 print(f"[OK] Extracted {res['grid']} keyframe sheet -> {res['output_png']} ({res['size_bytes']} bytes)")
             return 0
 
     except Exception as exc:
         if getattr(args, "json", False):
-            print(json.dumps({"passed": False, "error": str(exc)}, indent=2))
+            print(json.dumps({"passed": False, "error": str(exc)}, indent=2, allow_nan=False))
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
 

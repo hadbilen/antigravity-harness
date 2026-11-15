@@ -37,6 +37,7 @@ import argparse
 import ast
 import hashlib
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -47,7 +48,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 try:
     import tomllib  # type: ignore[import-not-found]
@@ -75,6 +76,8 @@ from guard.paths import (  # noqa: E402
 )
 
 MAX_HINTS = 2
+MAX_EXPLICIT_HINTS = 4
+MAX_CONTEXT_SIGNALS = 2
 MAX_STRIKES = 3
 MIN_PROMPT_CHARS = 15
 REHINT_TURN_GAP = 8
@@ -123,9 +126,13 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/diagnosing-bugs/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/diagnosing-bugs{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"bug|regression|crash(?:es|ed|ing)?|traceback|stack\s*trace|segfault|"
-            r"failing\s+tests?|flaky\s+tests?|intermittent\s+failure|bisect|"
-            r"hata\s+var|çalışmıyor|calismiyor|patlıyor|patliyor|bozuldu|neden\s+hata"
+            r"bug|regression|regresyon\w*|crash(?:es|ed|ing)?|traceback|stack\s*trace|segfault|"
+            r"failing\s+(?:tests?|assertions?)|flaky\s+(?:tests?|assertions?|failures?|builds?|checks?)|intermittent\s+failure|bisect|"
+            r"(?:debug|investigat(?:e|ing)|diagnos(?:e|ing))\s+(?:this\s+|the\s+|an?\s+)?(?:[\w-]+\s+){0,2}(?:failure|error|bug|crash|regression|flaky)|"
+            r"root\s+cause(?:\s+(?:of|analysis))?|test\s+suite\s+(?:is\s+)?failing|"
+            r"hata\s+var|çalışmıyor|calismiyor|patlıyor|patliyor|bozuldu|neden\s+hata|"
+            r"hata(?:yı|sı|ları)?\s+(?:ayıkla\w*|bul\w*|teşhis\s+et\w*)|"
+            r"kök\s+neden\w*|test(?:ler|i)?\s+(?:kırıl\w*|patl\w*|fail\s+ediyor|geçmiyor)"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -138,7 +145,8 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             rf"(?:{_SLASH_PRE}/test-design{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"test\s+design|design\s+tests?|coverage\s+gaps?|property[- ]based\s+test|"
             r"boundary[- ]value|equivalence\s+partition|parametrize[d]?\s+tests?|"
-            r"test\s+yaz|test\s+ekle|regresyon\s+testi|"
+            r"(?:write|add)\s+(?:unit|integration|regression)\s+tests?|"
+            r"test\s+yaz|test\s+ekle|regresyon\s+testi|birim\s+test(?:i|leri)\s+(?:yaz|ekle)|"
             r"test\s+tasar(?:ımı|imi|la)|test\s+senaryo(?:su|ları)|kapsama\s+boşlu(?:ğu|gu)|"
             r"sınır\s+değer\s+test"
             rf"){_PATH_WORD_POST})",
@@ -165,10 +173,11 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/refactoring/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/refactoring{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"refactor(?:ing)?|extract\s+(?:function|method|class|module)|"
+            r"refactor(?:ing)?|extract\s+(?:\w+\s+)?(?:functions?|methods?|classes|modules?|helpers?)|"
+            r"restructur(?:e|ing)\s+(?:this\s+|the\s+|these\s+)?(?:modules?|classes|functions?|codebase)|"
             r"split\s+(?:file|module|class)|decouple|code\s+smell|dead\s+code|"
             r"refactor\s+et|yeniden\s+düzenle|sadeleştir|parçala|kod\s+tekrarını\s+kaldır|"
-            r"yeniden\s+yapılandır|kod\s+kokusu|modüllere\s+ayır|fonksiyon\s+çıkar"
+            r"yeniden\s+yapılandır|kod\s+kokusu|modüllere\s+ayır|fonksiyon\w*\s+çıkar"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -181,8 +190,8 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             rf"(?:{_SLASH_PRE}/dependency-upgrade{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"upgrade\s+(?:dependenc(?:y|ies)|packages?)|bump\s+version|version\s+bump|major\s+upgrade|"
             r"lockfile\s+update|cve\s+fix|dependenc(?:y|ies)\s+migration|"
-            r"sürümü\s+yükselt|bağımlılıkları\s+güncelle|"
-            r"paket\s+güncelle|bağımlılık\s+güncelle|sürüm\s+yükselt"
+            r"sürümü\s+yükselt|bağımlılık(?:ları|\w*\s+sürüm\w*)(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,3}\s+(?:güncelle\w*|yükselt\w*)|"
+            r"paket\w*\s+(?:güncelle|yeni\s+sürüme\s+(?:taşı|geçir|yükselt))|bağımlılık\s+güncelle|sürüm\s+yükselt"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -193,10 +202,14 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/renew/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/renew{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"(?:moderniz(?:e|ing)|reviv(?:e|ing)|port(?:ing)?|remaster(?:ing)?)\s+(?:(?:this|the|an?|our|my)\s+)*(?:old|legacy|classic|obsolete|unbuildable|abandoned|win32|winforms|mfc|delphi|vb6|flash|dos|j2me|sdl1?|pygame|python\s*2)\b(?:\s+[\w.-]+){0,4}\s+(?:app(?:lication)?s?|programs?|software|codebases?|projects?|tools?|games?)|"
+            r"(?:use|apply|run|invoke|load)\s+(?:the\s+)?renew\s+(?:skill|workflow)?|"
+            r"renew\s+(?:skill|beceri\w*)|"
+            r"(?:moderniz(?:e|ing)|reviv(?:e|ing)|port(?:ing)?|remaster(?:ing)?|bring(?:ing)?)\s+(?:(?:this|the|an?|our|my)\s+)*(?:old|legacy|classic|obsolete|unbuildable|abandoned|win32|winforms|mfc|delphi|vb6|visual\s+basic(?:\s*6)?|flash|dos|j2me|sdl1?|pygame|python\s*2|actionscript)\b(?:\s+[\w.-]+){0,5}\s+(?:app(?:lication)?s?|programs?|software|codebases?|projects?|tools?|utilit(?:y|ies)|servic(?:e|es)|games?|up\s+to\s+date)|"
             r"remaster(?:ing)?\s+(?:(?:this|the|an?|our|my|old|classic|legacy|retro)\s+)*(?:games?|app(?:lication)?s?|programs?|titles?)|"
             r"legacy\s+(?:software|app(?:lication)?|codebase|program|game)\s+(?:modernization|revival|remaster(?:ing)?|port(?:ing)?)|"
-            r"(?:eski|klasik|atıl|çalışmayan|derlenmeyen)\s+(?:bir\s+)?(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}(?:program\w*|yazılım\w*|uygulama\w*|oyun\w*|kod\s+taban\w*|araç\w*|arac\w*|proje\w*)(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,3}\s+(?:yenile\w*|modernize\s+et\w*|dirilt\w*|remaster\s+yap\w*|(?:güncel|modern)\s+(?:sistem\w*|ortam\w*|çalışma\s+zaman\w*)\s+(?:taşı\w*|uyarla\w*))|"
+            r"(?:windows-?1254|iso-?8859-9|cp437)\b[^\n.?!]{0,50}(?:\butf-?8\b|moderniz\w*|legacy|desktop|yenile\w*)|"
+            r"(?:eski|klasik|atıl|çalışmayan|derlenmeyen|legacy)\s+(?:bir\s+)?(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}(?:program\w*|yazılım\w*|uygulama\w*|oyun\w*|kod\s+taban\w*|codebase\w*|araç\w*|arac\w*|proje\w*)(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,3}\s+(?:yenile\w*|modernize\s+et\w*|dirilt\w*|ayağa\s+kaldır\w*|remaster\s+yap\w*|(?:güncel|modern)\s+(?:sistem\w*|ortam\w*|çalışma\s+zaman\w*)\s+(?:taşı\w*|geçir\w*|uyarla\w*))|"
+            r"(?:win32|winforms|vb6|delphi|flash|sdl1|pygame|mfc)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}(?:uygulama\w*|oyun\w*|proje\w*|program\w*)\s+(?:modern|güncel|html5|webgl|web|\w+\s+ortam\w*)\s+(?:taşı\w*|geçir\w*|ayağa\s+kaldır\w*|uyarla\w*)|"
             r"(?:güncel|modern)\s+(?:sistem\w*|çalışma\s+zaman\w*)\s+(?:taşı\w*|uyarla\w*)|"
             r"(?:oyun\w*|program\w*|yazılım\w*|uygulama\w*)\s+remaster\s+yap\w*"
             rf"){_PATH_WORD_POST})",
@@ -212,7 +225,11 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"rustify\w*(?!\.(?:rs|py|c|cc|cpp|cxx|h|hh|hpp|hxx|go|js|ts|md|json|toml|yaml|yml)\b)|"
             r"(?<!bump\s)(?<!upgrade\s)(?<!update\s)(?:cbindgen|bindgen|cxx\s+bridge|#?\[?cxx::bridge\]?|pyo3)(?!\s+(?:from|to|in)\s+[\dv]|[^\n]{0,30}\bcargo\.toml\b)|"
             r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
-            r"(?:c(?:\+\+|/c\+\+)?|cpp|go|golang|python)'?(?:dan|den|tan|ten)\s+rust'?(?:a|ya)\b|"
+            r"(?:(?:c(?:/c\+\+|\+\+)?|cpp|golang|python)\s+(?:[\w+/.-]+\s+){0,4}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b|"
+            r"go\s+(?:(?:code(?:base)?|module|service|library|binary|daemon|cli|worker|server|backend|runtime|app|package|crate)\s+)?(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b))|"
+            r"(?:rust\s+(?:ffi(?:\s+(?:bindings?|wrappers?|bridges?))?|bindings?|wrappers?)\s+(?:for|to)\s+(?:c/c\+\+|c\+\+|(?:cpp|golang|python|go|c)\b)|(?:ffi|c\s+abi)\s+(?:bridge|wrapper|interop)\s+(?:for|to|with|in)\s+rust\b)|"
+            r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python)'?(?:dan|den|tan|ten)\s+rust'?(?:a|ya)\b|"
+            r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}rust\s+ile\s+(?:yeniden\s+yaz\w*|değiştir\w*)|"
             r"rust'?(?:a|ya)\s*(?:çevir\w*|cevir\w*|taşı\w*|tasi\w*|dönüştür\w*|donustur\w*|geçir\w*|gecir\w*|aktar\w*|port\s+et\w*)"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
@@ -290,10 +307,13 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/game-engineering/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/game-engineering{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"game\s+loop|fixed\s+timestep|game\s+dev(?:elopment)?|canvas\s+game|webgl\s+game|"
-            r"browser\s+game|arcade\s+game|"
-            r"collision\s+detection|sprite\s+sheet|game\s+physics|entity\s+state\s+machine|"
-            r"oyun\s+geliştir(?:me)?|oyun\s+motoru|fizik\s+döngüsü|canvas\s+oyun|tarayıcı\s+oyunu|2d\s+oyun|3d\s+oyun"
+            r"game\s+loop|fixed[- ]timestep|game\s+dev(?:elopment)?|canvas\s+game|webgl\s+game|webgpu\s+game|"
+            r"(?:2d|3d|phaser|godot|unity|unreal|pixi(?:\.js)?|three(?:\.js)?|browser|arcade|indie|platformer|roguelike)\s+games?|"
+            r"build(?:ing)?\s+(?:a\s+|an\s+|this\s+)?game\b|frame\s+accumulator|seeded\s+(?:prng|rng)|deterministic\s+game|"
+            r"collision\s+detection|game\s+physics|entity\s+state\s+machine|"
+            r"oyun\s+(?:geliştir(?:me)?|yap\w*|tasarla\w*|kodla\w*|motoru|fiziğ\w*|fizik\w*|döngü\w*)|"
+            r"sabit\s+(?:timestep|zaman\s+adımı)|fizik\s+döngüsü|çarpışma\s+(?:algılama|sistemi|testi)|"
+            r"(?:canvas|webgl|tarayıcı|2d|3d|2b|3b|arcade|platform)\s+oyun\w*"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -304,14 +324,18 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/media-studio/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/media-studio{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"sprite\s*sheets?|pixel\s+art|tile\s*sets?|texture\s+atlas\w*|alpha\s+(?:bleed|matting)|color[- ]?key(?:ed)?\s+(?:bitmap|sprite|transparency)|"
+            r"(?:game\s+)?(?:sound\s+effects?|sfx\b|game\s+audio|loop(?:ing)?\s+(?:audio|sfx|sound|music))|"
             r"(?:audio|video|sound|voice|music|track|song|photo|image|media)\s+(?:mastering|remaster(?:ing)?|restoration|salvage|upscal(?:e|ing)|super[- ]resolution|denois(?:e|ing)|editing|transcod(?:e|ing)|synthesis)|"
-            r"(?:salvage|restore|repair|upscale|uncorrupt)\s+(?:(?:this|the|an?|old|damaged|corrupted|broken|truncated|scanned|low[- ]res(?:olution)?|blurry|noisy|archival)\s+)*(?:audio|video|sound|voice|photo(?:graph)?|image|picture|footage|recording|mp4|mkv|wav|flac|mp3|jpe?g|png|tiff?)\b|"
+            r"(?:salvage|restore|repair|upscale|uncorrupt|resize|crop|trim|compress|normalize)\s+(?:(?:this|the|an?|my|old|damaged|corrupted|broken|truncated|scanned|low[- ]res(?:olution)?|blurry|noisy|archival)\s+)*(?:sprite\s*sheet\w*|pixel\s+art|textures?|sound\s+effects?|sfx\b|audio|video|sound|voice|photo(?:graph)?|image|picture|footage|recording|mp4|mkv|webm|wav|ogg|opus|flac|mp3|jpe?g|png|webp|gif|tiff?)\b|"
             r"ebu\s*r128|loudness\s+normalization|lufs|deband(?:ing)?|jpeg\s+(?:blocking|artifacts?)|animated\s+(?:webp|gif|apng|visuals?)|"
             r"ffmpeg\s+filter(?:graph)?|(?:audio|video|image|photo)\s+quality\s+(?:fix|repair|gate|enhancement|upscal(?:e|ing))|"
-            r"(?:bozuk|hasarlı|kırık|eski|düşük\s+kaliteli|bulanık|cızırtılı)\s+(?:bir\s+)?(?:(?!session\w*)ses\w*|video\w*|görüntü\w*|fotoğraf\w*|fotograf\w*|görsel\w*|(?:(?!session\w*)ses|video|görüntü|ekran|kamera|mikrofon)\s+(?:kayıt\w*|kayd\w*)|wav|mp4|mkv|mp3|jpe?g|png)(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,5}\s+(?:düzelt\w*|onar\w*|kurtar\w*|temizle\w*|iyileştir\w*|yükselt\w*|artır\w*)|"
+            r"(?:piksel\s+sanat\w*|oyun\s+ses\w*|ses\s+efekt\w*)|"
+            r"(?:bozuk|hasarlı|kırık|eski|düşük\s+kaliteli|bulanık|cızırtılı)\s+(?:bir\s+)?(?:(?!session\w*)ses\w*|video\w*|görüntü\w*|fotoğraf\w*|fotograf\w*|görsel\w*|(?:(?!session\w*)ses|video|görüntü|ekran|kamera|mikrofon)\s+(?:kayıt\w*|kayd\w*)|wav|ogg|mp4|mkv|mp3|jpe?g|png)(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,5}\s+(?:düzelt\w*|onar\w*|kurtar\w*|temizle\w*|iyileştir\w*|yükselt\w*|artır\w*)|"
             r"(?:(?!session\w*)ses\w*|video\w*|görüntü\w*|fotoğraf\w*|fotograf\w*)\s+(?:üret(?:im|me)?|düzenle(?:me)?|kurgu(?:la|su)?|kurtar\w*|onar(?:ım|ma)?|mastering|remaster(?:\s+yap\w*)?|kalite\w*(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,3}\s+(?:düzelt\w*|artır\w*|yükselt\w*|iyileştir\w*))|"
             r"(?:(?:(?!session\w*)ses|müzik|şarkı)(?:\s+kayıt\w*|\s+kayd\w*)?)\s+remaster(?:\s+yap\w*)?|"
-            r"(?:fotoğraf\w*|fotograf\w*|görüntü\w*|(?!session\w*)ses\w*|video\w*)\s+[\wçğıöşüÇĞİÖŞÜ-]+\s+temizle\w*|"
+            r"(?:görsel\w*|fotoğraf\w*|fotograf\w*|görüntü\w*|(?!session\w*)ses\w*|video\w*)\s+(?:[\wçğıöşüÇĞİÖŞÜ-]+\s+){0,2}(?:temizle\w*|boyutlandır\w*|ölçekle\w*|kırp\w*|normalize\s+et\w*)|"
+            r"(?:png|jpe?g|webp|gif|apng|wav|ogg|opus|flac|mp3|mp4|webm|mkv)\s+(?:temizle\w*|boyutlandır\w*|dönüştür\w*|normalize\s+et\w*|sıkıştır\w*|kırp\w*|birleştir\w*)|"
             r"gürültü\s+temizle(?:me)?|ses\s+seviyesi(?:ni)?\s+dengele|hareketli\s+görsel(?:\s+üret)?"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
@@ -336,11 +360,15 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"(?:{_SLASH_PRE}/(?:sweetspot|optimize){_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"sweetspot|sweet[- ]spot\s+optimization|"
+            r"(?:benchmark|profile)\s+(?:(?:and\s+optimize|memory|ram|cpu|latency|network|waterfall|startup|frame|performance)(?:\s+footprint)?)|"
             r"optimize\s+(?:startup|latency|frame\s+rate|fps|performance|memory|ram|disk\s+space|binary\s+size|bundle\s+size|footprint|network|bandwidth|download|upload)|"
             r"optimize\s+(?:this\s+|the\s+)?(?:game|app|application|software|codebase|program|service|backend|script|tool|library|binary|package|(?:software|coding)\s+project|(?:operating|file|build|cache|distributed)\s+system)|"
-            r"(?:reduce|shrink)\s+(?:memory|ram|disk|binary|bundle|network|bandwidth|download|upload|round[- ]trip)\s+(?:usage|footprint|size|traffic|latency|payload)|"
+            r"speed\s+up\s+(?:this\s+|the\s+)?(?:game|app|application|software|codebase|program|service|backend|script|query|loop|startup|build|pipeline|renderer|download|upload)|"
+            r"(?:reduce|shrink|cut|lower|decreas(?:e|ing))\s+(?:(?:--net|memory|ram|disk|binary|bundle|network|bandwidth|download|upload|round[- ]trip|request|api|render)\s+)*(?:memory|ram|disk|binary|bundle|network|bandwidth|download|upload|round[- ]trip|allocations?|gc\s+pressure|startup\s+time|cold[- ]start|frame\s+time|rtt|waterfall\s+latency|latency|n\+1\s+(?:queries|requests?))(?:\s+(?:usage|footprint|size|traffic|latency|payload))?|"
             r"sweetspot\s+analizi|tatlı\s+nokta\s+optimizasyonu|performans\s+optimizasyonu|(?:bellek|ram|disk|ağ|bant\s+genişliği)\s+optimizasyonu|"
             r"(?:oyun\w*|servis\w*|uygulama\w*|yazılım\w*|beti[kğ]\w*|kod\w*|(?:işletim|dosya|derleme|önbellek)\s+sistem\w*|modül\w*|sorgu\w*|fonksiyon\w*|algoritma\w*|motor\w*|derleme\w*|[iİ]ndirme\w*|ağ\w*|bellek\w*|ram\w*|hız\w*|render\w*)\s+(?:\S+\s+){0,2}(?:optimize\s+et|hızlandır)|"
+            r"(?:bellek|ram|cpu|ağ|disk|yükleme|başlatma|soğuk\s+başlangıç|sorgu|döngü|render|kare)\s+(?:tüketimi\w*|kullanımı\w*|maliyeti\w*|süresi\w*|gecikmesi\w*|boyutu\w*)\s+(?:düşür\w*|azalt\w*|küçült\w*|optimize\s+et\w*|hızlandır\w*)|"
+            r"(?:uygulama\w*|servis\w*|oyun\w*|sorgu\w*|beti[kğ]\w*|motor\w*|derleme\w*|paket\w*|dosya\w*|pipeline\w*)\s+(?:performans\w*|hız\w*|fps|belle[kğ]\w*|boyut\w*)\s+(?:iyileştir\w*|artır\w*|düşür\w*|optimize\s+et\w*)|"
             r"(?:bellek|ram|bant\s+genişliği)\s+kullanımını\s+(?:düşür|azalt)|"
             r"(?:disk\s+alanını|dosya\s+boyutunu|paket\s+boyutunu|[iİ]ndirme\s+(?:ve\s+yükleme\s+)?boyutunu|yükleme\s+boyutunu|çıktının\s+boyutunu)\s+küçült|"
             r"(?:ağ\s+)?gecikme(?:yi|sini)\s+(?:düşür|azalt)|(?:fps|kare\s+hızını)\s+artır"
@@ -575,9 +603,17 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "plugins/rea/skills/reverse-engineer-anything/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/rea{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"reverse[- ]engineer(?:ing)?|decompile\s+(?:binary|apk|elf|macho|jar|wasm)|disassemble\s+binary|"
-            r"inspect\s+(?:apk|elf|macho|firmware|pcap)|frida\s+(?:hook|session|trace)|rizin\s+debug|"
-            r"tersine\s+mühendislik|binary\s+analiz(?:i)?|apk\s+incele|decompile\s+et|ikili\s+dosya\s+analiz"
+            r"reverse[- ]engineer(?:ing)?|"
+            r"decompile\s+(?:(?:this|the)\s+)?(?:(?:compiled\s+)?(?:binary|executable)|apk|elf|macho|jar|wasm|exe|dll|firmware)|"
+            r"disassemble\s+(?:(?:this|the)\s+)?(?:(?:compiled\s+)?(?:binary|executable)|apk|elf|macho|jar|wasm|exe|dll|firmware)|"
+            r"inspect\s+(?:this\s+|the\s+)?(?:(?:[A-Za-z0-9_.-]+\.(?:asar|pak|apk|ipa|exe|dll|so|dylib|wasm))|apk|ipa|elf|macho|firmware|pcap|asar|pak|exe|dll|so|dylib|compiled\s+binary|shipped\s+artifact|electron\s+app)|"
+            r"(?:unpack|extract\s+(?:assets?|strings|symbols)\s+from)\s+(?:this\s+|the\s+)?(?:(?:[A-Za-z0-9_.-]+\.(?:asar|pak|apk|ipa|exe|dll|wasm))|asar|pak|apk|ipa|exe|dll|firmware|binary)|"
+            r"clean[- ]room\s+(?:spec(?:ification)?|reverse[- ]engineering|extraction)|"
+            r"frida\s+(?:hook|session|trace)|rizin\s+debug|jeb\s+project|"
+            r"(?:exe|dll|apk|ipa|elf|macho|asar|pak|firmware|pcap|wasm)\s+(?:dosyasını|ikilisini|paketini|içeriğini)\s+(?:incele\w*|çözümle\w*|analiz\s+et\w*|aç\w*)|"
+            r"ikili\s+dosyay(?:ı|i)\s+disassemble|disassemble(?:\s+ve\s+decompile)?\s+et|"
+            r"tersine\s+mühendislik|binary\s+analiz(?:i)?|apk\s+incele|decompile\s+et|ikili\s+dosya\s+analiz|"
+            r"derlenmiş\s+(?:ikili\s+dosya\w*|binary|uygulama\w*)\s+(?:analiz|incele|çözümle|disassemble|decompile)"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -591,9 +627,17 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
         "route:mcp:rea_rea",
         re.compile(
             rf"(?:{_SLASH_PRE}/rea{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"reverse[- ]engineer(?:ing)?|decompile|disassemble|inspect\s+(?:apk|elf|macho|firmware|pcap)|"
+            r"reverse[- ]engineer(?:ing)?|"
+            r"decompile\s+(?:(?:this|the)\s+)?(?:(?:compiled\s+)?(?:binary|executable)|apk|elf|macho|jar|wasm|exe|dll|firmware)|"
+            r"disassemble\s+(?:(?:this|the)\s+)?(?:(?:compiled\s+)?(?:binary|executable)|apk|elf|macho|jar|wasm|exe|dll|firmware)|"
+            r"inspect\s+(?:this\s+|the\s+)?(?:(?:[A-Za-z0-9_.-]+\.(?:asar|pak|apk|ipa|exe|dll|so|dylib|wasm))|apk|ipa|elf|macho|firmware|pcap|asar|pak|exe|dll|so|dylib|compiled\s+binary|shipped\s+artifact|electron\s+app)|"
+            r"(?:unpack|extract\s+(?:assets?|strings|symbols)\s+from)\s+(?:this\s+|the\s+)?(?:(?:[A-Za-z0-9_.-]+\.(?:asar|pak|apk|ipa|exe|dll|wasm))|asar|pak|apk|ipa|exe|dll|firmware|binary)|"
+            r"clean[- ]room\s+(?:spec(?:ification)?|reverse[- ]engineering|extraction)|"
             r"frida\s+(?:hook|session|trace)|rizin\s+debug|jeb\s+project|"
-            r"tersine\s+mühendislik|binary\s+analiz(?:i)?|apk\s+incele|decompile\s+et|ikili\s+dosya\s+analiz"
+            r"(?:exe|dll|apk|ipa|elf|macho|asar|pak|firmware|pcap|wasm)\s+(?:dosyasını|ikilisini|paketini|içeriğini)\s+(?:incele\w*|çözümle\w*|analiz\s+et\w*|aç\w*)|"
+            r"ikili\s+dosyay(?:ı|i)\s+disassemble|disassemble(?:\s+ve\s+decompile)?\s+et|"
+            r"tersine\s+mühendislik|binary\s+analiz(?:i)?|apk\s+incele|decompile\s+et|ikili\s+dosya\s+analiz|"
+            r"derlenmiş\s+(?:ikili\s+dosya\w*|binary|uygulama\w*)\s+(?:analiz|incele|çözümle|disassemble|decompile)"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -616,7 +660,9 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             rf"{_PATH_WORD_PRE}(?:"
             r"authentication\s+boundary|authorization\s+boundary|jwt\s+(?:token|auth)|oauth2?\s+flow|"
             r"cryptograph(?:y|ic)|payment\s+processing|storage\s+integrity|secret\s+boundary|"
-            r"kimlik\s+doğrulama|yetkilendirme\s+sınır(?:ı|i)|kriptografi|ödeme\s+altyapısı|depolama\s+bütünlüğü"
+            r"permission\s+boundary|auth(?:entication|orization)\s+bypass|toctou|race\s+condition|"
+            r"kimlik\s+doğrulama|yetkilendirme\s+sınır(?:ı|i)|yetki\s+sınır(?:ı|i)|güvenlik\s+sınır(?:ı|i)|"
+            r"kriptografi|ödeme\s+altyapısı|depolama\s+bütünlüğü"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
         ),
@@ -627,7 +673,7 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"{_PATH_WORD_PRE}(?:"
             r"public\s+api\s+contract|breaking\s+contract\s+change|wire\s+protocol\s+change|openapi\s+schema\s+change|"
-            r"public\s+interface\s+migration|"
+            r"public\s+interface\s+migration|migration\s+rollback\s+safety|wire\s+format\s+change|schema\s+breaking\s+change|"
             r"sözleşme\s+değişikliği|api\s+kontrat(?:ı|i)|public\s+arayüz\s+değişikliği|kırıcı\s+şema\s+değişikliği"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
@@ -639,7 +685,8 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"{_PATH_WORD_PRE}(?:"
             r"formal\s+specification|multi[- ]volume\s+spec|state\s+machine\s+invariant|safety\s+core\s+spec|"
-            r"resmi\s+spesifikasyon|güvenlik\s+çekirdeği\s+spesifikasyonu|aksiyomatik\s+tutarlılık"
+            r"multi[- ]file\s+invariant|axiomatic\s+consistency|"
+            r"resmi\s+spesifikasyon|güvenlik\s+çekirdeği\s+spesifikasyonu|aksiyomatik\s+tutarlılık|durum\s+makinesi\s+değişmezi"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
         ),
@@ -650,7 +697,11 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"{_PATH_WORD_PRE}(?:"
             r"external\s+documentation|official\s+sdk\s+docs|research\s+library\s+api|"
-            r"dış\s+dokümantasyon\s+araştır|resmi\s+kütüphane\s+dokümanı"
+            r"(?:read|check)\s+(?:the\s+)?(?:(?:official|external|latest|versioned)\s+){1,2}(?:(?:sdk|library|framework)\s+)?(?:docs|documentation|reference|spec|api)|"
+            r"explore\s+(?:the\s+|this\s+)?(?:codebase|repository)\s+broadly|research\s+subagent|"
+            r"dış\s+dokümantasyon\s+araştır|resmi\s+kütüphane\s+dokümanı|"
+            r"(?:resmi|dış|harici|güncel)\s+(?:dokümantasyon\w*|api\s+referans\w*)\s+(?:araştır\w*|oku\w*|incele\w*|kontrol\s+et\w*)|"
+            r"kütüphane\s+(?:api|doküman)\w*\s+(?:doğrula\w*|araştır\w*)"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
         ),
@@ -661,7 +712,11 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"{_PATH_WORD_PRE}(?:"
             r"compiler\s+error\s+trace|typescript\s+build\s+error|typecheck\s+failure\s+log|"
-            r"uzun\s+derleme\s+hatası|tip\s+hatası\s+izini\s+çöz"
+            r"(?:fix|resolve|debug)\s+(?:these\s+|the\s+|this\s+)?(?:(?:typescript|tsc|mypy|cargo|rustc|go)\s+)?(?:build|compiler|type)\s+errors?|"
+            r"(?:fix|resolve|debug)\s+(?:these\s+|the\s+|this\s+)?(?:typescript|tsc|mypy|cargo|rustc)\s+errors?|"
+            r"500\+?\s*lines?\s+of\s+(?:build|compiler|type|tsc|cargo|mypy)\s+errors?|"
+            r"uzun\s+derleme\s+hatası|tip\s+hatası\s+izini\s+çöz|"
+            r"(?:derleme|typecheck|tip\s+kontrol|tsc|mypy|cargo\s+build)\s+hatalar(?:ı|ını)\s+(?:çöz\w*|gider\w*|ayıkla\w*)"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
         ),
@@ -804,6 +859,34 @@ _ROUTE_SLASH_ALIASES: Dict[str, Tuple[str, ...]] = {
     "route:builtin:native_swarm": ("swarm", "native_swarm"),
     "route:builtin:migrate-agent-settings": ("migrate-agent-settings",),
     "route:builtin:mcp-app-development": ("mcp-app-development",),
+}
+
+_ROUTE_EXPLICIT_SLUGS: Dict[str, Tuple[str, ...]] = {
+    "route:mcp:rea_rea": ("rea_rea", "reverse-engineer-anything"),
+    "route:mcp:antislop-contrast": ("antislop-contrast", "check_contrast"),
+    "route:subagent:security-silent": ("security-boundary-verifier", "silent-failure-hunter"),
+    "route:subagent:contract-test": ("contract-change-auditor", "test-adequacy-auditor"),
+    "route:subagent:spec-consistency": ("consistency-auditor", "specification-gap-auditor"),
+    "route:subagent:research": ("research-subagent",),
+    "route:subagent:build-error-resolver": ("build-error-resolver",),
+    "route:builtin:generative_ui": ("generative_ui", "generative-ui"),
+    "route:builtin:antigravity-guide": ("antigravity-guide", "antigravity_guide"),
+    "route:builtin:agy-customizations": ("agy-customizations",),
+    "route:subagent:meta-auditor": ("meta-auditor",),
+    "route:subagent:image-generator": ("image-generator-subagent",),
+    "route:builtin:native_swarm": ("native_swarm", "native-swarm"),
+    "route:builtin:migrate-agent-settings": ("migrate-agent-settings",),
+    "route:builtin:mcp-app-development": ("mcp-app-development",),
+}
+
+_SKILL_HINT_BY_NAME: Dict[str, Tuple[str, str, str]] = {
+    skill_name: (skill_name, rel_path, summary)
+    for skill_name, rel_path, _pattern, summary in SKILL_HINTS
+}
+
+_ROUTE_HINT_BY_KEY: Dict[str, Tuple[str, str]] = {
+    route_key: (route_key, directive)
+    for route_key, _pattern, directive in ECOSYSTEM_ROUTING_HINTS
 }
 
 # File-mutating tool names in Antigravity 2.0 and portable agent environments
@@ -1634,19 +1717,20 @@ def _safe_int(val: Any, default: int = 0) -> int:
     return default
 
 
-def _strip_non_user_prose(text: str) -> str:
-    """Removes pasted blocks, fenced code blocks, and inline code from user text before matching."""
+def _strip_non_user_prose(text: str, *, strip_inline_code: bool = True) -> str:
+    """Removes pasted blocks, fenced code blocks, and optionally inline code from user text before matching."""
     cleaned = _PASTED_RE.sub(" ", text or "")
     cleaned = _FENCE_RE.sub(" ", cleaned)
-    cleaned = _INLINE_CODE_RE.sub(" ", cleaned)
+    if strip_inline_code:
+        cleaned = _INLINE_CODE_RE.sub(" ", cleaned)
     return cleaned
 
 
 def _extract_user_request_prose(raw_prompt: str) -> str:
     """Strips pasted/fenced/inline-code blocks before extracting `<USER_REQUEST>` user prose."""
-    sanitized = _strip_non_user_prose(raw_prompt or "")
+    sanitized = _strip_non_user_prose(raw_prompt or "", strip_inline_code=True)
     blocks = _USER_REQUEST_TAG_RE.findall(sanitized)
-    return _strip_non_user_prose("\n".join(blocks)) if blocks else sanitized
+    return _strip_non_user_prose("\n".join(blocks), strip_inline_code=True) if blocks else sanitized
 
 
 _DISTINCTIVE_SKILL_SLUGS = frozenset({
@@ -1660,6 +1744,41 @@ _DISTINCTIVE_SKILL_SLUGS = frozenset({
     "marathon",
     "rustify",
 })
+
+_KNOWN_INLINE_SLASH_ALIASES = frozenset(
+    alias.lower()
+    for aliases in list(_SKILL_SLASH_ALIASES.values()) + list(_ROUTE_SLASH_ALIASES.values())
+    for alias in aliases
+) | frozenset(s.lower() for s in _SKILL_HINT_BY_NAME)
+_KNOWN_INLINE_EXPLICIT_SLUGS = frozenset(
+    s.lower()
+    for s in _SKILL_HINT_BY_NAME
+    if ("-" in s or "_" in s or s in _DISTINCTIVE_SKILL_SLUGS)
+) | frozenset(
+    slug.lower()
+    for slugs in _ROUTE_EXPLICIT_SLUGS.values()
+    for slug in slugs
+    if ("-" in slug or "_" in slug or slug in _DISTINCTIVE_SKILL_SLUGS)
+)
+
+
+def _extract_explicit_inline_command_tokens(raw_prompt: str) -> str:
+    """Extracts known bare command/slug tokens written inside single inline backticks (e.g. `` `/deep-grill` ``)."""
+    un_fenced = _strip_non_user_prose(raw_prompt or "", strip_inline_code=False)
+    blocks = _USER_REQUEST_TAG_RE.findall(un_fenced)
+    scope = "\n".join(blocks) if blocks else un_fenced
+    extracted: List[str] = []
+    for m in _INLINE_CODE_RE.finditer(scope):
+        inner = m.group(0)[1:-1].strip()
+        if not re.fullmatch(r"[/\$]?[a-zA-Z][a-zA-Z0-9_-]{1,63}", inner):
+            continue
+        low = inner.lower()
+        if low.startswith(("/", "$")):
+            if low[1:] in _KNOWN_INLINE_SLASH_ALIASES:
+                extracted.append(inner)
+        elif low in _KNOWN_INLINE_EXPLICIT_SLUGS:
+            extracted.append(inner)
+    return " ".join(extracted)
 
 
 def _has_explicit_slash_command(cleaned: str, aliases: Sequence[str]) -> bool:
@@ -1675,14 +1794,30 @@ def _has_explicit_slash_command(cleaned: str, aliases: Sequence[str]) -> bool:
 
 
 def _has_explicit_slug_mention(cleaned: str, slug: str) -> bool:
-    """Returns True when a distinctive or hyphenated skill/agent slug is named directly in prose outside paths."""
-    if "-" not in slug and slug not in _DISTINCTIVE_SKILL_SLUGS:
+    """Returns True when a distinctive, hyphenated, or underscore skill/agent slug is named directly in prose outside paths."""
+    if "-" not in slug and "_" not in slug and slug not in _DISTINCTIVE_SKILL_SLUGS:
         return False
     pattern = re.compile(
         rf"(?:^|(?<=[\s(\[\"'«“])){re.escape(slug)}{_SLASH_POST}",
         re.IGNORECASE,
     )
     return bool(pattern.search(cleaned))
+
+
+def _has_explicit_route_slug_mention(cleaned: str, route_key: str) -> bool:
+    """Returns True when any explicit slug mapped to `route_key` appears in prose outside paths."""
+    return any(_has_explicit_slug_mention(cleaned, slug) for slug in _ROUTE_EXPLICIT_SLUGS.get(route_key, ()))
+
+
+def _has_any_explicit_slug_mention(explicit_surface: str) -> bool:
+    """Returns True when any known explicit skill or ecosystem route slug appears directly in user prose."""
+    for skill_name in _SKILL_HINT_BY_NAME:
+        if _has_explicit_slug_mention(explicit_surface, skill_name):
+            return True
+    for route_key in _ROUTE_EXPLICIT_SLUGS:
+        if _has_explicit_route_slug_mention(explicit_surface, route_key):
+            return True
+    return False
 
 
 def _load_conv_hint_state(raw_entry: Any) -> Tuple[Dict[str, int], int, str]:
@@ -2346,6 +2481,455 @@ def _optional_plugin_skill_available(rel_path: str, workspaces: Sequence[Path]) 
 # ----------------------------------------------------------------------
 # 1. PreInvocation: Skill, Subagent, MCP Server, Plugin & Recovery Hook
 # ----------------------------------------------------------------------
+_WS_SKIP_DIRS = frozenset({
+    ".git",
+    ".hg",
+    ".svn",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    "tests",
+    "test",
+    "__tests__",
+    "spec",
+    "specs",
+    "fixtures",
+    "fixture",
+    ".gemini",
+    ".claude",
+    ".cursor",
+})
+_GAME_PKG_RE = re.compile(
+    r'"(?:phaser|pixi\.js|kaboom|kaplay|excalibur|littlejs|rot-js|three|babylonjs|@babylonjs/core)"',
+    re.IGNORECASE,
+)
+_RUST_BRIDGE_RE = re.compile(r"\b(?:pyo3|cxx|cbindgen|bindgen|maturin)\b", re.IGNORECASE)
+_CANVAS_RE = re.compile(r"(?:<canvas\b|getContext\s*\(\s*[\"'](?:2d|webgl2?)[\"'])", re.IGNORECASE)
+_RAF_RE = re.compile(r"\brequestAnimationFrame\b")
+_AUDIO_VIDEO_EXTS = frozenset({
+    ".wav",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".m4a",
+    ".mp3",
+    ".mp4",
+    ".mov",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".apng",
+    ".ase",
+    ".aseprite",
+    ".psd",
+    ".xcf",
+})
+_RASTER_MEDIA_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".tiff", ".tif", ".bmp"})
+_MEDIA_ASSET_DIRS = frozenset({"assets", "sprites", "audio", "sfx", "media", "video"})
+_SPRITE_NAME_RE = re.compile(r"(?:sprite|spritesheet|tileset|atlas|sfx|bgm|foley|frame_\d|anim_)", re.IGNORECASE)
+_WEB_ICON_IGNORE_RE = re.compile(r"^(?:favicon|logo|icon|apple-touch-icon)(?:[-._].*)?$", re.IGNORECASE)
+_BINARY_ARTIFACT_EXTS = frozenset({
+    ".exe",
+    ".dll",
+    ".apk",
+    ".ipa",
+    ".asar",
+    ".macho",
+    ".elf",
+    ".so",
+    ".dylib",
+    ".wasm",
+    ".pak",
+})
+_TRACE_ERROR_MARKER_RE = re.compile(
+    r"(?:"
+    r"\berror\s+TS\d+\b|\berror\[E\d+\]|Traceback\s*\(most\s+recent\s+call\s+last\):|"
+    r"\bFAILED\s*\(|\bCommand\s+exited\s+with\s+code\s+[1-9]\d*\b|"
+    r"\b(?:AssertionError|SyntaxError|TypeError|ImportError|ModuleNotFoundError|ReferenceError):|"
+    r"\bfatal\s+error:|\b(?:COMPILATION|BUILD|TYPECHECK)\s+FAILED\b"
+    r")"
+)
+_CLEAN_BUILD_PASS_RE = re.compile(
+    r"(?:Ran\s+\d+\s+tests?(?:\s+in\s+[^\n]+)?\s+\bOK\b|\b\d+\s+passed\b|\bFinished\s+`(?:dev|test|release)`|\b0\s+errors?\b|Found\s+0\s+errors?|\bok\s+\S+\s+[0-9.]+s\b|Success:\s+no\s+issues\s+found\b|All\s+checks?\s+passed\b)"
+)
+_NON_EXEC_READ_TOOLS = frozenset(
+    {"read_file", "view_file", "list_dir", "grep_search", "find_by_name", "search_web", "read_url_content"}
+)
+
+
+def _is_rea_mcp_available(workspaces: Sequence[Path]) -> bool:
+    """Returns True when the REA plugin skill or `rea_rea` MCP server directory is installed."""
+    mcp_rea_dir = Path.home() / ".gemini" / "antigravity" / "mcp" / "rea_rea"
+    try:
+        mcp_ok = (not mcp_rea_dir.is_symlink()) and mcp_rea_dir.is_dir()
+    except OSError:
+        mcp_ok = False
+    return mcp_ok or _optional_plugin_skill_available(
+        "plugins/rea/skills/reverse-engineer-anything/SKILL.md", workspaces
+    )
+
+
+def _read_bounded_bytes_nofollow(path: Path, max_bytes: int = 32768, *, from_tail: bool = False) -> Optional[bytes]:
+    """Reads up to `max_bytes` from a non-symlink regular file without following symlinks or blocking on FIFOs."""
+    try:
+        path_str = os.fspath(path)
+        if "\x00" in path_str or path.is_symlink() or not path.is_file():
+            return None
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path_str, flags)
+    except (OSError, TypeError, ValueError):
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
+            return None
+        fh = os.fdopen(fd, "rb")
+    except OSError:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return None
+    try:
+        with fh:
+            if from_tail:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                fh.seek(max(0, size - max_bytes), os.SEEK_SET)
+            return fh.read(max_bytes)
+    except OSError:
+        return None
+
+
+def _iter_jsonl_tail_entries(
+    path: Path,
+    *,
+    max_scan_bytes: int = 2 * 1024 * 1024,
+    max_line_bytes: int = 2 * 1024 * 1024,
+) -> Iterator[Dict[str, Any]]:
+    """Yields valid JSON object lines from the tail of a regular non-symlink JSONL file, newest first."""
+    try:
+        path_str = os.fspath(path)
+        if "\x00" in path_str or path.is_symlink() or not path.is_file():
+            return
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path_str, flags)
+    except (OSError, TypeError, ValueError):
+        return
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
+            return
+        fh = os.fdopen(fd, "rb")
+    except OSError:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return
+    try:
+        with fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            chunk_size = 131072
+            min_offset = max(0, size - max_scan_bytes)
+            pos = size
+            carry = b""
+            while pos > min_offset:
+                read_start = max(min_offset, pos - chunk_size)
+                to_read = pos - read_start
+                fh.seek(read_start, os.SEEK_SET)
+                buf = fh.read(to_read) + carry
+                pos = read_start
+                if pos > min_offset:
+                    nl_idx = buf.find(b"\n")
+                    if nl_idx == -1:
+                        carry = buf if len(buf) <= max_line_bytes else b""
+                        continue
+                    carry = buf[:nl_idx]
+                    complete_bytes = buf[nl_idx + 1 :]
+                else:
+                    complete_bytes = buf
+                    carry = b""
+
+                lines = complete_bytes.decode("utf-8", errors="replace").splitlines()
+                for raw in reversed(lines):
+                    raw = raw.strip()
+                    if not raw.startswith("{"):
+                        continue
+                    try:
+                        entry = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if isinstance(entry, dict):
+                        yield entry
+    except OSError:
+        return
+
+
+def _select_tiered_hints(
+    candidates: List[Tuple[Any, ...]],
+    *,
+    max_generic: int = MAX_HINTS,
+    max_explicit: int = MAX_EXPLICIT_HINTS,
+) -> List[Tuple[Any, ...]]:
+    """Selects up to `max_explicit` explicit hints first, leaving remaining `max_generic` slots for keyword matches."""
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    explicit = [item for item in candidates if item[0] < 0][:max_explicit]
+    remaining_generic = max(0, max_generic - len(explicit))
+    generic = [item for item in candidates if item[0] == 0][:remaining_generic]
+    return explicit + generic
+
+
+def _detect_workspace_domain_signals(workspaces: Sequence[Path]) -> Tuple[List[str], List[str]]:
+    """Scans bounded workspace markers (`depth <= 2`, `<= 200` entries) for domain skill and MCP route signals."""
+    skills: List[str] = []
+    routes: List[str] = []
+    for ws in workspaces:
+        if not ws.is_dir() or _is_harness_repo_root(ws):
+            continue
+        has_cargo_toml = False
+        has_c_cpp = False
+        has_rust_bridge = False
+        has_game_marker = False
+        has_media_asset = False
+        has_binary_artifact = False
+        entries_seen = 0
+        web_reads = 0
+        stack: List[Tuple[Path, int, bool]] = [(ws, 0, False)]
+
+        while stack and entries_seen < 200:
+            cur_dir, depth, in_media_dir = stack.pop()
+            try:
+                with os.scandir(cur_dir) as it:
+                    entries = sorted(itertools.islice(it, 1000), key=lambda e: e.name)
+            except OSError:
+                continue
+            for entry in entries:
+                entries_seen += 1
+                if entries_seen > 200:
+                    break
+                try:
+                    is_lnk = entry.is_symlink()
+                except OSError:
+                    continue
+                if is_lnk:
+                    continue
+                name = entry.name
+                low = name.lower()
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                except OSError:
+                    continue
+                if is_dir:
+                    if low in _WS_SKIP_DIRS or low.startswith("."):
+                        continue
+                    if depth < 2:
+                        next_media = in_media_dir or (low in _MEDIA_ASSET_DIRS)
+                        stack.append((Path(entry.path), depth + 1, next_media))
+                    continue
+
+                fpath = Path(entry.path)
+                suffix = fpath.suffix.lower()
+                if low == "cargo.toml":
+                    has_cargo_toml = True
+                    raw = _read_bounded_bytes_nofollow(fpath, 32768)
+                    if raw and _RUST_BRIDGE_RE.search(raw.decode("utf-8", errors="replace")):
+                        has_rust_bridge = True
+                elif suffix in {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}:
+                    has_c_cpp = True
+                elif low == "project.godot" or suffix in {".uproject", ".unity"} or (
+                    low == "projectversion.txt" and cur_dir.name == "ProjectSettings"
+                ):
+                    has_game_marker = True
+                elif low == "package.json":
+                    raw = _read_bounded_bytes_nofollow(fpath, 32768)
+                    if raw and _GAME_PKG_RE.search(raw.decode("utf-8", errors="replace")):
+                        has_game_marker = True
+                elif not has_game_marker and suffix in {".html", ".htm", ".js", ".ts", ".jsx", ".tsx"} and web_reads < 12:
+                    web_reads += 1
+                    raw = _read_bounded_bytes_nofollow(fpath, 32768)
+                    if raw:
+                        text = raw.decode("utf-8", errors="replace")
+                        if _CANVAS_RE.search(text) and _RAF_RE.search(text):
+                            has_game_marker = True
+
+                if suffix in _AUDIO_VIDEO_EXTS:
+                    has_media_asset = True
+                elif suffix in _RASTER_MEDIA_EXTS:
+                    if _SPRITE_NAME_RE.search(fpath.stem) or (in_media_dir and not _WEB_ICON_IGNORE_RE.match(name)):
+                        has_media_asset = True
+
+                if suffix in _BINARY_ARTIFACT_EXTS:
+                    has_binary_artifact = True
+
+        if has_cargo_toml and (has_c_cpp or has_rust_bridge) and "rustify" not in skills:
+            skills.append("rustify")
+        if has_game_marker and "game-engineering" not in skills:
+            skills.append("game-engineering")
+        if has_media_asset and "media-studio" not in skills:
+            skills.append("media-studio")
+        if has_binary_artifact and "route:mcp:rea_rea" not in routes and _is_rea_mcp_available(workspaces):
+            routes.append("route:mcp:rea_rea")
+
+    return skills, routes
+
+
+def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    """Detects post-user >500-line, truncated, or repeated compiler/test error traces in transcript tail."""
+    transcript = payload.get("transcriptPath") or payload.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript.strip():
+        return None
+    tx_path = Path(transcript).expanduser()
+
+    rev_tail: List[Dict[str, Any]] = []
+    for entry in _iter_jsonl_tail_entries(tx_path, max_scan_bytes=2 * 1024 * 1024):
+        if (
+            str(entry.get("type", "")).upper() == "USER_INPUT"
+            or str(entry.get("source", "")).upper() == "USER_EXPLICIT"
+        ):
+            break
+        rev_tail.append(entry)
+        if len(rev_tail) >= 200:
+            break
+    if not rev_tail:
+        return None
+    tail_entries = list(reversed(rev_tail))
+
+    heavy_fail = False
+    consec_build_fails = 0
+    snippets: List[str] = []
+    for entry in tail_entries:
+        step_type = str(entry.get("type", "")).upper()
+        if step_type in {"USER_INPUT", "PLANNER_RESPONSE"}:
+            continue
+        status = str(entry.get("status", "")).upper()
+        err_field = entry.get("error")
+        content = entry.get("content") if isinstance(entry.get("content"), str) else ""
+        truncated = entry.get("truncated_fields")
+        tool_name = str(entry.get("tool_name") or entry.get("tool") or entry.get("name") or "").strip().lower()
+        if (
+            tool_name in _NON_EXEC_READ_TOOLS
+            and status != "ERROR"
+            and not re.search(r"\bCommand\s+exited\s+with\s+code\s+[1-9]", content)
+        ):
+            continue
+        is_error_status = status == "ERROR" or (
+            isinstance(err_field, str) and bool(err_field.strip())
+        ) or (isinstance(err_field, dict) and bool(err_field))
+        is_clean_exit_zero = bool(re.search(r"\bCommand\s+exited\s+with\s+code\s+0\b", content)) and not is_error_status
+        has_trace_marker = False if is_clean_exit_zero else bool(_TRACE_ERROR_MARKER_RE.search(content))
+
+        if is_clean_exit_zero and _CLEAN_BUILD_PASS_RE.search(content):
+            consec_build_fails = 0
+            heavy_fail = False
+            snippets.clear()
+            continue
+
+        is_truncated_content = isinstance(truncated, list) and "content" in truncated
+        line_count = content.count("\n") + (1 if content else 0)
+        is_failing = (is_error_status or has_trace_marker) and not is_clean_exit_zero
+        if not is_failing:
+            continue
+
+        if (has_trace_marker and (line_count > 500 or is_truncated_content)) or (
+            is_error_status and line_count > 500
+        ):
+            heavy_fail = True
+            snippets.append(content[-400:] if content else str(err_field)[:400])
+
+        if has_trace_marker or (is_error_status and bool(re.search(r"\bCommand\s+exited\s+with\s+code\s+[1-9]", content))):
+            consec_build_fails += 1
+            snippets.append(content[:300] if content else str(err_field)[:300])
+
+    if heavy_fail or consec_build_fails >= 2:
+        digest = hashlib.sha256("\n".join(snippets)[:4096].encode("utf-8")).hexdigest()[:12]
+        return ("route:subagent:build-error-resolver", f"tx_err:{digest}")
+    return None
+
+
+def _collect_context_domain_and_transcript_hints(
+    payload: Dict[str, Any],
+    workspaces: Sequence[Path],
+    seen_turns: Dict[str, int],
+    matched: List[Tuple[str, str, str]],
+    matched_routes: List[Tuple[str, str]],
+    *,
+    is_short_or_continuation: bool,
+    is_new_user_turn: bool,
+    active_turn: int,
+) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]], set[str]]:
+    """Appends bounded workspace marker and transcript error-trace hints with turn-gap deduplication."""
+    if is_short_or_continuation:
+        return matched, matched_routes, set()
+
+    extra_keys: set[str] = set()
+    emitted_skills = {m[0] for m in matched}
+    emitted_routes = {r[0] for r in matched_routes}
+    ws_skills, ws_routes = _detect_workspace_domain_signals(workspaces)
+
+    def _within_cooldown(key: str) -> bool:
+        return key in seen_turns and (not is_new_user_turn or (active_turn - seen_turns[key]) < REHINT_TURN_GAP)
+
+    added_ctx_skills = 0
+    for skill_name in ws_skills:
+        if added_ctx_skills >= MAX_CONTEXT_SIGNALS:
+            break
+        ctx_key = f"ws_ctx:{skill_name}"
+        if skill_name in emitted_skills or _within_cooldown(skill_name) or _within_cooldown(ctx_key):
+            continue
+        hint_tuple = _SKILL_HINT_BY_NAME.get(skill_name)
+        if hint_tuple is None:
+            continue
+        matched.append(hint_tuple)
+        emitted_skills.add(skill_name)
+        extra_keys.add(skill_name)
+        extra_keys.add(ctx_key)
+        added_ctx_skills += 1
+
+    added_ctx_routes = 0
+    for route_key in ws_routes:
+        if added_ctx_routes >= MAX_CONTEXT_SIGNALS:
+            break
+        ctx_key = f"ws_ctx:{route_key}"
+        if route_key in emitted_routes or _within_cooldown(route_key) or _within_cooldown(ctx_key):
+            continue
+        route_tuple = _ROUTE_HINT_BY_KEY.get(route_key)
+        if route_tuple is None:
+            continue
+        matched_routes.append(route_tuple)
+        emitted_routes.add(route_key)
+        extra_keys.add(route_key)
+        extra_keys.add(ctx_key)
+        added_ctx_routes += 1
+
+    tx_sig = _detect_transcript_tool_signals(payload)
+    if tx_sig is not None and added_ctx_routes < MAX_CONTEXT_SIGNALS:
+        route_key, tx_digest_key = tx_sig
+        if (
+            route_key not in emitted_routes
+            and tx_digest_key not in seen_turns
+            and not _within_cooldown(route_key)
+        ):
+            route_tuple = _ROUTE_HINT_BY_KEY.get(route_key)
+            if route_tuple is not None:
+                matched_routes.append(route_tuple)
+                emitted_routes.add(route_key)
+                extra_keys.add(route_key)
+                extra_keys.add(tx_digest_key)
+                added_ctx_routes += 1
+
+    return matched, matched_routes, extra_keys
+
+
 def _collect_invocation_skill_hints(
     scan_text: str,
     workspaces: Sequence[Path],
@@ -2355,64 +2939,66 @@ def _collect_invocation_skill_hints(
     is_new_user_turn: bool,
     has_explicit_cmd: bool,
     active_turn: int,
+    explicit_text: Optional[str] = None,
 ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
     """Selects bounded skill hints and ecosystem routing directives for `handle_pre_invocation`."""
     if is_short_or_continuation:
         return [], []
+    explicit_surface = scan_text if explicit_text is None else explicit_text
     has_viable_token = has_explicit_cmd or bool(_VIABLE_HINT_TOKEN_RE.search(scan_text))
     skill_candidates: List[Tuple[int, int, str, str, str]] = []
     for table_idx, (skill_name, rel_path, pattern, summary) in enumerate(SKILL_HINTS):
-        if not has_viable_token and "@\\[" not in pattern.pattern:
-            continue
-        if not pattern.search(scan_text):
-            continue
+        aliases = _SKILL_SLASH_ALIASES.get(skill_name, (skill_name,))
+        explicit_slash = _has_explicit_slash_command(explicit_surface, aliases)
+        explicit_slug = False if explicit_slash else _has_explicit_slug_mention(explicit_surface, skill_name)
+        is_explicit = explicit_slash or explicit_slug
+        if not is_explicit:
+            if not has_viable_token and "@\\[" not in pattern.pattern:
+                continue
+            if not pattern.search(scan_text):
+                continue
         if not _optional_plugin_skill_available(rel_path, workspaces):
             continue
-        aliases = _SKILL_SLASH_ALIASES.get(skill_name, (skill_name,))
-        explicit_slash = _has_explicit_slash_command(scan_text, aliases)
         if skill_name in seen_turns:
             if not is_new_user_turn:
                 continue
             if not explicit_slash and (active_turn - seen_turns[skill_name]) < REHINT_TURN_GAP:
                 continue
-        priority = (
-            2
-            if explicit_slash
-            else (1 if _has_explicit_slug_mention(scan_text, skill_name) else 0)
-        )
+        priority = 2 if explicit_slash else (1 if explicit_slug else 0)
         skill_candidates.append((-priority, table_idx, skill_name, rel_path, summary))
-    skill_candidates.sort(key=lambda item: (item[0], item[1]))
-    matched = [(s, r, d) for _p, _i, s, r, d in skill_candidates[:MAX_HINTS]]
+    selected_skills = _select_tiered_hints(skill_candidates)
+    matched = [(s, r, d) for _p, _i, s, r, d in selected_skills]
 
     route_candidates: List[Tuple[int, int, str, str]] = []
     for table_idx, (route_key, pattern, directive) in enumerate(ECOSYSTEM_ROUTING_HINTS):
-        if not has_viable_token and "@\\[" not in pattern.pattern:
-            continue
-        if not pattern.search(scan_text):
-            continue
-        if route_key == "route:mcp:rea_rea":
-            mcp_rea_dir = Path.home() / ".gemini" / "antigravity" / "mcp" / "rea_rea"
-            if not _optional_plugin_skill_available(
-                "plugins/rea/skills/reverse-engineer-anything/SKILL.md", workspaces
-            ) and not mcp_rea_dir.is_dir():
-                continue
         route_aliases = _ROUTE_SLASH_ALIASES.get(route_key, ())
-        explicit_route_slash = _has_explicit_slash_command(scan_text, route_aliases)
+        explicit_route_slash = _has_explicit_slash_command(explicit_surface, route_aliases)
         if route_key == "route:subagent:meta-auditor" and re.search(
             rf"{_SLASH_PRE}/audit\s+--(?:meta|self){_SLASH_POST}",
-            scan_text,
+            explicit_surface,
             re.IGNORECASE,
         ):
             explicit_route_slash = True
+        explicit_route_slug = (
+            False if explicit_route_slash else _has_explicit_route_slug_mention(explicit_surface, route_key)
+        )
+        is_explicit_route = explicit_route_slash or explicit_route_slug
+        if not is_explicit_route:
+            if not has_viable_token and "@\\[" not in pattern.pattern:
+                continue
+            if not pattern.search(scan_text):
+                continue
+        if route_key == "route:mcp:rea_rea" and not _is_rea_mcp_available(workspaces):
+            continue
         if route_key in seen_turns:
             if not is_new_user_turn:
                 continue
             if not explicit_route_slash and (active_turn - seen_turns[route_key]) < REHINT_TURN_GAP:
                 continue
-        priority = 2 if explicit_route_slash else 0
+        priority = 2 if explicit_route_slash else (1 if explicit_route_slug else 0)
         route_candidates.append((-priority, table_idx, route_key, directive))
-    route_candidates.sort(key=lambda item: (item[0], item[1]))
-    matched_routes = [(rk, d) for _p, _i, rk, d in route_candidates[:MAX_HINTS]]
+    selected_routes = _select_tiered_hints(route_candidates)
+    matched_routes = [(rk, d) for _p, _i, rk, d in selected_routes]
     return matched, matched_routes
 
 
@@ -2423,8 +3009,12 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     cleaned = _extract_user_request_prose(raw_prompt).strip()
     scan_text = cleaned[:16384]
+    inline_cmd_surface = _extract_explicit_inline_command_tokens(raw_prompt)
+    explicit_text = f"{scan_text} {inline_cmd_surface}".strip() if inline_cmd_surface else scan_text
     normalized = re.sub(r"[.!?,;:]+$", "", scan_text.lower()).strip()
-    has_explicit_cmd = bool(_EXPLICIT_CMD_TOKEN_RE.search(scan_text))
+    has_explicit_cmd = bool(
+        _EXPLICIT_CMD_TOKEN_RE.search(explicit_text) or _has_any_explicit_slug_mention(explicit_text)
+    )
     is_short_or_continuation = (not has_explicit_cmd) and (
         len(scan_text) < MIN_PROMPT_CHARS or normalized in CONTINUATION_WORDS
     )
@@ -2486,9 +3076,20 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 is_new_user_turn=is_new_user_turn,
                 has_explicit_cmd=has_explicit_cmd,
                 active_turn=active_turn,
+                explicit_text=explicit_text,
+            )
+            matched, matched_routes, ctx_keys = _collect_context_domain_and_transcript_hints(
+                payload,
+                workspaces,
+                seen_turns,
+                matched,
+                matched_routes,
+                is_short_or_continuation=is_short_or_continuation,
+                is_new_user_turn=is_new_user_turn,
+                active_turn=active_turn,
             )
 
-            new_keys |= {m[0] for m in matched} | {r[0] for r in matched_routes}
+            new_keys |= {m[0] for m in matched} | {r[0] for r in matched_routes} | ctx_keys
             for key in new_keys:
                 seen_turns[key] = active_turn
 
@@ -2526,6 +3127,17 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             is_short_or_continuation=is_short_or_continuation,
             is_new_user_turn=not is_short_or_continuation,
             has_explicit_cmd=has_explicit_cmd,
+            active_turn=1,
+            explicit_text=explicit_text,
+        )
+        matched, matched_routes, _ctx_keys = _collect_context_domain_and_transcript_hints(
+            payload,
+            workspaces,
+            {},
+            matched,
+            matched_routes,
+            is_short_or_continuation=is_short_or_continuation,
+            is_new_user_turn=not is_short_or_continuation,
             active_turn=1,
         )
 
@@ -3298,79 +3910,38 @@ def _extract_transcript_model_and_effort(payload: Dict[str, Any]) -> Tuple[str, 
     path = Path(transcript).expanduser()
     found_model = ""
     found_effort = ""
-    try:
-        if path.is_symlink() or not path.is_file():
-            return "", ""
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(str(path), flags)
-        with os.fdopen(fd, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            chunk_size = 131072
-            min_offset = max(0, size - 16 * 1024 * 1024)
-            pos = size
-            carry = b""
-            while pos > min_offset:
-                read_start = max(min_offset, pos - chunk_size)
-                to_read = pos - read_start
-                f.seek(read_start, os.SEEK_SET)
-                buf = f.read(to_read) + carry
-                pos = read_start
-                if pos > min_offset:
-                    nl_idx = buf.find(b"\n")
-                    if nl_idx == -1:
-                        carry = buf if len(buf) <= 2 * 1024 * 1024 else b""
-                        continue
-                    carry = buf[:nl_idx]
-                    complete_bytes = buf[nl_idx + 1 :]
-                else:
-                    complete_bytes = buf
-                    carry = b""
-
-                lines = complete_bytes.decode("utf-8", errors="replace").splitlines()
-                for raw in reversed(lines):
-                    raw = raw.strip()
-                    if not raw.startswith("{"):
-                        continue
-                    try:
-                        entry = json.loads(raw)
-                    except ValueError:
-                        continue
-                    if not isinstance(entry, dict):
-                        continue
-                    step_type = str(entry.get("type", "")).upper()
-                    source = str(entry.get("source", "")).upper()
-                    is_user_entry = (
-                        step_type == "USER_INPUT" and source in ("", "USER_EXPLICIT")
-                    ) or (not step_type and source == "USER_EXPLICIT")
-                    if not is_user_entry:
-                        continue
-                    content = str(entry.get("content") or "")
-                    if "USER_SETTINGS_CHANGE" not in content.upper():
-                        continue
-                    cleaned_content = _USER_REQUEST_BLOCK_RE.sub(
-                        " ",
-                        _INLINE_TAG_CODE_RE.sub(
-                            " ",
-                            _FENCE_RE.sub(" ", _PASTED_RE.sub(" ", content)),
-                        ),
-                    )
-                    blocks = _USER_SETTINGS_BLOCK_RE.findall(cleaned_content)
-                    for block in reversed(blocks):
-                        if not found_effort:
-                            eff_matches = _SETTINGS_EFFORT_RE.findall(block) or _SETTINGS_KV_EFFORT_RE.findall(block)
-                            if eff_matches:
-                                found_effort = eff_matches[-1].strip()
-                        if not found_model:
-                            mod_matches = _SETTINGS_MODEL_RE.findall(block) or _SETTINGS_KV_MODEL_RE.findall(block)
-                            if mod_matches:
-                                found_model = mod_matches[-1].strip()
-                                if not found_effort:
-                                    found_effort = _infer_effort_from_model_label(found_model)
-                        if found_model and found_effort:
-                            return found_model, found_effort
-    except OSError:
-        pass
+    for entry in _iter_jsonl_tail_entries(path, max_scan_bytes=16 * 1024 * 1024):
+        step_type = str(entry.get("type", "")).upper()
+        source = str(entry.get("source", "")).upper()
+        is_user_entry = (
+            step_type == "USER_INPUT" and source in ("", "USER_EXPLICIT")
+        ) or (not step_type and source == "USER_EXPLICIT")
+        if not is_user_entry:
+            continue
+        content = str(entry.get("content") or "")
+        if "USER_SETTINGS_CHANGE" not in content.upper():
+            continue
+        cleaned_content = _USER_REQUEST_BLOCK_RE.sub(
+            " ",
+            _INLINE_TAG_CODE_RE.sub(
+                " ",
+                _FENCE_RE.sub(" ", _PASTED_RE.sub(" ", content)),
+            ),
+        )
+        blocks = _USER_SETTINGS_BLOCK_RE.findall(cleaned_content)
+        for block in reversed(blocks):
+            if not found_effort:
+                eff_matches = _SETTINGS_EFFORT_RE.findall(block) or _SETTINGS_KV_EFFORT_RE.findall(block)
+                if eff_matches:
+                    found_effort = eff_matches[-1].strip()
+            if not found_model:
+                mod_matches = _SETTINGS_MODEL_RE.findall(block) or _SETTINGS_KV_MODEL_RE.findall(block)
+                if mod_matches:
+                    found_model = mod_matches[-1].strip()
+                    if not found_effort:
+                        found_effort = _infer_effort_from_model_label(found_model)
+            if found_model and found_effort:
+                return found_model, found_effort
     return found_model, found_effort
 
 
