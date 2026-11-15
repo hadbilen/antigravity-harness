@@ -3552,6 +3552,415 @@ class TestW3HookHardeningAndPrecision(HooksTempCase):
         )
 
 
+class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
+    def _init_git_ws(self, ws_dir: Path) -> None:
+        ws_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", str(ws_dir)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(ws_dir), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(ws_dir), "config", "user.name", "Test User"], check=True)
+        (ws_dir / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(ws_dir), "add", "main.py"], check=True)
+        subprocess.run(["git", "-C", str(ws_dir), "commit", "-m", "init"], check=True, capture_output=True)
+
+    def test_mid_turn_pre_invocation_silence_preserves_in_flight_and_lock_fallback(self) -> None:
+        ws = self.tmp / "mid_turn_ws"
+        self._init_git_ws(ws)
+        tx = self.tmp / "mid_turn_tx.jsonl"
+        prompt = "Refactor module structure without behavior change."
+
+        # Turn 1 start: transcript ends with USER_INPUT (no trailing tool/planner entries yet)
+        tx.write_text(
+            json.dumps({"step_index": 1, "type": "USER_INPUT", "source": "USER_EXPLICIT", "content": prompt}) + "\n",
+            encoding="utf-8",
+        )
+        res_turn1 = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-opt-a-mid", "workspace": str(ws), "transcriptPath": str(tx)}
+        )
+        self.assertIn("`refactoring`", res_turn1["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        # Mid-turn write records flight_recorder status = "in_flight"
+        res_write = agy_hooks.handle_pre_tool_use(
+            {
+                "conversationId": "conv-opt-a-mid",
+                "workspace": str(ws),
+                "toolCall": {"name": "edit_file", "args": {"Path": str(ws / "main.py")}},
+            }
+        )
+        self.assertEqual(res_write, {"decision": "allow"})
+        (ws / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+        flight_file = agy_hooks._flight_recorder_file()
+        ws_key = str(ws.resolve())
+        self.assertEqual(json.loads(flight_file.read_text(encoding="utf-8"))[ws_key]["status"], "in_flight")
+
+        # Mid-turn tool step completes; host fires PreInvocation again WITHOUT invocationNum
+        with tx.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"step_index": 2, "type": "PLANNER_RESPONSE", "content": "Applying edit"}) + "\n")
+            fh.write(json.dumps({"step_index": 3, "type": "GENERIC", "status": "DONE", "content": "Edited main.py"}) + "\n")
+
+        res_mid = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-opt-a-mid", "workspace": str(ws), "transcriptPath": str(tx), "prompt": prompt}
+        )
+        self.assertEqual(res_mid, {})
+        # Flight status must remain "in_flight" so handle_stop transitions cleanly to "turn_complete"
+        self.assertEqual(json.loads(flight_file.read_text(encoding="utf-8"))[ws_key]["status"], "in_flight")
+
+        # Lock-failure fallback during mid-turn must also stay silent ({})
+        with mock.patch("guard.hooks.pre_invocation.file_lock", side_effect=TimeoutError("lock busy")):
+            res_mid_lock_err = agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-opt-a-mid", "workspace": str(ws), "transcriptPath": str(tx), "prompt": prompt}
+            )
+        self.assertEqual(res_mid_lock_err, {})
+        self.assertEqual(json.loads(flight_file.read_text(encoding="utf-8"))[ws_key]["status"], "in_flight")
+
+        res_stop = agy_hooks.handle_stop(
+            {"conversationId": "conv-opt-a-mid", "workspace": str(ws), "stopReason": "end_turn"}
+        )
+        self.assertEqual(res_stop, {})
+        self.assertEqual(json.loads(flight_file.read_text(encoding="utf-8"))[ws_key]["status"], "turn_complete")
+
+    def test_post_crash_repeated_short_prompt_without_step_idx_emits_recovery(self) -> None:
+        ws = self.tmp / "crash_repeat_ws"
+        self._init_git_ws(ws)
+        tx = self.tmp / "crash_repeat_tx.jsonl"
+
+        # Turn 1 starts with "devam et" (no stepIdx in payload)
+        tx.write_text(
+            json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "devam et"}) + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-opt-a-crash", "workspace": str(ws), "transcriptPath": str(tx), "prompt": "devam et"}
+            ),
+            {},
+        )
+
+        # Agent starts editing and crashes mid-turn before Stop fires
+        self.assertEqual(
+            agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-opt-a-crash",
+                    "workspace": str(ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(ws / "main.py")}},
+                }
+            ),
+            {"decision": "allow"},
+        )
+        with tx.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "PLANNER_RESPONSE", "content": "Editing main.py"}) + "\n")
+
+        # Turn 2: user types the exact same "devam et" again (host appends new USER_INPUT; no stepIdx)
+        with tx.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "devam et"}) + "\n")
+
+        res_recover = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-opt-a-crash", "workspace": str(ws), "transcriptPath": str(tx), "prompt": "devam et"}
+        )
+        self.assertIn("injectSteps", res_recover)
+        self.assertIn(
+            "[Harness Recovery & Continuity Gate]",
+            res_recover["injectSteps"][0]["systemMessage"]["systemMessage"],
+        )
+
+    def test_benign_search_and_diff_exit_codes_do_not_escalate_while_compound_build_fails_do(self) -> None:
+        grep_tx = self.tmp / "grep_tx.jsonl"
+        grep_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Inspect references"}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "grep -rn missing_token src/"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "rg -n absent_symbol guard/"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "diff -u a.txt b.txt"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 2."}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {
+                    "conversationId": "conv-opt-a-grep",
+                    "transcriptPath": str(grep_tx),
+                    "prompt": "Inspect references",
+                }
+            ),
+            {},
+        )
+
+        # Compound command `grep ... && cargo check` exiting non-zero MUST still escalate
+        compound_tx = self.tmp / "compound_tx.jsonl"
+        compound_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Build workspace"}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "grep -q foo Cargo.toml && cargo check"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 101."}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "grep -q foo Cargo.toml && cargo check"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        res_compound = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-opt-a-compound",
+                "transcriptPath": str(compound_tx),
+                "prompt": "Build workspace",
+            }
+        )
+        self.assertIn("injectSteps", res_compound)
+        self.assertIn(
+            "Subagent `build-error-resolver`",
+            res_compound["injectSteps"][0]["systemMessage"]["systemMessage"],
+        )
+
+    def test_consolidated_slash_triggers_route_to_reference_files(self) -> None:
+        slash_cases = [
+            ("/antislop-ui", "skills/antislop/references/ui.md"),
+            ("/antislop-copywriting", "skills/antislop/references/copywriting.md"),
+            ("/antislop-human", "skills/antislop/references/human-a11y.md"),
+            ("/antislop-layoutmobile", "skills/antislop/references/layoutmobile.md"),
+            ("/antislop-code", "skills/antislop/references/code-comments.md"),
+            ("/silk-design", "skills/antislop/references/silk-design.md"),
+            ("/marathon", "skills/harness/references/marathon.md"),
+            ("/unlazy", "skills/harness/references/unlazy.md"),
+            ("/adr", "skills/harness/references/adr.md"),
+            ("/mistake-proofing", "skills/harness/references/mistake-proofing.md"),
+            ("/dependency-upgrade", "skills/harness/references/dependency-upgrade.md"),
+            ("/test-design", "skills/harness/references/test-design.md"),
+            ("/visualizer", "skills/technical-writing/references/visualizer.md"),
+            ("/security-review", "skills/audit/references/security-review.md"),
+        ]
+        for idx, (cmd, expected_rel) in enumerate(slash_cases):
+            with self.subTest(cmd=cmd):
+                res = agy_hooks.handle_pre_invocation(
+                    {"conversationId": f"conv-opt-a-slash-{idx}", "prompt": cmd}
+                )
+                self.assertIn("injectSteps", res)
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
+                self.assertIn(expected_rel, msg)
+
+    def test_mid_turn_gt_128kb_transcript_stays_silent_and_invocation_num_one_overrides(self) -> None:
+        ws = self.tmp / "ws_heavy_mid"
+        ws.mkdir(parents=True, exist_ok=True)
+        tx = self.tmp / "heavy_mid_transcript.jsonl"
+        tx.write_text(
+            json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "step_index": 1, "content": "`/deep-grill` mimari incele"})
+            + "\n",
+            encoding="utf-8",
+        )
+        first = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-heavy-mid",
+                "transcriptPath": str(tx),
+                "prompt": "`/deep-grill` mimari incele",
+                "workspaces": [str(ws)],
+            }
+        )
+        self.assertIn("injectSteps", first)
+
+        # Simulate in_flight write + >140 KB of mid-turn tool output after USER_INPUT
+        flight_file = self.state_dir / "flight_recorder.json"
+        flight_file.parent.mkdir(parents=True, exist_ok=True)
+        flight_file.write_text(
+            json.dumps(
+                {
+                    str(ws.resolve()): {
+                        "workspace": str(ws.resolve()),
+                        "conversation_id": "conv-heavy-mid",
+                        "status": "in_flight",
+                        "seq": 1,
+                        "updated_at": "2026-11-16T00:00:00Z",
+                        "touched_files": ["app.py"],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        chunk = "x" * 36000
+        with tx.open("a", encoding="utf-8") as fh:
+            for _ in range(4):
+                fh.write(json.dumps({"type": "GENERIC", "status": "DONE", "content": chunk}) + "\n")
+
+        mid = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-heavy-mid",
+                "transcriptPath": str(tx),
+                "prompt": "`/deep-grill` mimari incele",
+                "workspaces": [str(ws)],
+            }
+        )
+        self.assertEqual(mid, {})
+        flight_after = json.loads(flight_file.read_text(encoding="utf-8"))[str(ws.resolve())]
+        self.assertEqual(flight_after["status"], "in_flight")
+
+        # Heavy >500-line compiler trace mid-turn WITHOUT inline prompt still routes build-error-resolver
+        big_err = "\n".join(["Traceback (most recent call last):"] + [f"  File 'a.py', line {i}" for i in range(510)] + ["ValueError: boom"])
+        with tx.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "GENERIC", "status": "ERROR", "content": big_err}) + "\n")
+        mid_err = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-heavy-mid",
+                "transcriptPath": str(tx),
+                "workspaces": [str(ws)],
+            }
+        )
+        self.assertIn("injectSteps", mid_err)
+        self.assertIn("build-error-resolver", mid_err["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        # Explicit invocationNum=1 on a new inline-backtick slash turn is never suppressed by pre-flush transcript tail
+        next_turn = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-heavy-mid",
+                "transcriptPath": str(tx),
+                "invocationNum": 1,
+                "prompt": "`/marathon`",
+                "workspaces": [str(ws)],
+            }
+        )
+        self.assertIn("injectSteps", next_turn)
+        self.assertIn("skills/harness/references/marathon.md", next_turn["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+    def test_search_diff_command_scrubber_and_pending_shell_queue_alignment(self) -> None:
+        from guard.hooks.pre_invocation import _is_pure_search_or_diff_command
+
+        self.assertFalse(_is_pure_search_or_diff_command('test -n "$(cargo check)"'))
+        self.assertFalse(_is_pure_search_or_diff_command("grep foo bar & make"))
+        self.assertFalse(_is_pure_search_or_diff_command('grep "unterminated src'))
+        self.assertTrue(_is_pure_search_or_diff_command("grep '$(cargo check)' src >/dev/null"))
+        self.assertTrue(_is_pure_search_or_diff_command("rg -n pattern guard/ 2>&1"))
+
+        # 1. Batched [read_file, run_command("grep ...")] where read_file has "Created At:" and grep exits 1 stays silent
+        batched_tx = self.tmp / "batched_read_grep.jsonl"
+        batched_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Inspect"}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [
+                                {"name": "read_file", "args": {"Path": "/tmp/a.py"}},
+                                {"name": "run_command", "args": {"CommandLine": "grep -rn needle src/"}},
+                            ],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "DONE", "content": "Created At: 2026-11-16\n1: pass"}),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "diff -u a.txt b.txt"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-batch-rg", "transcriptPath": str(batched_tx), "prompt": "Inspect"}
+            ),
+            {},
+        )
+
+        # 2. PreToolUse-blocked grep in PLANNER_RESPONSE #1 must NOT bleed onto later mypy exit-1 failures
+        blocked_tx = self.tmp / "blocked_grep_then_mypy.jsonl"
+        blocked_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Typecheck"}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "grep foo bar"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Denied by PreToolUse"}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "mypy src/"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "mypy src/"}}],
+                        }
+                    ),
+                    json.dumps({"type": "GENERIC", "status": "ERROR", "content": "Command exited with code 1."}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        res_mypy = agy_hooks.handle_pre_invocation(
+            {"conversationId": "conv-blocked-mypy", "transcriptPath": str(blocked_tx), "prompt": "Typecheck"}
+        )
+        self.assertIn("injectSteps", res_mypy)
+        self.assertIn("build-error-resolver", res_mypy["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+    def test_governance_target_file_uri_and_stop_gate_dotdot_header_normalization(self) -> None:
+        from guard.hooks.pre_tool_use import _targets_governance_dir, _text_mutates_governance_path
+        from guard.hooks.stop_gate import _unquote_git_diff_path, validate_ui_slop_content
+
+        self.assertFalse(_targets_governance_dir(f"file://{REPO_ROOT}/skills/antislop/SKILL.md"))
+        self.assertTrue(_targets_governance_dir(f"file://{self.cfg_dir}/skills/antislop/SKILL.md"))
+        self.assertFalse(_targets_governance_dir("conversation://2a58cc06-97be-4445-a438-e90bad62f94f"))
+        self.assertFalse(
+            _text_mutates_governance_path(
+                f"Edit [SKILL.md](file://{REPO_ROOT}/skills/antislop/SKILL.md) in the repo.",
+                [REPO_ROOT],
+                REPO_ROOT,
+                REPO_ROOT,
+            )
+        )
+        self.assertEqual(_unquote_git_diff_path("+++ b/tests/../src/app.py"), "src/app.py")
+        self.assertEqual(_unquote_git_diff_path("+++ b/../../etc/passwd"), "")
+        slop_sample = '<div className="bg-gradient-to-r from-purple-600 via-pink-500 to-indigo-600">Trusted by 10,000+ teams</div>'
+        self.assertEqual(
+            validate_ui_slop_content(
+                "skills/antislop/references/silk-design/assets/demo.tsx", slop_sample
+            ),
+            [],
+        )
+        self.assertTrue(validate_ui_slop_content("src/Hero.tsx", slop_sample))
+
+
 if __name__ == "__main__":
     unittest.main()
 

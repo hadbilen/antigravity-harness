@@ -852,8 +852,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         import install
 
         target = self.root / "cfg_mcp"
-        (target / "skills" / "antislop-human").mkdir(parents=True)
-        installed_script = target / "skills" / "antislop-human" / "contrast-mcp.py"
+        (target / "skills" / "antislop" / "scripts").mkdir(parents=True)
+        installed_script = target / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
         installed_script.write_text("# mcp\n", encoding="utf-8")
 
         mcp_path = target / "mcp_config.json"
@@ -1281,10 +1281,10 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         # migrate_mcp_config rejects `..` traversal segments
         cfg_dir = self.root / "mcp_cfg"
-        (cfg_dir / "skills" / "antislop-human").mkdir(parents=True)
+        (cfg_dir / "skills" / "antislop" / "scripts").mkdir(parents=True)
         outside_py = self.root / "outside_mcp.py"
         outside_py.write_text("print(1)\n", encoding="utf-8")
-        bad_arg = str(REPO_ROOT / "skills" / "antislop-human" / ".." / ".." / "outside_mcp.py")
+        bad_arg = str(REPO_ROOT / "skills" / "antislop" / ".." / ".." / "outside_mcp.py")
         mcp_file = cfg_dir / "mcp_config.json"
         mcp_file.write_text(
             json.dumps({"mcpServers": {"bad": {"command": "python3", "args": [bad_arg]}}}),
@@ -1796,8 +1796,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         import install
 
         target = self.root / "cfg_install_w4"
-        (target / "skills" / "antislop-human").mkdir(parents=True)
-        installed_script = target / "skills" / "antislop-human" / "contrast-mcp.py"
+        (target / "skills" / "antislop" / "scripts").mkdir(parents=True)
+        installed_script = target / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
         installed_script.write_text("# mcp\n", encoding="utf-8")
 
         mcp_path = target / "mcp_config.json"
@@ -1952,6 +1952,161 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         self.assertIn(".agents/skills/dangling_skill (dangling)", joined_w)
         if os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0:
             self.assertIn("Failed to scan plugins/ for symlinks", joined_w)
+
+    def test_consolidated_mcp_migration_target_tree_cmd_init_and_frozen_guard(self) -> None:
+        from guard import cli as guard_cli
+        from guard.environment import migrate_harness_mcp_config
+
+        # 1. Target-tree legacy path (`<target>/skills/antislop-human/contrast-mcp.py`) repoints + frozen skips binary command pin
+        cfg_frozen = self.root / "cfg_frozen_mcp"
+        new_script = cfg_frozen / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        new_script.parent.mkdir(parents=True, exist_ok=True)
+        new_script.write_text("# mcp\n", encoding="utf-8")
+        legacy_installed_arg = str(cfg_frozen / "skills" / "antislop-human" / "contrast-mcp.py")
+        mcp_frozen = cfg_frozen / "mcp_config.json"
+        mcp_frozen.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "antislop-legacy-target": {
+                            "command": "python3",
+                            "args": [legacy_installed_arg],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        with mock.patch.object(sys, "frozen", True, create=True):
+            res_frozen = migrate_harness_mcp_config(cfg_frozen, source_dir=REPO_ROOT, dry_run=False)
+        self.assertEqual(res_frozen, 1)
+        frozen_after = json.loads(mcp_frozen.read_text(encoding="utf-8"))["mcpServers"]["antislop-legacy-target"]
+        self.assertEqual(frozen_after["command"], "python3")
+        self.assertEqual(frozen_after["args"], [str(new_script)])
+
+        # 2. `agy-guard init --target ... --yes` migrates legacy `skills/antislop-human/contrast-mcp.py` before baseline save
+        cfg_init = self.root / "cfg_cmd_init"
+        cfg_init.mkdir(parents=True, exist_ok=True)
+        (cfg_init / "mcp_config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "antislop-contrast": {
+                            "command": "python3",
+                            "args": [str(cfg_init / "skills" / "antislop-human" / "contrast-mcp.py")],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        parser = guard_cli.build_parser()
+        args = parser.parse_args(
+            ["init", "--source", str(REPO_ROOT), "--target", str(cfg_init), "--no-lock"]
+        )
+        with mock.patch("guard.cli.request_approval", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+            rc = guard_cli.cmd_init(args)
+        self.assertEqual(rc, 0)
+        init_after = json.loads((cfg_init / "mcp_config.json").read_text(encoding="utf-8"))["mcpServers"]["antislop-contrast"]
+        self.assertEqual(init_after["command"], sys.executable)
+        self.assertEqual(init_after["args"], [str(cfg_init / "skills" / "antislop" / "scripts" / "contrast-mcp.py")])
+
+    def test_mcp_migration_symlink_ancestor_nonfile_relative_args_and_init_fim_intact(self) -> None:
+        from guard import cli as guard_cli
+        from guard.environment import AgentEnvironment, EnvironmentRegistry, migrate_harness_mcp_config
+        from guard.integrity import FileIntegrityMonitor
+
+        # 1. Relative non-path args ("audit") must NOT match <target>/skills/audit directory even when cwd is REPO_ROOT/skills
+        cfg_rel = self.root / "cfg_rel_args"
+        (cfg_rel / "skills" / "audit").mkdir(parents=True, exist_ok=True)
+        mcp_rel = cfg_rel / "mcp_config.json"
+        mcp_rel.write_text(
+            json.dumps({"mcpServers": {"ext-audit": {"command": "python3", "args": ["-m", "pkg", "audit"]}}}),
+            encoding="utf-8",
+        )
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(REPO_ROOT / "skills")
+            changed_rel = migrate_harness_mcp_config(cfg_rel, source_dir=REPO_ROOT, dry_run=False)
+        finally:
+            os.chdir(old_cwd)
+        self.assertFalse(changed_rel)
+        self.assertEqual(
+            json.loads(mcp_rel.read_text(encoding="utf-8"))["mcpServers"]["ext-audit"]["args"],
+            ["-m", "pkg", "audit"],
+        )
+
+        # 2. Symlinked parent directory in mcp_config.json still repoints when target_dir is .resolve()'d
+        if os.name != "nt":
+            real_parent = self.root / "real_parent"
+            real_cfg = real_parent / "cfg"
+            dest_mcp = real_cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+            dest_mcp.parent.mkdir(parents=True, exist_ok=True)
+            dest_mcp.write_text("# mcp\n", encoding="utf-8")
+            link_parent = self.root / "link_parent"
+            os.symlink(real_parent, link_parent)
+            unresolved_arg = str(link_parent / "cfg" / "skills" / "antislop-human" / "contrast-mcp.py")
+            (real_cfg / "mcp_config.json").write_text(
+                json.dumps({"mcpServers": {"antislop-contrast": {"command": "python3", "args": [unresolved_arg]}}}),
+                encoding="utf-8",
+            )
+            changed_sym_anc = migrate_harness_mcp_config(real_cfg.resolve(), source_dir=REPO_ROOT, dry_run=False)
+            self.assertTrue(changed_sym_anc)
+            migrated_sym_anc = json.loads((real_cfg / "mcp_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                migrated_sym_anc["mcpServers"]["antislop-contrast"]["args"],
+                [str(dest_mcp.resolve())],
+            )
+
+            # 3. Symlink mcp_config.json is skipped safely
+            sym_cfg = self.root / "sym_mcp_cfg"
+            sym_cfg.mkdir(parents=True, exist_ok=True)
+            outside_json = self.root / "outside_mcp.json"
+            outside_json.write_text('{"mcpServers": {}}\n', encoding="utf-8")
+            os.symlink(outside_json, sym_cfg / "mcp_config.json")
+            self.assertFalse(migrate_harness_mcp_config(sym_cfg, source_dir=REPO_ROOT, dry_run=False))
+
+        # 4. cmd_init leaves FIM baseline intact, retires stale consolidated skill dir without receipt, and clamps backup mode 0o600
+        cfg_fim = self.root / "cfg_init_fim"
+        stale_skill = cfg_fim / "skills" / "antislop-human"
+        stale_skill.mkdir(parents=True, exist_ok=True)
+        (stale_skill / "SKILL.md").write_text("# legacy\n", encoding="utf-8")
+        (cfg_fim / "mcp_config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "antislop-contrast": {
+                            "command": "python3",
+                            "args": [str(cfg_fim / "skills" / "antislop-human" / "contrast-mcp.py")],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        reg_path = self.state_dir / "fim_init_registry.json"
+        parser = guard_cli.build_parser()
+        args = parser.parse_args(
+            ["--registry", str(reg_path), "init", "--source", str(REPO_ROOT), "--target", str(cfg_fim), "--no-lock"]
+        )
+        with mock.patch("guard.cli.request_approval", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+            rc_fim = guard_cli.cmd_init(args)
+        self.assertEqual(rc_fim, 0)
+        self.assertFalse(stale_skill.exists())
+        env_obj = AgentEnvironment(
+            id="antigravity",
+            name="Antigravity Global Config",
+            platform_type="antigravity",
+            root_path=str(cfg_fim.resolve()),
+            policy="enforced",
+        )
+        fim = FileIntegrityMonitor.for_environment(env_obj)
+        self.assertTrue(fim.verify().is_intact)
+        if os.name != "nt":
+            backups = list((self.state_dir / "backups").rglob("mcp_config.json"))
+            self.assertTrue(backups)
+            for bfile in backups:
+                self.assertEqual(bfile.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

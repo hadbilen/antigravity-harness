@@ -773,6 +773,35 @@ class TestDeadlineTimeoutMapping(unittest.TestCase):
             self.assertNotIn("upstream_state.json", subfiles)
             self.assertIn("upstream_state.seed.json", subfiles)
 
+    def test_suitability_analyzer_detects_consolidated_adr0009_skill_redundancy_and_blocks_import(self):
+        import json
+
+        analyzer = SuitabilityAnalyzer(harness_root=REPO_ROOT)
+        for slug in ("unlazy", "silk-design", "marathon", "security-review", "visualizer"):
+            report = analyzer.analyze("Follow clear verification steps.\n", source_identifier=f"{slug}.md")
+            self.assertTrue(
+                any(slug in json.dumps(item).lower() for item in report.redundancies),
+                f"Expected consolidated skill '{slug}' redundancy in {report.redundancies}",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_root = Path(tmp) / "repo"
+            (fake_root / "skills" / "harness").mkdir(parents=True)
+            (fake_root / "skills" / "harness" / "SKILL.md").write_text(
+                "---\nname: harness\ndescription: Core harness.\n---\nBody\n",
+                encoding="utf-8",
+            )
+            ext_rule = Path(tmp) / "external_rule.md"
+            ext_rule.write_text("Verify outputs deterministically before completion.\n", encoding="utf-8")
+            res = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "porter.py"), "import", str(ext_rule), "--as-skill", "unlazy"],
+                env={**os.environ, "ANTIGRAVITY_HARNESS_ROOT": str(fake_root)},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("consolidated ADR-0009", res.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

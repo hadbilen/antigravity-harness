@@ -187,7 +187,7 @@ class TestPass1ASecurityCore(SandboxCase):
         (self.cfg / "config.json.bak").write_text('{"token": "secret2"}', encoding="utf-8")
         (self.cfg / "mcp_config.json.bak").write_text('{"env": {"KEY": "secret3"}}', encoding="utf-8")
         mcp = self.cfg / "mcp_config.json"
-        skill_script = self.cfg / "skills" / "antislop-human" / "contrast-mcp.py"
+        skill_script = self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
         skill_script.parent.mkdir(parents=True, exist_ok=True)
         skill_script.write_text("# mcp\n", encoding="utf-8")
         mcp.write_text(

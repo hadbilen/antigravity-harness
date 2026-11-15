@@ -1,5 +1,5 @@
 """
-tests/test_synthetic_markers.py — Tests for skills/antislop-copywriting/scripts/check_synthetic_markers.py
+tests/test_synthetic_markers.py — Tests for skills/antislop/scripts/check_synthetic_markers.py
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Standard library only; no network.
 """
@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_SCANNER = Path(__file__).resolve().parent.parent / "skills" / "antislop-copywriting" / "scripts" / "check_synthetic_markers.py"
+_SCANNER = Path(__file__).resolve().parent.parent / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py"
 _spec = importlib.util.spec_from_file_location("check_synthetic_markers", _SCANNER)
 csm = importlib.util.module_from_spec(_spec)
 sys.modules["check_synthetic_markers"] = csm  # dataclasses resolve their module by name

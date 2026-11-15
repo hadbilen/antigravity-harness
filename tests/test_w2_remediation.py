@@ -565,7 +565,7 @@ class TestContractAuditorRemediationsW2(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(res.returncode, 0, msg=res.stderr)
-            self.assertGreaterEqual(len(list((export_dir / ".claude" / "skills").iterdir())), 30)
+            self.assertEqual(len(list((export_dir / ".claude" / "skills").iterdir())), 20)
 
 
 class TestSliceAPorterArchiveSymlinkAndNetW2(unittest.TestCase):
@@ -998,7 +998,7 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
                 "conversationId": "w2-paths-conv",
                 "prompt": (
                     "Read src/optimize/worker.py, apps/marathon/main.go, "
-                    "pkg/test-design/runner.py, and skills/visualizer/SKILL.md."
+                    "pkg/test-design/runner.py, and skills/technical-writing/references/visualizer.md."
                 ),
             }
         )

@@ -73,9 +73,8 @@ class TestSlashCommandResolution(unittest.TestCase):
         self.assertEqual(broken, [])
 
     def test_pass3_rejects_do_not_stop_as_deactivation_condition(self):
-        (self.root / "skills" / "unlazy").mkdir(parents=True)
-        (self.root / "skills" / "unlazy" / "SKILL.md").write_text(
-            "---\nname: unlazy\ndescription: Tier 3 engine.\n---\n\n"
+        (self.root / "skills" / "harness" / "references").mkdir(parents=True)
+        (self.root / "skills" / "harness" / "references" / "unlazy.md").write_text(
             "# Unlazy\n\n## Mutual Exclusion\n"
             "* Trigger exclusively on Tier 3 tasks alongside `harness`; do not stop until it is done.\n",
             encoding="utf-8")

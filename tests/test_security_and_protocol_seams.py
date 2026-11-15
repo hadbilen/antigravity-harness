@@ -1222,7 +1222,7 @@ class TestContrastMcpProtocolAndBounds(HermeticSeamCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        mcp_path = REPO_ROOT / "skills" / "antislop-human" / "contrast-mcp.py"
+        mcp_path = REPO_ROOT / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
         spec = importlib.util.spec_from_file_location("contrast_mcp_mod", mcp_path)
         assert spec is not None and spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
@@ -1327,10 +1327,10 @@ class TestContrastMcpProtocolAndBounds(HermeticSeamCase):
 
 
 class TestUnlazyScriptsAndUpstreamSkillTracker(HermeticSeamCase):
-    """Covers H-16: skills/unlazy/scripts/*.mjs CLI seams & check_skills.sh drift seams."""
+    """Covers H-16: skills/harness/references/unlazy/scripts/*.mjs CLI seams & check_skills.sh drift seams."""
 
     def _run_node(self, script_name: str, *args: str, cwd: Path, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
-        script_path = REPO_ROOT / "skills" / "unlazy" / "scripts" / script_name
+        script_path = REPO_ROOT / "skills" / "harness" / "references" / "unlazy" / "scripts" / script_name
         return subprocess.run(
             ["node", str(script_path), *args],
             cwd=cwd,
@@ -1927,7 +1927,7 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
             "scripts",
             "templates",
             "skills/upstream-auditor/scripts",
-            "skills/antislop-human",
+            "skills/antislop/scripts",
             "agents",
             ".harness",
         ):
@@ -2005,7 +2005,7 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
         self.assertTrue((shared_out / ".cursor" / "rules").is_dir())
 
     def test_sbv8_and_cca8_contrast_mcp_nan_id_ping_notification_and_jsonrpc_version(self) -> None:
-        mcp_script = REPO_ROOT / "skills" / "antislop-human" / "contrast-mcp.py"
+        mcp_script = REPO_ROOT / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
 
         # 1. Notification `{"jsonrpc": "2.0", "method": "ping"}` without `"id"` -> zero stdout bytes
         proc_notif = subprocess.run(
