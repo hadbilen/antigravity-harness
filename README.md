@@ -153,14 +153,18 @@ one is not stopped; the integrity baseline reports it.
   and never rebaselines. Enabling reports failure when systemctl/launchctl fails. (Ordering before the
   graphical session is best-effort.)
 * `agy-guard doctor [--fix]` (checks in `guard/doctor.py`) reports protection gaps, legacy baselines/snapshots
-  inside the config tree, world-writable sources, symlink installs, relock-watcher errors and risky Antigravity
-  permission grants (counts only).
+  inside the config tree, world-writable sources, symlink installs, dangling or external symlinks under `plugins/`
+  and `.agents/skills/`, `hooks.json` / workspace `.agents/hooks.json` state, `install_receipt.json` version alignment,
+  relock-watcher errors and risky Antigravity permission grants (counts only).
 * **Full CLI Workflow (21 subcommands):** `init`, `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `upstream`, `startup`, `boot-check`, `gui`, `doctor`, `test-boundary`, `provenance`, `env`, `request-unlock`, `lock-complete`, `drift`, `self-audit`, `notify` (plus the internal `lease-tick` used by the lease watcher).
 * **Desktop GUI (`guard/gui.py`):** Tkinter/ttk, `DESIGN.md` dark palette; long operations (verify,
   rebaseline, restore, drift analysis) run off the UI thread, tray callbacks are marshalled onto the Tk loop,
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
-* **Event-scoped lifecycle hooks (`hooks.json`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/agy_hooks.py` acts as a thin lazy CLI router and PEP 562 compatibility facade that loads only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`).
+* **Event-scoped lifecycle hooks (`hooks.json`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/agy_hooks.py` acts as a thin lazy CLI router and PEP 562 compatibility facade that loads only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`):
+  * **`PreInvocation` (`pre_invocation.py`):** bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`) with explicit `/slash` priority, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]`, and transcript-aware mid-turn silence (`ADR-0009`).
+  * **`PreToolUse` (`pre_tool_use.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `MODEL_PLACEHOLDER_*` fail-closed escalation and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005` & `ADR-0007`), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
+  * **`Stop` (`stop_gate.py`):** diff, untracked-file, and linked-worktree `TestBoundaryGuard` integrity verification (tautological assertions, operator/matcher relaxation, `C9` test-runner sniffing, unapproved test skips, malformed `.json`/`.toml`/`.svg` syntax, `UI-1`–`UI-5` slop, and broken local Markdown links) guarded by a 3-strike circuit breaker.
 * **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `upstream_watcher.py --ack` silences it until something changes again, `--status` shows the current reasons. Network checks have a hard deadline.
 
 ---
@@ -183,8 +187,7 @@ in Guard and `scripts/`.
   breaker, >500-line trace, repeated user correction), not by a guessed "context saturation".
 * **Circuit Breaker**, **Popper's Falsification Gate**, **Null-Action** (no change without a violated rule or a
   measured failure) and **Think in Code**.
-* **Guard administration is human-only (Rule 12)** and upstream collisions are reported to the user
-  instead of being silently resolved (Rule 15).
+* **Guard administration is human-only (Rule 12)**, governance/customization edits require an approved top-catalog model at highest effort plus `python3 scripts/meta_audit.py --strict` (Rule 17), and upstream platform collisions (`(a)`–`(h)`: read-only `~/.gemini/config/`, `generative_ui`, `gh`, glue-only `run_workflow`, `native_swarm`, `migrate-agent-settings`, `mcp-app-development`) are resolved explicitly in favor of the stricter safety rule (Rule 15).
 
 ---
 
@@ -208,11 +211,11 @@ their own tool policies:
 
 ## 4. Porter: rule inspection, import and export (`porter.py`, `.harness/manifest.json`)
 
-* **Pre-flight gate:** scores external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`, …) 0–100 before anything is written.
+* **Pre-flight gate:** scores external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`, …) 0–100 before anything is written (`porter/analyzer.py` maps both the 20 top-level skills and the 14 consolidated reference module slugs).
 * **Negation-aware sanitizer (`porter/sanitizer.py`):** classifies every match as prohibited (kept), affirmative
   (neutralised, e.g. "skip the failing tests", "use --no-verify", "ignore previous instructions") or uncertain
-  (kept and listed as `NEEDS_REVIEW`, never deleted). Negation is clause-scoped, so "Skipping tests is never OK"
-  survives while "Don't hesitate to skip failing tests" does not.
+  (kept and listed as `NEEDS_REVIEW`, never deleted). Negation is clause-scoped (including binary comma-free shared imperative prohibitions across `or`), so "Skipping tests is never OK" and "Never weaken assertions or delete tests"
+  survive while "Don't hesitate to skip failing tests" does not.
 * **Archive inspection (`porter/archive.py`):** `porter.py inspect bundle.zip` inspects a ZIP without
   extracting or installing anything: member count, total size and compression-ratio limits, path traversal,
   symlink, encrypted and nested-archive members, and a suitability report for each rule file.
@@ -238,11 +241,12 @@ their own tool policies:
 
 20 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `antislop`, `technical-writing`, and `audit` per `ADR-0009`):
 
-* **`harness`:** engineering harness, verification gates, task lifecycle, plus on-demand reference modules for `marathon` (`/marathon` multi-window goal planning and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
-* **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net`) with the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
+* **`harness`:** engineering harness, verification gates, Tier-3 Pre-Code Plan Gate (`YAGNI` Brake), Swarm vs. `unlazy` vs. `marathon` topology routing (`ADR-0007`), and task lifecycle, plus on-demand reference modules for `marathon` (`/marathon` multi-window goal planning and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
+* **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net` with Controllable vs. Uncontrollable External Path classification) governed by the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
 * **`media-studio`:** high-fidelity audio, video, still-image (`JPG`, `PNG`, `TIFF`, `BMP`), and animated visual (`MP4`, `WebM`, `Animated WebP`, `GIF`, `APNG`, `WAV`, `FLAC`, `Opus`, `AAC`) synthesis, timeline editing, container/header salvage (`salvage`), signal restoration, two-tier fidelity-bounded quality enhancement, two-pass `EBU R128` loudness mastering, and the deterministic `media_qc.py` quality gate (`MEDIA-1..MEDIA-7`, `GAME-1..GAME-3`, `LUFS`, `dBTP`, aspect-locked `compare` `SSIM`/`PSNR`, `ab-sheet`, game SFX peak normalization, Ogg Vorbis/Opus, loop-seam, pixel-art, and sprite-atlas checks).
-* **`renew`:** generational legacy software and classic game modernization, dead-runtime/toolkit porting, and unbuildable codebase revival via a 5-stage contract-first pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover -> Parity Gate`) with a Legacy Game & Interactive Simulation Remaster profile.
-* **`rustify`:** architectural C, C++, Go, and Python -> memory-safe Rust migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`) via a 5-stage contract-first pipeline (`Silent Build & ABI Autopsy -> Migration Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, and conditional `cargo kani` formal proofs).
+* **`renew`:** generational legacy software and classic game modernization, dead-runtime/toolkit porting, and unbuildable codebase revival via a 5-stage contract-first pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover -> Parity Gate`) with `[HARDWARE/ENV SHIM]` record/replay contracts, locale invariants, and a Legacy Game & Interactive Simulation Remaster profile.
+* **`rustify`:** architectural C, C++, Go, and Python -> memory-safe Rust (`2024` Edition, `#[unsafe(no_mangle)]`, `unsafe extern "C"`, Cargo publish-age cooldowns) migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`) via a 5-stage contract-first pipeline (`Silent Build & ABI Autopsy -> Migration Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, and conditional `cargo kani` formal proofs).
+* **`game-engineering`:** deterministic fixed-timestep game loops (`Profile A` Web/Canvas `16.67 ms` budget and `Profile B` 3D/Native Engines), zero per-frame allocation, seeded PRNG, save `schemaVersion` quarantine, and clean-room `rea_rea` asset/binary recovery bridges.
 * **`porter`:** ecosystem adapter, suitability analyzer, transpiler.
 * **`vibecoder`:** product-first rapid prototyping with zero-friction single-file rich HTML application, game (`Game Vibe Mode`), and creative studio / interactive sandbox (`Creative & Sandbox Vibe Mode`) delivery.
 * **`deep-grill`:** Socratic trade-off interviewer: product and business-rule boundaries first,
@@ -252,20 +256,22 @@ their own tool policies:
 * **`antislop`:** core 40-rule UI/copy filter + structural UI scanner (`check_ui_slop.py`), bundling on-demand reference modules and tools for UI geometry (`/antislop-ui`), code-comment hygiene (`/antislop-code`), prose scanning (`/antislop-copywriting` + `check_synthetic_markers.py` for English and Turkish), WCAG contrast (`/antislop-human` + `contrast-check.py` / `contrast-mcp.py`), mobile layout (`/antislop-layoutmobile`), and kinetic motion (`/silk-design`).
 * **`technical-writing`:** Diataxis documentation, executable example verification, and `/visualizer` diagramming (`skills/technical-writing/references/visualizer.md`; Mermaid or built-in `generative_ui`).
 * **`audit`:** read-only structural, consistency, and security boundary audit engine, bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
-* **`refactoring`**, **`retro`**, **`data-analysis`**, **`game-engineering`**, **`diagnosing-bugs`**, **`upstream-auditor`**, **`database-migrations`**.
+* **`upstream-auditor`:** model catalog, built-in Antigravity runtime, and 8-repository upstream drift auditor (supporting both branch commits, consolidated sub-reference targets, and `"track": "release"` tag tracking such as `morluto/rea`).
+* **`refactoring`**, **`retro`**, **`data-analysis`**, **`diagnosing-bugs`**, **`database-migrations`**.
 
 Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ### Bilingual Architecture (Canonical English + Native Turkish Intent Bridge)
 While all core invariants, formal specifications, architectural decision records (`docs/adr/`), and agent contracts are canonical English (`GEMINI.md` Rule 6), Antigravity Harness provides **first-class bilingual intent recognition**:
 * **Zero-Friction Prompt Matching:** Skill hint tables (`guard/agy_hooks.py` / `guard/hooks/pre_invocation.py`) and frontmatter triggers accept both standard English commands/phrases and native Turkish colloquial intents (`"hata var"`, `"sadeleştir"`, `"hızlandır"`, `"veri analizi"`).
-* **Localized Anti-Slop Scanner:** `check_synthetic_markers.py` features automatic language detection (`detect_language`) and dedicated Turkish LLM synthetic-marker detection rules (`TR-1` through `TR-7`) alongside universal English markers.
+* **Localized Anti-Slop Scanner:** `skills/antislop/scripts/check_synthetic_markers.py` features automatic language detection (`detect_language`) and dedicated Turkish LLM synthetic-marker detection rules (`TR-1` through `TR-7`) alongside universal English markers.
 * **Extensibility:** The bilingual intent tables serve as a reference implementation for contributors wishing to bridge additional languages into Antigravity 2.0 lifecycle hooks.
 
 ---
 
 ## 6. Baseline Design Contract (`DESIGN.md`)
 
+* Three domain-aware UI archetypes (`MODE: UTILITY`, `MODE: EDITORIAL`, and `MODE: GAME & INTERACTIVE`), backed by deterministic structural verification (`skills/antislop/scripts/check_ui_slop.py`, `UI-1`–`UI-5`).
 * Every visual element passes a one-sentence functional justification test.
 * WCAG AA: 4.5:1 text, 3:1 control borders and disabled text; the "Measured Contrast Pairs" table is
   recomputed by the self-audit, so stated ratios cannot drift from reality.
@@ -284,6 +290,7 @@ antigravity-harness/
 ├── guard.py / porter.py                   # CLI entry points
 ├── .github/workflows/ci.yml               # 3 OS x Python 3.10-3.14, lint, trusted-boundary, release
 ├── .harness/manifest.json                 # Canonical manifest (checked by CI)
+├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0009)
 ├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
 ├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
@@ -297,7 +304,7 @@ antigravity-harness/
 │   ├── meta_audit.py                      # 7-pass harness self-audit (Rule 17)
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
-├── skills/                                # 20 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
+├── skills/                                # 20 top-level skills + on-demand references/ & scripts/
 ├── tests/                                 # Hermetic unittest suite (680 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
@@ -321,7 +328,8 @@ python3 install.py          # Windows: python install.py   |   POSIX alternative
 The default **copy mode** installs real files into `~/.gemini/config` (so Guard can lock them), copies the
 Guard runtime to `~/.local/share/antigravity-harness/runtime`, writes `agy-guard` / `agy-porter` launchers
 to `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\antigravity-guard\*.cmd`), merges the `upstream-watchdog`
-and `harness-gate` lifecycle hooks into `hooks.json` without dropping other hooks, backs replaced files up **outside** the config tree
+and `harness-gate` lifecycle hooks into `hooks.json` without dropping other hooks, repoints relocated skill
+scripts in `mcp_config.json` (`RELOCATED_SKILL_SCRIPTS`) while retiring superseded consolidated skill directories, backs replaced files up **outside** the config tree
 (together with snapshots, baselines and backups left inside it by 1.3.0 and earlier),
 establishes the integrity baseline and locks the governance scope. Re-running it over a locked scope asks
 a human to confirm. Options: `--link` (developer symlink mode, cannot be locked), `--binary` (`python3 install.py --binary [--sha256 <64-hex>]`, also installing
@@ -453,7 +461,7 @@ python3 scripts/verify_invariants.py --diff --mode tdd --base-ref origin/main
 
 The Guard, Porter and grader code uses only the Python standard library (3.10+). Optional extras: `tkinter`
 for the GUI, `pystray` + `Pillow` or PyGObject/AppIndicator for the tray icon, PyYAML (used alongside Porter's
-frontmatter parser by the self-audit when present), `nodejs (>= 18)` (for `unlazy` `.mjs` gate and dispatch helpers),
+frontmatter parser by the self-audit when present), `nodejs (>= 18)` (for `skills/harness/references/unlazy/scripts/*.mjs` gate and dispatch helpers),
 and `ffmpeg` / `ffprobe` (for `media-studio` `media_qc.py` signal and container verification). The standalone binaries bundle `pystray` and `Pillow` via PyInstaller.
 
 ---
