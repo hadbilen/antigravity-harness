@@ -1,6 +1,6 @@
 ---
 name: architecture-decision-records
-description: 'Capture Tier 3 architectural decisions (>8 files, database selection, schema redesigns, protocol changes, or authentication model shifts) as structured Architecture Decision Records (ADRs) in docs/adr/. Maintains an ADR log with context, alternatives considered, and rationale. Invoke for Tier 3 architectural decisions or when user says ''/adr'', ''record adr'', ''document decision''. Not for Tier 1/2 routine implementation tasks (use ''harness'') or user-facing tutorials and API docs (use ''technical-writing'').'
+description: 'Capture Tier 3 architectural decisions (>8 files, database selection, schema redesigns, protocol or auth shifts) as structured Architecture Decision Records (ADRs) in docs/adr/. Invoke for Tier 3 decisions or on ''/adr'', ''record adr'', ''document decision''. Not for Tier 1/2 routine tasks (use ''harness'') or user-facing docs (use ''technical-writing'').'
 metadata:
   origin: ECC
 ---

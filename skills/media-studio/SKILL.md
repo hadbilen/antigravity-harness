@@ -1,17 +1,10 @@
 ---
 name: media-studio
 description: >-
-  High-fidelity audio, video, still image, and animated visual (MP4, WebM, Animated WebP, GIF, APNG, PNG, JPEG, TIFF,
-  WAV, FLAC, Opus, AAC) synthesis, timeline editing, damaged-container salvage, archival restoration, fidelity-bounded
-  upscaling, and broadcast/streaming mastering. Enforces the 4-stage Probe -> Plan -> Process -> Verify pipeline,
-  stream-copy container salvage, two-pass EBU R128 loudness normalization, spectral/temporal denoising, debanding,
-  two-pass palette generation, and objective quality gates (media_qc.py: probe, check, salvage, compare, ab-sheet,
-  master-audio, keyframes). Invoke with /media-studio or when generating, editing, salvaging, restoring, upscaling,
-  transcoding, or mastering audio, video, still photos, or animated visual files ("ses üret", "video üret", "ses düzenle",
-  "video düzenle", "bozuk sesi/görüntüyü kurtar", "eski fotoğrafı onar", "ses kalitesini düzelt", "görüntü kalitesini
-  artır", "gürültü temizle", "hareketli görsel", "mastering"). Not for zero-spec single-file UX discovery interviews
-  (use 'vibecoder'), real-time 60 Hz interactive game simulation loops (use 'game-engineering'), or static architectural
-  diagrams (use 'visualizer').
+  Audio, video, still image, and animated visual synthesis, timeline editing, damaged-container salvage, restoration,
+  upscaling, and EBU R128 mastering (`Probe -> Plan -> Process -> Verify`, `media_qc.py`). Invoke with /media-studio or
+  on "ses üret", "video üret", "ses/video düzenle", "bozuk sesi/görüntüyü kurtar", "gürültü temizle", "mastering". Not
+  for single-file UX prototypes (use 'vibecoder'), 60 Hz game loops (use 'game-engineering'), or diagrams (use 'visualizer').
 ---
 
 # Media Studio — Audio, Video, Still Image & Animated Visual Production, Salvage & Restoration Discipline

@@ -8,3 +8,4 @@
 | [0004](0004-mcp-hook-policy-subagent-dual-read-and-system-package-init.md) | Tiered MCP Hook Policy, Dual Read-Only Subagent Tool Contract, Fail-Safe Customization Model Gate, and Dual-Layer Linux Package Activation | accepted | 2026-10-24 |
 | [0005](0005-antigravity-v2-32-compatibility-and-hook-modernization.md) | Antigravity v2.32.0 Compatibility, Hook Schema Modernization, `/swarm` Governance, and Knowledge Work Hygiene | accepted | 2026-11-14 |
 | [0006](0006-ecosystem-routing-overhaul-and-five-skill-modernization.md) | Ecosystem Routing Overhaul, Rust 2024 / 1.100.0 Parity, Game-Media-REA Pipeline Integration, and Network/Legacy Boundary Hardening | accepted | 2026-11-14 |
+| [0007](0007-swarm-topology-hook-coverage-and-placeholder-hardening.md) | Swarm Execution Role Alignment, PreToolUse Hook Coverage Expansion, Model Placeholder Gate, and Linked-Worktree Boundary Hardening | accepted | 2026-11-15 |

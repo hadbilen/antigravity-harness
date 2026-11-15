@@ -1,11 +1,10 @@
 ---
 name: vibecoder
-description: >
-  Product-first and vibe-oriented rapid prototyping skill for non-coders and exploratory builders.
-  Flips the specification burden onto the agent, conducts a structured 3-step UX/aesthetic interview,
-  and delivers zero-friction, immediately runnable single-file HTML application, game, and creative studio / interactive sandbox prototypes with click-by-click instructions.
-  Triggers: /vibecode, /vibecoder, vibecoder, vibercoder, "fikrim var", "oyun prototipi", "etkileşimli kum havuzu", "ses sentezleyici", "vibe coding", "I want [outcome] for [audience]".
-  Not for multi-file production engineering or Tier 2/3 architecture (use 'harness', 'game-engineering', or 'marathon').
+description: >-
+  Product-first rapid prototyping for non-coders and exploratory builders: conducts a 3-step UX/aesthetic interview and
+  delivers runnable single-file HTML app, game, or interactive sandbox prototypes. Triggers: /vibecode, /vibecoder,
+  "fikrim var", "oyun prototipi", "etkileşimli kum havuzu", "vibe coding". Not for multi-file production engineering or
+  Tier 2/3 architecture (use 'harness', 'game-engineering', or 'marathon').
 ---
 
 # Vibe Coder (Product & Experience-First Builder)

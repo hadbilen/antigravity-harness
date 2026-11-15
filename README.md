@@ -302,7 +302,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
 ├── skills/                                # 34 skills (the upstream watcher lives in skills/upstream-auditor/scripts/)
-├── tests/                                 # Hermetic unittest suite (613 tests)
+├── tests/                                 # Hermetic unittest suite (652 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -440,7 +440,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (613 tests)
+# Hermetic unit test suite (652 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

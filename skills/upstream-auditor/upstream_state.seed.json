@@ -30,8 +30,8 @@
     "swarm_narrator",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-11-14T15:30:00+03:00",
-  "last_skills_audit_timestamp": "2026-11-14T16:15:00+03:00",
+  "last_audit_timestamp": "2026-11-15T19:05:00+03:00",
+  "last_skills_audit_timestamp": "2026-11-15T19:05:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
@@ -106,7 +106,7 @@
       "repo": "morluto/rea",
       "branch": "main",
       "track": "release",
-      "last_synced_commit": "rea-agents-6.7.0",
+      "last_synced_commit": "rea-agents-6.9.0",
       "target_skills": [
         "reverse-engineer-anything"
       ]

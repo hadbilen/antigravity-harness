@@ -165,7 +165,19 @@ def compute_builtin_hash():
     return hasher.hexdigest()
 
 
-def get_pbtxt_model():
+def is_placeholder_model(name) -> bool:
+    """Returns True for Antigravity opaque IDE model placeholders such as MODEL_PLACEHOLDER_M417."""
+    return isinstance(name, str) and name.strip().upper().startswith("MODEL_PLACEHOLDER")
+
+
+def _clean_concrete_model(name) -> str:
+    val = name.strip() if isinstance(name, str) else ""
+    if not val or normalize_model_name(val) == "auto" or is_placeholder_model(val):
+        return ""
+    return val
+
+
+def get_pbtxt_model(*, include_placeholder: bool = False):
     if not os.path.isfile(PBTXT_FILE):
         return ""
     try:
@@ -173,12 +185,26 @@ def get_pbtxt_model():
             for line in f:
                 if "last_selected_agent_model" in line and ":" in line:
                     val = line.split(":", 1)[1].strip().strip('"')
-                    if val.upper().startswith("MODEL_PLACEHOLDER"):
+                    if is_placeholder_model(val) and not include_placeholder:
                         return ""
                     return val
-    except Exception:
-        pass
+    except (OSError, UnicodeError) as exc:
+        print(f"Warning: could not read {PBTXT_FILE}: {exc}", file=sys.stderr)
     return ""
+
+
+def _resolve_placeholder_diagnostic(placeholder_id: str, state: dict, seed: dict) -> str:
+    seed_dict = seed if isinstance(seed, dict) else {}
+    state_dict = state if isinstance(state, dict) else {}
+    seed_pbtxt = str(seed_dict.get("last_pbtxt_model", "") or "").strip()
+    seed_model = str(seed_dict.get("last_audited_model", "") or "").strip()
+    rec_pbtxt = str(state_dict.get("last_pbtxt_model", "") or "").strip()
+    rec_model = str(state_dict.get("last_audited_model", "") or "").strip()
+    if seed_pbtxt and placeholder_id.strip().upper() == seed_pbtxt.upper() and seed_model:
+        return f"placeholder matches seed baseline ({seed_model})"
+    if rec_pbtxt and placeholder_id.strip().upper() == rec_pbtxt.upper() and rec_model:
+        return f"placeholder matches state baseline ({rec_model})"
+    return f"unmapped placeholder (seed={seed_pbtxt or 'none'}; run /audit-upstream --model)"
 
 
 def is_pro_flash_switch(old_m: str, new_m: str) -> bool:
@@ -474,12 +500,21 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
                 "environment_Target",
             ):
                 val = seed.get(env_key)
-                if isinstance(val, str) and val.strip() and not val.strip().upper().startswith("MODEL_PLACEHOLDER"):
-                    if state.get(env_key) != val:
-                        state[env_key] = val
-                        if env_key == "last_audited_model" and state.get("last_seen_model") and state.get("last_seen_model") != val:
-                            state["last_seen_model"] = val
-                        changed = True
+                if not isinstance(val, str) or not val.strip():
+                    continue
+                is_ph = val.strip().upper().startswith("MODEL_PLACEHOLDER")
+                if is_ph and (env_key != "last_pbtxt_model" or _clean_concrete_model(state.get("last_pbtxt_model"))):
+                    continue
+                if state.get(env_key) != val:
+                    state[env_key] = val
+                    if env_key == "last_audited_model" and state.get("last_seen_model") and state.get("last_seen_model") != val:
+                        state["last_seen_model"] = val
+                    changed = True
+            if isinstance(seed.get("approved_customization_models"), list):
+                clean_acm = [m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()]
+                if state.get("approved_customization_models") != clean_acm:
+                    state["approved_customization_models"] = clean_acm
+                    changed = True
 
     if tracked_changed:
         state["tracked_repositories"] = state_tracked
@@ -515,7 +550,11 @@ def load_state(write: bool = True):
             state = _read_json_object(STATE_FILE)
             seed, _ = load_shipped_seed()
             if seed is not None and _reconcile_with_seed(state, seed) and write:
-                save_state(state)
+                if not save_state(state):
+                    print(
+                        f"Warning: could not persist reconciled state to {STATE_FILE}",
+                        file=sys.stderr,
+                    )
             return state, STATE_FILE
         except ValueError:
             if write:
@@ -736,7 +775,7 @@ def _sanitize_notice_fragment(value, max_len: int = 160) -> str:
     return text
 
 
-def collect_reasons(state: dict, payload_model: str = "") -> list:
+def collect_reasons(state: dict, payload_model: str = "", *, raw_payload_model: str = "") -> list:
     """Returns the current findings as short human-readable strings (no network access)."""
     reasons = []
 
@@ -764,22 +803,36 @@ def collect_reasons(state: dict, payload_model: str = "") -> list:
             reasons.append("Delta detected in Antigravity builtin environment (builtin/skills)")
 
     recorded_model = str(state.get("last_audited_model", "") or "")
-    recorded_pbtxt = str(state.get("last_pbtxt_model", "") or "")
-    current_pbtxt_model = get_pbtxt_model()
-    norm_payload = normalize_model_name(payload_model)
+    recorded_pbtxt = str(state.get("last_pbtxt_model", "") or "").strip()
+    raw_pbtxt = get_pbtxt_model(include_placeholder=True)
+    current_pbtxt_model = "" if is_placeholder_model(raw_pbtxt) else raw_pbtxt
+    raw_payload_str = (raw_payload_model or payload_model or "").strip() if isinstance(raw_payload_model or payload_model, str) else ""
+    concrete_payload_model = _clean_concrete_model(payload_model)
+    norm_payload = normalize_model_name(concrete_payload_model)
     norm_recorded = normalize_model_name(recorded_model)
     norm_current_pbtxt = normalize_model_name(current_pbtxt_model)
-    norm_recorded_pbtxt = normalize_model_name(recorded_pbtxt)
-    if norm_payload and norm_payload != "auto" and norm_recorded:
+    norm_recorded_pbtxt = normalize_model_name("" if is_placeholder_model(recorded_pbtxt) else recorded_pbtxt)
+    if norm_payload and norm_recorded:
         if norm_payload != norm_recorded and not is_pro_flash_switch(norm_recorded, norm_payload):
             reasons.append(
-                f"Model change: '{_sanitize_notice_fragment(recorded_model)}' -> '{_sanitize_notice_fragment(payload_model)}'"
+                f"Model change: '{_sanitize_notice_fragment(recorded_model)}' -> '{_sanitize_notice_fragment(concrete_payload_model)}'"
             )
     elif norm_current_pbtxt and norm_recorded_pbtxt and norm_current_pbtxt != norm_recorded_pbtxt:
         if not is_pro_flash_switch(norm_recorded_pbtxt, norm_current_pbtxt):
             reasons.append(
                 f"Model configuration change: '{_sanitize_notice_fragment(recorded_pbtxt)}' -> '{_sanitize_notice_fragment(current_pbtxt_model)}'"
             )
+    else:
+        active_placeholder = (
+            raw_payload_str
+            if is_placeholder_model(raw_payload_str)
+            else (raw_pbtxt if is_placeholder_model(raw_pbtxt) else "")
+        )
+        if active_placeholder and is_placeholder_model(recorded_pbtxt):
+            if active_placeholder.strip().upper() != recorded_pbtxt.upper():
+                reasons.append(
+                    f"Unmapped placeholder model change: '{_sanitize_notice_fragment(recorded_pbtxt)}' -> '{_sanitize_notice_fragment(active_placeholder)}' (inspect active IDE model and run /audit-upstream --model)"
+                )
 
     tracked = state.get("tracked_repositories") or {}
     pending = state.get("pending_repo_updates") or {}
@@ -922,17 +975,24 @@ def spawn_desktop_notification(reasons) -> None:
 # ----------------------------------------------------------------------
 # Entry points
 # ----------------------------------------------------------------------
-def _payload_model(payload: dict) -> str:
+def _raw_payload_model(payload: dict) -> str:
     value = payload.get("modelName", "")
     return value.strip() if isinstance(value, str) else ""
+
+
+def _payload_model(payload: dict) -> str:
+    return _clean_concrete_model(_raw_payload_model(payload))
 
 
 def run_hook(payload: dict) -> dict:
     """PreInvocation hook: returns the JSON response for the host."""
     if not isinstance(payload, dict):
         payload = {}
+    raw_inv = payload.get("invocationNum")
+    if raw_inv is None:
+        raw_inv = payload.get("invocation_num", 1)
     try:
-        invocation_num = int(payload.get("invocationNum", 1))
+        invocation_num = int(raw_inv)
     except (TypeError, ValueError):
         invocation_num = 1
     if invocation_num > 1:
@@ -944,9 +1004,13 @@ def run_hook(payload: dict) -> dict:
             print(f"[WARN] upstream_watcher state unavailable ({state_msg})", file=sys.stderr)
             return {}
 
+        raw_payload_model = _raw_payload_model(payload)
         payload_model = _payload_model(payload)
         dirty = False
-        if payload_model and normalize_model_name(payload_model) != "auto" and state.get("last_seen_model") != payload_model:
+        if is_placeholder_model(state.get("last_seen_model")):
+            state["last_seen_model"] = ""
+            dirty = True
+        if payload_model and state.get("last_seen_model") != payload_model:
             state["last_seen_model"] = payload_model  # lets `--ack` record the model without a payload
             dirty = True
 
@@ -968,7 +1032,7 @@ def run_hook(payload: dict) -> dict:
             if len(cleaned_pending) != len(raw_pending):
                 state["pending_repo_updates"] = cleaned_pending
 
-        active = unacknowledged(state, collect_reasons(state, payload_model))
+        active = unacknowledged(state, collect_reasons(state, payload_model, raw_payload_model=raw_payload_model))
         now = _now()
         inject, first_time = (False, False)
         if active:
@@ -1007,7 +1071,17 @@ def cmd_status(model: str = "") -> int:
     last = state.get("last_skills_audit_timestamp") or "never"
     outcome = "failed" if audit_failed else "ok"
     print(f"  last repository check: {last} ({outcome})")
-    reasons = collect_reasons(state, model or str(state.get("last_seen_model", "") or ""))
+    raw_arg_model = model.strip() if isinstance(model, str) else ""
+    concrete_model = _clean_concrete_model(raw_arg_model) or _clean_concrete_model(state.get("last_seen_model", ""))
+    raw_pbtxt = get_pbtxt_model(include_placeholder=True)
+    status_pbtxt = raw_arg_model if is_placeholder_model(raw_arg_model) else raw_pbtxt
+    seed_data, _ = load_seed()
+    if status_pbtxt and is_placeholder_model(status_pbtxt):
+        diag = _resolve_placeholder_diagnostic(status_pbtxt, state, seed_data)
+        print(f"  pbtxt model (raw)   : {status_pbtxt} [{diag}]")
+    elif status_pbtxt:
+        print(f"  pbtxt model         : {status_pbtxt}")
+    reasons = collect_reasons(state, concrete_model, raw_payload_model=status_pbtxt)
     if audit_failed:
         print("\n[WARN] Last upstream repository check failed (HTTP rate-limit or network error); synchronization is unverified.")
     if not reasons:
@@ -1031,16 +1105,19 @@ def cmd_ack(model: str = "") -> int:
         return 1
     if "corrupt ledger moved to" in str(source):
         print(f"[WARN] Upstream ledger recovered from corruption: {source}", file=sys.stderr)
-    model = model or str(state.get("last_seen_model", "") or "")
-    reasons = collect_reasons(state, model)
+    raw_arg_model = model.strip() if isinstance(model, str) else ""
+    model = _clean_concrete_model(raw_arg_model) or _clean_concrete_model(state.get("last_seen_model", ""))
+    raw_pbtxt = get_pbtxt_model(include_placeholder=True)
+    ack_pbtxt = raw_arg_model if is_placeholder_model(raw_arg_model) else raw_pbtxt
+    reasons = collect_reasons(state, model, raw_payload_model=ack_pbtxt)
 
     current_hash = compute_builtin_hash()
     if current_hash:
         state["builtin_skills_hash"] = current_hash
         state["recorded_builtin_skills"] = get_builtin_skills_list()
-    pbtxt_model = get_pbtxt_model()
-    if pbtxt_model:
-        state["last_pbtxt_model"] = pbtxt_model
+    pbtxt_model = "" if is_placeholder_model(ack_pbtxt) else ack_pbtxt
+    if ack_pbtxt:
+        state["last_pbtxt_model"] = ack_pbtxt
     if model and normalize_model_name(model) != "auto":
         state["last_audited_model"] = model
         state["last_model_slug"] = model_slug(model)
@@ -1057,6 +1134,10 @@ def cmd_ack(model: str = "") -> int:
     print(f"  model               : {state.get('last_audited_model') or '(unknown; pass --model NAME)'}")
     if pbtxt_model:
         print(f"  pbtxt model         : {pbtxt_model}")
+    elif ack_pbtxt and is_placeholder_model(ack_pbtxt):
+        seed_data, _ = load_seed()
+        diag = _resolve_placeholder_diagnostic(ack_pbtxt, state, seed_data)
+        print(f"  pbtxt model (raw)   : {ack_pbtxt} [{diag}]")
     return 0
 
 

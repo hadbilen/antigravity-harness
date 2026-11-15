@@ -1,0 +1,20 @@
+{
+  "hookEventName": "Stop",
+  "normalTerminationReasons": [
+    "NO_TOOL_CALL",
+    "model_stop",
+    "TERMINAL_STEP_TYPE",
+    "INJECTED_RESPONSE",
+    "future_normal_completion"
+  ],
+  "nonNormalTerminationReasons": [
+    "ERROR",
+    "USER_CANCELED",
+    "USER_CANCELLED",
+    "MAX_INVOCATIONS",
+    "MAX_FORCED_INVOCATIONS",
+    "MAX_TOKEN_BUDGET_EXCEEDED",
+    "TERMINAL_CUSTOM_HOOK",
+    "MAX_STEPS_EXCEEDED"
+  ]
+}

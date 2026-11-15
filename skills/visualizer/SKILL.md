@@ -1,12 +1,9 @@
 ---
 name: visualizer
 description: >-
-  Decides HOW to visualize a logical structure so a person understands it quickly: picks the lens (structure, flow,
-  state/rules, or user journey), the abstraction level and the medium, then renders simple cases as Mermaid and hands
-  interactive ones to the built-in generative_ui skill. Supports lens flags: --arch, --code, --flow, --spec, --loop,
-  --journey. Invoke when the user asks to visualize or diagram a specification, architecture, codebase, game or
-  business loop, or user journey, or invokes /visualizer.
-  Not for UI mockups or visual design (use antislop / generative_ui directly) and not for raster images.
+  Visualizes architectures, flows, state machines, and user journeys by selecting the lens (`--arch`, `--code`, `--flow`,
+  `--spec`, `--loop`, `--journey`) and rendering Mermaid or interactive `generative_ui` widgets. Invoke with /visualizer
+  or when asked to diagram a specification, codebase, or loop. Not for UI mockups (use 'antislop') or raster images.
 ---
 
 # Visualizer — Comprehension-First Diagramming

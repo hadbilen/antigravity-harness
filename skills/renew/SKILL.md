@@ -1,17 +1,10 @@
 ---
 name: renew
 description: >-
-  Generational legacy software and classic game modernization, platform/runtime porting, and unbuildable codebase
-  revival while preserving domain behavior, historical file/save compatibility, and simulation feel. Enforces a 5-stage
-  Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover & Security
-  Sanitization -> Parity Gate pipeline. Invoke with /renew or when modernizing, porting, remastering, or reviving legacy
-  programs, dead UI toolkits, obsolete encodings, or classic games ("eski programı yenile", "eski oyunu yenile",
-  "eski yazılımı modernize et", "güncel sisteme taşı", "oyunu remaster yap", "port legacy app"). Not for routine
-  single-package version bumps on an active stack (use 'dependency-upgrade'), internal code cleanup with zero
-  runtime/platform or contract shift (use 'refactoring'), resource optimization on an already-working stack (use
-  'sweetspot'), promoting a recent single-file discovery prototype into production (use 'marathon' + 'harness'),
-  migrating/bridging active C, C++, Go, or Python code into Rust (use 'rustify'), or porting AI agent rules across IDEs
-  (use 'porter').
+  Generational legacy software and classic game modernization, runtime/UI porting, and unbuildable codebase revival
+  preserving domain behavior and save/file compatibility. Invoke with /renew or on "eski programı/oyunu yenile",
+  "eski yazılımı modernize et", "güncel sisteme taşı", "port legacy app". Not for single-package bumps (use
+  'dependency-upgrade'), same-stack cleanup (use 'refactoring'), profiling (use 'sweetspot'), or Rust ports (use 'rustify').
 ---
 
 # Renew — Legacy Software & Classic Game Modernization Discipline

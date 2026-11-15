@@ -129,8 +129,8 @@ def ensure_skill_script_permissions(skills_root: Path) -> None:
         if not os.path.islink(script) and script.is_file():
             try:
                 script.chmod(script.stat().st_mode | 0o755)
-            except OSError:
-                pass
+            except OSError as exc:
+                sys.stderr.write(f"[WARN] Could not set executable permission on {script}: {exc}\n")
 
 
 def prune_install_backups(keep: int = BACKUP_RETENTION_KEEP, dry_run: bool = False) -> int:
@@ -323,12 +323,13 @@ class Installer:
                 self.place(src, self.target_dir / name)
         manifest = SCRIPT_DIR / ".harness" / "manifest.json"
         if manifest.is_file():
-            if os.path.islink(self.target_dir / ".harness"):
-                self.backup(self.target_dir / ".harness")
-            self.place(manifest, self.target_dir / ".harness" / "manifest.json")
+            target_harness = self.target_dir / ".harness"
+            if os.path.lexists(target_harness) and (os.path.islink(target_harness) or not target_harness.is_dir()):
+                self.backup(target_harness)
+            self.place(manifest, target_harness / "manifest.json")
         for sub in ("agents",):
             target_sub = self.target_dir / sub
-            if os.path.islink(target_sub):
+            if os.path.lexists(target_sub) and (os.path.islink(target_sub) or not target_sub.is_dir()):
                 self.backup(target_sub)
             src_agents = {p.name: p for p in sorted((SCRIPT_DIR / sub).glob("*.md"))}
             if target_sub.is_dir() and not os.path.islink(target_sub):
@@ -339,7 +340,7 @@ class Installer:
                 self.place(agent, target_sub / name)
         skills_src = SCRIPT_DIR / "skills"
         target_skills = self.target_dir / "skills"
-        if os.path.islink(target_skills):
+        if os.path.lexists(target_skills) and (os.path.islink(target_skills) or not target_skills.is_dir()):
             self.backup(target_skills)
         src_skills = {p.name: p for p in sorted(p for p in skills_src.iterdir() if p.is_dir())}
         if target_skills.is_dir() and not os.path.islink(target_skills):
@@ -355,7 +356,9 @@ class Installer:
         templates = SCRIPT_DIR / "templates"
         if templates.is_dir():
             target_templates = self.target_dir / "templates"
-            if os.path.islink(target_templates):
+            if os.path.lexists(target_templates) and (
+                os.path.islink(target_templates) or not target_templates.is_dir()
+            ):
                 self.backup(target_templates)
             src_templates = {
                 p.name: p
@@ -433,8 +436,26 @@ class Installer:
         self.log(f"[CONFIGURED] hooks.json (upstream-watchdog -> {watcher}, harness-gate -> {hooks_script})")
         return True
 
+    @staticmethod
+    def _harness_skill_names() -> set[str]:
+        skills_dir = SCRIPT_DIR / "skills"
+        try:
+            if not skills_dir.is_dir():
+                return set()
+            return {p.name for p in skills_dir.iterdir() if p.is_dir()}
+        except OSError:
+            return set()
+
+    @staticmethod
+    def _is_within_lexically(path: Path, root: Path) -> bool:
+        try:
+            Path(os.path.abspath(path)).relative_to(Path(os.path.abspath(root)))
+            return True
+        except ValueError:
+            return False
+
     def migrate_mcp_config(self) -> None:
-        """Repoints MCP server scripts that live in a skill of this harness to the installed copy."""
+        """Repoints harness-owned skill MCP servers to the installed copy and pins bare python to sys.executable."""
         mcp = self.target_dir / "mcp_config.json"
         if not mcp.is_file():
             return
@@ -450,25 +471,79 @@ class Installer:
         if mcp_servers is not None and not isinstance(mcp_servers, dict):
             self.log(f"[WARN] {mcp} 'mcpServers' is not a JSON object; skipping MCP path migration.")
             return
+
+        harness_skills = self._harness_skill_names()
+        repo_skills_dir = SCRIPT_DIR / "skills"
+        target_skills_dir = self.target_dir / "skills"
+        bare_python_names = {"python", "python3", "python.exe", "python3.exe"}
+
         changed = False
+        repointed = False
+        pinned = False
         for server in (mcp_servers or {}).values():
             if not isinstance(server, dict):
                 continue
             args = server.get("args") or []
             if not isinstance(args, list):
                 continue
+            is_harness_server = False
             for i, arg in enumerate(args):
-                parts = Path(str(arg)).parts
-                if "skills" in parts and parts.index("skills") > 0 and parts[parts.index("skills") - 1] == "antigravity-harness":
-                    rel = Path(*parts[parts.index("skills"):])
-                    candidate = self.target_dir / rel
-                    if candidate.exists() and str(candidate) != arg:
-                        args[i] = str(candidate)
-                        changed = True
-        if changed and not self.dry_run:
-            self.backup(mcp)
-            atomic_write_json(mcp, data, mode=0o600)
-            self.log("[CONFIGURED] mcp_config.json now points to the protected skill copies")
+                arg_str = str(arg)
+                raw_path = Path(os.path.expanduser(arg_str))
+                if ".." in raw_path.parts:
+                    continue
+                arg_path = Path(os.path.abspath(raw_path))
+                parts = arg_path.parts
+                skill_indices = [idx for idx, part in enumerate(parts) if part == "skills"]
+                for skills_idx in reversed(skill_indices):
+                    skill_name = parts[skills_idx + 1] if (skills_idx + 1) < len(parts) else ""
+                    if skill_name not in harness_skills:
+                        continue
+                    is_repo_tree = (
+                        (skills_idx > 0 and parts[skills_idx - 1] == "antigravity-harness")
+                        or self._is_within_lexically(arg_path, repo_skills_dir)
+                    )
+                    is_target_tree = self._is_within_lexically(arg_path, target_skills_dir)
+                    if is_repo_tree:
+                        rel = Path(*parts[skills_idx:])
+                        candidate = self.target_dir / rel
+                        if not self._is_within_lexically(candidate, target_skills_dir) or os.path.islink(candidate):
+                            continue
+                        is_harness_server = True
+                        if (candidate.exists() or (self.dry_run and (SCRIPT_DIR / rel).exists())) and str(candidate) != arg_str:
+                            args[i] = str(candidate)
+                            changed = True
+                            repointed = True
+                        break
+                    if is_target_tree:
+                        is_harness_server = True
+                        break
+
+            if is_harness_server:
+                cmd = server.get("command")
+                if (
+                    bool(sys.executable)
+                    and isinstance(cmd, str)
+                    and cmd.strip().lower() in bare_python_names
+                    and cmd != sys.executable
+                ):
+                    server["command"] = sys.executable
+                    changed = True
+                    pinned = True
+
+        if changed:
+            actions: List[str] = []
+            if repointed:
+                actions.append("repoint skill scripts")
+            if pinned:
+                actions.append(f"pin Python to {sys.executable}")
+            summary = " & ".join(actions) or "update harness MCP entries"
+            if self.dry_run:
+                self.log(f"[DRY-RUN] Would update {mcp} ({summary})")
+            else:
+                self.backup(mcp)
+                atomic_write_json(mcp, data, mode=0o600)
+                self.log("[CONFIGURED] mcp_config.json now points to the protected skill copies")
 
     @staticmethod
     def _release_legacy_tree(path: Path) -> None:

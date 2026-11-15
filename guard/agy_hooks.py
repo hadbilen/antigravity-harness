@@ -931,6 +931,10 @@ PRE_TOOL_USE_MATCHER_TOOLS: Tuple[str, ...] = (
     "run_workflow",
     "invoke_subagent",
     "swarm",
+    "post_message",
+    "send_message",
+    "define_subagent",
+    "schedule",
     "call_mcp_tool",
     "mcp_.*",
     "write_to_file",
@@ -973,8 +977,8 @@ _SUBPARSER_OPTS = (
 )
 
 # Human-only Guard administration subcommands (GEMINI.md Rule 12)
-_GUARD_ADMIN_RE = re.compile(
-    rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
+_GUARD_ADMIN_BODY = (
+    rf"{_CMD_WRAPPER_PREFIX}"
     r"(?:"
     rf"(?:(?:[^\s;|&`]*/)?python3?(?:\.\d+)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+guard(?:\.cli)?\b|(?:[^\s;|&`]*/)?(?:guard\.py|guard/cli\.py))|(?:[^\s;|&`]*/)?(?:guard\.py|guard/cli\.py|agy-guard))\s+"
     r"(?:--(?:env|registry)(?:\s+\S+|=\S+)\s+)*"
@@ -996,9 +1000,10 @@ _GUARD_ADMIN_RE = re.compile(
     r")|"
     rf"(?:(?:[^\s;|&`]*/)?python3?(?:\.\d+)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+porter\b|(?:[^\s;|&`]*/)?porter\.py)|(?:[^\s;|&`]*/)?(?:porter\.py|(?:agy-)?porter)){_SUBPARSER_OPTS}\s+(?:stage\b|import\b[^\n;|&`]*\s--force\b)|"
     rf"(?:(?:[^\s;|&`]*/)?python3?(?:\.\d+)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+scripts\.verify_invariants\b|(?:[^\s;|&`]*/)?verify_invariants\.py)|(?:[^\s;|&`]*/)?verify_invariants\.py)\b[^\n;|&`]*\s--authorize(?:\b|=)"
-    r")",
-    re.IGNORECASE,
+    r")"
 )
+_GUARD_ADMIN_RE = re.compile(rf"(?:^|[;&|()\n`])\s*{_GUARD_ADMIN_BODY}", re.IGNORECASE)
+_DELEGATION_GUARD_ADMIN_RE = re.compile(rf"(?:^|[\s;|&()\n`'\"]){_GUARD_ADMIN_BODY}", re.IGNORECASE)
 
 _GUARD_API_TOKEN_PAT = (
     r"(?:"
@@ -1029,12 +1034,13 @@ _INSTALL_PY_RE = re.compile(
     re.IGNORECASE,
 )
 
-_WORKFLOW_INSTALL_EXEC_RE = re.compile(
-    rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
+_WORKFLOW_INSTALL_EXEC_BODY = (
+    rf"{_CMD_WRAPPER_PREFIX}"
     r"(?:(?:[^\s;|&`]*/)?(?:python3?(?:\.\d+)?|py|(?:ba|z|da|k)?sh)\s+(?:-[^\s;|&`]+\s+)*(?:[^\s;|&`]*/)?|(?:\./|/[^\s;|&`]*/))"
-    r"install\.py\b(?![^\n;|&`]*(?:--dry-run|--help|-h\b))",
-    re.IGNORECASE,
+    r"install\.py\b(?![^\n;|&`]*(?:--dry-run|--help|-h\b))"
 )
+_WORKFLOW_INSTALL_EXEC_RE = re.compile(rf"(?:^|[;&|()\n`])\s*{_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
+_DELEGATION_INSTALL_EXEC_RE = re.compile(rf"(?:^|[\s;|&()\n`'\"]){_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
 
 _QUOTED_SPAN_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 _BACKTICK_SPAN_RE = re.compile(r"`((?:\\.|[^`\\])+)`")
@@ -1453,8 +1459,47 @@ _GIT_GLOBAL_OPTS = (
     r"|-[pP]))*"
 )
 
+class _LazyRegex:
+    """Delays compilation of non-Pass-7 regexes until first match/search/sub/finditer call."""
+
+    __slots__ = ("_pattern", "_flags", "_compiled")
+
+    def __init__(self, pattern: str, flags: int = 0) -> None:
+        self._pattern = pattern
+        self._flags = flags
+        self._compiled: Optional[re.Pattern[str]] = None
+
+    def _get(self) -> re.Pattern[str]:
+        if self._compiled is None:
+            self._compiled = re.compile(self._pattern, self._flags)
+        return self._compiled
+
+    def search(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
+        return self._get().search(string, pos, endpos)
+
+    def match(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
+        return self._get().match(string, pos, endpos)
+
+    def finditer(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Iterator[re.Match[str]]:
+        return self._get().finditer(string, pos, endpos)
+
+    def findall(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> List[Any]:
+        return self._get().findall(string, pos, endpos)
+
+    def sub(self, repl: Any, string: str, count: int = 0) -> str:
+        return self._get().sub(repl, string, count)
+
+    @property
+    def pattern(self) -> str:
+        return self._pattern
+
+    @property
+    def flags(self) -> int:
+        return self._flags
+
+
 # Git hook bypass flags (--no-verify, git commit -n, core.hooksPath, --config-env=core.hooksPath, HUSKY=0, LEFTHOOK=0)
-_GIT_HOOK_BYPASS_RE = re.compile(
+_GIT_HOOK_BYPASS_RE = _LazyRegex(
     r"(?:"
     r"\bgit\b[^\n;|&]*\s--no-verify\b|"
     rf"\bgit{_GIT_GLOBAL_OPTS}\s+commit\b[^\n;|&]*\s-(?!-)[a-zA-Z]*n[a-zA-Z]*\b|"
@@ -1468,36 +1513,74 @@ _REMOTE_INTERPRETER_PAT = (
 )
 
 # Destructive shell/git operations that require explicit human confirmation (force_ask)
-_DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[re.Pattern[str], str], ...] = (
+_DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[Any, str], ...] = (
     (
-        re.compile(rf"\bgit{_GIT_GLOBAL_OPTS}\s+reset\b[^\n;|&]*--hard\b"),
+        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+reset\b[^\n;|&]*--hard\b"),
         "Destructive git operation (`git reset --hard`) discards uncommitted work (GEMINI.md Rule 12).",
     ),
     (
-        re.compile(
+        _LazyRegex(
             rf"\bgit{_GIT_GLOBAL_OPTS}\s+(?:checkout\s+(?:--\s+)?\.|restore\s+(?:(?:--worktree|--staged|-[sSW]+)\s+)*(?:--\s+)?\.)(?:\s|$|[;&|])"
         ),
         "Destructive git operation discards workspace modifications across the tree (GEMINI.md Rule 12).",
     ),
     (
-        re.compile(rf"\bgit{_GIT_GLOBAL_OPTS}\s+clean\b[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)"),
+        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+clean\b[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)"),
         "Destructive git operation (`git clean -f`) permanently deletes untracked files (GEMINI.md Rule 12).",
     ),
     (
-        re.compile(
+        _LazyRegex(
             rf"\bgit{_GIT_GLOBAL_OPTS}\s+push\b[^\n;|&]*(?:\s--force(?![-a-zA-Z])|\s-(?!-)[a-zA-Z]*f[a-zA-Z]*\b|\s['\"]?\+[A-Za-z0-9_./:-]+)"
         ),
         "Force-pushing (`git push --force` / `+refspec`) rewrites remote history (GEMINI.md Rule 12).",
     ),
     (
-        re.compile(
+        _LazyRegex(
+            rf"\bgit{_GIT_GLOBAL_OPTS}\s+branch\b[^\n;|&]*(?:\s-(?!-)[a-zA-Z]*D[a-zA-Z]*\b|"
+            r"(?=[^\n;|&]*--delete\b)(?=[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)))"
+        ),
+        "Force-deleting a git branch (`git branch -D` / `--delete --force`) may discard unmerged commits (GEMINI.md Rule 12).",
+    ),
+    (
+        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+stash\s+(?:drop|clear)\b"),
+        "Dropping or clearing git stashes (`git stash drop` / `git stash clear`) permanently discards stashed work (GEMINI.md Rule 12).",
+    ),
+    (
+        _LazyRegex(
             r"\brm\s+-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r|--recursive)\b\s+"
             r"(?:/(?:\s|$|[;&|])|~(?:/|\s|$|[;&|])|\$HOME\b|\.\.(?:/|\s|$|[;&|])|\*(?:\s|$|[;&|]))"
         ),
         "High-risk recursive deletion (`rm -rf` on root, home, parent, or wildcard) requires confirmation (GEMINI.md Rule 12).",
     ),
     (
-        re.compile(
+        _LazyRegex(
+            r"\bfind\b[^\n;|&]*(?:\s-delete\b|\s-(?:exec|execdir|ok)\s+(?:[^\s;|&]*/)?rm\b)"
+        ),
+        "Bulk file deletion via `find -delete` or `find -exec rm` requires explicit human confirmation (GEMINI.md Rule 12).",
+    ),
+    (
+        _LazyRegex(
+            r"(?:\bdropdb\b|"
+            r"\b(?:DROP\s+(?:DATABASE|TABLE|SCHEMA)|TRUNCATE\s+TABLE)\b|"
+            r"\bDELETE\s+FROM\s+[A-Za-z0-9_.`\"']+\s*(?:;|$|['\"]))",
+            re.IGNORECASE,
+        ),
+        "Destructive database operation (`dropdb`, `DROP TABLE/DATABASE/SCHEMA`, `TRUNCATE TABLE`, or unconditional `DELETE FROM`) requires explicit human confirmation (GEMINI.md Rule 12).",
+    ),
+    (
+        _LazyRegex(
+            r"\b(?:docker|podman)\s+(?:system|volume|builder|image|container)\s+prune\b[^\n;|&]*(?:\s--all\b|\s--volumes\b|\s-(?!-)[a-zA-Z]*a[a-zA-Z]*\b)"
+        ),
+        "Pruning all container/volume/builder caches (`docker/podman ... prune -a/--all/--volumes`) requires explicit human confirmation (GEMINI.md Rule 12).",
+    ),
+    (
+        _LazyRegex(
+            r"\bchmod\b[^\n;|&]*(?:\s--recursive\b|\s-(?!-)[a-zA-Z]*R[a-zA-Z]*\b)[^\n;|&]*\b(?:0?777|a\+rwx)\b"
+        ),
+        "Recursive world-writable permission change (`chmod -R 777`) is a security risk and requires explicit human confirmation (GEMINI.md Rule 12).",
+    ),
+    (
+        _LazyRegex(
             rf"(?:"
             rf"\b(?:curl|wget)\b[^\n|]*\|\s*{_CMD_WRAPPER_PREFIX}{_REMOTE_INTERPRETER_PAT}\b|"
             rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:{_REMOTE_INTERPRETER_PAT}|source|\.)\b[^\n;|&]*(?:<\(|\$\()\s*(?:[^\s;|&]*/)?(?:curl|wget)\b"
@@ -1507,14 +1590,88 @@ _DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[re.Pattern[str], str], ...] = (
         "Executing remote scripts directly via a shell or language interpreter is forbidden by supply-chain policy (GEMINI.md Rule 12).",
     ),
     (
-        re.compile(r"\b(?:npx|bunx|pnpm\s+dlx|uvx)\b[^\n;|&]*@latest\b"),
+        _LazyRegex(r"\b(?:npx|bunx|pnpm\s+dlx|uvx)\b[^\n;|&]*@latest\b"),
         "Executing unpinned `@latest` packages (`npx/bunx/uvx @latest`) violates supply-chain pinning rules (GEMINI.md Rule 12).",
     ),
 )
 
-_EXACT_NPM_VER_RE = re.compile(r"^(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[0-9a-fA-F]{40})$")
-_EXACT_PY_PIN_RE = re.compile(r"(?:==\s*\d+\.\d+(?:\.\d+)?[0-9A-Za-z._+-]*|@\s*git\+[^\s@]+@[0-9a-fA-F]{40})$")
-_NPX_SEGMENT_RE = re.compile(
+_RM_OR_MV_SEGMENT_RE = _LazyRegex(
+    rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?(?P<verb>rm|mv)\b(?P<rest>[^\n;|&`]*)"
+)
+
+
+def _detect_out_of_workspace_rm_or_mv(
+    cmd: str, workspaces: Sequence[Path], effective_cwd: Optional[Path]
+) -> Optional[str]:
+    """Detects recursive `rm` (`-r`/`-rf`/`--recursive`) or `mv` targeting paths outside active workspaces and `/tmp`."""
+    home_str = str(Path.home())
+    base_dir = effective_cwd if effective_cwd is not None else (workspaces[0] if workspaces else REPO_ROOT)
+    allowed_roots: List[Path] = [Path("/tmp"), Path("/var/tmp")]
+    env_tmp = os.environ.get("TMPDIR", "").strip()
+    if env_tmp:
+        allowed_roots.append(Path(os.path.abspath(env_tmp)))
+    if workspaces:
+        for ws in workspaces:
+            allowed_roots.append(Path(os.path.abspath(ws)))
+    if effective_cwd is not None:
+        allowed_roots.append(Path(os.path.abspath(effective_cwd)))
+    if not workspaces and effective_cwd is None:
+        allowed_roots.append(Path(os.path.abspath(REPO_ROOT)))
+
+    for m in _RM_OR_MV_SEGMENT_RE.finditer(cmd):
+        verb = m.group("verb")
+        rest = m.group("rest").strip()
+        if not rest:
+            continue
+        raw_tokens = [tok.strip("'\"") for tok in re.findall(r"'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+", rest)]
+        is_recursive_rm = False
+        pos_args: List[str] = []
+        after_ddash = False
+        for tok in raw_tokens:
+            if not tok or re.match(r"^\d*>{1,2}", tok) or tok in ("2>&1", ">/dev/null", "2>/dev/null"):
+                continue
+            if not after_ddash and tok == "--":
+                after_ddash = True
+                continue
+            if not after_ddash and tok.startswith("-") and len(tok) > 1:
+                if tok == "--recursive" or (not tok.startswith("--") and ("r" in tok[1:] or "R" in tok[1:])):
+                    is_recursive_rm = True
+                continue
+            pos_args.append(tok)
+
+        if verb == "rm" and not is_recursive_rm:
+            continue
+        if not pos_args:
+            continue
+
+        for arg in pos_args:
+            norm_arg = arg.replace("${HOME}", home_str).replace("$HOME", home_str)
+            if norm_arg == "~" or norm_arg.startswith("~/"):
+                norm_arg = home_str + norm_arg[1:]
+            if norm_arg.startswith("$"):
+                continue
+            if norm_arg in ("/dev/null",):
+                continue
+            if not norm_arg.startswith("/") and ".." not in norm_arg.split("/"):
+                continue
+            cand_raw = Path(norm_arg) if norm_arg.startswith("/") else (base_dir / norm_arg)
+            cand_abs = Path(os.path.abspath(cand_raw))
+            if not any(is_within(cand_abs, root) for root in allowed_roots):
+                if verb == "rm":
+                    return (
+                        f"High-risk recursive deletion (`rm -rf {arg}`) targeting path outside the active "
+                        "workspace requires explicit human confirmation (GEMINI.md Rule 12)."
+                    )
+                return (
+                    f"Moving files (`mv` targeting `{arg}`) outside the active workspace requires explicit "
+                    "human confirmation (GEMINI.md Rule 12)."
+                )
+    return None
+
+
+_EXACT_NPM_VER_RE = _LazyRegex(r"^(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[0-9a-fA-F]{40})$")
+_EXACT_PY_PIN_RE = _LazyRegex(r"(?:==\s*\d+\.\d+(?:\.\d+)?[0-9A-Za-z._+-]*|@\s*git\+[^\s@]+@[0-9a-fA-F]{40})$")
+_NPX_SEGMENT_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
     r"(?:[^\s;|&`]*/)?(?P<runner>npx|bunx|pnpm\s+dlx|uvx|pipx\s+run)\b(?P<rest>[^\n;|&`]*)",
     re.IGNORECASE,
@@ -1631,7 +1788,7 @@ def _detect_unpinned_package_exec(cmd: str) -> Optional[str]:
 
 
 # Stop-gate diff inspection regexes
-_TAUTOLOGY_PY_RE = re.compile(
+_TAUTOLOGY_PY_RE = _LazyRegex(
     r"^\+\s*(?:"
     r"assert\s+([A-Za-z0-9_.]+)\s*==\s*\1(?:\s|$|,|#)|"
     r"assert\s+True(?:\s|$|,|#)|"
@@ -1639,11 +1796,11 @@ _TAUTOLOGY_PY_RE = re.compile(
     r"self\.assertTrue\(\s*True\s*\)"
     r")"
 )
-_TAUTOLOGY_JS_RE = re.compile(
+_TAUTOLOGY_JS_RE = _LazyRegex(
     r"^\+\s*expect\(\s*([A-Za-z0-9_.]+)\s*\)\.(?:toBe|toEqual|toStrictEqual)\(\s*\1\s*\)"
 )
-_COMMENT_ADDED_LINE_RE = re.compile(r"^\+\s*(?:#|//)")
-_TEST_RUNNER_SNIFF_RE = re.compile(
+_COMMENT_ADDED_LINE_RE = _LazyRegex(r"^\+\s*(?:#|//)")
+_TEST_RUNNER_SNIFF_RE = _LazyRegex(
     r"^\+.*?(?:"
     r"PYTEST_CURRENT_TEST|"
     r"UNITTEST_RUNNING|"
@@ -1655,7 +1812,7 @@ _TEST_RUNNER_SNIFF_RE = re.compile(
     r"process\.env\.VITEST"
     r")"
 )
-_TEST_SKIP_RE = re.compile(
+_TEST_SKIP_RE = _LazyRegex(
     r"^\+\s*(?:"
     r"@pytest\.mark\.(?:skip(?:if)?|xfail)\b|"
     r"@unittest\.(?:skip(?:If|Unless)?|expectedFailure)\b|"
@@ -1809,15 +1966,15 @@ def _has_explicit_route_slug_mention(cleaned: str, route_key: str) -> bool:
     return any(_has_explicit_slug_mention(cleaned, slug) for slug in _ROUTE_EXPLICIT_SLUGS.get(route_key, ()))
 
 
+_ANY_EXPLICIT_SLUG_RE = re.compile(
+    rf"(?:^|(?<=[\s(\[\"'«“]))(?:{'|'.join(re.escape(s) for s in sorted(_KNOWN_INLINE_EXPLICIT_SLUGS, key=len, reverse=True))}){_SLASH_POST}",
+    re.IGNORECASE,
+)
+
+
 def _has_any_explicit_slug_mention(explicit_surface: str) -> bool:
     """Returns True when any known explicit skill or ecosystem route slug appears directly in user prose."""
-    for skill_name in _SKILL_HINT_BY_NAME:
-        if _has_explicit_slug_mention(explicit_surface, skill_name):
-            return True
-    for route_key in _ROUTE_EXPLICIT_SLUGS:
-        if _has_explicit_route_slug_mention(explicit_surface, route_key):
-            return True
-    return False
+    return bool(_ANY_EXPLICIT_SLUG_RE.search(explicit_surface))
 
 
 def _load_conv_hint_state(raw_entry: Any) -> Tuple[Dict[str, int], int, str]:
@@ -1844,14 +2001,15 @@ def _load_conv_hint_state(raw_entry: Any) -> Tuple[Dict[str, int], int, str]:
 
 def _extract_latest_user_prompt(payload: Dict[str, Any]) -> Tuple[str, int]:
     """
-    Returns (user_text, step_idx) from explicit payload fields or from transcriptPath JSONL.
+    Returns (user_text, step_idx) from explicit payload fields (`lastUserInput`, `last_user_input`, `prompt`, etc.)
+    or from transcriptPath JSONL.
     """
     step_raw = payload.get("stepIdx")
     if step_raw is None:
         step_raw = payload.get("initialNumSteps")
     explicit_step = max(0, _safe_int(step_raw, default=0))
 
-    for key in ("prompt", "userPrompt", "userMessage", "user_prompt"):
+    for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "userMessage", "user_prompt"):
         val = payload.get(key)
         if isinstance(val, str) and val.strip():
             return val.strip()[:131072], explicit_step
@@ -1940,19 +2098,21 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _read_ledger_checked(path: Path) -> Tuple[bool, Dict[str, Any]]:
-    """Reads a JSON dict ledger, quarantining corrupt state and reporting whether inspection succeeded."""
+def _read_ledger_checked(path: Path, *, quarantine: bool = True) -> Tuple[bool, Dict[str, Any]]:
+    """Reads a JSON dict ledger, optionally quarantining corrupt state, and reports whether inspection succeeded."""
     try:
         data = read_json_strict(path)
     except (CorruptStateError, UnicodeDecodeError):
-        move_aside(path, tag="corrupt")
+        if quarantine:
+            move_aside(path, tag="corrupt")
         return False, {}
     except OSError:
         return False, {}
     if data is None:
         return True, {}
     if not isinstance(data, dict):
-        move_aside(path, tag="corrupt")
+        if quarantine:
+            move_aside(path, tag="corrupt")
         return False, {}
     return True, data
 
@@ -1978,6 +2138,25 @@ def _read_bounded_markdown_checked(path: Path, limit: int = 262144) -> Tuple[boo
 def _read_bounded_markdown(path: Path, limit: int = 262144) -> str:
     """Reads up to `limit` bytes from a non-symlink regular file without skipping large logs."""
     return _read_bounded_markdown_checked(path, limit=limit)[1]
+
+
+def _has_linked_git_file(workspace: Path) -> bool:
+    """True when `workspace` (or an ancestor) has a `.git` file pointer (linked worktree)."""
+    cur = workspace
+    try:
+        cur = workspace.resolve()
+    except (OSError, RuntimeError):
+        pass
+    for cand in (cur, *cur.parents):
+        git_marker = cand / ".git"
+        try:
+            if git_marker.is_file():
+                return True
+            if git_marker.is_dir():
+                return False
+        except OSError:
+            continue
+    return False
 
 
 def _capture_git_baseline(workspace: Path) -> Tuple[str, str]:
@@ -2018,8 +2197,17 @@ def _capture_git_baseline(workspace: Path) -> Tuple[str, str]:
         if stash_res.returncode == 0:
             candidate_stash = stash_res.stdout.strip()
             if _HEX_OID_RE.match(candidate_stash):
+                from guard.paths import path_key
+                from guard.test_boundary import TestBoundaryGuard
+
+                ref_name = "refs/harness/pre-edit"
+                if (
+                    TestBoundaryGuard.resolve_linked_worktree_root(workspace) is not None
+                    or _has_linked_git_file(workspace)
+                ):
+                    ref_name = f"refs/harness/pre-edit-wt-{path_key(workspace)}"
                 ref_res = subprocess.run(
-                    ["git", "-C", str(workspace), "update-ref", "refs/harness/pre-edit", candidate_stash],
+                    ["git", "-C", str(workspace), "update-ref", ref_name, candidate_stash],
                     capture_output=True,
                     text=True,
                     timeout=2,
@@ -2027,8 +2215,19 @@ def _capture_git_baseline(workspace: Path) -> Tuple[str, str]:
                 )
                 if ref_res.returncode == 0:
                     pre_edit_stash = candidate_stash
-    except (OSError, subprocess.SubprocessError):
-        pass
+                else:
+                    sys.stderr.write(
+                        f"[Harness Flight Recorder] `git update-ref {ref_name}` failed in `{workspace}` "
+                        f"(exit {ref_res.returncode}).\n"
+                    )
+        else:
+            sys.stderr.write(
+                f"[Harness Flight Recorder] `git stash create` failed in `{workspace}` (exit {stash_res.returncode}).\n"
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write(
+            f"[Harness Flight Recorder] Failed to capture pre-edit stash in `{workspace}` ({type(exc).__name__}): {exc}\n"
+        )
 
     return base_head, pre_edit_stash
 
@@ -2123,8 +2322,25 @@ def _record_flight_pre_write(
                 oldest = next(iter(ledger))
                 del ledger[oldest]
             atomic_write_json(flight_file, ledger)
-    except (OSError, TimeoutError):
-        pass
+    except (OSError, TimeoutError) as exc:
+        sys.stderr.write(
+            f"[Harness Flight Recorder] Failed to persist `{flight_file}` ({type(exc).__name__}): {exc}\n"
+        )
+
+
+def _prune_missing_flight_workspaces(ledger: Dict[str, Any]) -> bool:
+    """Removes orphaned flight-recorder entries whose workspace directory was deleted on disk."""
+    pruned = False
+    for k in list(ledger.keys()):
+        if not isinstance(k, str) or not k.strip():
+            continue
+        try:
+            if not Path(k).is_dir() and not os.path.lexists(k):
+                del ledger[k]
+                pruned = True
+        except (OSError, ValueError):
+            continue
+    return pruned
 
 
 def _record_flight_stop(
@@ -2142,18 +2358,29 @@ def _record_flight_stop(
     `"in_progress_blocked"` (`>0` findings), without allowing a read-only turn in a new
     conversation to erase an unrecovered crash/blocked state on a still-dirty workspace.
     """
-    if workspace is None or not workspace.is_dir():
-        return
     flight_file = _flight_recorder_file()
+    if workspace is None or not workspace.is_dir():
+        if workspace is not None and flight_file.is_file():
+            try:
+                with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
+                    ledger = _read_ledger_safe(flight_file)
+                    if _prune_missing_flight_workspaces(ledger):
+                        atomic_write_json(flight_file, ledger)
+            except (OSError, RuntimeError, TimeoutError):
+                pass
+        return
     if not flight_file.is_file() and not (create_if_missing and findings_count > 0):
         return
     try:
         ws_key = str(workspace.resolve())
         with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
             ledger = _read_ledger_safe(flight_file)
+            pruned_dead = _prune_missing_flight_workspaces(ledger)
             entry = ledger.get(ws_key)
             if not isinstance(entry, dict):
                 if not (create_if_missing and findings_count > 0):
+                    if pruned_dead:
+                        atomic_write_json(flight_file, ledger)
                     return
                 ledger[ws_key] = {
                     "workspace": ws_key,
@@ -2244,7 +2471,16 @@ def _detect_workspace_recovery_hint(
          on the opening turn of a new conversation.
     Returns `(inspect_ok, (dedup_key, recovery_message, ack_in_flight_seq) | None)`.
     """
+    flight_file = _flight_recorder_file()
     if workspace is None or not workspace.is_dir():
+        if workspace is not None and flight_file.is_file():
+            try:
+                with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
+                    ledger_ok, ledger = _read_ledger_checked(flight_file)
+                    if ledger_ok and _prune_missing_flight_workspaces(ledger):
+                        atomic_write_json(flight_file, ledger)
+            except (OSError, TimeoutError):
+                pass
         return True, None
 
     try:
@@ -2256,13 +2492,14 @@ def _detect_workspace_recovery_hint(
     flight_alert_reason = ""
     ack_seq: Optional[int] = None
     inspect_ok = True
-    flight_file = _flight_recorder_file()
     if flight_file.is_file():
         try:
             with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
                 ledger_ok, ledger = _read_ledger_checked(flight_file)
                 if not ledger_ok:
                     inspect_ok = False
+                elif _prune_missing_flight_workspaces(ledger):
+                    atomic_write_json(flight_file, ledger)
                 if isinstance(ledger.get(ws_key), dict):
                     flight_entry = dict(ledger[ws_key])
                     status = str(flight_entry.get("status") or "")
@@ -2397,7 +2634,7 @@ def _workspaces_from_payload(payload: Dict[str, Any]) -> List[Path]:
     if isinstance(paths, list):
         for entry in paths:
             _add_ws(entry)
-    for key in ("workspacePath", "workspace_path", "cwd", "workspace"):
+    for key in ("workspacePath", "workspace_path", "worktreePath", "worktree_path", "cwd", "workspace"):
         _add_ws(payload.get(key))
     return found
 
@@ -2949,8 +3186,12 @@ def _collect_invocation_skill_hints(
     skill_candidates: List[Tuple[int, int, str, str, str]] = []
     for table_idx, (skill_name, rel_path, pattern, summary) in enumerate(SKILL_HINTS):
         aliases = _SKILL_SLASH_ALIASES.get(skill_name, (skill_name,))
-        explicit_slash = _has_explicit_slash_command(explicit_surface, aliases)
-        explicit_slug = False if explicit_slash else _has_explicit_slug_mention(explicit_surface, skill_name)
+        explicit_slash = has_explicit_cmd and _has_explicit_slash_command(explicit_surface, aliases)
+        explicit_slug = (
+            False
+            if (not has_explicit_cmd or explicit_slash)
+            else _has_explicit_slug_mention(explicit_surface, skill_name)
+        )
         is_explicit = explicit_slash or explicit_slug
         if not is_explicit:
             if not has_viable_token and "@\\[" not in pattern.pattern:
@@ -2972,15 +3213,21 @@ def _collect_invocation_skill_hints(
     route_candidates: List[Tuple[int, int, str, str]] = []
     for table_idx, (route_key, pattern, directive) in enumerate(ECOSYSTEM_ROUTING_HINTS):
         route_aliases = _ROUTE_SLASH_ALIASES.get(route_key, ())
-        explicit_route_slash = _has_explicit_slash_command(explicit_surface, route_aliases)
-        if route_key == "route:subagent:meta-auditor" and re.search(
-            rf"{_SLASH_PRE}/audit\s+--(?:meta|self){_SLASH_POST}",
-            explicit_surface,
-            re.IGNORECASE,
+        explicit_route_slash = has_explicit_cmd and _has_explicit_slash_command(explicit_surface, route_aliases)
+        if (
+            has_explicit_cmd
+            and route_key == "route:subagent:meta-auditor"
+            and re.search(
+                rf"{_SLASH_PRE}/audit\s+--(?:meta|self){_SLASH_POST}",
+                explicit_surface,
+                re.IGNORECASE,
+            )
         ):
             explicit_route_slash = True
         explicit_route_slug = (
-            False if explicit_route_slash else _has_explicit_route_slug_mention(explicit_surface, route_key)
+            False
+            if (not has_explicit_cmd or explicit_route_slash)
+            else _has_explicit_route_slug_mention(explicit_surface, route_key)
         )
         is_explicit_route = explicit_route_slash or explicit_route_slug
         if not is_explicit_route:
@@ -3040,6 +3287,42 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             seen_turns, turn_num, last_sig = _load_conv_hint_state(ledger.get(conv_id))
             first_turn_in_conv = "__workspace_checked__" not in seen_turns
             is_new_user_turn = (not is_short_or_continuation) and (current_sig != last_sig)
+            inv_raw = payload.get("invocationNum")
+            if inv_raw is None:
+                inv_raw = payload.get("invocation_num")
+            inv_num = _safe_int(inv_raw, default=1)
+            if inv_num > 1 and not is_new_user_turn and (not workspaces or not first_turn_in_conv):
+                active_turn = max(turn_num, 1)
+                tx_keys: set[str] = set()
+                if payload.get("transcriptPath") or payload.get("transcript_path"):
+                    for s_name, s_path, s_desc in _detect_transcript_tool_signals(payload):
+                        key = f"domain:{s_name}"
+                        prev_turn = seen_turns.get(key)
+                        if prev_turn is None or (active_turn - prev_turn) >= REHINT_TURN_GAP:
+                            if len(matched) < MAX_CONTEXT_SIGNALS:
+                                matched.append((key, f"`{s_name}` ({s_path})", s_desc))
+                                tx_keys.add(key)
+                if not tx_keys:
+                    return {}
+                for key in tx_keys:
+                    seen_turns[key] = active_turn
+                serialized_fast: Dict[str, Any] = {k: seen_turns[k] for k in sorted(seen_turns)}
+                serialized_fast["__turn__"] = turn_num
+                serialized_fast["__last_sig__"] = last_sig
+                if conv_id in ledger:
+                    del ledger[conv_id]
+                ledger[conv_id] = serialized_fast
+                while len(ledger) > 50:
+                    oldest = next(iter(ledger))
+                    del ledger[oldest]
+                atomic_write_json(hints_file, ledger)
+                items_fast = [f"- {label} — {desc}" for _, label, desc in matched]
+                msg_fast = (
+                    "[Harness Context Signal] Workspace or tool traces match these domain skills:\n"
+                    + "\n".join(items_fast)
+                )
+                return {"injectSteps": [{"systemMessage": {"systemMessage": msg_fast}}]}
+
             state_dirty = False
             if is_new_user_turn:
                 turn_num += 1
@@ -3277,8 +3560,18 @@ def _state_root_candidates() -> List[Path]:
 def _governance_roots() -> List[Path]:
     roots: List[Path] = []
     home = Path.home()
+    cfg_cands = _config_root_candidates()
+    gemini_parent_files: List[Path] = [
+        Path(os.path.abspath(home / ".gemini" / "GEMINI.md")),
+        Path(os.path.abspath(home / ".gemini" / "AGENTS.md")),
+    ]
+    for cfg_cand in cfg_cands:
+        if cfg_cand.name == "config" and cfg_cand.parent.name == ".gemini":
+            gemini_parent_files.append(cfg_cand.parent / "GEMINI.md")
+            gemini_parent_files.append(cfg_cand.parent / "AGENTS.md")
     candidates: List[Path] = [
-        *_config_root_candidates(),
+        *cfg_cands,
+        *gemini_parent_files,
         *_state_root_candidates(),
         data_dir(),
         data_dir() / "runtime",
@@ -3490,6 +3783,12 @@ def _normalize_governance_globs(cmd: str) -> str:
     """Canonicalizes wildcard-obfuscated governance path prefixes (`~/.gem*/config`, `~/.local/bin/agy-*`)."""
     out = re.sub(r"(?:~|\$HOME)/\.gem[^\s;|&'\"/]*/conf[^\s;|&'\"/]*", "~/.gemini/config", cmd)
     out = re.sub(
+        r"(?:~|\$HOME)/\.gem[^\s;|&'\"/]*/(GEMINI|AGENTS)\.md\b",
+        r"~/.gemini/\1.md",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
         r"(?:~|\$HOME)/\.local/(state|share)/antigravity-[^\s;|&'\"/]*",
         r"~/.local/\1/antigravity-harness",
         out,
@@ -3532,8 +3831,14 @@ def _command_mutates_governance(cmd: str) -> bool:
                 inline_cmd,
             )
         if re.search(
-            r"(?:['\"]\.gemini['\"]\s*/\s*['\"]config['\"]|\.gemini/config|antigravity-(?:harness|guard)|['\"]\.local['\"]\s*/\s*['\"]bin['\"]\s*/\s*['\"]agy-|\.local/bin/agy-)",
+            r"(?:['\"]\.gemini['\"]\s*(?:/|,)\s*['\"](?:config|GEMINI\.md|AGENTS\.md)['\"]|"
+            r"\.gemini/(?:config|GEMINI\.md|AGENTS\.md)|"
+            r"(?:\.local/(?:state|share)|/usr/(?:lib|share))/antigravity-(?:harness|guard)|"
+            r"['\"](?:state|share|lib)['\"]\s*(?:/|,)\s*['\"]antigravity-(?:harness|guard)['\"]|"
+            r"['\"]\.local['\"]\s*(?:/|,)\s*['\"]bin['\"]\s*(?:/|,)\s*['\"]agy-|"
+            r"\.local/bin/agy-)",
             inline_cmd,
+            re.IGNORECASE,
         ) and re.search(
             r"(?:write_text|write_bytes|\.write\s*\(|\bopen\s*\([^)]*['\"][wa+x]|unlink|remove|rmtree|rename|replace|chmod|symlink|shutil\.(?:copy|move|rmtree))",
             cmd,
@@ -3546,6 +3851,18 @@ def _command_mutates_governance(cmd: str) -> bool:
             [*(str(p) for p in _config_root_candidates()), "~/.gemini/config", "$HOME/.gemini/config"]
         )
     )
+    gemini_top_files = [
+        str(home / ".gemini" / "GEMINI.md"),
+        str(home / ".gemini" / "AGENTS.md"),
+        "~/.gemini/GEMINI.md",
+        "$HOME/.gemini/GEMINI.md",
+        "~/.gemini/AGENTS.md",
+        "$HOME/.gemini/AGENTS.md",
+    ]
+    for cfg_cand in _config_root_candidates():
+        if cfg_cand.name == "config" and cfg_cand.parent.name == ".gemini":
+            gemini_top_files.append(str(cfg_cand.parent / "GEMINI.md"))
+            gemini_top_files.append(str(cfg_cand.parent / "AGENTS.md"))
     state_roots = list(
         dict.fromkeys(
             [
@@ -3570,6 +3887,7 @@ def _command_mutates_governance(cmd: str) -> bool:
     guard_roots = list(
         dict.fromkeys(
             state_roots
+            + gemini_top_files
             + [
                 str(data_dir()),
                 str(data_dir() / "runtime"),
@@ -3677,7 +3995,6 @@ _CUSTOMIZATION_BASENAMES = frozenset({
     "gemini.md",
     "agents.md",
     "claude.md",
-    "design.md",
     "hooks.json",
     "mcp_config.json",
     "skills.json",
@@ -3757,7 +4074,7 @@ _USER_SETTINGS_BLOCK_RE = re.compile(r"(?is)<USER_SETTINGS_CHANGE\b[^<>]*>(.*?)<
 
 _CUST_CMD_UNIVERSAL_TARGET_PAT = (
     r"(?:\.agents?\b|_agents?\b|\.claude\b|\.cursor\b|\.harness\b|"
-    r"GEMINI\.md\b|AGENTS\.md\b|CLAUDE\.md\b|DESIGN\.md\b|hooks\.json\b|"
+    r"GEMINI\.md\b|AGENTS\.md\b|CLAUDE\.md\b|hooks\.json\b|"
     r"mcp_config\.json\b|skills\.json\b|plugins\.json\b|\.cursorrules\b|"
     r"SKILL\.md\b|[A-Za-z0-9_.-]+\.mdc\b|"
     r"guard\.py\b|porter\.py\b|install\.py\b|scripts/meta_audit\.py\b|scripts/verify_invariants\.py\b)"
@@ -3940,6 +4257,7 @@ def _extract_transcript_model_and_effort(payload: Dict[str, Any]) -> Tuple[str, 
                     found_model = mod_matches[-1].strip()
                     if not found_effort:
                         found_effort = _infer_effort_from_model_label(found_model)
+                    return found_model, found_effort
             if found_model and found_effort:
                 return found_model, found_effort
     return found_model, found_effort
@@ -4119,11 +4437,45 @@ def _command_mutates_customization_structure(cmd: str, *, harness_scope: bool = 
     return False
 
 
+def _is_model_placeholder(label: Any) -> bool:
+    """Returns True when `label` is an opaque Antigravity model placeholder such as `MODEL_PLACEHOLDER_M417`."""
+    return isinstance(label, str) and label.strip().upper().startswith("MODEL_PLACEHOLDER")
+
+
+def _seed_placeholder_diagnostic(placeholder_id: str, *, effort_verified: bool = False) -> str:
+    """Checks canonical `upstream_state.seed.json` entries to produce a diagnostic alias hint."""
+    target_up = placeholder_id.strip().upper()
+    eff_note = (
+        "effort verified in payload, model identity unverified"
+        if effort_verified
+        else "effort unverified in payload"
+    )
+    seed_paths = [
+        REPO_ROOT / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        configured_config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        Path("/usr/share/antigravity-harness/skills/upstream-auditor/upstream_state.seed.json"),
+    ]
+    for seed_file in seed_paths:
+        try:
+            if seed_file.is_file():
+                data = json.loads(seed_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    seed_pbtxt = str(data.get("last_pbtxt_model") or "").strip()
+                    seed_model = str(data.get("last_audited_model") or "").strip()
+                    if seed_pbtxt and seed_pbtxt.upper() == target_up and seed_model:
+                        return f"matches seed `last_pbtxt_model` -> `{seed_model}`, {eff_note}"
+        except (OSError, ValueError):
+            continue
+    return "unmapped placeholder not registered in `upstream_state.seed.json` — run `/audit-upstream --model`"
+
+
 def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optional[Tuple[str, str]]:
     """
     Evaluates Rule 17 top-catalog model and highest-effort requirements for customization writes.
     Returns `("deny", reason)` on downgraded/malformed model or effort, `("force_ask", reason)`
-    when model/effort metadata is absent from both payload and transcript, or `None` when compliant.
+    when model/effort metadata is absent or only an opaque `MODEL_PLACEHOLDER_*` without
+    corroborating concrete model identity, or `None` when compliant.
     """
     model_keys = ("modelName", "model_name", "model", "selectedModel", "selected_model", "activeModel", "active_model")
     effort_keys = (
@@ -4144,6 +4496,7 @@ def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optiona
     top_name, allowed_slugs = _catalog_top_model_spec()
     has_model_key = False
     raw_model = ""
+    placeholder_or_auto = ""
     for container in containers:
         for k in model_keys:
             if k in container:
@@ -4154,8 +4507,13 @@ def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optiona
                         "deny",
                         "[Harness Customization Model Gate] Malformed non-string model identifier in hook payload (GEMINI.md Rule 17).",
                     )
-                if isinstance(val, str) and val.strip() and not raw_model:
-                    raw_model = val.strip()
+                if isinstance(val, str) and val.strip():
+                    val_s = val.strip()
+                    if _is_model_placeholder(val_s) or val_s.lower() == "auto":
+                        if not placeholder_or_auto or (_is_model_placeholder(val_s) and placeholder_or_auto.lower() == "auto"):
+                            placeholder_or_auto = val_s
+                    elif not raw_model:
+                        raw_model = val_s
 
     has_effort_key = False
     raw_effort = ""
@@ -4184,8 +4542,14 @@ def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optiona
             ),
         )
 
-    # Latest <USER_SETTINGS_CHANGE> in transcript is authoritative over "auto" or stale session-start payload fields.
-    effective_model = transcript_model if transcript_model else raw_model
+    # Latest <USER_SETTINGS_CHANGE> in transcript is authoritative over stale session-start payload fields.
+    if transcript_model:
+        effective_model = transcript_model
+    elif raw_model:
+        effective_model = raw_model
+    else:
+        effective_model = placeholder_or_auto
+
     effective_effort = transcript_effort if transcript_effort else raw_effort
     has_eff = has_effort_key or bool(transcript_effort)
     norm_effort = _normalize_effort_value(effective_effort) if has_eff else ""
@@ -4200,6 +4564,17 @@ def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optiona
                     f"active effort is `{effective_effort}` (GEMINI.md Rule 17)."
                 ),
             )
+
+    if _is_model_placeholder(effective_model):
+        diag = _seed_placeholder_diagnostic(effective_model, effort_verified=has_eff)
+        return (
+            "force_ask",
+            (
+                "[Harness Customization Model Gate] Modifying customization or governance architecture "
+                f"requires `{top_name}` (`High`/`XHigh`/`Max`); runtime reported opaque placeholder "
+                f"`{effective_model}` ({diag}). Supply concrete model identity or confirm explicitly (GEMINI.md Rule 17)."
+            ),
+        )
 
     compatible_suffixes = (
         _allowed_slug_suffixes_for_effort(norm_effort)
@@ -4247,6 +4622,40 @@ def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optiona
             or effort_mismatch_with_model
             or (not direct_slug_match and not combined_top_slug)
         ):
+            verified_top_effort = bool(
+                (has_eff and norm_effort in _ALLOWED_TOP_EFFORT_VALUES)
+                or (not has_eff and model_suffix in ("extra-high", "xhigh", "extra", "maximum", "max", "high"))
+            )
+            base_model_slug = eff_slug[: -len(model_suffix) - 1] if model_suffix else eff_slug
+            is_known_catalog_base = any(
+                s == base_model_slug or s.startswith(f"{base_model_slug}-") for s in allowed_slugs
+            )
+            is_known_non_flagship = bool(
+                re.search(
+                    r"\b(?:flash|lite|mini|nano|small|haiku|sonnet|gpt-4o|gpt-3\.5)\b",
+                    eff_slug,
+                )
+                or eff_slug == "orchestrator"
+                or eff_slug.startswith("orchestrator-")
+            )
+            if (
+                eff_slug
+                and eff_slug != "auto"
+                and not effort_mismatch_with_model
+                and verified_top_effort
+                and not is_known_catalog_base
+                and not is_known_non_flagship
+            ):
+                return (
+                    "force_ask",
+                    (
+                        "[Harness Customization Model Gate] Active model "
+                        f"`{effective_model}` at high effort is not yet listed in `upstream_state.seed.json` "
+                        f"(`{top_name}` / approved: `{', '.join(sorted(allowed_slugs))}`); "
+                        "human confirmation is required to authorize this flagship model before modifying "
+                        "customization or governance files (GEMINI.md Rule 17)."
+                    ),
+                )
             return (
                 "deny",
                 (
@@ -6411,7 +6820,7 @@ def _inspect_workflow_script(
                         return inner_res, []
                     if inner_res.get("decision") == "force_ask":
                         force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                elif inner_tool in ("invoke_subagent", "swarm"):
+                elif inner_tool in ("invoke_subagent", "swarm", "post_message", "send_message", "define_subagent", "schedule"):
                     if has_dynamic_kw:
                         return (
                             {
@@ -6429,7 +6838,7 @@ def _inspect_workflow_script(
                         **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
                         "toolCall": {"name": inner_tool, "args": static_kwargs},
                     }
-                    if inner_tool == "swarm":
+                    if inner_tool in ("swarm", "post_message", "send_message", "define_subagent", "invoke_subagent"):
                         inner_payload["_swarmOverlay"] = swarm_overlay
                         inner_payload["_pendingSwarmOps"] = local_swarm_ops
                     inner_res = handle_pre_tool_use(inner_payload)
@@ -7908,7 +8317,7 @@ def _read_swarm_workers_ledger() -> Tuple[bool, Dict[str, Any]]:
         return True, {}
     try:
         with file_lock(workers_file, timeout=HOOK_LOCK_TIMEOUT):
-            ok, data = _read_ledger_checked(workers_file)
+            ok, data = _read_ledger_checked(workers_file, quarantine=False)
             return ok, data
     except (OSError, TimeoutError) as exc:
         sys.stderr.write(f"[Harness Swarm Guard] Failed to lock `{workers_file}` ({type(exc).__name__}): {exc}\n")
@@ -7925,17 +8334,20 @@ def _apply_swarm_entry_mutation(
     conv_cust: bool = False,
     downgraded_worker: str = "",
     clear_downgraded: str = "",
+    add_custom_subagent: str = "",
 ) -> None:
     raw_entry = ledger.get(conv_id)
     entry = raw_entry if isinstance(raw_entry, dict) else {}
     exact = [str(x) for x in entry.get("exact", []) if isinstance(x, str)]
     prefixes = [str(x) for x in entry.get("prefixes", []) if isinstance(x, str)]
     downgraded = [str(x) for x in entry.get("downgraded", []) if isinstance(x, str)]
+    custom_subagents = [str(x) for x in entry.get("custom_subagents", []) if isinstance(x, str)]
     conv_has_cust = bool(entry.get("conv_has_cust")) or conv_cust
 
     if remove_worker:
         exact = [x for x in exact if x != remove_worker]
-        downgraded = [x for x in downgraded if x != remove_worker]
+        prefixes = [p for p in prefixes if p != f"{remove_worker}-"]
+        downgraded = [x for x in downgraded if not _worker_matches_downgraded(x, {remove_worker})]
     if add_worker:
         if add_worker not in exact:
             exact.append(add_worker)
@@ -7946,20 +8358,74 @@ def _apply_swarm_entry_mutation(
     if downgraded_worker and downgraded_worker not in downgraded:
         downgraded.append(downgraded_worker)
     if clear_downgraded:
-        downgraded = [x for x in downgraded if x != clear_downgraded]
+        downgraded = [x for x in downgraded if not _worker_matches_downgraded(x, {clear_downgraded})]
+    if add_custom_subagent and add_custom_subagent not in custom_subagents:
+        custom_subagents.append(add_custom_subagent)
 
     if conv_id in ledger:
         del ledger[conv_id]
-    if exact or prefixes or downgraded or conv_has_cust:
-        ledger[conv_id] = {
+    if exact or prefixes or downgraded or conv_has_cust or custom_subagents:
+        updated_entry: Dict[str, Any] = {
             "exact": exact[-128:],
             "prefixes": prefixes[-64:],
             "downgraded": downgraded[-64:],
             "conv_has_cust": conv_has_cust,
         }
+        if custom_subagents:
+            updated_entry["custom_subagents"] = custom_subagents[-64:]
+        ledger[conv_id] = updated_entry
     while len(ledger) > 256:
         oldest = next(iter(ledger))
         del ledger[oldest]
+
+
+_SWARM_MUTATION_KEYS = (
+    "add_worker",
+    "remove_worker",
+    "conv_cust",
+    "downgraded_worker",
+    "clear_downgraded",
+    "add_custom_subagent",
+)
+
+
+def _batch_update_swarm_workers_ledger(ops: Sequence[Dict[str, Any]]) -> bool:
+    """Applies one or more `swarm_workers.json` mutations atomically under a single file lock."""
+    valid_ops = [
+        op
+        for op in ops
+        if isinstance(op, dict)
+        and str(op.get("conv_id") or "").strip()
+        and any(op.get(k) for k in _SWARM_MUTATION_KEYS)
+    ]
+    if not valid_ops:
+        return True
+    workers_file = _swarm_workers_file()
+    try:
+        workers_file.parent.mkdir(parents=True, exist_ok=True)
+        with file_lock(workers_file, timeout=HOOK_LOCK_TIMEOUT):
+            ok, ledger = _read_ledger_checked(workers_file, quarantine=False)
+            if not ok:
+                sys.stderr.write(f"[Harness Swarm Guard] Refusing to clobber unreadable `{workers_file}`.\n")
+                return False
+            for op in valid_ops:
+                cid = str(op.get("conv_id") or "").strip()
+                _apply_swarm_entry_mutation(
+                    ledger,
+                    cid,
+                    add_worker=str(op.get("add_worker") or ""),
+                    sharded=bool(op.get("sharded")),
+                    remove_worker=str(op.get("remove_worker") or ""),
+                    conv_cust=bool(op.get("conv_cust")),
+                    downgraded_worker=str(op.get("downgraded_worker") or ""),
+                    clear_downgraded=str(op.get("clear_downgraded") or ""),
+                    add_custom_subagent=str(op.get("add_custom_subagent") or ""),
+                )
+            atomic_write_json(workers_file, ledger)
+        return True
+    except (OSError, TimeoutError) as exc:
+        sys.stderr.write(f"[Harness Swarm Guard] Failed to update `{workers_file}` ({type(exc).__name__}): {exc}\n")
+        return False
 
 
 def _update_swarm_workers_ledger(
@@ -7971,32 +8437,22 @@ def _update_swarm_workers_ledger(
     conv_cust: bool = False,
     downgraded_worker: str = "",
     clear_downgraded: str = "",
+    add_custom_subagent: str = "",
 ) -> bool:
-    if not conv_id or not any((add_worker, remove_worker, conv_cust, downgraded_worker, clear_downgraded)):
-        return True
-    workers_file = _swarm_workers_file()
-    try:
-        workers_file.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(workers_file, timeout=HOOK_LOCK_TIMEOUT):
-            ok, ledger = _read_ledger_checked(workers_file)
-            if not ok:
-                sys.stderr.write(f"[Harness Swarm Guard] Refusing to clobber unreadable `{workers_file}`.\n")
-                return False
-            _apply_swarm_entry_mutation(
-                ledger,
-                conv_id,
-                add_worker=add_worker,
-                sharded=sharded,
-                remove_worker=remove_worker,
-                conv_cust=conv_cust,
-                downgraded_worker=downgraded_worker,
-                clear_downgraded=clear_downgraded,
-            )
-            atomic_write_json(workers_file, ledger)
-        return True
-    except (OSError, TimeoutError) as exc:
-        sys.stderr.write(f"[Harness Swarm Guard] Failed to update `{workers_file}` ({type(exc).__name__}): {exc}\n")
-        return False
+    return _batch_update_swarm_workers_ledger(
+        [
+            {
+                "conv_id": conv_id,
+                "add_worker": add_worker,
+                "sharded": sharded,
+                "remove_worker": remove_worker,
+                "conv_cust": conv_cust,
+                "downgraded_worker": downgraded_worker,
+                "clear_downgraded": clear_downgraded,
+                "add_custom_subagent": add_custom_subagent,
+            }
+        ]
+    )
 
 
 def _record_swarm_cust_worker(
@@ -8049,6 +8505,141 @@ def _check_delegated_model_gate(
     return None, is_downgraded
 
 
+_DELEGATION_MUTATION_VERB_RE = re.compile(
+    r"\b(?:edit|write|modify|overwrite|replace|update|patch|append|create|delete|remove|rm|unlink|"
+    r"chmod|chown|unlock|rebaseline|copy|cp|mv|move|symlink|ln)\b",
+    re.IGNORECASE,
+)
+_DELEGATION_PATH_TOKEN_RE = re.compile(r"(?:~|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|[A-Za-z]:)?[^\s'\"`<>|;&(),]+")
+_SWARM_MENTION_RE = re.compile(r"(?<![A-Za-z0-9._-])@([a-z0-9][a-z0-9_-]*)", re.IGNORECASE)
+
+
+def _swarm_ledger_context(
+    payload: Dict[str, Any],
+    conv_id: str,
+) -> Tuple[bool, Optional[Dict[str, Any]], Callable[..., bool]]:
+    """Loads `swarm_workers.json` (or workflow overlay) and returns `(ledger_ok, conv_entry, emit_fn)`."""
+    dry_check = bool(payload.get("_workflowDryCheck"))
+    overlay = payload.get("_swarmOverlay") if isinstance(payload.get("_swarmOverlay"), dict) else None
+    pending_ops = payload.get("_pendingSwarmOps") if isinstance(payload.get("_pendingSwarmOps"), list) else None
+
+    def _emit_swarm_mutation(
+        *,
+        batch_ops: Optional[Sequence[Dict[str, Any]]] = None,
+        **mut_kwargs: Any,
+    ) -> bool:
+        ops_list = (
+            [{"conv_id": str(op.get("conv_id") or conv_id), **{k: v for k, v in op.items() if k != "conv_id"}} for op in batch_ops]
+            if batch_ops is not None
+            else [{"conv_id": conv_id, **mut_kwargs}]
+        )
+        if dry_check:
+            for op in ops_list:
+                cid = str(op.get("conv_id") or conv_id)
+                kw = {k: v for k, v in op.items() if k != "conv_id"}
+                if overlay is not None:
+                    _apply_swarm_entry_mutation(overlay, cid, **kw)
+                if pending_ops is not None:
+                    pending_ops.append({"conv_id": cid, **kw})
+            return True
+        if len(ops_list) == 1:
+            single_kw = {k: v for k, v in ops_list[0].items() if k != "conv_id"}
+            return _update_swarm_workers_ledger(str(ops_list[0].get("conv_id") or conv_id), **single_kw)
+        return _batch_update_swarm_workers_ledger(ops_list)
+
+    if overlay is not None and conv_id in overlay:
+        ledger_ok, ledger = True, overlay
+    else:
+        ledger_ok, ledger = _read_swarm_workers_ledger() if conv_id else (True, {})
+        if not ledger_ok:
+            return False, None, _emit_swarm_mutation
+        if overlay is not None and isinstance(ledger.get(conv_id), dict):
+            overlay[conv_id] = json.loads(json.dumps(ledger[conv_id]))
+    conv_entry = ledger.get(conv_id) if isinstance(ledger, dict) else None
+    return True, conv_entry, _emit_swarm_mutation
+
+
+def _text_mutates_governance_path(
+    text: str,
+    workspaces: Sequence[Path],
+    workspace: Optional[Path],
+    effective_cwd: Optional[Path] = None,
+) -> bool:
+    if not text or not _DELEGATION_MUTATION_VERB_RE.search(text):
+        return False
+    bases: List[Optional[Path]] = [None]
+    for b in (effective_cwd, workspace, *workspaces):
+        if b is not None and b not in bases:
+            bases.append(b)
+    for m in _DELEGATION_PATH_TOKEN_RE.finditer(text):
+        tok = m.group(0).rstrip(".,:;!?\"')]`")
+        if not tok or ("/" not in tok and "\\" not in tok and "~" not in tok):
+            continue
+        window_start = max(0, m.start() - 64)
+        preceding = text[window_start : m.start()]
+        for sep in ("\n", ";", ".", ","):
+            if sep in preceding:
+                preceding = preceding.rsplit(sep, 1)[-1]
+        if not _DELEGATION_MUTATION_VERB_RE.search(preceding):
+            continue
+        if any(_targets_governance_dir(tok, base_dir=b) for b in bases):
+            return True
+    return False
+
+
+def _inspect_delegation_rule12_text(
+    text: str,
+    tool_label: str,
+    workspaces: Sequence[Path],
+    workspace: Optional[Path],
+    effective_cwd: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Enforces Rule 12 human-only Guard admin / `install.py` / `--no-verify` / governance shields on delegated prompts."""
+    if not text or not text.strip():
+        return None
+    candidates = [text]
+    for ext in _extract_shell_c_payloads(text):
+        if ext and ext not in candidates:
+            candidates.append(ext)
+    for cand in candidates:
+        masked = _mask_quoted_operators(cand)
+        if _DELEGATION_GUARD_ADMIN_RE.search(masked) or _GUARD_INLINE_PY_RE.search(cand) or re.search(_GUARD_API_TOKEN_PAT, cand):
+            return {
+                "decision": "deny",
+                "reason": (
+                    f"[Harness Governance Shield] Human-only `agy-guard` administration commands are "
+                    f"prohibited inside `{tool_label}` (GEMINI.md Rule 12)."
+                ),
+            }
+        if _DELEGATION_INSTALL_EXEC_RE.search(masked):
+            return {
+                "decision": "deny",
+                "reason": (
+                    f"[Harness Governance Shield] Executing `install.py` inside `{tool_label}` is "
+                    "prohibited (GEMINI.md Rule 12)."
+                ),
+            }
+        if _GIT_HOOK_BYPASS_RE.search(masked):
+            return {
+                "decision": "deny",
+                "reason": (
+                    f"[Harness Governance Shield] Git hook bypass flags (`--no-verify`, `commit -n`, "
+                    f"`core.hooksPath`, `HUSKY=0`) are prohibited inside `{tool_label}`."
+                ),
+            }
+        if _command_mutates_governance(cand) or _text_mutates_governance_path(
+            cand, workspaces, workspace, effective_cwd=effective_cwd
+        ):
+            return {
+                "decision": "deny",
+                "reason": (
+                    f"[Harness Governance Shield] Mutating protected governance or Guard state (`~/.gemini/config`) "
+                    f"via `{tool_label}` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
+                ),
+            }
+    return None
+
+
 def _swarm_targets_customization(
     args: Dict[str, Any],
     workspaces: Sequence[Path],
@@ -8093,22 +8684,11 @@ def _handle_swarm_pre_tool_use(
 ) -> Dict[str, Any]:
     """Enforces Rule 15f & Rule 17 on native `swarm` orchestration and tracks customization workers."""
     action = str(args.get("action") or "").strip().lower()
-    conv_id = _conversation_id(payload)
-    dry_check = bool(payload.get("_workflowDryCheck"))
-    overlay = payload.get("_swarmOverlay") if isinstance(payload.get("_swarmOverlay"), dict) else None
-    pending_ops = payload.get("_pendingSwarmOps") if isinstance(payload.get("_pendingSwarmOps"), list) else None
-
-    def _emit_swarm_mutation(**mut_kwargs: Any) -> bool:
-        if dry_check:
-            if overlay is not None:
-                _apply_swarm_entry_mutation(overlay, conv_id, **mut_kwargs)
-            if pending_ops is not None:
-                pending_ops.append({"conv_id": conv_id, **mut_kwargs})
-            return True
-        return _update_swarm_workers_ledger(conv_id, **mut_kwargs)
-
     if action in ("status", "models", "title", "channel"):
         return {"decision": "allow"}
+    conv_id = _conversation_id(payload)
+    ledger_ok, conv_entry, _emit_swarm_mutation = _swarm_ledger_context(payload, conv_id)
+
     if action == "kill":
         target_name = str(args.get("name") or "").strip().lower()
         if target_name:
@@ -8140,29 +8720,29 @@ def _handle_swarm_pre_tool_use(
     else:
         parsed_n = 0
 
-    if overlay is not None and conv_id in overlay:
-        ledger_ok, ledger = True, overlay
-    else:
-        ledger_ok, ledger = _read_swarm_workers_ledger() if conv_id else (True, {})
-        if not ledger_ok:
-            return {
-                "decision": "force_ask",
-                "reason": (
-                    "[Harness Swarm Guard] Could not safely read `swarm_workers.json` to verify tracked "
-                    "customization workers (fail-closed human confirmation required; GEMINI.md Rule 17)."
-                ),
-            }
-        if overlay is not None and isinstance(ledger.get(conv_id), dict):
-            overlay[conv_id] = json.loads(json.dumps(ledger[conv_id]))
-    conv_entry = ledger.get(conv_id) if isinstance(ledger, dict) else None
+    if not ledger_ok:
+        return {
+            "decision": "force_ask",
+            "reason": (
+                "[Harness Swarm Guard] Could not safely read `swarm_workers.json` to verify tracked "
+                "customization workers (fail-closed human confirmation required; GEMINI.md Rule 17)."
+            ),
+        }
     any_harness_ws = _workspaces_in_harness_scope(workspaces, effective_cwd or workspace) and bool(workspaces or effective_cwd)
     req_model = str(args.get("model") or "").strip()
 
     if action == "model":
         target_name = str(args.get("name") or "").strip().lower()
         has_tracked_cust = _swarm_entry_has_cust(conv_entry)
+        broadcast_cust = bool(
+            isinstance(conv_entry, dict)
+            and conv_entry.get("conv_has_cust")
+            and not conv_entry.get("exact")
+            and not conv_entry.get("prefixes")
+        )
         targets_cust = (
             any_harness_ws
+            or broadcast_cust
             or _is_tracked_swarm_cust_worker(conv_entry, target_name)
             or ((not target_name or target_name == "coordinator") and has_tracked_cust)
         )
@@ -8190,21 +8770,37 @@ def _handle_swarm_pre_tool_use(
                 ),
             }
         if target_name and req_model:
-            _emit_swarm_mutation(clear_downgraded=target_name)
+            if not _emit_swarm_mutation(clear_downgraded=target_name):
+                return {
+                    "decision": "force_ask",
+                    "reason": "[Harness Swarm Guard] Failed to update swarm worker ledger on model escalation; confirm execution.",
+                }
         return {"decision": "allow"}
 
-    if action in ("add", "post_message") or req_model or args.get("brief") is not None or args.get("tasks") is not None:
+    if action == "add" or req_model or args.get("brief") is not None or args.get("tasks") is not None:
+        swarm_text = "\n".join(
+            [
+                str(args.get("brief") or ""),
+                *(str(t) for t in (args.get("tasks") or []) if isinstance(t, str)),
+            ]
+        )
+        r12 = _inspect_delegation_rule12_text(
+            swarm_text, "swarm", workspaces, workspace, effective_cwd=effective_cwd
+        )
+        if r12 is not None:
+            return r12
         targets_cust = _swarm_targets_customization(
             args, workspaces, workspace, conv_entry, effective_cwd=effective_cwd
         )
         fork_from = str(args.get("fork") or "").strip().lower()
-        downgraded_set = set(conv_entry.get("downgraded") or []) if isinstance(conv_entry, dict) else set()
-        if (
-            targets_cust
-            and fork_from
-            and fork_from in downgraded_set
-            and (not req_model or req_model.lower() == "inherit")
-        ):
+        downgraded_set = {
+            str(x).lower()
+            for x in ((conv_entry.get("downgraded") or []) if isinstance(conv_entry, dict) else [])
+            if isinstance(x, str) and x
+        }
+        fork_is_downgraded = bool(fork_from and _worker_matches_downgraded(fork_from, downgraded_set))
+        inherits_fork_model = not req_model or req_model.lower() == "inherit"
+        if targets_cust and fork_is_downgraded and inherits_fork_model:
             top_name, _ = _catalog_top_model_spec()
             return {
                 "decision": "deny",
@@ -8214,6 +8810,8 @@ def _handle_swarm_pre_tool_use(
                 ),
             }
         blocked, is_downgraded = _check_delegated_model_gate(payload, "swarm", req_model, targets_cust)
+        if fork_is_downgraded and inherits_fork_model:
+            is_downgraded = True
         if blocked is not None:
             if blocked.get("decision") == "deny":
                 return blocked
@@ -8221,11 +8819,15 @@ def _handle_swarm_pre_tool_use(
             worker_name = str(args.get("name") or "").strip().lower()
             has_tasks = isinstance(args.get("tasks"), list) and len(args.get("tasks")) > 0
             if targets_cust:
-                _emit_swarm_mutation(
+                if not _emit_swarm_mutation(
                     add_worker=worker_name,
                     sharded=(parsed_n > 1 or has_tasks),
                     conv_cust=True,
-                )
+                ):
+                    return {
+                        "decision": "force_ask",
+                        "reason": "[Harness Swarm Guard] Failed to persist customization worker ledger; confirm execution.",
+                    }
             return blocked
         worker_name = str(args.get("name") or "").strip().lower()
         has_tasks = isinstance(args.get("tasks"), list) and len(args.get("tasks")) > 0
@@ -8235,10 +8837,11 @@ def _handle_swarm_pre_tool_use(
                     "decision": "force_ask",
                     "reason": "[Harness Swarm Guard] Could not record downgraded worker state; confirm execution.",
                 }
+            eff_downgraded_label = req_model or f"inherit (fork={fork_from})"
             return {
                 "decision": "force_ask",
                 "reason": (
-                    f"[Harness Swarm Guard] Spawning swarm worker with downgraded model `{req_model}` "
+                    f"[Harness Swarm Guard] Spawning swarm worker with downgraded model `{eff_downgraded_label}` "
                     "requires explicit user confirmation (GEMINI.md Rule 15f)."
                 ),
             }
@@ -8254,6 +8857,324 @@ def _handle_swarm_pre_tool_use(
                 }
         return {"decision": "allow"}
 
+    return {"decision": "allow"}
+
+
+def _worker_matches_downgraded(name: str, downgraded: set[str]) -> bool:
+    if not name or not downgraded:
+        return False
+    if name in downgraded:
+        return True
+    return any(name.startswith(f"{d}-") for d in downgraded if d)
+
+
+def _persist_post_message_cust_mentions(
+    mentions: List[str],
+    emit_fn: Callable[..., bool],
+) -> bool:
+    concrete = [m for m in mentions if m not in ("all", "coordinator")]
+    if not concrete:
+        return emit_fn(conv_cust=True)
+    if len(concrete) == 1:
+        return emit_fn(add_worker=concrete[0], conv_cust=True)
+    return emit_fn(
+        batch_ops=[
+            {"add_worker": target, "conv_cust": (idx == 0)}
+            for idx, target in enumerate(concrete)
+        ]
+    )
+
+
+def _handle_post_message_pre_tool_use(
+    payload: Dict[str, Any],
+    args: Dict[str, Any],
+    workspaces: Sequence[Path],
+    workspace: Optional[Path],
+    effective_cwd: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Enforces Rule 12, Rule 17, and `swarm_workers.json` tracking on top-level swarm `post_message`."""
+    text = str(args.get("text") or args.get("message") or "").strip()
+    channel = str(args.get("channel") or "").strip()
+    combined = f"{channel}\n{text}".strip()
+
+    r12 = _inspect_delegation_rule12_text(
+        combined, "post_message", workspaces, workspace, effective_cwd=effective_cwd
+    )
+    if r12 is not None:
+        return r12
+
+    conv_id = _conversation_id(payload)
+    ledger_ok, conv_entry, emit_mutation = _swarm_ledger_context(payload, conv_id)
+    if not ledger_ok:
+        return {
+            "decision": "force_ask",
+            "reason": (
+                "[Harness Swarm Guard] Could not safely read `swarm_workers.json` on `post_message` "
+                "(fail-closed human confirmation required; GEMINI.md Rule 17)."
+            ),
+        }
+
+    mentions: List[str] = []
+    for m in _SWARM_MENTION_RE.findall(text):
+        low = m.lower()
+        if low not in mentions:
+            mentions.append(low)
+    mentions_all = "all" in mentions
+
+    downgraded = {
+        str(x).lower()
+        for x in ((conv_entry.get("downgraded") or []) if isinstance(conv_entry, dict) else [])
+        if isinstance(x, str) and x
+    }
+    hit_downgraded = [m for m in mentions if m != "all" and _worker_matches_downgraded(m, downgraded)]
+    if mentions_all and downgraded:
+        for d in sorted(downgraded):
+            if d not in hit_downgraded:
+                hit_downgraded.append(d)
+
+    text_targets_cust = _text_targets_customization(
+        combined, workspaces, fallback_ws=workspace, effective_cwd=effective_cwd
+    )
+    mentions_tracked_cust = any(
+        _is_tracked_swarm_cust_worker(conv_entry, m) for m in mentions if m != "all"
+    ) or (mentions_all and _swarm_entry_has_cust(conv_entry))
+    targets_cust = text_targets_cust or mentions_tracked_cust
+
+    if targets_cust and hit_downgraded:
+        top_name, _ = _catalog_top_model_spec()
+        return {
+            "decision": "deny",
+            "reason": (
+                "[Harness Swarm Guard] Assigning or continuing customization/governance work via `post_message` "
+                f"to downgraded swarm worker(s) (`{', '.join(hit_downgraded)}`) is prohibited; use `{top_name}` "
+                "(GEMINI.md Rule 17)."
+            ),
+        }
+
+    if targets_cust:
+        blocked, _ = _check_delegated_model_gate(payload, "post_message", "", True)
+        if blocked is not None:
+            if blocked.get("decision") == "deny":
+                return blocked
+            if conv_id and not _persist_post_message_cust_mentions(mentions, emit_mutation):
+                return {
+                    "decision": "force_ask",
+                    "reason": "[Harness Swarm Guard] Failed to persist customization worker ledger; confirm execution.",
+                }
+            return blocked
+        if conv_id and not _persist_post_message_cust_mentions(mentions, emit_mutation):
+            return {
+                "decision": "force_ask",
+                "reason": "[Harness Swarm Guard] Failed to persist `post_message` customization worker ledger; confirm execution.",
+            }
+    return {"decision": "allow"}
+
+
+def _transcript_subagent_is_downgraded(payload: Dict[str, Any], recipient: str) -> bool:
+    """Checks trailing transcript entries to detect if `recipient` conversationId was launched downgraded."""
+    if not recipient:
+        return False
+    transcript = payload.get("transcriptPath") or payload.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript.strip():
+        return False
+    path = Path(transcript).expanduser()
+    _, allowed_top_slugs = _catalog_top_model_spec()
+    try:
+        for entry in _iter_jsonl_tail_entries(path, max_scan_bytes=2 * 1024 * 1024):
+            raw_json = json.dumps(entry, ensure_ascii=False)
+            if recipient not in raw_json:
+                continue
+            tool_calls = entry.get("tool_calls") or entry.get("toolCalls")
+            if isinstance(tool_calls, list):
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    t_args = tc.get("args") or tc.get("arguments") or {}
+                    if isinstance(t_args, dict):
+                        mod = str(t_args.get("Model") or t_args.get("model") or "").strip().lower()
+                        if mod and mod != "inherit" and _normalize_model_slug(mod) not in allowed_top_slugs:
+                            return True
+    except (OSError, TypeError, ValueError):
+        return False
+    return False
+
+
+def _handle_send_message_pre_tool_use(
+    payload: Dict[str, Any],
+    args: Dict[str, Any],
+    workspaces: Sequence[Path],
+    workspace: Optional[Path],
+    effective_cwd: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Enforces Rule 12 & Rule 17 on direct subagent `send_message` continuations."""
+    recipient = str(args.get("Recipient") or args.get("recipient") or "").strip()
+    message = str(args.get("Message") or args.get("message") or "").strip()
+
+    r12 = _inspect_delegation_rule12_text(
+        message, "send_message", workspaces, workspace, effective_cwd=effective_cwd
+    )
+    if r12 is not None:
+        return r12
+
+    text_targets_cust = _text_targets_customization(
+        message, workspaces, fallback_ws=workspace, effective_cwd=effective_cwd
+    )
+    conv_id = _conversation_id(payload)
+    ledger_ok, conv_entry, emit_mutation = _swarm_ledger_context(payload, conv_id)
+    if not ledger_ok:
+        return {
+            "decision": "force_ask",
+            "reason": (
+                "[Harness Model & Effort Gate] Could not verify `swarm_workers.json` on `send_message` "
+                "directive (fail-closed confirmation required; GEMINI.md Rule 17)."
+            ),
+        }
+    recipient_low = recipient.lower()
+    targets_cust = text_targets_cust or bool(
+        recipient_low and _is_tracked_swarm_cust_worker(conv_entry, recipient_low)
+    )
+    downgraded = {
+        str(x).lower()
+        for x in ((conv_entry.get("downgraded") or []) if isinstance(conv_entry, dict) else [])
+        if isinstance(x, str) and x
+    }
+    if targets_cust and (
+        _worker_matches_downgraded(recipient_low, downgraded)
+        or _transcript_subagent_is_downgraded(payload, recipient)
+    ):
+        top_name, _ = _catalog_top_model_spec()
+        return {
+            "decision": "deny",
+            "reason": (
+                f"[Harness Model & Effort Gate] Sending customization/governance instructions via `send_message` "
+                f"to downgraded recipient `{recipient}` is prohibited; use `{top_name}` (GEMINI.md Rule 17)."
+            ),
+        }
+    req_model = str(args.get("Model") or args.get("model") or "").strip()
+    blocked, _ = _check_delegated_model_gate(payload, "send_message", req_model, targets_cust)
+    if blocked is not None:
+        if blocked.get("decision") == "deny":
+            return blocked
+        if targets_cust and conv_id and recipient_low and not emit_mutation(add_worker=recipient_low, conv_cust=True):
+            return {
+                "decision": "force_ask",
+                "reason": "[Harness Swarm Guard] Failed to persist `send_message` customization worker ledger; confirm execution.",
+            }
+        return blocked
+    if targets_cust and conv_id and recipient_low:
+        if not emit_mutation(add_worker=recipient_low, conv_cust=True):
+            return {
+                "decision": "force_ask",
+                "reason": "[Harness Swarm Guard] Failed to persist `send_message` customization worker ledger; confirm execution.",
+            }
+    return {"decision": "allow"}
+
+
+def _handle_define_subagent_pre_tool_use(
+    payload: Dict[str, Any],
+    args: Dict[str, Any],
+    workspaces: Sequence[Path],
+    workspace: Optional[Path],
+    effective_cwd: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Enforces Rule 12 & Rule 17 on dynamic `define_subagent` registrations and records writable customization types."""
+    name = str(args.get("Name") or args.get("name") or "").strip()
+    desc = str(args.get("Description") or args.get("description") or "").strip()
+    sys_prompt = str(args.get("SystemPrompt") or args.get("systemPrompt") or args.get("system_prompt") or "").strip()
+    combined = "\n".join(p for p in (name, desc, sys_prompt) if p)
+
+    r12 = _inspect_delegation_rule12_text(
+        combined, "define_subagent", workspaces, workspace, effective_cwd=effective_cwd
+    )
+    if r12 is not None:
+        return r12
+
+    enable_write = bool(args.get("EnableWriteTools") or args.get("enableWriteTools") or args.get("enable_write_tools"))
+    enable_mcp = bool(args.get("EnableMCPTools") or args.get("enableMCPTools") or args.get("enable_mcp_tools"))
+    enable_subagents = bool(
+        args.get("EnableSubagentTools") or args.get("enableSubagentTools") or args.get("enable_subagent_tools")
+    )
+    can_mutate = enable_write or enable_mcp or enable_subagents
+
+    if name.lower() in _READONLY_SUBAGENT_TYPES and can_mutate:
+        return {
+            "decision": "deny",
+            "reason": (
+                f"[Harness Model & Effort Gate] Redefining read-only built-in subagent `{name}` with "
+                "write, MCP, or subagent delegation tools is prohibited (GEMINI.md Rule 17)."
+            ),
+        }
+
+    targets_cust = can_mutate and _text_targets_customization(
+        combined, workspaces, fallback_ws=workspace, effective_cwd=effective_cwd
+    )
+    req_model = str(args.get("Model") or args.get("model") or "").strip()
+    blocked, _ = _check_delegated_model_gate(payload, "define_subagent", req_model, targets_cust)
+    if blocked is not None and blocked.get("decision") == "deny":
+        return blocked
+
+    conv_id = _conversation_id(payload)
+    if targets_cust and name and conv_id:
+        ledger_ok, _entry, emit_mutation = _swarm_ledger_context(payload, conv_id)
+        if not ledger_ok or not emit_mutation(add_custom_subagent=name.lower()):
+            return {
+                "decision": "force_ask",
+                "reason": (
+                    "[Harness Model & Effort Gate] Failed to persist customization `define_subagent` registration; "
+                    "human confirmation required (GEMINI.md Rule 17)."
+                ),
+            }
+
+    if blocked is not None:
+        return blocked
+    return {"decision": "allow"}
+
+
+def _handle_schedule_pre_tool_use(
+    payload: Dict[str, Any],
+    args: Dict[str, Any],
+    workspaces: Sequence[Path],
+    workspace: Optional[Path],
+    effective_cwd: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Enforces Rule 12 & Rule 17 on scheduled timer/cron `Prompt` payloads."""
+    for daemon_key in ("IsDaemon", "isDaemon", "is_daemon"):
+        raw_val = args.get(daemon_key)
+        if raw_val is not None and not isinstance(raw_val, bool):
+            return {
+                "decision": "deny",
+                "reason": "[Harness Schedule Guard] Malformed non-boolean `IsDaemon` argument to `schedule` (failing closed).",
+            }
+    is_daemon = bool(
+        args.get("IsDaemon") is True or args.get("isDaemon") is True or args.get("is_daemon") is True
+    )
+    prompt = str(args.get("Prompt") or args.get("prompt") or "").strip()
+    cron_expr = str(args.get("CronExpression") or args.get("cronExpression") or "").strip()
+    combined = f"{cron_expr}\n{prompt}".strip()
+
+    r12 = _inspect_delegation_rule12_text(
+        combined, "schedule", workspaces, workspace, effective_cwd=effective_cwd
+    )
+    if r12 is not None:
+        return r12
+
+    targets_cust = _text_targets_customization(
+        combined, workspaces, fallback_ws=workspace, effective_cwd=effective_cwd
+    )
+    req_model = str(args.get("Model") or args.get("model") or "").strip()
+    blocked, _ = _check_delegated_model_gate(payload, "schedule", req_model, targets_cust)
+    if blocked is not None:
+        return blocked
+
+    if is_daemon and targets_cust:
+        return {
+            "decision": "force_ask",
+            "reason": (
+                "[Harness Customization Model Gate] Scheduling a persistent daemon (`IsDaemon=true`) that targets "
+                "customization or governance files runs unattended after session end and requires explicit human "
+                "confirmation (GEMINI.md Rule 12 & Rule 17)."
+            ),
+        }
     return {"decision": "allow"}
 
 
@@ -8354,8 +9275,32 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             mod_eval = _evaluate_customization_model_and_effort(payload)
             if mod_eval is not None:
                 return {"decision": mod_eval[0], "reason": mod_eval[1]}
+        write_content_str = str(
+            args.get("Content")
+            or args.get("content")
+            or args.get("Replacement")
+            or args.get("replacement")
+            or args.get("newText")
+            or args.get("new_text")
+            or ""
+        )
         for target in targets:
             res_t, t_ws = _resolve_target_and_ws(target)
+            norm_res_t = res_t.replace("\\", "/")
+            if re.search(r"(?:^|/)(?:\.agents?|_agents?)/hooks\.json$", norm_res_t, re.IGNORECASE):
+                if (
+                    bool(write_content_str.strip())
+                    or bool(workspaces)
+                    or not _workspaces_in_harness_scope(workspaces, effective_cwd or t_ws)
+                ):
+                    return {
+                        "decision": "force_ask",
+                        "reason": (
+                            "[Harness Governance Shield] Modifying workspace `.agents/hooks.json` can shadow or disable "
+                            "global `harness-gate` / `upstream-watchdog` lifecycle hooks and requires explicit human "
+                            "confirmation (GEMINI.md Rule 12 & Rule 15a)."
+                        ),
+                    }
             if _write_mutates_authorized_test_section(target, args, effective_cwd or t_ws):
                 return {
                     "decision": "force_ask",
@@ -8471,6 +9416,20 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                         }
 
                 unquoted_sub = _unquote_single_tokens(sub_cmd)
+                if (
+                    re.search(r"(?:^|[\s/'\"=])(?:\.agents?|_agents?)/hooks\.json\b", unquoted_sub, re.IGNORECASE)
+                    and _shell_has_unquoted_mutation(sub_cmd)
+                    and pending_cmd_force_ask is None
+                ):
+                    pending_cmd_force_ask = {
+                        "decision": "force_ask",
+                        "reason": (
+                            "[Harness Governance Shield] Modifying workspace `.agents/hooks.json` via shell command "
+                            "can shadow or disable global `harness-gate` / `upstream-watchdog` lifecycle hooks and "
+                            "requires explicit human confirmation (GEMINI.md Rule 12 & Rule 15a)."
+                        ),
+                    }
+
                 for pattern, reason in _DESTRUCTIVE_CMD_PATTERNS:
                     if pattern.search(unquoted_sub):
                         if pending_cmd_force_ask is None:
@@ -8479,6 +9438,13 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                                 "reason": f"[Harness Bash Guard] {reason}",
                             }
                         break
+
+                out_ws_msg = _detect_out_of_workspace_rm_or_mv(unquoted_sub, workspaces, effective_cwd)
+                if out_ws_msg and pending_cmd_force_ask is None:
+                    pending_cmd_force_ask = {
+                        "decision": "force_ask",
+                        "reason": f"[Harness Bash Guard] {out_ws_msg}",
+                    }
 
                 unpinned_msg = _detect_unpinned_package_exec(unquoted_sub)
                 if unpinned_msg and pending_cmd_force_ask is None:
@@ -8531,7 +9497,20 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             if not cmd:
                 return {"decision": "allow"}
             cmd_res = _eval_shell_command_string(cmd)
-            return cmd_res if cmd_res is not None else {"decision": "allow"}
+            if cmd_res is not None:
+                return cmd_res
+            if _shell_has_unquoted_mutation(cmd) or re.search(
+                rf"\bgit{_GIT_GLOBAL_OPTS}\s+(?:commit|apply|am|cherry-pick|merge|rebase|revert)\b",
+                cmd,
+            ):
+                cmd_ws = _workspace_for_target(
+                    str(effective_cwd) if effective_cwd is not None else "",
+                    workspaces,
+                    fallback=(effective_cwd if effective_cwd is not None else workspace),
+                )
+                if cmd_ws is not None:
+                    _record_flight_pre_write(payload, cmd_ws, tool_name, f"<shell:{tool_name}>")
+            return {"decision": "allow"}
 
         buf_key = _cmd_input_buffer_key(payload, args)
         buf_file = state_dir() / "cmd_input_buffers.json"
@@ -8567,7 +9546,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             }
         return {"decision": "allow"}
 
-    # 3. Subagent delegation (`invoke_subagent`): enforce Model & Effort Gate on customization/governance delegation (GEMINI.md Rule 17)
+    # 3. Subagent delegation (`invoke_subagent`): enforce Rule 12 & Model & Effort Gate on customization/governance delegation (GEMINI.md Rule 17)
     if tool_name == "invoke_subagent":
         type_name = str(
             args.get("TypeName")
@@ -8585,8 +9564,29 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         role_str = str(args.get("Role") or args.get("role") or "")
         prompt_str = str(args.get("Prompt") or args.get("prompt") or "")
         combined_brief = f"{role_str}\n{prompt_str}"
-        targets_cust = type_name not in _READONLY_SUBAGENT_TYPES and _text_targets_customization(
-            combined_brief, workspaces, fallback_ws=workspace, effective_cwd=effective_cwd
+        r12 = _inspect_delegation_rule12_text(
+            combined_brief, "invoke_subagent", workspaces, workspace, effective_cwd=effective_cwd
+        )
+        if r12 is not None:
+            return r12
+        conv_id = _conversation_id(payload)
+        custom_registered = False
+        if type_name and conv_id:
+            ledger_ok, conv_entry, _ = _swarm_ledger_context(payload, conv_id)
+            if not ledger_ok:
+                return {
+                    "decision": "force_ask",
+                    "reason": "[Harness Model & Effort Gate] Could not verify `swarm_workers.json`; human confirmation required.",
+                }
+            if isinstance(conv_entry, dict):
+                custom_registered = type_name in [
+                    str(x).lower() for x in (conv_entry.get("custom_subagents") or []) if isinstance(x, str)
+                ]
+        targets_cust = (type_name not in _READONLY_SUBAGENT_TYPES) and (
+            custom_registered
+            or _text_targets_customization(
+                combined_brief, workspaces, fallback_ws=workspace, effective_cwd=effective_cwd
+            )
         )
         blocked, _is_downgraded = _check_delegated_model_gate(
             payload,
@@ -8599,9 +9599,17 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             return blocked
         return {"decision": "allow"}
 
-    # 3b. Native swarm delegation (`swarm`): enforce Model & Effort Gate & track customization workers (GEMINI.md Rules 15f & 17)
+    # 3b. Native swarm & delegation/messaging/schedule gates (GEMINI.md Rules 12, 15f & 17)
     if tool_name == "swarm":
         return _handle_swarm_pre_tool_use(payload, args, workspaces, workspace, effective_cwd=effective_cwd)
+    if tool_name == "post_message":
+        return _handle_post_message_pre_tool_use(payload, args, workspaces, workspace, effective_cwd=effective_cwd)
+    if tool_name == "send_message":
+        return _handle_send_message_pre_tool_use(payload, args, workspaces, workspace, effective_cwd=effective_cwd)
+    if tool_name == "define_subagent":
+        return _handle_define_subagent_pre_tool_use(payload, args, workspaces, workspace, effective_cwd=effective_cwd)
+    if tool_name == "schedule":
+        return _handle_schedule_pre_tool_use(payload, args, workspaces, workspace, effective_cwd=effective_cwd)
 
     # 4. Dynamic Python orchestration workflows (`run_workflow`): enforce Workflow Shield (GEMINI.md Rule 15e & Rule 17)
     if tool_name == "run_workflow":
@@ -8684,16 +9692,18 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             if bool(payload.get("_workflowDryCheck")) and isinstance(payload.get("_pendingSwarmOps"), list):
                 payload["_pendingSwarmOps"].extend(pending_swarm_ops)
             elif not bool(payload.get("_workflowDryCheck")):
-                for sw_op in pending_swarm_ops:
-                    sw_cid = str(sw_op.get("conv_id") or "")
-                    sw_kwargs = {k: v for k, v in sw_op.items() if k != "conv_id"}
-                    if not _update_swarm_workers_ledger(sw_cid, **sw_kwargs):
-                        if pending_force_ask is None:
-                            pending_force_ask = {
-                                "decision": "force_ask",
-                                "reason": "[Harness Swarm Guard] Failed to persist `run_workflow` swarm worker ledger; confirm execution.",
-                            }
-                        break
+                if not _batch_update_swarm_workers_ledger(pending_swarm_ops):
+                    flush_err = "[Harness Swarm Guard] Failed to persist `run_workflow` swarm worker ledger; confirm execution."
+                    if pending_force_ask is None:
+                        pending_force_ask = {
+                            "decision": "force_ask",
+                            "reason": flush_err,
+                        }
+                    elif flush_err not in str(pending_force_ask.get("reason") or ""):
+                        pending_force_ask = {
+                            "decision": "force_ask",
+                            "reason": f"{pending_force_ask.get('reason')} ({flush_err})",
+                        }
         if pending_force_ask is not None:
             return pending_force_ask
         for inner_tool, target in pending_flight_writes:
@@ -8875,10 +9885,20 @@ def _authorized_test_modification_text(workspace: Optional[Path]) -> str:
     if workspace is None:
         return ""
     tasks_file = workspace / "tasks.md"
-    if not tasks_file.is_file():
+    if tasks_file.is_file():
+        try:
+            sec = _extract_normalized_auth_section(tasks_file.read_text(encoding="utf-8", errors="replace"))
+            if sec:
+                return sec
+        except OSError:
+            pass
+    from guard.test_boundary import TestBoundaryGuard
+
+    main_root = TestBoundaryGuard.resolve_linked_worktree_root(workspace)
+    if main_root is None or not (main_root / "tasks.md").is_file():
         return ""
     try:
-        text = tasks_file.read_text(encoding="utf-8", errors="replace")
+        text = (main_root / "tasks.md").read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
     return _extract_normalized_auth_section(text)
@@ -9279,6 +10299,70 @@ def _unquote_git_diff_path(header_line: str, prefix: str = "b/") -> str:
     return decoded[len(prefix) :].replace("\\", "/")
 
 
+_STRICT_PY_EQ_RE = _LazyRegex(r"^\s*assert\s+(.+?)\s*==\s*(.+?)(?:\s+#.*)?$")
+_STRICT_UNITTEST_EQ_RE = _LazyRegex(
+    r"^\s*(?:await\s+)?(?:self|t|assert|require)\.(assertEqual|assertListEqual|assertDictEqual|assertSetEqual|assertTupleEqual|Equal)\s*\(\s*([^,]+?)\s*,"
+)
+_STRICT_JS_EQ_RE = _LazyRegex(
+    r"^\s*(?:await\s+)?expect\s*\(\s*(.+?)\s*\)\.(toBe|toEqual|toStrictEqual)\s*\("
+)
+_RELAXED_PY_CMP_RE = _LazyRegex(
+    r"^\s*assert\s+(.+?)\s*(>=|<=|!=|>|<|\bin\b|\bis\s+not\s+None\b)(?:\s+.*)?$"
+)
+_RELAXED_PY_TRUTHY_RE = _LazyRegex(
+    r"^\s*assert\s+(?:bool\s*\(\s*(.+?)\s*\)|([A-Za-z_][A-Za-z0-9_.\[\]()'\"-]*))(?:\s*(?:,\s*['\"].*)?(?:#.*)?)?$"
+)
+_RELAXED_UNITTEST_RE = _LazyRegex(
+    r"^\s*(?:await\s+)?(?:self|t|assert|require)\.(assertGreaterEqual|assertLessEqual|assertGreater|assertLess|assertNotEqual|assertIn|assertIsNotNone|assertTrue)\s*\(\s*([^,)]+?)\s*(?:,|\))"
+)
+_RELAXED_JS_RE = _LazyRegex(
+    r"^\s*(?:await\s+)?expect\s*\(\s*(.+?)\s*\)\.(toBeTruthy|toBeDefined|toBeGreaterThanOrEqual|toBeLessThanOrEqual|not\.toBeNull|not\.toBeUndefined)\s*\("
+)
+
+
+def _normalize_assert_subject(expr: str) -> str:
+    return re.sub(r"\s+", "", expr.strip())
+
+
+def _extract_strict_assert_subject(line_body: str) -> Optional[Tuple[str, str]]:
+    m_py = _STRICT_PY_EQ_RE.match(line_body)
+    if m_py:
+        subj = _normalize_assert_subject(m_py.group(1))
+        if subj and "==" not in subj and "!=" not in subj:
+            return subj, "=="
+    m_ut = _STRICT_UNITTEST_EQ_RE.match(line_body)
+    if m_ut:
+        return _normalize_assert_subject(m_ut.group(2)), m_ut.group(1)
+    m_js = _STRICT_JS_EQ_RE.match(line_body)
+    if m_js:
+        return _normalize_assert_subject(m_js.group(1)), m_js.group(2)
+    return None
+
+
+def _extract_relaxed_assert_subject(line_body: str) -> Optional[Tuple[str, str]]:
+    if _STRICT_PY_EQ_RE.match(line_body):
+        return None
+    m_cmp = _RELAXED_PY_CMP_RE.match(line_body)
+    if m_cmp:
+        subj = _normalize_assert_subject(m_cmp.group(1))
+        op = re.sub(r"\s+", " ", m_cmp.group(2).strip())
+        if subj and "==" not in subj:
+            return subj, op
+    m_ut = _RELAXED_UNITTEST_RE.match(line_body)
+    if m_ut:
+        return _normalize_assert_subject(m_ut.group(2)), m_ut.group(1)
+    m_js = _RELAXED_JS_RE.match(line_body)
+    if m_js:
+        return _normalize_assert_subject(m_js.group(1)), m_js.group(2)
+    m_tr = _RELAXED_PY_TRUTHY_RE.match(line_body)
+    if m_tr:
+        raw_subj = m_tr.group(1) or m_tr.group(2) or ""
+        subj = _normalize_assert_subject(raw_subj)
+        if subj and subj not in ("True", "False"):
+            return subj, "truthy"
+    return None
+
+
 def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[str]:
     """
     Scans a unified git diff (`git diff -U0`) for:
@@ -9297,6 +10381,8 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
     removed_by_prod_file: Dict[str, List[str]] = {}
     removed_assertions_by_test: Dict[str, int] = {}
     added_assertions_by_test: Dict[str, int] = {}
+    removed_strict_by_test: Dict[str, Dict[str, str]] = {}
+    added_relaxed_by_test: Dict[str, List[Tuple[str, str, str]]] = {}
     removed_test_defs_by_file: Dict[str, set[str]] = {}
     added_test_defs_by_file: Dict[str, set[str]] = {}
     first_removed_assert: Dict[str, str] = {}
@@ -9366,6 +10452,9 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
                 if _ACTIVE_TEST_ASSERT_RE.search(rem_body):
                     removed_assertions_by_test[current_file] = removed_assertions_by_test.get(current_file, 0) + 1
                     first_removed_assert.setdefault(current_file, rem_body.strip()[:80])
+                    strict_hit = _extract_strict_assert_subject(rem_body)
+                    if strict_hit is not None:
+                        removed_strict_by_test.setdefault(current_file, {})[strict_hit[0]] = strict_hit[1]
             else:
                 removed_by_prod_file.setdefault(current_file, []).append(rem_body)
             continue
@@ -9408,6 +10497,11 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
                 )
             elif _ACTIVE_TEST_ASSERT_RE.search(added_body):
                 added_assertions_by_test[norm_path] = added_assertions_by_test.get(norm_path, 0) + 1
+                relaxed_hit = _extract_relaxed_assert_subject(added_body)
+                if relaxed_hit is not None:
+                    added_relaxed_by_test.setdefault(norm_path, []).append(
+                        (relaxed_hit[0], relaxed_hit[1], added_body.strip()[:80])
+                    )
 
             is_new_test_file = norm_path in file_is_new and norm_path not in file_is_partial
             is_allowed_cap_skip = is_new_test_file and bool(_NEW_FILE_CAPABILITY_SKIP_RE.search(added_body))
@@ -9457,6 +10551,18 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
                 f"— net active assertions decreased ({rem_cnt} removed vs {add_cnt} added) without logging `{norm_path}` "
                 "under `## Authorized Test Modifications` in `tasks.md` (GEMINI.md Rule 9)."
             )
+
+    for norm_path, strict_map in removed_strict_by_test.items():
+        if _is_test_authorized(norm_path):
+            continue
+        for subj, relaxed_op, raw_line in added_relaxed_by_test.get(norm_path, []):
+            if subj in strict_map:
+                findings.append(
+                    f"Unapproved test assertion relaxation in `{norm_path}` (`{raw_line}`) "
+                    f"— strict equality assertion on `{subj}` was weakened without logging `{norm_path}` "
+                    "under `## Authorized Test Modifications` in `tasks.md` (GEMINI.md Rule 9)."
+                )
+                break
 
     for del_test in sorted(deleted_test_files):
         if (
@@ -9590,16 +10696,81 @@ def _is_git_repo_workspace(workspace: Path) -> bool:
     return False
 
 
-def _collect_workspace_diff_status_ex(workspace: Path) -> Tuple[str, bool, bool]:
+def _resolve_session_flight_base_head(workspace: Path, conv_id: str) -> Tuple[str, bool]:
+    """Returns `(base_head, git_error)` for `workspace` in `conv_id` when recorded and different from `HEAD`."""
+    if not conv_id:
+        return "", False
+    flight_file = _flight_recorder_file()
+    if not flight_file.is_file():
+        return "", False
+    try:
+        ws_key = str(workspace.resolve())
+        with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
+            ok, ledger = _read_ledger_checked(flight_file, quarantine=False)
+        if not ok:
+            return "", True
+        entry = ledger.get(ws_key)
+        if not isinstance(entry, dict) or str(entry.get("conversation_id") or "") != conv_id:
+            return "", False
+        base_head = str(entry.get("base_head") or "").strip()
+        if not _HEX_OID_RE.match(base_head):
+            return "", False
+        cur = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        if cur.returncode != 0:
+            return "", True
+        cur_head = cur.stdout.strip()
+        if not cur_head or cur_head == base_head:
+            return "", False
+        anc = subprocess.run(
+            ["git", "-C", str(workspace), "merge-base", "--is-ancestor", base_head, "HEAD"],
+            capture_output=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        if anc.returncode == 0:
+            return base_head, False
+        if anc.returncode == 1 and str(entry.get("status") or "") == "in_flight":
+            cat_res = subprocess.run(
+                ["git", "-C", str(workspace), "cat-file", "-e", f"{base_head}^{{commit}}"],
+                capture_output=True,
+                timeout=3,
+                stdin=subprocess.DEVNULL,
+            )
+            if cat_res.returncode == 0:
+                return base_head, False
+            return "", True
+        if anc.returncode > 1:
+            return "", True
+    except (OSError, TimeoutError, subprocess.SubprocessError):
+        return "", True
+    return "", False
+
+
+def _session_flight_base_head(workspace: Path, conv_id: str) -> str:
+    """Returns recorded session `base_head` for `workspace` in `conv_id` when valid and different from `HEAD`."""
+    return _resolve_session_flight_base_head(workspace, conv_id)[0]
+
+
+def _collect_workspace_diff_status_ex(workspace: Path, conv_id: str = "") -> Tuple[str, bool, bool]:
     if not _is_git_repo_workspace(workspace):
         return "", True, False
     chunks: List[str] = []
     diff_ok = False
     untracked_ok = False
     git_base = ["git", "-c", "core.quotePath=false", "-C", str(workspace)]
+    base_head, base_head_err = _resolve_session_flight_base_head(workspace, conv_id)
+    diff_ref = base_head or "HEAD"
+    if base_head_err:
+        return "", False, True
     try:
         res = subprocess.run(
-            [*git_base, "diff", "-U0", "HEAD"],
+            [*git_base, "diff", "-U0", diff_ref],
             capture_output=True,
             text=True,
             timeout=5,
@@ -9747,10 +10918,15 @@ def _verify_workspace_test_boundary(workspace: Path) -> List[str]:
         from guard.test_boundary import TestBoundaryGuard
 
         tbg = TestBoundaryGuard(workspace_dir=workspace)
-        if tbg.state_file.is_file() or tbg.legacy_state_file.is_file():
+        snap_src = tbg._snapshot_source(None)
+        if os.path.lexists(snap_src):
+            authorized = set(TestBoundaryGuard.load_authorized_from_tasks_md(workspace))
+            main_root = TestBoundaryGuard.resolve_linked_worktree_root(workspace)
+            if main_root is not None and snap_src != tbg.state_file and snap_src != tbg.legacy_state_file:
+                authorized |= set(TestBoundaryGuard.load_authorized_from_tasks_md(main_root))
             tb_report = tbg.verify(
                 mode="tdd",
-                authorized_modifications=TestBoundaryGuard.load_authorized_from_tasks_md(workspace),
+                authorized_modifications=authorized,
             )
             if not tb_report.is_intact:
                 for viol in tb_report.violations:
@@ -9762,9 +10938,86 @@ def _verify_workspace_test_boundary(workspace: Path) -> List[str]:
     return out
 
 
+def _verify_all_workspaces_test_boundary(workspaces: Sequence[Path]) -> List[str]:
+    out: List[str] = []
+    seen_roots: set[str] = set()
+    for ws in workspaces:
+        try:
+            key = str(ws.resolve())
+        except (OSError, RuntimeError):
+            key = str(ws)
+        if key in seen_roots:
+            continue
+        seen_roots.add(key)
+        for item in _verify_workspace_test_boundary(ws):
+            if item not in out:
+                out.append(item)
+    return out
+
+
+def _audit_stop_strike(
+    event: str,
+    *,
+    is_warn: bool = True,
+    **fields: Any,
+) -> None:
+    try:
+        from guard.audit_log import audit, warn
+
+        if is_warn:
+            warn(event, **fields)
+        else:
+            audit(event, **fields)
+    except Exception:
+        pass
+
+
+def _clear_stop_strikes(strikes_file: Path, conv_id: str) -> None:
+    try:
+        with file_lock(strikes_file, timeout=HOOK_LOCK_TIMEOUT):
+            ledger = _read_ledger_safe(strikes_file)
+            if conv_id not in ledger:
+                return
+            prev_entry = ledger.get(conv_id) if isinstance(ledger.get(conv_id), dict) else {}
+            cleared_total = _safe_int(
+                prev_entry.get("total_strikes"),
+                default=_safe_int(prev_entry.get("count"), default=0),
+            )
+            del ledger[conv_id]
+            try:
+                atomic_write_json(strikes_file, ledger)
+            except OSError as exc:
+                sys.stderr.write(f"[Harness Stop Gate] Failed to clear `{strikes_file}`: {exc}\n")
+            else:
+                if cleared_total > 0:
+                    _audit_stop_strike(
+                        "stop.strikes_cleared",
+                        is_warn=False,
+                        conv_id=conv_id or "default",
+                        cleared_total=cleared_total,
+                    )
+    except (OSError, TimeoutError) as exc:
+        sys.stderr.write(f"[Harness Stop Gate] Could not update `{strikes_file}` ({type(exc).__name__}): {exc}\n")
+
+
+_NON_NORMAL_STOP_REASONS = frozenset({
+    "error",
+    "user_canceled",
+    "user_cancelled",
+    "max_invocations",
+    "max_forced_invocations",
+    "max_token_budget_exceeded",
+    "terminal_custom_hook",
+    "max_steps_exceeded",
+})
+
+
 def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
-    reason = str(payload.get("terminationReason") or "NO_TOOL_CALL").strip()
-    if reason != "NO_TOOL_CALL":
+    raw_reason = payload.get("terminationReason")
+    if raw_reason is None:
+        raw_reason = payload.get("termination_reason")
+    reason = str(raw_reason if raw_reason is not None else "NO_TOOL_CALL").strip()
+    if reason.lower() in _NON_NORMAL_STOP_REASONS:
         return {}
 
     workspaces = _workspaces_from_payload(payload)
@@ -9791,31 +11044,82 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     explicit_diff = payload.get("diffText")
     if isinstance(explicit_diff, str):
         if not explicit_diff.strip():
-            tb_extra = _verify_workspace_test_boundary(workspace) if workspace is not None else []
-            if not tb_extra:
+            if not workspaces:
                 if is_question:
                     _record_flight_stop(workspace, conv_id, 0, deferred_question=True)
                     return {}
-                git_clean = _collect_workspace_diff_status(workspace)[1] if workspace is not None else True
-                _record_flight_stop(workspace, conv_id, 0, workspace_clean=bool(git_clean))
+                _record_flight_stop(workspace, conv_id, 0, workspace_clean=True)
+                _clear_stop_strikes(state_dir() / "hook_strikes.json", conv_id)
                 return {}
-            findings.extend(tb_extra)
-            _record_flight_stop(workspace, conv_id, len(findings), workspace_clean=False)
+            for ws in workspaces:
+                ws_diff, ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
+                ws_findings: List[str] = []
+                if ws_git_error:
+                    ws_findings.append(
+                        f"Git diff inspection failed in `{ws}` (corrupt `.git/HEAD`, locked/corrupt git index, "
+                        "or git subprocess error) — workspace diff integrity could not be verified "
+                        "(failing closed; GEMINI.md Rule 8 & Rule 9)."
+                    )
+                if ws_diff.strip() and _session_flight_base_head(ws, conv_id):
+                    ws_findings.extend(inspect_git_diff(ws_diff, workspace=ws))
+                ws_findings.extend(_verify_workspace_test_boundary(ws))
+                if not ws_findings:
+                    if is_question:
+                        _record_flight_stop(ws, conv_id, 0, deferred_question=True)
+                    else:
+                        _record_flight_stop(ws, conv_id, 0, workspace_clean=bool(ws_clean))
+                else:
+                    _record_flight_stop(
+                        ws,
+                        conv_id,
+                        len(ws_findings),
+                        workspace_clean=False,
+                        create_if_missing=ws_git_error,
+                    )
+                    for item in ws_findings:
+                        if item not in findings:
+                            findings.append(item)
+            if not findings:
+                if is_question:
+                    return {}
+                _clear_stop_strikes(state_dir() / "hook_strikes.json", conv_id)
+                return {}
         else:
             findings.extend(inspect_git_diff(explicit_diff, workspace=workspace))
-            if workspace is not None:
-                findings.extend(_verify_workspace_test_boundary(workspace))
+            if workspaces:
+                for ws in workspaces:
+                    ws_bh, ws_bh_err = _resolve_session_flight_base_head(ws, conv_id)
+                    if ws_bh or ws_bh_err or (len(workspaces) > 1 and ws != workspace):
+                        ws_diff, _ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
+                        if ws_git_error:
+                            err_msg = (
+                                f"Git diff inspection failed in `{ws}` (corrupt `.git/HEAD`, locked/corrupt git index, "
+                                "or git subprocess error) — workspace diff integrity could not be verified "
+                                "(failing closed; GEMINI.md Rule 8 & Rule 9)."
+                            )
+                            if err_msg not in findings:
+                                findings.append(err_msg)
+                        if ws_diff.strip():
+                            for item in inspect_git_diff(ws_diff, workspace=ws):
+                                if item not in findings:
+                                    findings.append(item)
+                for item in _verify_all_workspaces_test_boundary(workspaces):
+                    if item not in findings:
+                        findings.append(item)
+            target_workspaces = list(workspaces) if workspaces else ([workspace] if workspace is not None else [None])
             if not findings and is_question:
-                _record_flight_stop(workspace, conv_id, 0, deferred_question=True)
+                for ws in target_workspaces:
+                    _record_flight_stop(ws, conv_id, 0, deferred_question=True)
                 return {}
-            _record_flight_stop(workspace, conv_id, len(findings), workspace_clean=False)
+            for ws in target_workspaces:
+                _record_flight_stop(ws, conv_id, len(findings), workspace_clean=False)
     else:
         if not workspaces:
             if is_question:
                 _record_flight_stop(None, conv_id, 0, deferred_question=True)
             return {}
         for ws in workspaces:
-            ws_diff, ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws)
+            ws_diff, ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
             ws_findings: List[str] = []
             if ws_git_error:
                 ws_findings.append(
@@ -9852,23 +11156,18 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     exec_num = _safe_int(payload.get("executionNum"), default=0)
 
     strikes_file = state_dir() / "hook_strikes.json"
+    if not findings:
+        _clear_stop_strikes(strikes_file, conv_id)
+        return {}
     count = 1
     total_strikes = 1
+    stable_keys = sorted({_finding_structural_key(f) for f in findings})
+    fingerprint = hashlib.sha256("\n".join(stable_keys).encode("utf-8")).hexdigest()[:16]
+    strike_state_error = False
     try:
         with file_lock(strikes_file, timeout=HOOK_LOCK_TIMEOUT):
             ledger = _read_ledger_safe(strikes_file)
 
-            if not findings:
-                if conv_id in ledger:
-                    del ledger[conv_id]
-                    try:
-                        atomic_write_json(strikes_file, ledger)
-                    except OSError as exc:
-                        sys.stderr.write(f"[Harness Stop Gate] Failed to clear `{strikes_file}`: {exc}\n")
-                return {}
-
-            stable_keys = sorted({_finding_structural_key(f) for f in findings})
-            fingerprint = hashlib.sha256("\n".join(stable_keys).encode("utf-8")).hexdigest()[:16]
             record = ledger.get(conv_id) if isinstance(ledger.get(conv_id), dict) else {}
             prev_fp = record.get("fingerprint", "")
             prev_total = _safe_int(record.get("total_strikes"), default=_safe_int(record.get("count"), default=0))
@@ -9883,6 +11182,7 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
                 del ledger[oldest]
             atomic_write_json(strikes_file, ledger)
     except (OSError, TimeoutError) as exc:
+        strike_state_error = True
         sys.stderr.write(f"[Harness Stop Gate] Could not update `{strikes_file}` ({type(exc).__name__}): {exc}\n")
         if not findings:
             return {}
@@ -9892,8 +11192,25 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
             count = 2
         else:
             count = 1
+        total_strikes = count
 
-    if count >= MAX_STRIKES or total_strikes >= (MAX_STRIKES + 2):
+    tripped = bool(count >= MAX_STRIKES or total_strikes >= (MAX_STRIKES + 2))
+    _audit_stop_strike(
+        "stop.circuit_breaker_tripped" if tripped else "stop.strike_recorded",
+        is_warn=True,
+        conv_id=conv_id or "default",
+        strike=count,
+        total_strikes=total_strikes,
+        max_strikes=MAX_STRIKES,
+        fingerprint=fingerprint,
+        structural_keys=stable_keys[:20],
+        findings_count=len(findings),
+        circuit_breaker_tripped=tripped,
+        workspaces=[ws.name for ws in workspaces],
+        **({"strike_state_error": True} if strike_state_error else {}),
+    )
+
+    if tripped:
         # Rule 13 3-strike circuit breaker: allow stop rather than trapping the agent in an infinite loop
         return {}
 
@@ -9923,7 +11240,43 @@ def _is_stop_event(event: str) -> bool:
     return event.strip().lower().replace("_", "-") == "stop"
 
 
+def _sanitize_host_fixture_payload(obj: Any, _depth: int = 0) -> Any:
+    if _depth > 8:
+        return "<truncated>"
+    if isinstance(obj, dict):
+        out: Dict[str, Any] = {}
+        for k, v in obj.items():
+            ks = str(k)
+            if ks.lower() in ("apikey", "api_key", "token", "secret", "authorization", "password"):
+                out[ks] = "<redacted>"
+            elif ks in ("prompt", "userPrompt", "userMessage", "user_prompt", "lastUserInput", "last_user_input", "assistantMessage", "lastAssistantMessage", "diffText") and isinstance(v, str):
+                out[ks] = v[:512]
+            else:
+                out[ks] = _sanitize_host_fixture_payload(v, _depth + 1)
+        return out
+    if isinstance(obj, list):
+        return [_sanitize_host_fixture_payload(item, _depth + 1) for item in obj[:20]]
+    if isinstance(obj, str) and len(obj) > 512:
+        return obj[:512]
+    return obj
+
+
+def _maybe_record_host_fixture(event: str, payload: Dict[str, Any]) -> None:
+    if os.environ.get("AGY_RECORD_HOST_FIXTURES", "").strip() not in ("1", "true", "yes"):
+        return
+    try:
+        cap_dir = state_dir() / "host_fixtures"
+        cap_dir.mkdir(parents=True, exist_ok=True)
+        norm_ev = re.sub(r"[^a-z0-9_-]+", "-", (event or "unknown").strip().lower()) or "unknown"
+        out_file = cap_dir / f"latest_{norm_ev}.json"
+        sanitized = _sanitize_host_fixture_payload(payload)
+        atomic_write_json(out_file, {"hookEventName": event, "payload": sanitized})
+    except Exception:
+        pass
+
+
 def dispatch_hook(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    _maybe_record_host_fixture(event, payload)
     norm = event.strip().lower().replace("_", "-")
     if norm in ("pre-invocation", "preinvocation"):
         return handle_pre_invocation(payload)

@@ -1,11 +1,9 @@
 ---
 name: upstream-auditor
 description: >-
-  Upstream synchronization, model drift and external skills auditor. Detects updates in Gemini models,
-  Antigravity runtime, and 8 tracked community skill and plugin repositories. Enforces constitutional staging (RFC)
-  with a 3-day (72h) watchdog cycle. Supports targeted flags: --skills, --model, --platform, --skill <name>.
-  Invoke with /audit-upstream, /audit-upstream --skills, etc. Use EXCLUSIVELY when auditing upstream model,
-  runtime, or tracked skill repository drift; not for general codebase audits (use 'audit') or project
+  Upstream model drift, Antigravity runtime, and tracked external skills auditor with 72h watchdog and RFC staging
+  (`--skills`, `--model`, `--platform`, `--skill <name>`). Invoke with /audit-upstream. Use EXCLUSIVELY when auditing
+  upstream model, runtime, or tracked skill repository drift; not for general codebase audits (use 'audit') or project
   dependency upgrades (use 'dependency-upgrade').
 ---
 
@@ -37,7 +35,7 @@ Refine the audit scope using targeted flags:
 * **Targeted Single Skill:** `/audit-upstream --skill <skill_name>`
   * Audits only the specified skill (e.g. `/audit-upstream --skill antislop`, `chisle`, `procoder`).
 * **Model Only:** `/audit-upstream --model`
-  * Inspects the active LLM (Gemini Flash, Pro, Argon, etc.), official release notes, and evaluates harness rules and thresholds against [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) (`MC-01`..`MC-06`) to determine which scaffolding rules are now redundant (`Pruning`) and which require threshold or wording changes (`Drift` / `Opportunities`).
+  * Inspects the active Large Language Model (LLM) across runtime roles (`Orchestrator`, `Author` coding flagships, `Verifier`/auditors, and `Fast`/auxiliary models), official release notes, and evaluates harness rules and thresholds against [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) (`MC-01`..`MC-06`) to determine which scaffolding rules are now redundant (`Pruning`) and which require threshold or wording changes (`Drift` / `Opportunities`).
 * **Platform Only:** `/audit-upstream --platform`
   * Audits only the Antigravity builtin environment (`builtin/skills`) and lifecycle hooks.
 * **Proactive 72-Hour Watchdog & Instant Model/Platform Drift Hook (Two-Stage Trigger):**
@@ -58,9 +56,9 @@ flowchart LR
 ### Stage 1: Upstream Ingestion
 
 1. **Model Layer (`--model` or `--all`):**
-   * Identify active model name and ID (e.g. `Gemini 3.8 Flash`, `Gemini Pro`).
+   * Identify active model name, ID, and runtime role (`Orchestrator`, `Author` coding flagship, `Verifier`/auditor, or `Fast`/auxiliary).
    * Review official release notes, model cards, and capability updates via web search (`search_web`) or bounded Uniform Resource Locator (URL) fetching (`porter/net.py` `safe_fetch_url` via `run_command`).
-   * Document new default behaviors (tone, Chain-of-Thought style, tool-calling precision, context window limits).
+   * Document new default behaviors (tone, Chain-of-Thought style, tool-calling precision, context window limits, and delegation fidelity).
 2. **Platform Layer (`--platform` or `--all`):**
    * Inspect builtin skills and documentation under `~/.gemini/antigravity/builtin/skills/`.
    * Detect new builtin capabilities, updated lifecycle hooks, or modified runtime tools.
@@ -84,7 +82,7 @@ flowchart LR
 1. **Global Constitution:** `GEMINI.md` and active project instruction files.
 2. **Custom Skills:** User-defined and community-curated skills in `~/.gemini/config/skills/`.
 3. **Auditor Subagents & MCP:** Defined auditor personas and registered MCP tools.
-4. **Model Calibration Matrix (`--model` or `--all`):** Load [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) to partition directives into **Tier I Immutable Governance Core** (project/safety contracts that never expire with model upgrades) and **Tier II Model-Capability Scaffolding Candidates** (`MC-01`..`MC-06`: context/subagent caps, oscillation blast caps, anti-laziness reminders, `antislop` trope filters, discourse brevity, and subagent contract precision).
+4. **Model Calibration Matrix (`--model` or `--all`):** Load [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) to partition directives into **Tier I Immutable Governance Core** (project/safety contracts that never expire with model upgrades) and **Tier II Model-Capability Scaffolding Candidates** (`MC-01`..`MC-06`: context/subagent caps, oscillation blast caps, anti-laziness reminders, `antislop` trope filters, discourse brevity, and subagent contract precision), scoped across the four runtime roles (`Orchestrator`, `Author`, `Verifier`, `Fast`).
 
 ### Stage 3: Cross-Matrix Analysis & Constitutional Filter
 
@@ -118,7 +116,7 @@ Findings are strictly classified into three categories:
    * Exact reviewable `diff` blocks (inline for single-file skill updates).
 2. For multi-file updates or `--model` calibration proposals, write RFC staging diffs under `~/.local/state/antigravity-harness/staging/<skill>-sync.md` or `~/.local/state/antigravity-harness/staging/model-calibration-sync.md` directly via `write_file` (`0` shell redirections; single-file skill diffs may be rendered inline or optionally staged there, and never stage inside the Guard-protected `~/.gemini/config` or sibling Guard state files).
 3. Apply updates to local skills only upon explicit user confirmation, in the harness source repository, verify internal self-consistency by running `python3 scripts/meta_audit.py --strict` (or `/audit --self`, adding `--cognitive` when behavioral instructions or skill triggers changed; `GEMINI.md` Rule 17), and deploy them with `python3 install.py` (the human operator approves the unlock).
-4. Update target commit SHAs and timestamps in the shipped seed `skills/upstream-auditor/upstream_state.seed.json` and the fallback dictionary in `guard/upstream.py`. Never write directly to the Guard-protected runtime ledger `~/.local/state/antigravity-harness/upstream_state.json` from the agent (`GEMINI.md` Rule 12); `upstream_watcher.py` automatically reconciles the per-user ledger from `upstream_state.seed.json` once deployed via `python3 install.py`.
+4. Update target commit SHAs, timestamps, and role-qualified `approved_customization_models` (`Orchestrator` coordinators vs `Author` coding flagships eligible for `GEMINI.md` Rule 17 writes, excluding `Fast` tiers) in the shipped seed `skills/upstream-auditor/upstream_state.seed.json` (read by `guard/agy_hooks.py` `_catalog_top_model_spec`) and the fallback dictionary in `guard/upstream.py`. Never write directly to the Guard-protected runtime ledger `~/.local/state/antigravity-harness/upstream_state.json` from the agent (`GEMINI.md` Rule 12); `upstream_watcher.py` automatically reconciles the per-user ledger from `upstream_state.seed.json` once deployed via `python3 install.py`.
 
 ---
 
@@ -154,7 +152,7 @@ directly to the Guard-protected runtime file `~/.local/state/antigravity-harness
       "repo": "morluto/rea",
       "branch": "main",
       "track": "release",
-      "last_synced_commit": "rea-agents-6.7.0",
+      "last_synced_commit": "rea-agents-6.9.0",
       "target_skills": ["reverse-engineer-anything"]
     }
   }

@@ -1,12 +1,10 @@
 ---
 name: marathon
 description: >-
-  Proactive multi-window goal planning, minimum-window task partitioning, per-window model/effort/skill routing,
-  and deterministic session handoff orchestration via tasks.md and HANDOFF.md. Use for medium-to-large architectural
-  builds, reworks, comprehensive revisions, multi-round audit/remediation campaigns, or promoting a vibecoder prototype
-  into production. Invoke with /marathon or when the user says "maraton", "maraton başlat", "pencerelere böl", or
-  "multi-window plan". Not for single-window Tier 1/2 tasks (use 'harness'), single-window autonomous subagent fan-out
-  (use 'unlazy'), or .procoder/ sprint trees (use 'procoder').
+  Multi-window goal planning, minimum-window task partitioning, per-window model/effort/skill routing, and session
+  handoff orchestration via tasks.md and HANDOFF.md. Invoke with /marathon or on "maraton", "maraton başlat",
+  "pencerelere böl", "multi-window plan". Not for single-window Tier 1/2 tasks (use 'harness'), single-window
+  subagent fan-out (use 'unlazy'), or .procoder/ sprint trees (use 'procoder').
 ---
 
 # Marathon — Multi-Window Execution Planner & Handoff Orchestrator
@@ -49,6 +47,15 @@ Context windows are expensive to switch; excessively long windows suffer context
      * `W2 (Surgical Remediation & Regression Gate):` Fix confirmed findings under `GEMINI.md` Rule 13 blast caps and prove green across all gates.
    * **Pattern C — Observable Milestone Rule for In-Window `W1` Execution (`GEMINI.md` Rule 13):** Never guess subjective "context fullness". When Phase 1 clarification required `<= 3` `ask_question` turns and `W1` touches `<= 8` files, execute `W1`'s implementation slice in the **same** window immediately after user plan approval. Use a dedicated planning-and-specification `W1` exclusively on Tier 3 (`>8 files`) overhauls that require `> 3` `deep-grill` rounds and an Architecture Decision Record (`ADR` via `architecture-decision-records`) sign-off milestone before code edits begin.
 
+### Swarm (`native_swarm`) vs. Single-Window (`unlazy`) vs. Multi-Window (`marathon`) Decision Matrix
+
+| Mode | Trigger Condition | Parallelism & Isolation | Ledger & Exit Governance |
+| :--- | :--- | :--- | :--- |
+| **Standard Single-Window (`harness`)** | `<= 8` files forming one cohesive vertical slice without parallel write contention | Serial execution + on-demand `invoke_subagent` (`research`, auditors) | `tasks.md` (Tier 2) or fast path (Tier 1); `harness` §3.B gate |
+| **Parallel Swarm (`native_swarm` / `swarm` tool)** | `>= 2` independent writable modules runnable concurrently inside one coordinated swarm lifecycle | Disjoint `OWNS:` author workers in `workspace:"share"` / `"branch"` + `1` verifier per `2–4` authors on `workspace:"inherit"` (`harness` §5.F) | Board `#seq` + commits merged to coordinator tree before `kill`; may run *inside* a heavy `marathon` window `Wk` (`tasks.md` / `HANDOFF.md` remain sole window ledgers) |
+| **Single-Window Fan-Out (`unlazy`)** | Tier 3 (`>8 files`) single-window dependency graph requiring formal leaf/branch checks | Rolling dispatch waves (`dispatch-check.mjs` + `invoke_subagent` or `swarm`) | `.unlazy/<scope>/PLAN.md` + `GATES.md` (`--reverify`); mutually exclusive with `marathon` |
+| **Multi-Window Campaign (`marathon`)** | Tier 2/3 work exceeding safe single-window scope (`2 <= N <= 4` windows), requiring `deep-grill` / `ADR` milestone or sequential slice + Tier-3 audit gates | Sequential human-gated windows `W1..Wn` (`<= 8` touched files per implementation window) | Root `tasks.md` + `HANDOFF.md` (`Status: [COMPLETE]` when all `AC-1..N` pass) |
+
 ---
 
 ## 3. Phase 3: Per-Window Model, Effort & Skill Routing
@@ -60,6 +67,15 @@ Different windows carry different cognitive loads. During initial planning (and 
 | **Architecture, Deep-Grill, Complex Rework, or Security/Consistency Audit** | High ambiguity, multi-file invariant reasoning, adversarial falsification | **Top Reasoning Model (`Pro` / `Argon` / `Opus` tier) — High / Max Effort** | `marathon`, `deep-grill`, `harness`, `architecture-decision-records`, `audit`, `mistake-proofing` |
 | **Standard Vertical-Slice Implementation, Refactoring, or Optimization** | Locked contract and clear `AC-1..N`; requires disciplined code generation and seam testing | **Balanced / Coding Model (`Pro` / `Sonnet` / `Flash` tier) — Medium / High Effort** | `marathon`, `harness`, `test-design`, `refactoring`, `sweetspot`, `game-engineering`, `antislop` |
 | **Mechanical Polish, Doc/Changelog Sync, or Scoped Lint/Comment Cleanup** | Deterministic transformations with existing test coverage | **Fast Model (`Flash` / `Haiku` tier) — Low / Medium Effort** | `marathon`, `harness`, `antislop-code`, `technical-writing` |
+
+### Runtime Role & Rule 17 Calibration (Orchestrator, Flagships, Auditors & Auxiliary)
+
+| Runtime Role | Primary Responsibility | Allowed Skills & Tools | `GEMINI.md` Rules 15f & 17 Boundary |
+| :--- | :--- | :--- | :--- |
+| **1. Orchestrator / Coordinator (`Orchestrator` tier)** | Window planning (`tasks.md`/`HANDOFF.md`), `deep-grill`, swarm board control (`swarm`, `post_message`, `read_board`, `swarm_wait`), branch integration, `harness` §5.E Mutual Falsification | `marathon`, `deep-grill`, `harness`, `architecture-decision-records`, `audit`, `upstream-auditor`; `ask_question`, `invoke_subagent`, `run_workflow`, verification commands | Non-coding during active swarms; requires top-catalog / approved `Orchestrator` model at highest effort when routing customization edits (`upstream_state.seed.json`) |
+| **2. Coding Flagships (`Author` workers)** | Vertical-slice production code, complex bug diagnosis, seam tests, and customization/governance edits | `harness`, `diagnosing-bugs`, `refactoring`, `test-design`, `mistake-proofing`, `sweetspot`, `game-engineering`, `rustify`, `renew`, `database-migrations`, `antislop`; disjoint `workspace:"share"` / `"branch"` writes | Never downgraded (`flash` / `flash_lite` blocked by `PreToolUse`) when touching `GEMINI.md`, `DESIGN.md`, `hooks.json`, `skills/`, `agents/`, `guard/`, or `porter/` |
+| **3. Auditors & Verifiers (`agents/*.md` + `Verifier` workers)** | Independent Pre-flight Gate (`consistency-auditor`, `specification-gap-auditor`, `security-boundary-verifier`, `silent-failure-hunter`, `test-adequacy-auditor`, `contract-change-auditor`, `meta-auditor`, `research`) and swarm diff/test checks | `audit`, `security-review`, `test-design`, `antislop`; `agents/*.md` stay strictly `access: read-only` (`harness` §5.B), swarm verifiers use `workspace:"inherit"` and report defects to `@<author>` | Never rubber-stamp; every `CRITICAL`/`HIGH` finding undergoes `harness` §5.E Mutual Falsification in the coordinator session |
+| **4. Fast / Auxiliary (`Flash` / `Haiku` tier)** | Live webview UI flows (`browser`), swarm status narration (`narrator`), stall timer checks (`monitor`), or mechanical non-governance doc/comment polish | Built-in `browser` (`Model: "flash"` default), `swarm_narrator` (`view.json` / `swarm_view/prefs.md` only), `swarm_monitor` (`schedule` + stall-only `post_message`), `antislop-code`, `technical-writing` | Prohibited from editing customization/governance seams; in active `native_swarm` sessions leave `model` unset for `narrator`/`monitor` unless user-requested or quota-exhausted (`Rule 15f`) |
 
 * **Adaptive Re-Calibration:** If a window discovers unexpected structural complexity (or finishes simpler pieces early), the agent may adjust the recommended Model & Effort tier for the *upcoming* window `Wk+1` when writing `HANDOFF.md`, stating the one-line technical reason.
 

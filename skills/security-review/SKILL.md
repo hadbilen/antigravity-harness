@@ -56,7 +56,8 @@ For critical security audits, authentication/authorization overhauls, or multi-t
 - [ ] Authentication tokens stored in `httpOnly`, `Secure`, `SameSite=Strict` cookies (avoid vulnerable `localStorage`).
 - [ ] Authorization / permission checks performed on every private endpoint and server action; do not rely on client-side routing guards.
 - [ ] Row Level Security (RLS) enabled on all multi-tenant database tables with strict user ownership policies.
-- [ ] Passwords hashed using Argon2id or bcrypt with appropriate cost factors.
+- [ ] Internal tools, background workers, and agent or Model Context Protocol (`MCP`) tool handlers bind caller and tenant identity exclusively from verified session/transport metadata or cryptographically signed job envelopes (never trusting model-supplied identity arguments), using least-privilege per-job principals for callerless workers rather than ambient root or service-wide administrator privilege.
+- [ ] Passwords hashed using Argon2id or bcrypt meeting Open Worldwide Application Security Project (`OWASP`) minimum cost floors (`Argon2id` memory `>= 19,456` kibibytes, iterations `>= 2`, parallelism `>= 1`; or `bcrypt` work factor `>= 12`).
 
 ### 5. Transport & Header Security (CSP & CSRF)
 - [ ] Content Security Policy (CSP) configured without `'unsafe-inline'` or `'unsafe-eval'`.

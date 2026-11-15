@@ -1,12 +1,10 @@
 ---
 name: data-analysis
 description: >-
-  Data science, statistical analysis, exploratory data analysis, and Jupyter notebook (.ipynb) verification
-  discipline: row-count and drop accounting, train/test split anti-leakage, baseline-first modeling, clean
-  top-to-bottom execution, and honest chart scaling. Invoke with /data-analysis or when analyzing datasets,
-  building notebooks, running statistical tests, or generating analytical charts ("veri analizi", "veri bilimi",
-  "istatistiksel analiz", "veri sızıntısı", "notebook"). Not for database schema migrations (use
-  'database-migrations') or general unit test authoring (use 'test-design').
+  Data science, statistical analysis, exploratory data analysis, and Jupyter notebook (.ipynb) verification: row-count
+  accounting, train/test anti-leakage, baseline-first modeling, and honest chart scaling. Invoke with /data-analysis or
+  on "veri analizi", "veri bilimi", "istatistiksel analiz", "veri sızıntısı", "notebook". Not for schema migrations (use
+  'database-migrations') or unit test authoring (use 'test-design').
 ---
 
 # Data Analysis: Reproducible Pipelines, Anti-Leakage, and Honest Reporting

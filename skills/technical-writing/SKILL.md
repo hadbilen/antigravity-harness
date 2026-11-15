@@ -1,12 +1,10 @@
 ---
 name: technical-writing
 description: >-
-  Technical documentation architecture, Diataxis mode separation (Tutorial, How-To, Reference, Explanation),
-  executable code-example verification, API reference completeness, and changelog discipline. Invoke with
-  /technical-writing or when authoring or auditing developer docs, READMEs, runbooks, API references, tutorials,
-  or release notes ("teknik dokümantasyon", "kullanım kılavuzu", "doküman yaz", "sürüm notları"). Not for
-  marketing landing pages (use 'antislop-copywriting') or architectural decision records (use
-  'architecture-decision-records').
+  Technical documentation architecture, Diataxis mode separation (Tutorial, How-To, Reference, Explanation), executable
+  example verification, API reference completeness, and changelog discipline. Invoke with /technical-writing or on
+  "teknik dokümantasyon", "kullanım kılavuzu", "doküman yaz", "sürüm notları". Not for marketing landing pages (use
+  'antislop-copywriting') or architectural decision records (use 'architecture-decision-records').
 ---
 
 # Technical Writing: Verified, Mode-Separated Documentation

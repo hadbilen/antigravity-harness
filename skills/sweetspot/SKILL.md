@@ -1,19 +1,10 @@
 ---
 name: sweetspot
 description: >-
-  Controlled, behavior-preserving performance, memory (RAM), disk/artifact footprint, and network I/O (download/upload
-  bandwidth and round-trip latency) optimization with holistic Pareto sweet-spot analysis and multi-file hot-path
-  discovery for working software (scripts, backends, real-time game frame rates, command-line cold-start latency,
-  web/app bundles, networked services, and compiled executables across formats and operating systems). Supports axis
-  flags: --all (alias --holistic, default: 3-axis local or 4-axis when network boundaries exist), --time (alias
-  --speed), --memory (alias --ram), --disk (alias --size), and --net (alias --network). Profiles first across all active
-  axes, classifies opportunities into 3 zones (In-Scope Controlled, Trade-Off / Identity-Shifting Approval Required, or
-  Already at Sweet Spot), and refuses placebo edits. Invoke with /sweetspot or /optimize, or when the user says
-  "sweetspot", "optimize et", "bu oyunu optimize et", "bu yazılımı optimize et", "hızlandır", "performans
-  optimizasyonu", "kare hızını artır", "bellek kullanımını düşür", "RAM optimizasyonu", "disk alanını küçült",
-  "boyutunu küçült", "ağ optimizasyonu", "indirme/yükleme hızlandır", or "gecikmeyi düşür". Not for broken code or
-  unexpected regressions (use 'diagnosing-bugs') or pure structural cleanup without speed, memory, size, or network
-  goals (use 'refactoring').
+  Behavior-preserving performance, RAM, disk/bundle size, and network I/O optimization with Pareto sweet-spot
+  profiling (`--all`, `--time`, `--memory`, `--disk`, `--net`). Invoke with /sweetspot or /optimize, or on "optimize et",
+  "hızlandır", "performans optimizasyonu", "bellek kullanımını düşür", "boyutunu küçült", "ağ optimizasyonu". Not for
+  broken code or regressions (use 'diagnosing-bugs') or pure structural cleanup without resource goals (use 'refactoring').
 ---
 
 # Sweetspot — Controlled Performance, Memory, Footprint & Network Optimization Gate

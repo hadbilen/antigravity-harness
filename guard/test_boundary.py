@@ -190,6 +190,8 @@ class _PythonTestFacts:
         self.overrides: Set[str] = set()        # test-class members replacing TestCase machinery
         self.pytest_hooks: Set[str] = set()     # pytest_* hook functions added to test module
         self.tampering: Dict[str, int] = {}     # "how owner.attr" -> count
+        self.strict_assertions: Dict[Tuple[str, str], int] = {}
+        self.relaxed_assertions: Dict[Tuple[str, str], int] = {}
         self.exits = 0
         self._scope(tree.body, "", test_class=None)
         self._collect_aliases_and_locals(tree, in_function=False, global_names=frozenset())
@@ -350,6 +352,51 @@ class _PythonTestFacts:
                 if test_class and target.id in _TESTCASE_MACHINERY:
                     self.overrides.add(prefix + target.id)
 
+    def _collect_test_assertions(self, qualname: str, body: Sequence[ast.stmt]) -> None:
+        stack: List[ast.AST] = list(body)
+        while stack:
+            node = stack.pop()
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(node, ast.Assert):
+                test_expr = node.test
+                if isinstance(test_expr, ast.Compare) and len(test_expr.ops) == 1:
+                    op = test_expr.ops[0]
+                    subj = ast.unparse(test_expr.left).strip()
+                    if isinstance(op, ast.Eq):
+                        key = (qualname, subj)
+                        self.strict_assertions[key] = self.strict_assertions.get(key, 0) + 1
+                    elif isinstance(op, (ast.GtE, ast.LtE, ast.Gt, ast.Lt, ast.NotEq, ast.In, ast.IsNot)):
+                        key = (qualname, subj)
+                        self.relaxed_assertions[key] = self.relaxed_assertions.get(key, 0) + 1
+                elif not isinstance(test_expr, ast.Compare):
+                    if isinstance(test_expr, ast.Call) and _dotted_name(test_expr.func) == "bool" and test_expr.args:
+                        subj = ast.unparse(test_expr.args[0]).strip()
+                    else:
+                        subj = ast.unparse(test_expr).strip()
+                    if subj and subj not in ("True", "False"):
+                        key = (qualname, subj)
+                        self.relaxed_assertions[key] = self.relaxed_assertions.get(key, 0) + 1
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args:
+                mname = node.func.attr
+                subj = ast.unparse(node.args[0]).strip()
+                if mname in ("assertEqual", "assertListEqual", "assertDictEqual", "assertSetEqual", "assertTupleEqual"):
+                    key = (qualname, subj)
+                    self.strict_assertions[key] = self.strict_assertions.get(key, 0) + 1
+                elif mname in (
+                    "assertGreaterEqual",
+                    "assertLessEqual",
+                    "assertGreater",
+                    "assertLess",
+                    "assertNotEqual",
+                    "assertIn",
+                    "assertIsNotNone",
+                    "assertTrue",
+                ):
+                    key = (qualname, subj)
+                    self.relaxed_assertions[key] = self.relaxed_assertions.get(key, 0) + 1
+            stack.extend(ast.iter_child_nodes(node))
+
     def _scope(self, stmts: Sequence[ast.stmt], prefix: str, test_class: Optional[bool]) -> None:
         """Walks module/class-level statements (not function bodies). test_class is None outside classes."""
         for stmt in stmts:
@@ -366,6 +413,7 @@ class _PythonTestFacts:
                     self.returns[qualname] = self.returns.get(qualname, 0) + _count_returns(stmt.body)
                     if _starts_by_aborting(stmt.body):
                         self.aborting.add(qualname)
+                    self._collect_test_assertions(qualname, stmt.body)
             elif isinstance(stmt, ast.ClassDef):
                 qualname = prefix + stmt.name
                 bases = [_dotted_name(b).split(".")[-1] for b in stmt.bases]
@@ -659,9 +707,9 @@ class TestBoundaryGuard:
                 if d in self.EXCLUDED_PATTERNS or d.startswith("."):
                     continue
                 dir_path = Path(root) / d
-                if dir_path.is_symlink():
-                    continue
                 try:
+                    if dir_path.is_symlink() or (dir_path / ".git").exists():
+                        continue
                     if not is_within(dir_path.resolve(), ws_root):
                         continue
                 except OSError:
@@ -734,11 +782,76 @@ class TestBoundaryGuard:
         atomic_write_json(dest, payload)
         return len(hashes), dest
 
+    @staticmethod
+    def resolve_linked_worktree_root(workspace_dir: Path) -> Optional[Path]:
+        """Returns the main repository root when `workspace_dir` is inside a linked git worktree (`workspace:\"share\"`)."""
+        try:
+            cur = Path(workspace_dir).resolve()
+        except (OSError, RuntimeError):
+            return None
+        wt_root: Optional[Path] = None
+        for cand in (cur, *cur.parents):
+            git_marker = cand / ".git"
+            try:
+                if git_marker.is_file():
+                    wt_root = cand
+                    break
+                if git_marker.is_dir():
+                    return None
+            except OSError:
+                continue
+        if wt_root is None:
+            return None
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(wt_root), "rev-parse", "--git-dir", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                stdin=subprocess.DEVNULL,
+            )
+            if proc.returncode != 0:
+                sys.stderr.write(
+                    f"[TestBoundaryGuard] `git rev-parse` failed for linked worktree `{wt_root}` "
+                    f"(exit {proc.returncode}).\n"
+                )
+                return None
+            parts = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+            if len(parts) < 2:
+                return None
+            raw_dir, raw_common = Path(parts[0]), Path(parts[1])
+            abs_dir = (raw_dir if raw_dir.is_absolute() else (wt_root / raw_dir)).resolve()
+            abs_common = (raw_common if raw_common.is_absolute() else (wt_root / raw_common)).resolve()
+            if abs_common == abs_dir or "modules" in abs_dir.parts or not (abs_common / "worktrees").is_dir():
+                return None
+            if abs_common.name == ".git" and abs_common.parent.is_dir():
+                main_root = abs_common.parent
+                return main_root if main_root != wt_root else None
+            if abs_common.is_dir():
+                return abs_common if abs_common != wt_root else None
+        except (OSError, subprocess.SubprocessError) as exc:
+            sys.stderr.write(
+                f"[TestBoundaryGuard] Failed to resolve linked worktree root for `{wt_root}` "
+                f"({type(exc).__name__}): {exc}\n"
+            )
+            return None
+        return None
+
     def _snapshot_source(self, target_path: Optional[Path]) -> Path:
         if target_path:
             return Path(target_path).resolve()
-        if not self.state_file.exists() and self.legacy_state_file.exists():
+        if os.path.lexists(self.state_file):
+            return self.state_file
+        if os.path.lexists(self.legacy_state_file):
             return self.legacy_state_file
+        main_root = self.resolve_linked_worktree_root(self.workspace_dir)
+        if main_root is not None:
+            main_state = state_dir() / "test_boundary" / f"{path_key(main_root)}.json"
+            if os.path.lexists(main_state):
+                return main_state
+            main_legacy = main_root / ".harness" / "test_boundary.json"
+            if os.path.lexists(main_legacy):
+                return main_legacy
         return self.state_file
 
     def load_snapshot(self, target_path: Optional[Path] = None) -> Optional[Dict[str, str]]:
@@ -851,6 +964,13 @@ class TestBoundaryGuard:
         for key, count in sorted(after.tampering.items()):
             if count > before.tampering.get(key, 0):
                 notes.append(f"monkeypatches tests or assertions ({key})")
+        for (qualname, subj), old_strict in sorted(before.strict_assertions.items()):
+            new_strict = after.strict_assertions.get((qualname, subj), 0)
+            if (
+                new_strict < old_strict
+                and after.relaxed_assertions.get((qualname, subj), 0) > before.relaxed_assertions.get((qualname, subj), 0)
+            ):
+                notes.append(f"relaxes strict equality assertion on '{subj}' in '{qualname}'")
         if after.exits > before.exits:
             notes.append("adds a process exit (sys.exit / os._exit / SystemExit)")
         return notes
@@ -926,13 +1046,22 @@ class TestBoundaryGuard:
         and multi-line bullet lists per skills/harness/SKILL.md and GEMINI.md Rule 9).
         """
         tasks_file = Path(workspace_dir) / "tasks.md"
-        if not tasks_file.is_file():
-            return set()
-        try:
-            content = tasks_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return set()
-        return cls.parse_authorized_tasks_text(content)
+        found: Set[str] = set()
+        if tasks_file.is_file():
+            try:
+                content = tasks_file.read_text(encoding="utf-8", errors="replace")
+                found |= cls.parse_authorized_tasks_text(content)
+            except OSError:
+                pass
+        if not found:
+            main_root = cls.resolve_linked_worktree_root(Path(workspace_dir))
+            if main_root is not None and (main_root / "tasks.md").is_file():
+                try:
+                    content = (main_root / "tasks.md").read_text(encoding="utf-8", errors="replace")
+                    found |= cls.parse_authorized_tasks_text(content)
+                except OSError:
+                    pass
+        return found
 
     def verify(
         self,
@@ -1036,12 +1165,12 @@ class TestBoundaryGuard:
             if mode == "tdd" and not is_config and old is not None and new is not None:
                 removed, added_lines = self._line_changes(old, new)
                 weak = self.weakening_lines(added_lines)
-                if not removed and k.endswith(".py"):
+                if k.endswith(".py"):
                     weak += [n for n in self.python_weakening(old, new, added_lines) if n not in weak]
                 if not removed and not weak:
                     extended.append(k)
                     continue
-                if not removed and weak:
+                if weak:
                     weakening_notes.append(f"{k}: added weakening lines {weak[:3]}")
             modified.append(k)
             if any(k.endswith(ext) for ext in self.FIXTURE_EXTENSIONS) or "fixture" in k.lower():

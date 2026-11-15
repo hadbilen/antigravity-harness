@@ -1,11 +1,10 @@
 ---
 name: audit
 description: >-
-  Independent, self-calibrating structural, consistency, and security boundary audit engine for codebases, formal specifications,
-  architectural documents, and schemas. Evaluates internal consistency, intent alignment, omissions, and state invariant violations
-  without mutating target files. Invoke with /audit, /audit --boundary (alias --resilience), /audit --full (alias --all), /audit --delta,
-  /audit --meta or --self (optionally with --forensics / --cognitive for the harness itself). Read-only inspection: never use to modify,
-  fix, or refactor files (use 'harness', 'diagnosing-bugs', or 'refactoring').
+  Read-only structural, consistency, and security boundary audit engine for codebases, specs, architectures, and schemas.
+  Invoke with /audit, /audit --boundary (alias --resilience), /audit --full (alias --all), /audit --delta, /audit --meta
+  or --self (`--forensics` / `--cognitive`). Read-only inspection: never use to modify, fix, or refactor files (use
+  'harness', 'diagnosing-bugs', or 'refactoring').
 ---
 
 # Audit — Autonomous Structural, Consistency & Security Boundary Inspection Engine
@@ -95,15 +94,15 @@ Validates input validation gaps, data boundaries, concurrency risks, and unexpec
 *In this mode, the agent authors a concrete "Negative Test Case" adhering to [references/boundary-verification-playbooks.md](./references/boundary-verification-playbooks.md) for every finding.*
 
 ### Mode 3: Differential / Delta Audit (`/audit --delta [ref]`)
-* Scans ONLY the latest git diff or recent commits.
-* Evaluates whether the change introduces regressions or violates historical decisions documented in `MISTAKES.md`, `ADR`, or established invariants.
+* Inspects `git status --porcelain`, unstaged `git diff`, staged `git diff --cached` (or `git diff HEAD` on the working tree; when `[ref]` is supplied, combines `git diff <ref>...HEAD` with `git diff HEAD` so dirty working-tree edits are included, falling back to `git diff --cached` plus `git diff` on an unborn `HEAD`), **and bounded plain-text non-secret untracked files listed by `git ls-files --others --exclude-standard`** (`<= 50 KB` outside vendor/build directories; path and byte count only—zero content bytes—for binary, oversized, or `.env*`/`*.pem`/`*.key` files, aggregated via scratch script at `>= 5` untracked files).
+* Evaluates whether the change introduces regressions, orphaned untracked artifacts, or violations of historical decisions documented in `MISTAKES.md`, Architecture Decision Records (`ADR`), or established invariants.
 
 ### Mode 4: Meta & Self-Audit (`/audit --meta`, `/audit --self`)
 * Audits the Antigravity Harness's own governance files (skills, agents, constitutions, and CLI contracts).
 * Executes `agy-guard self-audit --strict --json` (or `python3 scripts/meta_audit.py --strict --json` inside the repository checkout) in the parent session first, and passes that pre-computed JSON output when dispatching the `read-only` `meta-auditor` subagent.
 * Deterministically validates YAML frontmatter schemas, cross-reference links, mutual exclusion barriers, and Porter export parity.
 * **`--forensics` (harness only):** verifies Guard's live Operating System (OS) behavior against hermetic throw-away fixtures (`HOME`/XDG/`ANTIGRAVITY_CONFIG_DIR` isolated) by executing the repository's hermetic protection and boundary suites (`python3 -m unittest discover -s tests -p "test_protection.py"`, `test_lease.py`, `test_guard_hardening.py`, `test_test_boundary.py`, and `test_archive.py`) rather than ad-hoc inline `guard` / `agy-guard` lock or unlock shell commands blocked by `PreToolUse` (`GEMINI.md` Rule 12). Never run lock, unlock, or admin subcommands against the real configuration.
-* **`--cognitive` (harness only):** checks the instruction set itself: contradictory or duplicated rules across `GEMINI.md` and skills, thresholds that disagree, rules the model cannot observe or measure, trigger overlap between skills, and rules that are lost when work is delegated to subagents. When auditing modified behavioral rules or skill instructions, the primary session orchestrates **Behavioral Probe Falsification (`Propose–Probe–Compose` Sandbox, max 3 attempts per `GEMINI.md` Rule 13)** in `<appDataDir>/brain/<conversation-id>/scratch/`: constructs a two-case prompt fixture (one trap/violating scenario from `MISTAKES.md` or domain boundaries and one clean control scenario, without copying literal candidate phrases per `GEMINI.md` Rule 9 `C9`) and dispatches isolated read-only subagents (`invoke_subagent` with `research`, the target auditor, or read-only `self`, passing the clause in the parent-authorized `Task Objective` / `Audit Focus` header) with and without the target clause (or passes the captured probe outputs to `meta-auditor`) to verify that the instruction catches $\ge 1$ target failure mode with $0$ clean-control false positives (`GEMINI.md` Rule 8 Popper's Invariant) rather than acting as a non-discriminating placebo rule.
+* **`--cognitive` (harness only):** checks the instruction set itself: contradictory or duplicated rules across `GEMINI.md` and skills, thresholds that disagree, rules the model cannot observe or measure, trigger overlap between skills, and rules that are lost when work is delegated to subagents. When auditing modified behavioral rules or skill instructions, the primary session orchestrates **Behavioral Probe Falsification (`Propose–Probe–Compose` Sandbox, max 3 attempts per `GEMINI.md` Rule 13)** in `<appDataDir>/brain/<conversation-id>/scratch/`: constructs a two-case prompt fixture (one trap/violating scenario from `MISTAKES.md` or domain boundaries and one clean control scenario, without copying literal candidate phrases per `GEMINI.md` Rule 9 `C9`) and dispatches isolated read-only subagents (`invoke_subagent` with `research`, the target auditor, or read-only `self`, passing the clause in the parent-authorized `Task Objective` / `Audit Focus` header) with and without the target clause (or passes the captured probe outputs to `meta-auditor`) to verify a non-zero ablation delta ($\ge 1$ newly caught target failure mode or $\ge 1$ eliminated clean-control false positive relative to the without-clause baseline, with $0$ clean-control false positives in the active clause within $\le 3$ attempts per `GEMINI.md` Rule 8 Popper's Invariant) rather than acting as a non-discriminating placebo rule.
 * Usability and performance claims need evidence: a performance finding requires a measurement command and its output; a usability finding without user-behaviour evidence is reported as `[OPEN QUESTION]`, never above `INFO`.
 
 ### Mode 5: Full Comprehensive Audit (`/audit --full <target>`, `/audit --all <target>`)
@@ -126,12 +125,15 @@ Every finding must carry an explicit epistemic status tag:
 
 ---
 
-## 6. Output Standard: The Audit Ledger
+## 6. Output Standard: Operator Summary & The Audit Ledger
 
-Conclude every audit with a structured, priority-ranked ledger:
+Begin every audit report with a 2–3 sentence plain-language **Operator Summary (`Operatör Özeti`)** in the user's language (`GEMINI.md` Rule 2 & Rule 6) stating the bottom-line risk, what is affected in practical terms, and what decision or action the operator should take next, followed by the technical priority-ranked ledger:
 
 ```markdown
 Lens: [Formal Specification | Application Code | Contract] · Standard: [Axioms | Reliability | Type Safety]
+
+### Operator Summary (`Operatör Özeti`)
+[2–3 plain-language sentences in the user's language explaining practical impact and required operator action.]
 
 ### Finding Summary
 * Critical: X | High: Y | Medium: Z | Info: W
@@ -148,7 +150,7 @@ Lens: [Formal Specification | Application Code | Contract] · Standard: [Axioms 
 
 ## 7. Subagent Orchestration & Zero-Reasoning Dispatch
 
-For large multi-volume or differential audits, the lead auditor can delegate across inspection dimensions to specialized `read-only` subagents (passing only target file coordinates, unified diffs, and invariants — never the lead agent's own hypotheses or conclusions, and instructing subagents to return compact table rows without conversational prose):
+For large multi-volume or differential audits, the lead auditor can delegate across inspection dimensions to specialized `read-only` subagents (passing only target file coordinates, unified diffs from `git diff HEAD`—or `git diff <ref>...HEAD` plus `git diff HEAD` for branch delta audits—bounded non-secret `<= 50 KB` untracked file coordinates and `<= 250`-line slices from `git ls-files --others --exclude-standard`, and invariants — never the lead agent's own hypotheses or conclusions, and instructing subagents to return compact table rows without conversational prose):
 1. **`consistency-auditor`:** Scans axiomatic contradictions, broken references, and counter mismatches across bounded host file-read slices (and falsifies commit/change claims against the diff).
 2. **`security-boundary-verifier`:** Inspects access boundaries, data isolation, and race conditions across bounded host file-read slices and authors reproducible negative test cases for the lead agent to execute.
 3. **`specification-gap-auditor`:** Uncovers omissions, unhandled edge cases, and unverifiable adjectives across bounded host file-read slices.
@@ -156,6 +158,6 @@ For large multi-volume or differential audits, the lead auditor can delegate acr
 5. **`test-adequacy-auditor`:** Evaluates whether tests exercise real contract seams, catches tautological or mocked-out assertions, checks for stale negative assertions on removed strings, and maps `[OK]`/`[GAP]` branch coverage.
 6. **`contract-change-auditor`:** Audits public interface, schema, migration, and wire-protocol changes across all callers, persisted data shapes, and rollback paths.
 
-Work is split by the kind of evidence a question needs, not by label: static consistency questions go to `consistency-auditor`; boundary inspection and negative-test design go to `security-boundary-verifier` (with the lead agent or a `self` subagent executing any live fixture or shell command via `run_command`); omissions and vague requirements go to `specification-gap-auditor`; error-handling paths go to `silent-failure-hunter`; seam test strength goes to `test-adequacy-auditor`; public contract/schema diffs go to `contract-change-auditor`; measurements are made by the lead agent with a script, not inferred.
+Work is split by the kind of evidence a question needs, not by label: static consistency questions go to `consistency-auditor`; boundary inspection and negative-test design go to `security-boundary-verifier` (with the lead agent or a `self` subagent executing any live fixture or shell command via `run_command`); omissions and vague requirements go to `specification-gap-auditor`; error-handling paths go to `silent-failure-hunter`; seam test strength goes to `test-adequacy-auditor`; public contract/schema diffs go to `contract-change-auditor`; measurements are made by the lead agent with a script, not inferred. When auditing critical security, financial, or governance cores via `native_swarm` (`swarm` tool) or multi-window `marathon` campaigns, prefer cross-model-family verification (pairing `Gemini 4` authors with `Claude Opus 5.5 (High)` verifiers when quota permits) to reduce correlated same-family blind spots.
 
 The lead agent verifies every returned subagent finding at its cited `file:line` coordinate (`skills/harness/SKILL.md` §5.E), subjects `CRITICAL`/`HIGH` static code deductions to **Mutual Falsification** (executing authored negative test cases, caller/dataflow checks via `python3 scripts/code_map.py flow`, or runtime traces via `python3 scripts/code_map.py trace` to eliminate theoretical false positives), removes duplicates, and renders a unified `Audit Ledger`.

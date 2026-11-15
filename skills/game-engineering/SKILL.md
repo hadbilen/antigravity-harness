@@ -1,12 +1,10 @@
 ---
 name: game-engineering
 description: >-
-  Deterministic game loop architecture, real-time simulation discipline, entity state machines, seeded procedural
-  generation, and game feel ("juice") engineering for 2D/3D web, canvas, and engine-based games. Enforces fixed-timestep
-  simulation decoupling, zero per-frame allocation, headless tick verification, and MODE: GAME & INTERACTIVE UI vitality.
-  Invoke with /game-engineering or when building, refactoring, or debugging games, interactive simulations, physics
-  loops, or canvas/WebGL applications ("oyun geliştir", "oyun motoru", "game loop", "canvas oyun", "fizik döngüsü").
-  Not for zero-spec single-file UX discovery interviews (use 'vibecoder') or post-hoc profiling of non-game software (use 'sweetspot').
+  Deterministic fixed-timestep game loop architecture, entity state machines, zero per-frame allocation, seeded
+  procedural generation, and game feel ("juice") for 2D/3D web, canvas, and engine games. Invoke with /game-engineering
+  or on "oyun geliştir", "oyun motoru", "game loop", "canvas oyun", "fizik döngüsü". Not for zero-spec single-file UX
+  discovery interviews (use 'vibecoder') or profiling non-game software (use 'sweetspot').
 ---
 
 # Game Engineering & Real-Time Interactive Simulation Discipline

@@ -1,6 +1,6 @@
 ---
 name: silk-design
-description: "Kinetic motion, smooth-scrolling, fluid typography, and design-token capability toolbox for high-end landing pages, marketing sites, and portfolios. Enforces purposeful physics-based motion (Lenis, GSAP, Framer Motion, Tailwind v4) while strictly conforming to antislop and MOTION 3 dials. Invoke with /silk-design when explicitly building or restyling showcase/marketing pages, heroes, interactive landing pages, or when MOTION 3 is declared. DO NOT use on standard engineering dashboards or MOTION 1/2 baselines."
+description: "Kinetic motion, smooth-scrolling, fluid typography, and design-token toolkit (Lenis, GSAP, Framer Motion, Tailwind v4) conforming to antislop and MOTION 3 dials. Invoke with /silk-design when building or restyling showcase/marketing pages, heroes, or when MOTION 3 is declared. DO NOT use on standard engineering dashboards or MOTION 1/2 baselines."
 ---
 
 # silk-design — Kinetic Interface and Motion Engineering Toolkit

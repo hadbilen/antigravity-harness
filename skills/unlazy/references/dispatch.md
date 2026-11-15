@@ -67,7 +67,10 @@ Do not use `claude -p` as a substitute for an available native background Agent 
 
 ## Antigravity adapter
 
-Use the native `invoke_subagent` tool (`TypeName: "self"`, `Model: "inherit"`) with strictly disjoint file ownership across parallel leaves:
+Antigravity supports three native fan-out mechanisms depending on leaf coupling and isolation needs:
+
+### 1. Subagent waves (`invoke_subagent`)
+Use `invoke_subagent` (`TypeName: "self"`, `Model: "inherit"`) with strictly disjoint file ownership across parallel leaves:
 
 1. open the wave with `dispatch-check.mjs open` for all `READY` leaves in the wave
 2. call `invoke_subagent` (`TypeName: "self"`, `Model: "inherit"`) once per leaf in the open wave, assigning disjoint write scopes
@@ -75,9 +78,20 @@ Use the native `invoke_subagent` tool (`TypeName: "self"`, `Model: "inherit"`) w
 4. seal the wave with `dispatch-check.mjs seal` before awaiting subagent completion notifications
 5. record each subagent return with `dispatch-check.mjs return`, then run parent re-verification gates
 
+### 2. Swarm worktree waves (`swarm` / `native_swarm`)
+Use `swarm` (`~/.gemini/antigravity/builtin/skills/native_swarm/SKILL.md`, `GEMINI.md` Rule 15f) when parallel coding leaves benefit from isolated git working copies (`workspace:"share"` or `"branch"`) and a persistent `#seq` message board:
+
+1. open the wave with `dispatch-check.mjs open` and claim every leaf's `OWNS:` lease via `gate-check.mjs --claim`
+2. spawn each author leaf via `swarm{action:"add", name:<leaf-role>, workspace:"share", brief:<OWNS + GATES contract>}` (use `workspace:"share"` or `"branch"` for writers, `workspace:"inherit"` for read-only/verifier leaves, and keep `model` unset or matched to the top catalog model on customization/governance targets per `GEMINI.md` Rule 17; add `narrator`/`monitor` only when `swarm_narrator`/`swarm_monitor` are present in the active skill list, outside `dispatch-check` leaf leases)
+3. record each spawned member identifier with `dispatch-check.mjs start` and seal the wave with `dispatch-check.mjs seal` before waiting on `swarm_wait` or reading results with `read_board` (because `post_message`, `read_board`, and `swarm_wait` arrive on the turn after the first `swarm{action:"add"}`, launch every leaf in the wave and seal before ending the launch turn)
+4. on `#seq` completion posts, record `dispatch-check.mjs return`, merge or cherry-pick the validated `workspace:"share"` commit into the parent workspace *before* calling `swarm{action:"kill"}` (which deletes the share worktree), then run `gate-check.mjs --reverify` and `gate-check.mjs --release --leaf ...` before opening dependent waves
+
+Note the evidence boundary: `workspace:"share"` gives each author leaf its own working tree, while `gate-check.mjs` leases and parent `--reverify` remain responsible for logical `OWNS:` non-overlap and integrated verification.
+
+### 3. Dynamic workflows (`run_workflow`) & native lifecycle hooks
 When orchestrating larger waves through `run_workflow`, obey `GEMINI.md` Rule 15e and Rule 17: workflow scripts act strictly as orchestration glue (`agent`, `parallel`, `pipeline`, `phase`, `trajectory`, `call_tool`), must never execute child processes (`subprocess`, `os.system`) or direct filesystem writes that bypass `PreToolUse`, must default `model` to `"inherit"`, and must never downgrade `model` to `"flash"` or `"flash_lite"` when modifying customization or governance files.
 
-Never run `scripts/install-hooks.mjs` in Antigravity: `scripts/install-hooks.mjs` configures Claude Code `.claude/settings*.json` Stop hooks exclusively, whereas Antigravity enforces lifecycle gates natively via `hooks.json` and `guard/agy_hooks.py`.
+Never run `scripts/install-hooks.mjs` in Antigravity: `scripts/install-hooks.mjs` configures Claude Code `.claude/settings*.json` Stop hooks exclusively, whereas Antigravity enforces lifecycle gates (`PreInvocation`, `PreToolUse`, `Stop`) natively via `hooks.json` and `guard/agy_hooks.py` across `invoke_subagent`, `swarm`, `run_workflow`, and board/messaging/schedule tools.
 
 ## Failure and fallback
 

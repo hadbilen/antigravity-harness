@@ -1,11 +1,10 @@
 ---
 name: dependency-upgrade
 description: >-
-  Upgrades a dependency, framework, or runtime without changing behavior: exact version pair, intersection delta
-  catalog of breaking changes this codebase actually meets, baseline suite measured before the bump, and one dependency
-  per change set. Invoke with /dependency-upgrade or when asked to upgrade or bump package/runtime versions ("sürümü
-  yükselt", "bağımlılıkları güncelle", "version bump"). Not for adding a brand-new dependency to a feature, or
-  generational modernization and dead-runtime porting of unbuildable legacy software (use 'renew').
+  Upgrades a dependency, framework, or runtime without changing behavior: exact version pair, breaking-change delta
+  catalog, baseline test measurement, and one dependency per change set. Invoke with /dependency-upgrade or on "sürümü
+  yükselt", "bağımlılıkları güncelle", "version bump". Not for adding brand-new feature dependencies or reviving
+  unbuildable legacy software (use 'renew').
 ---
 
 # Dependency Upgrade: One Version Pair at a Time

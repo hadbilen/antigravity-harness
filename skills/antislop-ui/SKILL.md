@@ -1,11 +1,10 @@
 ---
 name: antislop-ui
 description: >-
-  Visual UI deep-dive supplement for antislop covering color hierarchy, positive geometric composition
-  (Anti-Boxification, Sibling Symmetry Cap, Typographic Scale Lock), component Tells/Fixes, dashboard
-  anti-patterns, and Game/Interactive HUD rules. Load when building multi-section layouts, showcase/editorial
-  pages, game HUDs, or conducting a deep visual slop audit ('antislop-ui', 'visual slop audit', 'audit UI components').
-  DO NOT co-load automatically on copy-only or code-comment edits (use 'antislop-copywriting' or 'antislop-code').
+  Visual UI deep-dive for antislop: color hierarchy, geometric composition (Anti-Boxification, Sibling Symmetry Cap,
+  Typographic Scale Lock), component Tells/Fixes, and Game HUD rules. Load for multi-section layouts, editorial pages,
+  game HUDs, or visual slop audits ('antislop-ui', 'visual slop audit'). DO NOT co-load automatically on copy-only or
+  code-comment edits (use 'antislop-copywriting' or 'antislop-code').
 ---
 # antislop-ui
 

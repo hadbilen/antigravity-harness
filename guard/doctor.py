@@ -134,6 +134,58 @@ def _iter_hook_commands(node: object) -> List[str]:
     return cmds
 
 
+def _check_plugins_symlinks(root: Path, warnings: List[str]) -> None:
+    """Warns if writable `plugins/` (or `.agents/skills/`) or any entry inside it is a symlink (without following symlinks)."""
+    for rel_dir, label in (("plugins", "plugins/"), (".agents/skills", ".agents/skills/")):
+        sub_dir = root / rel_dir
+        if os.path.islink(sub_dir):
+            status_tag = "dangling" if not os.path.exists(sub_dir) else "external/resolved"
+            warnings.append(
+                f"{label} directory is a symlink ({status_tag}: {sub_dir}); copy-mode protections cannot lock symlinked plugin roots."
+            )
+            continue
+        try:
+            if not sub_dir.is_dir():
+                continue
+        except OSError as exc:
+            warnings.append(f"Failed to scan {label} for symlinks: {exc}")
+            continue
+        symlinks: List[str] = []
+        walk_errors: List[str] = []
+
+        def _on_walk_error(err: OSError, _lbl: str = label) -> None:
+            walk_errors.append(f"Failed to scan {_lbl} for symlinks: {err}")
+
+        try:
+            for cur_root, dirs, files in os.walk(sub_dir, followlinks=False, onerror=_on_walk_error):
+                cur_path = Path(cur_root)
+                kept_dirs: List[str] = []
+                for d in sorted(dirs):
+                    entry = cur_path / d
+                    if os.path.islink(entry):
+                        status_tag = "dangling" if not os.path.exists(entry) else "external/resolved"
+                        symlinks.append(f"{entry.relative_to(root).as_posix()} ({status_tag})")
+                    else:
+                        kept_dirs.append(d)
+                dirs[:] = kept_dirs
+                for f in sorted(files):
+                    entry = cur_path / f
+                    if os.path.islink(entry):
+                        status_tag = "dangling" if not os.path.exists(entry) else "external/resolved"
+                        symlinks.append(f"{entry.relative_to(root).as_posix()} ({status_tag})")
+        except OSError as exc:
+            warnings.append(f"Failed to scan {label} for symlinks: {exc}")
+            continue
+        warnings.extend(walk_errors)
+        if symlinks:
+            preview = ", ".join(symlinks[:10])
+            suffix = f" (+{len(symlinks) - 10} more)" if len(symlinks) > 10 else ""
+            warnings.append(
+                f"Symlink entry detected under writable {label} directory: {preview}{suffix} "
+                "(copy-mode protections do not lock symlink targets)."
+            )
+
+
 def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[str]) -> None:
     import shlex
     from guard import __version__
@@ -247,6 +299,36 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
             if upstream_data.get("last_audit_failed"):
                 warnings.append(f"Last upstream repository audit failed in {upstream_file}; check network/rate-limit status.")
 
+    # Check for unmanaged top-level ~/.gemini/GEMINI.md or ~/.gemini/AGENTS.md shadowing ~/.gemini/config/
+    if root.name == "config" and root.parent.name == ".gemini":
+        for top_md_name in ("GEMINI.md", "AGENTS.md"):
+            top_md = root.parent / top_md_name
+            if top_md.is_file() or os.path.islink(top_md):
+                warnings.append(
+                    f"Top-level {top_md} exists alongside {root} and may shadow or duplicate global rules in "
+                    f"{root / 'GEMINI.md'}."
+                )
+    _check_workspace_hooks_collision(root, warnings)
+
+
+def _check_workspace_hooks_collision(ws_root: Path, warnings: List[str]) -> None:
+    """Warns if `<ws_root>/.agents/hooks.json` defines or overrides `harness-gate` or `upstream-watchdog`."""
+    for rel_ws_hooks in (".agents/hooks.json", ".agent/hooks.json", "_agents/hooks.json", "_agent/hooks.json"):
+        ws_hooks_file = ws_root / rel_ws_hooks
+        if ws_hooks_file.is_file():
+            try:
+                ws_hooks_data = json.loads(ws_hooks_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                warnings.append(f"Workspace lifecycle hooks file {ws_hooks_file} is not a valid JSON object.")
+                continue
+            if isinstance(ws_hooks_data, dict):
+                colliding_keys = [k for k in ("harness-gate", "upstream-watchdog") if k in ws_hooks_data]
+                if colliding_keys:
+                    warnings.append(
+                        f"Workspace lifecycle hooks file {ws_hooks_file} defines {colliding_keys}, which may "
+                        "override or disable global Antigravity Harness lifecycle hooks."
+                    )
+
 
 def _repair_command_hint() -> str:
     has_install_py = (Path(__file__).resolve().parent.parent / "install.py").is_file()
@@ -282,6 +364,8 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
                 f"Non-global environment '{env.id}' is rooted at home/ancestor directory {root} rather than a project workspace "
                 f"(review or remove with 'agy-guard env remove {env.id}')."
             )
+        else:
+            _check_workspace_hooks_collision(root, warnings)
 
     if result.issues:
         warnings.append(f"Governance scope is not fully write-protected ({len(result.issues)} issue(s)); first: {result.issues[0]}")
@@ -331,6 +415,7 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
                 f"Review them in Antigravity settings and rotate any exposed tokens."
             )
         _check_hooks_and_runtime_state(root, warnings, infos)
+        _check_plugins_symlinks(root, warnings)
         missing_ws: List[str] = []
         home_ws: List[str] = []
         for other in registry.list_environments():
@@ -341,6 +426,8 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
                 missing_ws.append(f"{other.id} ({other_root})")
             elif _is_home_or_ancestor(other_root):
                 home_ws.append(f"{other.id} ({other_root})")
+            else:
+                _check_workspace_hooks_collision(other_root, warnings)
         if missing_ws:
             warnings.append(
                 f"Registered environment(s) point to missing workspace directories: {', '.join(missing_ws)} "

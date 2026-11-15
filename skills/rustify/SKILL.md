@@ -1,14 +1,10 @@
 ---
 name: rustify
 description: >-
-  Architectural migration, porting, and Foreign Function Interface (FFI) bridging of C, C++, Go, or Python codebases
-  into idiomatic, memory-safe, compiler-verified Rust. Enforces a 5-stage Silent Build & Layout Autopsy -> Migration
-  Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification
-  Ladder (rustc, clippy, miri, C/Rust sanitizers, and conditional Kani proofs). Invoke with /rustify or when porting,
-  migrating, rewriting, or bridging code into Rust ("rustify", "rust'a çevir", "rust'a taşı", "rust'a dönüştür",
-  "c/c++'dan rust'a", "cbindgen", "cxx bridge", "PyO3"). Not for intra-Rust behavior-preserving restructuring (use
-  'refactoring'), post-hoc optimization of already-working Rust code (use 'sweetspot'), single-package Cargo.toml
-  version bumps (use 'dependency-upgrade'), or reviving legacy software to non-Rust stacks (use 'renew').
+  Architectural migration, porting, and FFI bridging (`cbindgen`, `cxx`, `PyO3`) of C, C++, Go, or Python codebases
+  into memory-safe, compiler-verified Rust (`rustc`, `clippy`, `miri`, sanitizers). Invoke with /rustify or on "rust'a
+  çevir", "rust'a taşı", "c/c++'dan rust'a". Not for intra-Rust restructuring (use 'refactoring'), Rust optimization
+  (use 'sweetspot'), Cargo version bumps (use 'dependency-upgrade'), or non-Rust legacy revival (use 'renew').
 ---
 
 # Rustify — Architectural Migration & Memory-Safe Interop Discipline

@@ -47,7 +47,7 @@ _OBJECTS = (
     r"tests?|test\s+cases?|test\s+suites?|test\s+files?|specs?|assertions?"
 )
 # A gap holding a preposition or a clause break means the verb acts on something else.
-_GAP_PREPOSITIONS = re.compile(r"(?i)\b(from|in|within|inside|of|for|to|into|about|near|around)\b|[:,()\u2014\u2013]")
+_GAP_PREPOSITIONS = re.compile(r"(?i)\b(from|in|within|inside|of|for|to|into|about|near|around)\b|[:,()\u2012\u2013\u2014\u2015\u2212]")
 # Quantifier phrases are part of the object ("skip all of the failing tests"), not a preposition
 # that moves the verb onto something else ("remove the fixture from the tests").
 _GAP_QUANTIFIERS = re.compile(
@@ -146,14 +146,16 @@ AGY_INTERNAL_MARKERS = [
 _NEGATION_BEFORE = re.compile(
     r"(?i)\b(?:never|not|no|nor|neither|none|nothing|cannot|avoid|avoiding|without|forbid|forbids|forbidden|"
     r"prohibit|prohibits|prohibited|ban|bans|banned|stop|refrain\s+from|refuse\s+to|instead\s+of|rather\s+than|"
-    r"dont|cant|wont|mustnt|shouldnt|doesnt|asla|yasak|yasakt[ıi]r)\b|\b\w+n[’']t\b"
+    r"dont|cant|wont|mustnt|shouldnt|doesnt|asla|yasak|yasakt[ıi]r)\b(?!-)|\b\w+n[’']t\b"
 )
 # Negation that sits INSIDE the matched span ("skip no tests", "tests must not be skipped").
 _INTERIOR_NEGATION = re.compile(r"(?i)\b(?:no|none|not|never|nothing|cannot)\b(?!-)|n[’']t\b")
 # Negated verbs that do not negate the directive: they encourage it.
 _PERMISSIVE = re.compile(
-    r"(?i)\b(?:(?:do\s+not|don[’']?t|never)\s+(?:hesitate|be\s+afraid|forget)\s+to|feel\s+free\s+to|why\s+not|"
-    r"(?:do\s+not|don[’']?t)\s+worry(?:\s+about(?:\s+it)?)?|"
+    r"(?i)\b(?:(?:do\s+not|don[’']?t|never|(?:(?:you|we|agents?)\s+)?(?:should|must|can)(?:not|n[’']t|\s+not))\s+"
+    r"(?:hesitate|be\s+afraid|forget)\s+to|feel\s+free\s+to|why\s+not|"
+    r"(?:do\s+not|don[’']?t|never|(?:(?:you|we|agents?)\s+)?(?:should|must|can)(?:not|n[’']t|\s+not))\s+"
+    r"worry(?:\s+about(?:\s+it)?)?|"
     r"without\s+(?:(?:explicit|prior|written|any|the|asking\s+for)\s+)*(?:(?:user|human|operator|maintainer)(?:[’']s)?\s+)?"
     r"(?:approval|authori[sz]ation|consent|confirmation|permission|asking|sign-?off))"
 )
@@ -201,6 +203,32 @@ _CONSEQUENCE = re.compile(
 _DANGLING_NEGATION = re.compile(
     r"(?i)(?:\b(?:do|does|must|should|shall|may|can|will|would)\s+not|\b\w+n[’']t|\bnever|\bcannot)\s*(?:\*\*|__)?\s*$"
 )
+_SHARED_IMPERATIVE_PROHIBITION = re.compile(
+    r"(?i)^\s*(?:>+[ \t]?)*(?:[-*+]\s+|\d+[.)]\s+)?(?:"
+    r"never|do\s+not|don[’']?t|dont|cannot|can[’']?t|"
+    r"(?:(?:you|we|agents?)\s+)?(?:must|should|shall)(?:not|\s+not|\s+never|n[’']t)|"
+    r"(?:you|we|agents?)\s+(?:cannot|can[’']?t)"
+    r")\b(?!-)"
+)
+_BARE_OR_DISJUNCT_PREFIX = re.compile(r"(?i)^\s*(?:ever\s+)?$")
+_ACTIVE_IMPERATIVE_DISJUNCT_START = re.compile(
+    r"(?i)^\s*(?:skip|ignore|disable|remove|delete|drop|bypass|comment\s+out|"
+    r"relax|loosen|weaken|soften|modify|change|edit|adjust|rewrite|mark|"
+    r"turn\s+off|switch\s+off|silence|update|regenerate|"
+    r"disregard|forget|override|apologi[sz]e|validate)\b(?!-)"
+)
+_DISJUNCT_FINITE_CONTINUATION = re.compile(
+    r"(?i)^\s*(?:is|are|was|were|may|might|can|could|will|would|should|must)\b"
+)
+_LEAD_SCOPE_BREAKER = re.compile(
+    r"(?i)[.!?;:/\u2012\u2013\u2014\u2015\u2212]"
+    r"|\b(?:if|unless|when|whenever|once|in\s+case|whether|except|until|so|because|since|while|although|though)\b"
+    r"|\b(?:never|not|no(?!-)|nor|neither|none|nothing|cannot|avoid|avoiding|without|instead\s+of|rather\s+than|refuse\s+to|refrain\s+from)\b(?!-)"
+    r"|\b\w+n[’']t\b"
+    r"|\b(?:mind|care|need|needs|require|requires|ask|wait|bother|hesitate|worry|means|implies|tells|says)\b"
+    r"|\b(?:you|we|agents?)\s+(?:should|must|may|can|will|could|might)\b"
+)
+_RAW_QUOTED_LINE_LEAD = re.compile(r'^\s*(?:>+[ \t]?)*(?:[-*+]\s+|\d+[.)]\s+)?["“`\[]')
 _BARE_NEGATION = re.compile(
     r"(?i)^\s*(?:\*\*|__)?(?:never|no|nope|not\s+allowed|not\s+ever|absolutely\s+not|certainly\s+not|of\s+course\s+not|"
     r"forbidden|prohibited|not\s+permitted|no\s+way|don[’']?t|do\s+not|hay[ıi]r|asla)(?:\s+ever)?\s*(?:\*\*|__)?\s*[.!]*\s*$"
@@ -208,7 +236,7 @@ _BARE_NEGATION = re.compile(
 _SENTENCE_BREAK = re.compile(r"[.!?;](?=\s|$)|\n")
 _CLAUSE_BREAK = re.compile(
     r'(?i)(?P<hard>\b(?:but|however|otherwise|instead(?!\s+of\b)|rather(?!\s+than\b))\b|",\s*"[^"]+"\s*:|[,{]\s*[A-Za-z0-9_-]+\s*:)'
-    r"|(?P<soft>[,:()—–]|\s-{1,2}\s|\b(?:and|or|then)\b)"
+    r"|(?P<soft>[,:()\u2012\u2013\u2014\u2015\u2212]|\s-{1,2}\s|\b(?:and|or|then)\b)"
     r"(?P<conj>\s*\b(?:just|then|so|simply|but|however|otherwise|instead(?!\s+of\b)|rather(?!\s+than\b))\b)?"
 )
 _GERUND_START = re.compile(
@@ -217,7 +245,7 @@ _GERUND_START = re.compile(
 )
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)")
 _UNIT_START = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s|\|)")
-_BLOCKQUOTE_PREFIX = re.compile(r"^\s*(>+)[ \t]?")
+_BLOCKQUOTE_PREFIX = re.compile(r"^\s*(?:>+[ \t]?)+")
 _HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?--!?>")
 _FENCED_CODE_BLOCK_RE = re.compile(
     r"(?m)^([ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]*\2+[ \t]*(?:\n|\Z)|\Z))"
@@ -344,7 +372,51 @@ def _in_quotes(sentence: str, a: int, b: int) -> bool:
     return sentence[:a].count("“") > sentence[:a].count("”") and "”" in sentence[b:]
 
 
-def _classify(text: str, start: int, end: int, interior: Sequence[str] = (), inherent: bool = False) -> Tuple[str, str]:
+def _is_shared_imperative_or_prohibition(
+    text: str,
+    s: int,
+    cs: int,
+    start: int,
+    end: int,
+    own_end: int,
+    earlier: Sequence[str],
+    clause_prefix: str,
+    sentence: str,
+    interior: Sequence[str],
+    raw_line: str = "",
+) -> bool:
+    """True only when a bare active imperative verb disjunct shares a strict opening prohibition across 'or'."""
+    if len(earlier) != 1 or _in_quotes(sentence, start - s, end - s):
+        return False
+    if raw_line and _RAW_QUOTED_LINE_LEAD.match(raw_line):
+        return False
+    if any(re.search(_PASSIVE_MODALS, part or "", re.I) for part in interior):
+        return False
+    if not re.search(r"(?i)(?<=\s)or$", _strip_inline_markdown(text[s:cs])):
+        return False
+    if not _BARE_OR_DISJUNCT_PREFIX.match(_strip_inline_markdown(clause_prefix)):
+        return False
+    if not _ACTIVE_IMPERATIVE_DISJUNCT_START.match(_strip_inline_markdown(text[start:end])):
+        return False
+    if _DISJUNCT_FINITE_CONTINUATION.match(_strip_inline_markdown(text[end:own_end])):
+        return False
+    lead_raw = _strip_inline_markdown(earlier[0])
+    if _SUBORDINATE_START.match(lead_raw) or _PERMISSIVE.search(lead_raw) or _NO_NEED.search(lead_raw):
+        return False
+    m_lead = _SHARED_IMPERATIVE_PROHIBITION.match(lead_raw)
+    if not m_lead:
+        return False
+    return not _LEAD_SCOPE_BREAKER.search(lead_raw[m_lead.end():])
+
+
+def _classify(
+    text: str,
+    start: int,
+    end: int,
+    interior: Sequence[str] = (),
+    inherent: bool = False,
+    raw_line: str = "",
+) -> Tuple[str, str]:
     """Classifies text[start:end] as PROHIBITED, AFFIRMATIVE or UNCERTAIN, with a short reason."""
     if inherent:
         return AFFIRMATIVE, "the negation is part of the directive"
@@ -357,9 +429,9 @@ def _classify(text: str, start: int, end: int, interior: Sequence[str] = (), inh
     cleaned, no_need = _strip_permissive(clause_prefix, governs_directive=True)
     if no_need or _NEGATION_BEFORE.search(cleaned):
         return PROHIBITED, "negated in its own clause"
-    if _RESTRICTION.search(sentence):
-        return PROHIBITED, "restricted to a human or to explicit approval"
     own_end, chain_end = _suffix_bounds(text, end, e)
+    if _RESTRICTION.search(text[cs:chain_end]):
+        return PROHIBITED, "restricted to a human or to explicit approval"
     # A gerund directive is a subject ("Relaxing assertions, skipping tests, ... is forbidden"): its
     # predicate may follow a list of soft-separated siblings. An imperative's may not.
     gerund = bool(_GERUND_START.match(text[start:end]))
@@ -375,6 +447,10 @@ def _classify(text: str, start: int, end: int, interior: Sequence[str] = (), inh
         if _BARE_NEGATION.match(_next_sentence(text, e)):
             return PROHIBITED, "question answered with a bare negation"
         return UNCERTAIN, "phrased as a question"
+    if _is_shared_imperative_or_prohibition(
+        text, s, cs, start, end, own_end, earlier, clause_prefix, sentence, interior, raw_line=raw_line
+    ):
+        return PROHIBITED, "governed by shared imperative negation across 'or'"
     for seg in earlier:
         if _SUBORDINATE_START.match(seg):
             continue
@@ -479,7 +555,7 @@ def _strip_blockquote(line: str, is_fenced: bool) -> Tuple[int, str]:
     m = _BLOCKQUOTE_PREFIX.match(line)
     if not m:
         return 0, line
-    return len(m.group(1)), line[m.end():]
+    return m.group(0).count(">"), line[m.end():]
 
 
 def _paragraphs(lines: List[str], fenced: Optional[List[bool]] = None) -> List[Tuple[int, int]]:
@@ -565,7 +641,9 @@ def _review_directives_cached(content: str) -> Tuple[Directive, ...]:
                 covered = [i for off, i, ln in offsets if off < m.end() and off + ln > m.start()]
                 if not covered:
                     continue
-                cls, reason = _classify(text, m.start(), m.end(), _interior(m), inherent)
+                cls, reason = _classify(
+                    text, m.start(), m.end(), _interior(m), inherent, raw_line=lines[covered[0]]
+                )
                 if cls == AFFIRMATIVE and not inherent:
                     lead = _lead_in(lines, covered[0], fenced)
                     if lead and _lead_in_prohibits(lead):
@@ -575,6 +653,8 @@ def _review_directives_cached(content: str) -> Tuple[Directive, ...]:
                 key = (category, covered[0])
                 if key not in best or _RANK[cls] > _RANK[best[key].classification]:
                     best[key] = d
+                elif _RANK[cls] == _RANK[best[key].classification] and covered[-1] > best[key].line_end:
+                    best[key] = replace(best[key], line_end=covered[-1], text=shown)
     sanitized: Set[int] = set()
     for d in best.values():
         if d.classification == AFFIRMATIVE:

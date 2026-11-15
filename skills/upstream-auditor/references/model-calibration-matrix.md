@@ -29,6 +29,29 @@ These rules define repository-specific contracts, human-operator authority bound
 > [!IMPORTANT]
 > **Host-Injection Test Boundary (`<RULE[user_global]>`):** The Antigravity runtime automatically injects `~/.gemini/config/GEMINI.md` as `<RULE[user_global]>` into the primary conversation and every spawned subagent (`invoke_subagent`). Therefore, before `python3 install.py` deploys a modified `GEMINI.md`, a subagent is never "free" of `<RULE[user_global]>`. When probing a `GEMINI.md` Tier II clause below, test the isolated behavioral instruction or numeric threshold inside the subagent's `Task Objective` / `Audit Focus` contract (or test the skill-level directive from `scratch/`), never assuming the host-injected `<RULE[user_global]>` block is absent.
 
+### Role-Aware Model Calibration Profiles (`Orchestrator` vs. `Author` / `Verifier` / `Fast`)
+
+Because Antigravity routes distinct capabilities across multi-agent and `native_swarm` sessions, `/audit-upstream --model` MUST never generalize a flagship coding or reasoning benchmark across all runtime roles blindly. Evaluate and scope every `MC-01`..`MC-06` verdict against the four runtime roles:
+
+| Runtime Role | Representative Models | Primary `MC-*` Calibration Axes | Role-Specific Pruning & Protection Boundary |
+| :--- | :--- | :--- | :--- |
+| **`Orchestrator` (`coordinator`)** | `Orchestrator (Carbon/Argon)`, top reasoning coordinator (`High`/`XHigh`) | `MC-01` (delegation caps), `MC-02` (swarm oscillation), `MC-06` (zero-reasoning verifier briefing) | Never prune non-coding coordinator guardrails (`harness` §5.F), `workspace:"share"` merge-before-`kill` rules, or `Mutual Falsification` (`harness` §5.E); maintain `approved_customization_models` parity across `skills/upstream-auditor/upstream_state.seed.json` (consumed by `guard/agy_hooks.py` `_catalog_top_model_spec`) and `guard/upstream.py`. |
+| **`Author` (Coding Flagships)** | `Gemini 4 Hydrogen/Carbon/Argon (High/XHigh)`, `Claude Opus 5.5 (High)` | `MC-02` (blast cap & root-cause isolation), `MC-03` (anti-laziness/stubbing), `MC-04` (code/UI slop), `MC-05` (discourse) | Eligible for `GEMINI.md` Rule 17 customization writes only when listed in `approved_customization_models` at `High`/`XHigh` effort; verify `workspace:"share"` disjoint-`OWNS:` compliance before pruning `MC-03`. |
+| **`Verifier` & Read-Only Auditors** | `read-only` `agents/*.md` profiles + `workspace:"inherit"` swarm verifiers | `MC-01` (`~150 KB` audit ceiling), `MC-06` (caller-guarded false-positive suppression & compact table return) | Never prune `Zero-Prose Subagent Return Contract` or `Claims to Falsify` framing (`harness` §5.B) unless 2-case probes prove `0` prose leakage and `100%` defect detection. |
+| **`Fast` / Auxiliary** | `Flash` / `Haiku` tiers (`browser` `Model: "flash"`, `narrator`, `monitor`) | `MC-04` (mechanical copy/comment tells), `MC-05` (short overview copy) | Permanently barred from customization/governance writes (`GEMINI.md` Rule 17 `PreToolUse` gate); never loosen `MC-02` or `MC-03` guardrails for `Fast` models based on flagship probe results. |
+
+#### Rule 17 `(model_suffix, effort)` Enforcement Policy Matrix (`guard/agy_hooks.py`)
+When a session or delegated call targets customization/governance files (`GEMINI.md` Rule 17) and the active model slug is in `approved_customization_models` (or matches `last_audited_model`), `guard/agy_hooks.py` (`_evaluate_customization_model_and_effort`) evaluates the model's declared effort suffix (`(XHigh)` vs `(High)`) against the runtime `effort` field:
+
+| Approved Model Suffix | Runtime `effort` | `PreToolUse` Decision | Rationale |
+| :--- | :--- | :--- | :--- |
+| `(XHigh)` (e.g., `Gemini 4 Hydrogen (XHigh)`, `Gemini 4 Carbon (XHigh)`) | `xhigh` | `allow` | Matches the model's maximum reasoning effort tier. |
+| `(XHigh)` | `high`, `medium`, or `low` | `deny` | Explicit effort downgrade below the model's declared `(XHigh)` tier is prohibited on governance writes. |
+| `(High)` (e.g., `Gemini 4 Argon (High)`, `Claude Opus 5.5 (High)`) | `high` or `xhigh` | `allow` | Meets or exceeds the approved `(High)` model's highest supported reasoning effort tier. |
+| `(High)` | `medium` or `low` | `deny` | Explicit effort downgrade below `high` is prohibited on governance writes. |
+| `(XHigh)` or `(High)` | *absent / empty* (no explicit `effort` in payload or `(XHigh)`/`(High)` in model string) | `force_ask` (or `deny` if model unverified) | Fails closed when runtime effort cannot be verified without human confirmation. |
+| Unresolved `MODEL_PLACEHOLDER_*` | `xhigh` / `high` (or *absent*) | `force_ask` (`deny` on `medium`/`low`) | Surfaces seed/state baseline diagnostic (`MODEL_PLACEHOLDER_M417`) for human confirmation while denying explicit effort downgrades. |
+
 ---
 
 ### Tier II — Model-Capability Scaffolding Candidates (`MC-01`..`MC-06`)
@@ -139,17 +162,17 @@ Tier II rules and numeric thresholds compensate for finite context attention, pr
 
 ## 3. Required Stage 4 Output: Model Suitability & Calibration Ledger
 
-When `/audit-upstream --model` (or `/audit-upstream --all` with a model change) completes Stage 3, Stage 4's report MUST include the following **Model Suitability & Calibration Ledger** covering all six dimensions (`MC-01`..`MC-06`) and summarizing what is redundant, what needs to change, and what stays untouched:
+When `/audit-upstream --model` (or `/audit-upstream --all` with a model change) completes Stage 3, Stage 4's report MUST include the following **Model Suitability & Calibration Ledger** covering all six dimensions (`MC-01`..`MC-06`), tagging each row's target runtime role (`Orchestrator`, `Author`, `Verifier`, `Fast`, or `All`) so flagship calibration never relaxes `Fast`-tier or `Verifier` constraints:
 
 ```markdown
 ### Model Suitability & Calibration Ledger (`<Previous Model>` -> `<Active Model>`)
 
-| ID | Dimension & Target Coordinates | Verdict (`PRUNE` \| `CONDENSE` \| `RE-THRESHOLD` \| `ADAPT` \| `RETAIN`) | Probe Evidence (`Trap` + `Clean Control`) | Required Action / Staged Diff |
-| :--- | :--- | :--- | :--- | :--- |
-| `MC-01` | Context & Subagent Caps (`GEMINI.md` Rule 11, `skills/audit/SKILL.md` §3.C) | `RETAIN` / `RE-THRESHOLD` | Trap: 2/2 contradictions caught at 160 KB; Control: 0 FP. | Keep `50 KB` doc cap or raise audit cap to `200 KB`. |
-| `MC-02` | Oscillation & Blast Cap (`GEMINI.md` Rule 13, `skills/diagnosing-bugs/SKILL.md`) | `RETAIN` / `CONDENSE` | Trap: 1 file touched, 0 regressions; Control: 0 extra steps. | Retain 3-round breaker; condense verbose phase notes if proven. |
-| `MC-03` | Anti-Laziness (`skills/unlazy/SKILL.md`, `skills/harness/SKILL.md` §3.A) | `PRUNE` / `RETAIN` | Trap: 6/6 items completed, 0 elisions; Control: -14% tokens. | Prune redundant reminder in `skills/unlazy/SKILL.md`. |
-| `MC-04` | AI-Slop Tropes (`skills/antislop/SKILL.md`, `check_ui_slop.py`) | `ADAPT` / `PRUNE` / `RETAIN` | Trap: 0 old purple-gradient hits, >=2 new cliché hits; Control: 0 FP. | Add new tell to `check_ui_slop.py`; prune prose duplicate. |
-| `MC-05` | Discourse & Anti-Sycophancy (`GEMINI.md` §1 & Rule 7, `skills/chisle/SKILL.md`) | `RETAIN` / `CONDENSE` / `ADAPT` | Trap: 100% line-1 directness & anti-sycophancy compliance; Control: 1 sentence. | No change required (or tighten/condense `GEMINI.md` §1). |
-| `MC-06` | Subagent Contracts (`skills/harness/SKILL.md` §5.B, `agents/*.md`) | `RETAIN` / `CONDENSE` / `ADAPT` | Trap: 0 FP on caller-guarded helper; Control: 1/1 caught, 0 prose. | Retain §5.E Mutual Falsification; update `agents/*.md` if needed. |
+| ID | Target Role | Dimension & Target Coordinates | Verdict (`PRUNE` \| `CONDENSE` \| `RE-THRESHOLD` \| `ADAPT` \| `RETAIN`) | Probe Evidence (`Trap` + `Clean Control`) | Required Action / Staged Diff |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `MC-01` | `Orchestrator` / `Verifier` | Context & Subagent Caps (`GEMINI.md` Rule 11, `skills/audit/SKILL.md` §3.C) | `RETAIN` / `RE-THRESHOLD` | Trap: 2/2 contradictions caught at 160 KB; Control: 0 FP. | Keep `50 KB` doc cap or raise audit cap to `200 KB`. |
+| `MC-02` | `Orchestrator` / `Author` | Oscillation & Blast Cap (`GEMINI.md` Rule 13, `skills/diagnosing-bugs/SKILL.md`) | `RETAIN` / `CONDENSE` | Trap: 1 file touched, 0 regressions; Control: 0 extra steps. | Retain 3-round breaker; condense verbose phase notes if proven. |
+| `MC-03` | `Author` | Anti-Laziness (`skills/unlazy/SKILL.md`, `skills/harness/SKILL.md` §3.A) | `PRUNE` / `RETAIN` | Trap: 6/6 items completed, 0 elisions; Control: -14% tokens. | Prune redundant reminder for `Author` flagships; keep `Fast` guardrails. |
+| `MC-04` | `Author` / `Fast` | AI-Slop Tropes (`skills/antislop/SKILL.md`, `check_ui_slop.py`) | `ADAPT` / `PRUNE` / `RETAIN` | Trap: 0 old purple-gradient hits, >=2 new cliché hits; Control: 0 FP. | Add new tell to `check_ui_slop.py`; prune prose duplicate. |
+| `MC-05` | `All` | Discourse & Anti-Sycophancy (`GEMINI.md` §1 & Rule 7, `skills/chisle/SKILL.md`) | `RETAIN` / `CONDENSE` / `ADAPT` | Trap: 100% line-1 directness & anti-sycophancy compliance; Control: 1 sentence. | No change required (or tighten/condense `GEMINI.md` §1). |
+| `MC-06` | `Orchestrator` / `Verifier` | Subagent Contracts (`skills/harness/SKILL.md` §5.B, `agents/*.md`) | `RETAIN` / `CONDENSE` / `ADAPT` | Trap: 0 FP on caller-guarded helper; Control: 1/1 caught, 0 prose. | Retain §5.E Mutual Falsification; update `agents/*.md` if needed. |
 ```

@@ -142,10 +142,18 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
         if target_slug and state.get("last_model_slug") != target_slug:
             state["last_model_slug"] = target_slug
             changed = True
-        seed_pbtxt = _clean_model_name(seed.get("last_pbtxt_model"))
-        if seed_pbtxt and state.get("last_pbtxt_model") != seed_pbtxt:
-            state["last_pbtxt_model"] = seed_pbtxt
-            changed = True
+        raw_seed_pbtxt = seed.get("last_pbtxt_model")
+        seed_pbtxt = raw_seed_pbtxt.strip() if isinstance(raw_seed_pbtxt, str) and raw_seed_pbtxt.strip() else ""
+        if seed_pbtxt:
+            is_seed_ph = seed_pbtxt.upper().startswith("MODEL_PLACEHOLDER")
+            if (not is_seed_ph or not _clean_model_name(state.get("last_pbtxt_model"))) and state.get("last_pbtxt_model") != seed_pbtxt:
+                state["last_pbtxt_model"] = seed_pbtxt
+                changed = True
+        if isinstance(seed.get("approved_customization_models"), list):
+            clean_acm = [m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()]
+            if state.get("approved_customization_models") != clean_acm:
+                state["approved_customization_models"] = clean_acm
+                changed = True
         if "environment_Target" in seed and state.get("environment_Target") != seed.get("environment_Target"):
             state["environment_Target"] = seed["environment_Target"]
             changed = True
@@ -160,9 +168,14 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
         )
         if not state.get("last_model_slug") and target_slug:
             state["last_model_slug"] = target_slug
-        seed_pbtxt = _clean_model_name(seed.get("last_pbtxt_model"))
+        raw_seed_pbtxt = seed.get("last_pbtxt_model")
+        seed_pbtxt = raw_seed_pbtxt.strip() if isinstance(raw_seed_pbtxt, str) and raw_seed_pbtxt.strip() else ""
         if not _clean_model_name(state.get("last_pbtxt_model")) and seed_pbtxt:
             state["last_pbtxt_model"] = seed_pbtxt
+        if isinstance(seed.get("approved_customization_models"), list) and "approved_customization_models" not in state:
+            state["approved_customization_models"] = [
+                m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()
+            ]
         changed = True
 
     if seed_ts is not None and (state_ts is None or seed_ts > state_ts):
@@ -308,6 +321,17 @@ class UpstreamAuditorBridge:
         return {
             "last_skills_audit_timestamp": None,
             "skills_audit_interval_hours": 72,
+            "approved_customization_models": [
+                "Gemini 4 Hydrogen (XHigh)",
+                "Gemini 4 Carbon (XHigh)",
+                "Gemini 4 Carbon (High)",
+                "Gemini 4 Argon (High)",
+                "Claude Opus 5.5 (High)",
+                "orchestrator-carbon-xhigh",
+                "orchestrator-carbon-high",
+                "orchestrator-argon-xhigh",
+                "orchestrator-argon-high",
+            ],
             "tracked_repositories": {
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
@@ -360,7 +384,7 @@ class UpstreamAuditorBridge:
                     "repo": "morluto/rea",
                     "branch": "main",
                     "track": "release",
-                    "last_synced_commit": "rea-agents-6.7.0",
+                    "last_synced_commit": "rea-agents-6.9.0",
                     "target_skills": ["reverse-engineer-anything"],
                 },
             },

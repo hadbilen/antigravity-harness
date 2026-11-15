@@ -1,0 +1,14 @@
+{
+  "hookEventName": "PreToolUse",
+  "payload": {
+    "conversationId": "conv-host-fixture-pretool",
+    "modelName": "Gemini 4 Argon (High)",
+    "effort": "high",
+    "toolCall": {
+      "name": "run_command",
+      "args": {
+        "CommandLine": "python3 -m unittest discover -s tests -q"
+      }
+    }
+  }
+}

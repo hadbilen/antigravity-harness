@@ -1,13 +1,10 @@
 ---
 name: porter
 description: >-
-  Universal bidirectional ecosystem adapter, suitability analyzer, and rule transpiler between
-  Antigravity and any external AI coding agent, IDE assistant, model framework, or autonomous
-  environment (Cursor, Claude Code, Hermes, Cline, Aider, Windsurf, or any other agentic system).
-  Invoke when the user requests porting, exporting, importing, converting, adapting, evaluating,
-  or syncing rules, instructions, conventions, system prompts, constitutions, or skills across
-  AI tools or platforms, whether or not the target platform is explicitly named or newly released.
-  Not for upgrading application package dependencies or runtimes (use 'dependency-upgrade').
+  Bidirectional ecosystem adapter, suitability analyzer, and rule transpiler between Antigravity and external AI coding
+  agents (Cursor, Claude Code, Codex, Cline, Windsurf, Aider, etc.). Invoke when porting, exporting, importing,
+  converting, or syncing rules, instructions, or skills across AI tools. Not for upgrading application package
+  dependencies or runtimes (use 'dependency-upgrade').
 ---
 
 # Porter: Universal AI Agent Bridge & Suitability Transpiler

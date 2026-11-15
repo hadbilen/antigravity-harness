@@ -1,0 +1,10 @@
+{
+  "hookEventName": "PreInvocation",
+  "payload": {
+    "conversationId": "conv-host-fixture-preinv",
+    "invocationNum": 1,
+    "stepIdx": 2,
+    "lastUserInput": "Lütfen bu hatayı ayıkla ve kök nedeni bul (failing tests var).",
+    "workspacePaths": []
+  }
+}
