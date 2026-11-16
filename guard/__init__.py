@@ -9,7 +9,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 __author__ = "Antigravity Team & Contributors"
 
 if TYPE_CHECKING:
