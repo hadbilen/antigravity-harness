@@ -55,7 +55,19 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install ffmpeg (macOS)
         if: runner.os == 'macOS'
-        run: command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg
+        run: |
+          set -euo pipefail
+          enc="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! grep -q 'libvorbis' <<<"$enc" || ! grep -q 'libwebp' <<<"$enc"; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg-full
+            ff_bin="$(brew --prefix ffmpeg-full)/bin"
+            echo "$ff_bin" >> "$GITHUB_PATH"
+            export PATH="$ff_bin:$PATH"
+          fi
+          ff_ver="$(ffmpeg -version)"
+          printf '%s\n' "${ff_ver%%$'\n'*}"
+          fp_ver="$(ffprobe -version)"
+          printf '%s\n' "${fp_ver%%$'\n'*}"
       - name: Install ffmpeg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
