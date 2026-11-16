@@ -11,3 +11,4 @@
 | [0007](0007-swarm-topology-hook-coverage-and-placeholder-hardening.md) | Swarm Execution Role Alignment, PreToolUse Hook Coverage Expansion, Model Placeholder Gate, and Linked-Worktree Boundary Hardening | accepted | 2026-11-15 |
 | [0008](0008-agy-hooks-lazy-package-modularization.md) | Event-Scoped Lazy Package Modularization of `guard/agy_hooks.py` into `guard/hooks/` | accepted | 2026-11-15 |
 | [0009](0009-cognitive-slimming-skill-consolidation-and-midturn-hook-silence.md) | Constitutional Slimming, 34-to-20 Skill Consolidation, and Mid-Turn PreInvocation Silence | accepted | 2026-11-15 |
+| [0010](0010-lazy-guard-init-ast-inline-shield-and-reactive-wakeup-continuity.md) | PEP 562 Lazy `guard` Package Init, Unified Read-Only Python AST Inline Shield, Reactive Wakeup Continuity, Hermetic Test Isolation, and Multi-Model Placeholder Mapping | accepted | 2026-11-16 |

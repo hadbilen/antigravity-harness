@@ -161,11 +161,11 @@ one is not stopped; the integrity baseline reports it.
   rebaseline, restore, drift analysis) run off the UI thread, tray callbacks are marshalled onto the Tk loop,
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
-* **Event-scoped lifecycle hooks (`hooks.json`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/agy_hooks.py` acts as a thin lazy CLI router and PEP 562 compatibility facade that loads only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`):
-  * **`PreInvocation` (`pre_invocation.py`):** bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`) with explicit `/slash` priority, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]`, and transcript-aware mid-turn silence (`ADR-0009`).
-  * **`PreToolUse` (`pre_tool_use.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `MODEL_PLACEHOLDER_*` fail-closed escalation and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005` & `ADR-0007`), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
+* **Event-scoped lifecycle hooks (`hooks.json`, `guard/__init__.py`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/__init__.py` uses PEP 562 lazy `__getattr__` exports and `guard/agy_hooks.py` acts as a thin lazy CLI router and compatibility facade loading only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py` with on-demand `guard/hooks/_workflow_ast.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`, `ADR-0010`):
+  * **`PreInvocation` (`pre_invocation.py`):** bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`) with explicit `/slash` priority, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]`, and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
+  * **`PreToolUse` (`pre_tool_use.py`, `_workflow_ast.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
   * **`Stop` (`stop_gate.py`):** diff, untracked-file, and linked-worktree `TestBoundaryGuard` integrity verification (tautological assertions, operator/matcher relaxation, `C9` test-runner sniffing, unapproved test skips, malformed `.json`/`.toml`/`.svg` syntax, `UI-1`–`UI-5` slop, and broken local Markdown links) guarded by a 3-strike circuit breaker.
-* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `upstream_watcher.py --ack` silences it until something changes again, `--status` shows the current reasons. Network checks have a hard deadline.
+* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `agy-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `agy-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
 
 ---
 
@@ -290,14 +290,14 @@ antigravity-harness/
 ├── guard.py / porter.py                   # CLI entry points
 ├── .github/workflows/ci.yml               # 3 OS x Python 3.10-3.14, lint, trusted-boundary, release
 ├── .harness/manifest.json                 # Canonical manifest (checked by CI)
-├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0009)
+├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0010)
 ├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
 ├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
 │   │                                      #   notifier, approval, audit_log, doctor, paths, startup,
 │   │                                      #   test_boundary, provenance, porter_bridge, upstream, cli, gui, tray
-│   ├── agy_hooks.py                       #   lazy CLI router & PEP 562 compatibility facade (ADR-0008)
-│   └── hooks/                             #   event-scoped lifecycle hooks: common, pre_invocation, pre_tool_use, stop_gate
+│   ├── agy_hooks.py                       #   lazy CLI router & PEP 562 compatibility facade (ADR-0008, ADR-0010)
+│   └── hooks/                             #   event-scoped lifecycle hooks: common, pre_invocation, pre_tool_use, _workflow_ast, stop_gate
 ├── porter/                                # analyzer, sanitizer, frontmatter, manifest, net, archive, emitters/
 ├── scripts/
 │   ├── code_map.py                        # AST caller/dataflow/blast-radius map, runtime tracer & FTS5 search
@@ -305,7 +305,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 9 auditor subagent definitions
 ├── skills/                                # 20 top-level skills + on-demand references/ & scripts/
-├── tests/                                 # Hermetic unittest suite (681 tests)
+├── tests/                                 # Hermetic unittest suite (696 tests)
 └── templates/                             # HANDOFF, MISTAKES and config templates
 ```
 
@@ -381,8 +381,10 @@ agy-guard snapshot restore --id <snapshot_id>
 agy-guard porter inspect https://example.com/some_rule.md
 agy-guard porter stage ./custom_rule.md
 
-# Upstream repositories (zero LLM tokens)
+# Upstream repositories and model/runtime drift (zero LLM tokens)
 agy-guard upstream check
+agy-guard upstream status
+agy-guard upstream ack
 
 # Other environments
 agy-guard env detect --path ~/projects/my-app
@@ -444,7 +446,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (681 tests)
+# Hermetic unit test suite (696 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings
