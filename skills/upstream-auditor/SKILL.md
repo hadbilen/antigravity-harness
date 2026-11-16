@@ -116,7 +116,7 @@ Findings are strictly classified into three categories:
    * Exact reviewable `diff` blocks (inline for single-file skill updates).
 2. For multi-file updates or `--model` calibration proposals, write RFC staging diffs under `~/.local/state/antigravity-harness/staging/<skill>-sync.md` or `~/.local/state/antigravity-harness/staging/model-calibration-sync.md` directly via `write_file` (`0` shell redirections; single-file skill diffs may be rendered inline or optionally staged there, and never stage inside the Guard-protected `~/.gemini/config` or sibling Guard state files).
 3. Apply updates to local skills only upon explicit user confirmation, in the harness source repository, verify internal self-consistency by running `python3 scripts/meta_audit.py --strict` (or `/audit --self`, adding `--cognitive` when behavioral instructions or skill triggers changed; `GEMINI.md` Rule 17), and deploy them with `python3 install.py` (the human operator approves the unlock).
-4. Update target commit SHAs, timestamps, and role-qualified `approved_customization_models` (`Orchestrator` coordinators vs `Author` coding flagships eligible for `GEMINI.md` Rule 17 writes, excluding `Fast` tiers) in the shipped seed `skills/upstream-auditor/upstream_state.seed.json` (read by `guard/agy_hooks.py` `_catalog_top_model_spec`) and the fallback dictionary in `guard/upstream.py`. Never write directly to the Guard-protected runtime ledger `~/.local/state/antigravity-harness/upstream_state.json` from the agent (`GEMINI.md` Rule 12); `upstream_watcher.py` automatically reconciles the per-user ledger from `upstream_state.seed.json` once deployed via `python3 install.py`.
+4. Update target commit SHAs, timestamps, `last_pbtxt_model`, `known_placeholder_models` (`MODEL_PLACEHOLDER_*` -> concrete flagship display name), and role-qualified `approved_customization_models` (`Orchestrator` coordinators vs `Author` coding flagships eligible for `GEMINI.md` Rule 17 writes, excluding `Fast` tiers) in the shipped seed `skills/upstream-auditor/upstream_state.seed.json` (read by `guard/agy_hooks.py` `_catalog_top_model_spec` and `_seed_placeholder_diagnostic`) and the fallback dictionary in `guard/upstream.py`. Never write directly to the Guard-protected runtime ledger `~/.local/state/antigravity-harness/upstream_state.json` from the agent (`GEMINI.md` Rule 12); `upstream_watcher.py` automatically reconciles the per-user ledger from `upstream_state.seed.json` once deployed via `python3 install.py`.
 
 ---
 
@@ -135,6 +135,11 @@ directly to the Guard-protected runtime file `~/.local/state/antigravity-harness
   "last_audited_model": "<model_name>",
   "last_model_slug": "<model_slug>",
   "last_pbtxt_model": "<pbtxt_model_id>",
+  "known_placeholder_models": {
+    "MODEL_PLACEHOLDER_M417": "Gemini 4 Argon (High)",
+    "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
+    "MODEL_PLACEHOLDER_M528": "Gemini 4 Hydrogen (XHigh)"
+  },
   "builtin_skills_hash": "<computed_sha256>",
   "recorded_builtin_skills": ["agy-customizations", "antigravity_guide", "automation", "generative_ui", "mcp-app-development", "migrate-agent-settings", "migrate-workflows", "native_swarm", "permissioned-github", "plugin", "run-workflow", "swarm_monitor", "swarm_narrator", "ui-plugin-navigation"],
   "last_audit_timestamp": "<ISO_8601_timestamp>",

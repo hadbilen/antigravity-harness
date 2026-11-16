@@ -177,6 +177,32 @@ def _clean_concrete_model(name) -> str:
     return val
 
 
+def _clean_known_placeholder_map(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    cleaned = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or not is_placeholder_model(k):
+            continue
+        concrete = _clean_concrete_model(v)
+        if concrete:
+            cleaned[k.strip()] = concrete
+    return cleaned
+
+
+def _lookup_known_placeholder(placeholder_id, *sources) -> str:
+    if not is_placeholder_model(placeholder_id):
+        return ""
+    target_up = placeholder_id.strip().upper()
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        for k, mapped in _clean_known_placeholder_map(src.get("known_placeholder_models")).items():
+            if k.upper() == target_up:
+                return mapped
+    return ""
+
+
 def get_pbtxt_model(*, include_placeholder: bool = False):
     if not os.path.isfile(PBTXT_FILE):
         return ""
@@ -200,8 +226,16 @@ def _resolve_placeholder_diagnostic(placeholder_id: str, state: dict, seed: dict
     seed_model = str(seed_dict.get("last_audited_model", "") or "").strip()
     rec_pbtxt = str(state_dict.get("last_pbtxt_model", "") or "").strip()
     rec_model = str(state_dict.get("last_audited_model", "") or "").strip()
+    mapped_seed = _lookup_known_placeholder(placeholder_id, seed_dict)
+    if mapped_seed:
+        if seed_pbtxt and placeholder_id.strip().upper() == seed_pbtxt.upper():
+            return f"placeholder matches seed baseline ({mapped_seed})"
+        return f"placeholder matches seed known_placeholder_models ({mapped_seed})"
     if seed_pbtxt and placeholder_id.strip().upper() == seed_pbtxt.upper() and seed_model:
         return f"placeholder matches seed baseline ({seed_model})"
+    mapped_state = _lookup_known_placeholder(placeholder_id, state_dict)
+    if mapped_state:
+        return f"placeholder matches state known_placeholder_models ({mapped_state})"
     if rec_pbtxt and placeholder_id.strip().upper() == rec_pbtxt.upper() and rec_model:
         return f"placeholder matches state baseline ({rec_model})"
     return f"unmapped placeholder (seed={seed_pbtxt or 'none'}; run /audit-upstream --model)"
@@ -373,6 +407,10 @@ def _compute_seed_digest(seed: dict) -> str:
         "recorded_builtin_skills": seed.get("recorded_builtin_skills"),
         "tracked_repositories": seed.get("tracked_repositories"),
     }
+    if "approved_customization_models" in seed:
+        canonical["approved_customization_models"] = seed.get("approved_customization_models")
+    if "known_placeholder_models" in seed:
+        canonical["known_placeholder_models"] = seed.get("known_placeholder_models")
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -428,6 +466,9 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
     seed_tracked = seed.get("tracked_repositories")
     if not isinstance(seed_tracked, dict):
         seed_tracked = {}
+    if isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
+        state["known_placeholder_models"] = _clean_known_placeholder_map(seed["known_placeholder_models"])
+        changed = True
     if not seed_tracked and not seed_newer and not seed_changed:
         if state.get("_reconciled_seed_digest") != seed_digest:
             state["_reconciled_seed_digest"] = seed_digest
@@ -515,6 +556,11 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
                 if state.get("approved_customization_models") != clean_acm:
                     state["approved_customization_models"] = clean_acm
                     changed = True
+            if isinstance(seed.get("known_placeholder_models"), dict):
+                clean_kpm = _clean_known_placeholder_map(seed["known_placeholder_models"])
+                if state.get("known_placeholder_models") != clean_kpm:
+                    state["known_placeholder_models"] = clean_kpm
+                    changed = True
 
     if tracked_changed:
         state["tracked_repositories"] = state_tracked
@@ -569,6 +615,9 @@ def load_state(write: bool = True):
     seed, source = load_seed()
     if seed is None:
         return None, "no ledger and no shipped seed found"
+    shipped_only, _ = load_shipped_seed()
+    digest_basis = shipped_only if isinstance(shipped_only, dict) else seed
+    seed["_reconciled_seed_digest"] = _compute_seed_digest(digest_basis)
     if write and not save_state(seed):
         return None, "ledger could not be written"
     if write:
@@ -759,23 +808,36 @@ def check_tracked_skills(state: dict, now=None) -> bool:
 # ----------------------------------------------------------------------
 # Findings
 # ----------------------------------------------------------------------
-_ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+_ANSI_ESC_RE = re.compile(
+    r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|"
+    r"(?:\x1b\[|\x9b)[0-9;?]*[ -/]*[@-~]|"
+    r"\x1b[@-_]"
+)
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
 
 
 def _sanitize_notice_fragment(value, max_len: int = 160) -> str:
-    """Strips ANSI/control sequences and escapes Markdown/HTML metacharacters in dynamic fields."""
+    """Strips ANSI/OSC/C1/bidi sequences and escapes Markdown/HTML metacharacters in dynamic fields."""
     text = _ANSI_ESC_RE.sub("", str(value or ""))
     text = _CONTROL_CHARS_RE.sub(" ", text)
     text = re.sub(r"\s+", " ", text).strip()
     for ch, rep in (("\\", "\\\\"), ("[", "\\["), ("]", "\\]"), ("<", "\\<"), (">", "\\>"), ("`", "\\`")):
         text = text.replace(ch, rep)
     if len(text) > max_len:
-        text = text[: max_len - 3] + "..."
+        cut = text[: max_len - 3]
+        if cut.endswith("\\") and not cut.endswith("\\\\"):
+            cut = cut[:-1]
+        text = cut + "..."
     return text
 
 
-def collect_reasons(state: dict, payload_model: str = "", *, raw_payload_model: str = "") -> list:
+def collect_reasons(
+    state: dict,
+    payload_model: str = "",
+    *,
+    raw_payload_model: str = "",
+    seed=None,
+) -> list:
     """Returns the current findings as short human-readable strings (no network access)."""
     reasons = []
 
@@ -828,11 +890,42 @@ def collect_reasons(state: dict, payload_model: str = "", *, raw_payload_model: 
             if is_placeholder_model(raw_payload_str)
             else (raw_pbtxt if is_placeholder_model(raw_pbtxt) else "")
         )
-        if active_placeholder and is_placeholder_model(recorded_pbtxt):
-            if active_placeholder.strip().upper() != recorded_pbtxt.upper():
-                reasons.append(
-                    f"Unmapped placeholder model change: '{_sanitize_notice_fragment(recorded_pbtxt)}' -> '{_sanitize_notice_fragment(active_placeholder)}' (inspect active IDE model and run /audit-upstream --model)"
+        if active_placeholder:
+            mapped_known = _lookup_known_placeholder(active_placeholder, state, seed)
+            if mapped_known:
+                raw_acm = state.get("approved_customization_models")
+                approved_slugs = {
+                    model_slug(m)
+                    for m in (raw_acm if isinstance(raw_acm, list) else ())
+                    if isinstance(m, str) and m.strip()
+                }
+                if not approved_slugs and isinstance(seed, dict):
+                    seed_acm = seed.get("approved_customization_models")
+                    approved_slugs = {
+                        model_slug(m)
+                        for m in (seed_acm if isinstance(seed_acm, list) else ())
+                        if isinstance(m, str) and m.strip()
+                    }
+                norm_mapped = normalize_model_name(mapped_known)
+                mapped_is_approved = (
+                    (not norm_recorded)
+                    or norm_mapped == norm_recorded
+                    or is_pro_flash_switch(norm_recorded, norm_mapped)
+                    or (bool(approved_slugs) and model_slug(mapped_known) in approved_slugs)
                 )
+                if not mapped_is_approved:
+                    reasons.append(
+                        f"Model change: '{_sanitize_notice_fragment(recorded_model)}' -> '{_sanitize_notice_fragment(mapped_known)}'"
+                    )
+            elif is_placeholder_model(recorded_pbtxt) or bool(
+                _clean_known_placeholder_map(state.get("known_placeholder_models"))
+                or (isinstance(seed, dict) and _clean_known_placeholder_map(seed.get("known_placeholder_models")))
+            ):
+                prev_label = recorded_pbtxt if is_placeholder_model(recorded_pbtxt) else (recorded_model or "none")
+                if not is_placeholder_model(recorded_pbtxt) or active_placeholder.strip().upper() != recorded_pbtxt.upper():
+                    reasons.append(
+                        f"Unmapped placeholder model change: '{_sanitize_notice_fragment(prev_label)}' -> '{_sanitize_notice_fragment(active_placeholder)}' (inspect active IDE model and run /audit-upstream --model)"
+                    )
 
     tracked = state.get("tracked_repositories") or {}
     pending = state.get("pending_repo_updates") or {}
@@ -1007,7 +1100,9 @@ def run_hook(payload: dict) -> dict:
         raw_payload_model = _raw_payload_model(payload)
         payload_model = _payload_model(payload)
         dirty = False
-        if is_placeholder_model(state.get("last_seen_model")):
+        if is_placeholder_model(state.get("last_seen_model")) or (
+            is_placeholder_model(raw_payload_model) and state.get("last_seen_model")
+        ):
             state["last_seen_model"] = ""
             dirty = True
         if payload_model and state.get("last_seen_model") != payload_model:
@@ -1032,7 +1127,11 @@ def run_hook(payload: dict) -> dict:
             if len(cleaned_pending) != len(raw_pending):
                 state["pending_repo_updates"] = cleaned_pending
 
-        active = unacknowledged(state, collect_reasons(state, payload_model, raw_payload_model=raw_payload_model))
+        shipped_seed, _ = load_shipped_seed()
+        active = unacknowledged(
+            state,
+            collect_reasons(state, payload_model, raw_payload_model=raw_payload_model, seed=shipped_seed),
+        )
         now = _now()
         inject, first_time = (False, False)
         if active:
@@ -1072,16 +1171,18 @@ def cmd_status(model: str = "") -> int:
     outcome = "failed" if audit_failed else "ok"
     print(f"  last repository check: {last} ({outcome})")
     raw_arg_model = model.strip() if isinstance(model, str) else ""
-    concrete_model = _clean_concrete_model(raw_arg_model) or _clean_concrete_model(state.get("last_seen_model", ""))
+    concrete_model = _clean_concrete_model(raw_arg_model) or (
+        "" if is_placeholder_model(raw_arg_model) else _clean_concrete_model(state.get("last_seen_model", ""))
+    )
     raw_pbtxt = get_pbtxt_model(include_placeholder=True)
     status_pbtxt = raw_arg_model if is_placeholder_model(raw_arg_model) else raw_pbtxt
     seed_data, _ = load_seed()
     if status_pbtxt and is_placeholder_model(status_pbtxt):
         diag = _resolve_placeholder_diagnostic(status_pbtxt, state, seed_data)
-        print(f"  pbtxt model (raw)   : {status_pbtxt} [{diag}]")
+        print(f"  pbtxt model (raw)   : {_sanitize_notice_fragment(status_pbtxt)} [{diag}]")
     elif status_pbtxt:
-        print(f"  pbtxt model         : {status_pbtxt}")
-    reasons = collect_reasons(state, concrete_model, raw_payload_model=status_pbtxt)
+        print(f"  pbtxt model         : {_sanitize_notice_fragment(status_pbtxt)}")
+    reasons = collect_reasons(state, concrete_model, raw_payload_model=status_pbtxt, seed=seed_data)
     if audit_failed:
         print("\n[WARN] Last upstream repository check failed (HTTP rate-limit or network error); synchronization is unverified.")
     if not reasons:
@@ -1106,10 +1207,17 @@ def cmd_ack(model: str = "") -> int:
     if "corrupt ledger moved to" in str(source):
         print(f"[WARN] Upstream ledger recovered from corruption: {source}", file=sys.stderr)
     raw_arg_model = model.strip() if isinstance(model, str) else ""
-    model = _clean_concrete_model(raw_arg_model) or _clean_concrete_model(state.get("last_seen_model", ""))
     raw_pbtxt = get_pbtxt_model(include_placeholder=True)
     ack_pbtxt = raw_arg_model if is_placeholder_model(raw_arg_model) else raw_pbtxt
-    reasons = collect_reasons(state, model, raw_payload_model=ack_pbtxt)
+    seed_data, _ = load_seed()
+    shipped_seed_ack, _ = load_shipped_seed()
+    model = (
+        _clean_concrete_model(raw_arg_model)
+        or ("" if is_placeholder_model(raw_arg_model) else _clean_concrete_model(state.get("last_seen_model", "")))
+        or _clean_concrete_model(ack_pbtxt)
+        or _lookup_known_placeholder(ack_pbtxt, state, seed_data)
+    )
+    reasons = collect_reasons(state, model, raw_payload_model=ack_pbtxt, seed=seed_data)
 
     current_hash = compute_builtin_hash()
     if current_hash:
@@ -1120,10 +1228,15 @@ def cmd_ack(model: str = "") -> int:
         state["last_pbtxt_model"] = ack_pbtxt
     if model and normalize_model_name(model) != "auto":
         state["last_audited_model"] = model
+        if "current_model" in state:
+            state["current_model"] = model
         state["last_model_slug"] = model_slug(model)
     state["acknowledged_reasons"] = sorted({reason_fingerprint(r) for r in reasons})
     state["acknowledged_signature"] = reasons_signature(reasons) if reasons else ""
     state["last_ack_timestamp"] = _now().isoformat()
+    digest_src = shipped_seed_ack if isinstance(shipped_seed_ack, dict) else seed_data
+    if isinstance(digest_src, dict):
+        state["_reconciled_seed_digest"] = _compute_seed_digest(digest_src)
     if not save_state(state):
         print(f"[ERROR] Could not write {STATE_FILE}", file=sys.stderr)
         return 1
@@ -1133,11 +1246,10 @@ def cmd_ack(model: str = "") -> int:
     print(f"  builtin skills hash : {state.get('builtin_skills_hash') or '(builtin directory not found)'}")
     print(f"  model               : {state.get('last_audited_model') or '(unknown; pass --model NAME)'}")
     if pbtxt_model:
-        print(f"  pbtxt model         : {pbtxt_model}")
+        print(f"  pbtxt model         : {_sanitize_notice_fragment(pbtxt_model)}")
     elif ack_pbtxt and is_placeholder_model(ack_pbtxt):
-        seed_data, _ = load_seed()
         diag = _resolve_placeholder_diagnostic(ack_pbtxt, state, seed_data)
-        print(f"  pbtxt model (raw)   : {ack_pbtxt} [{diag}]")
+        print(f"  pbtxt model (raw)   : {_sanitize_notice_fragment(ack_pbtxt)} [{diag}]")
     return 0
 
 

@@ -7,10 +7,12 @@ Zero external dependencies: uses strictly the Python standard library.
 from __future__ import annotations
 
 import ast
+import functools
 import os
 import re
 import stat
 import sys
+import textwrap
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -137,9 +139,9 @@ _GUARD_ADMIN_BODY = (
     r")"
 )
 
-_GUARD_ADMIN_RE = re.compile(rf"(?:^|[;&|()\n`])\s*{_GUARD_ADMIN_BODY}", re.IGNORECASE)
+_GUARD_ADMIN_RE = _LazyRegex(rf"(?:^|[;&|()\n`])\s*{_GUARD_ADMIN_BODY}", re.IGNORECASE)
 
-_DELEGATION_GUARD_ADMIN_RE = re.compile(rf"(?:^|[\s;|&()\n`'\"]){_GUARD_ADMIN_BODY}", re.IGNORECASE)
+_DELEGATION_GUARD_ADMIN_RE = _LazyRegex(rf"(?:^|[\s;|&()\n`'\"]){_GUARD_ADMIN_BODY}", re.IGNORECASE)
 
 _GUARD_API_TOKEN_PAT = (
     r"(?:"
@@ -152,7 +154,7 @@ _GUARD_API_TOKEN_PAT = (
 )
 
 # Inline or piped Python (`python -c`, `python -uc`, heredoc, or `... | python3`) invoking human-only Guard or Installer APIs directly
-_GUARD_INLINE_PY_RE = re.compile(
+_GUARD_INLINE_PY_RE = _LazyRegex(
     r"(?:"
     rf"\bpython3?(?:\.\d+)?\b[^\n;|&`]*(?:\s-[A-Za-z0-9]*c\b|<<-?\s*['\"]?[A-Za-z0-9_]+['\"]?)[\s\S]*?{_GUARD_API_TOKEN_PAT}|"
     rf"{_GUARD_API_TOKEN_PAT}[\s\S]*?\|\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?python3?(?:\.\d+)?\b"
@@ -163,7 +165,7 @@ _GUARD_INLINE_PY_RE = re.compile(
 # Direct execution of install.py without --dry-run or --help (GEMINI.md Rule 12).
 # Anchored to the start of a simple command (or interpreter invocation) so passing `install.py`
 # as a path argument to read-only commands (`git diff ... install.py`, `grep ... install.py`) is allowed.
-_INSTALL_PY_RE = re.compile(
+_INSTALL_PY_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
     r"(?:(?:[^\s;|&`]*/)?(?:python3?(?:\.\d+)?|py|(?:ba|z|da|k)?sh)\s+(?:-[^\s;|&`]+\s+)*(?:[^\s;|&`]*/)?|(?:[^\s;|&`]*/)?)"
     r"install\.py\b(?![^\n;|&`]*(?:--dry-run|--help|-h\b))",
@@ -176,36 +178,36 @@ _WORKFLOW_INSTALL_EXEC_BODY = (
     r"install\.py\b(?![^\n;|&`]*(?:--dry-run|--help|-h\b))"
 )
 
-_WORKFLOW_INSTALL_EXEC_RE = re.compile(rf"(?:^|[;&|()\n`])\s*{_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
+_WORKFLOW_INSTALL_EXEC_RE = _LazyRegex(rf"(?:^|[;&|()\n`])\s*{_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
 
-_DELEGATION_INSTALL_EXEC_RE = re.compile(rf"(?:^|[\s;|&()\n`'\"]){_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
+_DELEGATION_INSTALL_EXEC_RE = _LazyRegex(rf"(?:^|[\s;|&()\n`'\"]){_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
 
-_QUOTED_SPAN_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_QUOTED_SPAN_RE = _LazyRegex(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 
-_BACKTICK_SPAN_RE = re.compile(r"`((?:\\.|[^`\\])+)`")
+_BACKTICK_SPAN_RE = _LazyRegex(r"`((?:\\.|[^`\\])+)`")
 
-_SHELL_C_EXTRACT_RE = re.compile(
+_SHELL_C_EXTRACT_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
     r"(?:(?:[^\s;|&`]*/)?(?:ba|z|da|k)?sh\b[^\n;|&`]*?\s-(?:[A-Za-z0-9]+\s+)*[A-Za-z0-9]*c[A-Za-z0-9]*|eval)\s+"
     r"(?:'([^']*)'|\"((?:\\.|[^\"\\])*)\")",
     re.IGNORECASE,
 )
 
-_SCRIPT_C_EXTRACT_RE = re.compile(
+_SCRIPT_C_EXTRACT_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?script\b[^\n;|&`]*?"
     r"(?:\s-(?:[A-Za-z0-9]+\s+)*[A-Za-z0-9]*c\s*|\s--command(?:=|\s+))"
     r"(?:'([^']*)'|\"((?:\\.|[^\"\\])*)\"|([^\s;|&`'\"]+))",
     re.IGNORECASE,
 )
 
-_PIPE_TO_SH_EXTRACT_RE = re.compile(
+_PIPE_TO_SH_EXTRACT_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*(?:echo|printf)\b(?:\s+-[neE]+)*\s+"
     r"(?:'([^']*)'|\"((?:\\.|[^\"\\])*)\")\s*\|\s*"
     rf"{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?(?:ba|z|da|k)?sh\b",
     re.IGNORECASE,
 )
 
-_FIND_EXEC_EXTRACT_RE = re.compile(
+_FIND_EXEC_EXTRACT_RE = _LazyRegex(
     r"\bfind\b[^\n;|&]*?\s-(?:exec|execdir|ok|okdir)\s+([^\n;|]+?)(?:\s+(?:\\;|;|\+))?(?=$|[;&|\n])",
     re.IGNORECASE,
 )
@@ -231,13 +233,13 @@ _SHELL_PUNCT_CHARS = ";&|()"
 
 # Terminal multiplexers spawn commands (`tmux new-window '...'`); every argument after the multiplexer
 # is treated as a candidate command line. Anchors are matched outside quoted spans only.
-_TERMINAL_MUX_SEGMENT_RE = re.compile(
+_TERMINAL_MUX_SEGMENT_RE = _LazyRegex(
     r"(?:^|[;&|()\n`])\s*(?:[^\s;|&`]*/)?(?:tmux|screen|byobu|tmate|dtach|abduco|zellij)\b([^\n;|&`]*)",
     re.IGNORECASE,
 )
 
 # Keystroke or buffer injection into a multiplexer runs arbitrary commands outside `PreToolUse` inspection.
-_TERMINAL_INJECTION_RE = re.compile(
+_TERMINAL_INJECTION_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?(?:"
     r"(?:tmux|byobu|tmate)\b[^\n;|&`]*\s(?:send-keys|send|paste-buffer|pasteb|load-buffer|loadb|set-buffer|setb)\b|"
     r"screen\b[^\n;|&`]*\s-X\s+(?:stuff|paste|readbuf|register)\b|"
@@ -248,14 +250,14 @@ _TERMINAL_INJECTION_RE = re.compile(
 
 # Exec-like calls whose argv is a string list/tuple (`pty.spawn(['agy-guard', 'unlock'])`,
 # `subprocess.run(("python3", "install.py"))`) or a single command string (`os.system('...')`).
-_EXEC_CALL_ARGV_RE = re.compile(
+_EXEC_CALL_ARGV_RE = _LazyRegex(
     r"\b(?:system|popen|run|call|check_call|check_output|getoutput|getstatusoutput|Popen|spawn|spawnSync|"
     r"execSync|execFile|execFileSync|exec[lv]p?e?|spawn[lv]p?e?)\s*\(\s*"
     r"(?:[\[(]\s*((?:'[^'\n]*'|\"[^\"\n]*\")(?:\s*,\s*(?:'[^'\n]*'|\"[^\"\n]*\"))*)\s*,?\s*[\])]"
     r"|('[^'\n]*'|\"[^\"\n]*\"))"
 )
 
-_STR_ARGV_TOKEN_RE = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"")
+_STR_ARGV_TOKEN_RE = _LazyRegex(r"'([^'\n]*)'|\"([^\"\n]*)\"")
 
 def _blank_quoted_spans(cmd: str) -> str:
     """Returns `cmd` with every quoted span's interior replaced by spaces (same length, quotes kept)."""
@@ -344,7 +346,7 @@ def _extract_indirect_exec_payloads(cmd: str) -> List[str]:
         _add(" ".join(parts))
     return found
 
-_QUOTED_ARG_TOKEN_RE = re.compile(r"'([^']*)'|\"((?:\\.|[^\"\\])*)\"|([^\s'\"]+)")
+_QUOTED_ARG_TOKEN_RE = _LazyRegex(r"'([^']*)'|\"((?:\\.|[^\"\\])*)\"|([^\s'\"]+)")
 
 def _join_shell_line_continuations(cmd: str) -> str:
     """Joins POSIX backslash-newline (`\\` + LF/CRLF) continuations outside single-quoted strings."""
@@ -1426,7 +1428,7 @@ def _is_runtime_config_subdir(candidate: Path, root: Path) -> bool:
         return True
     return False
 
-_URI_SCHEME_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_URI_SCHEME_PREFIX_RE = _LazyRegex(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 
 
 def _parse_file_uri(raw_uri: str) -> Optional[str]:
@@ -1520,7 +1522,7 @@ def _normalize_shell_paths(cmd: str) -> str:
     norm = re.sub(r"(?<!:)/{2,}", "/", norm)
     return norm
 
-_SIMPLE_VAR_ASSIGN_RE = re.compile(
+_SIMPLE_VAR_ASSIGN_RE = _LazyRegex(
     r"(?:^|[;&|()\n\s])([A-Za-z_][A-Za-z0-9_]*)=(?:'([^']*)'|\"([^\"\\]*)\"|([^\s;|&'\"()]+))"
 )
 
@@ -1563,22 +1565,1152 @@ def _normalize_governance_globs(cmd: str) -> str:
     out = re.sub(r"(?:~|\$HOME)/\.local/bin/por\?ter|(?:~|\$HOME)/\.local/bin/por\*[^\s;|&'\"/]*", "~/.local/bin/porter", out)
     return out
 
-_SHELL_MUTATION_INDICATOR_RE = re.compile(
+_SHELL_MUTATION_INDICATOR_RE = _LazyRegex(
     r"(?:"
     r">{1,2}\|?|"
     r"\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip)\b|"
     r"\bfind\b[^\n;|&]*\s-(?:delete|exec|execdir|ok)\b|"
     r"\bsed\b[^\n;|&]*\s-(?:[A-Za-z]*i\S*|-in-place(?:=\S*)?)\b|"
     r"\b(?:curl|wget)\b[^\n;|&]*\s-(?:o|O)\b|"
-    r"\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b|<<)"
+    r"\b(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*|m\s+(?!(?:unittest|pytest|py_compile|mypy|ruff|flake8|doctest|cprofile|profile|ast|tokenize|dis)\b)\S+)\b|<<)|"
+    r"\|\s*(?:[A-Za-z0-9_.=/-]+\s+)*(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b"
     r")"
 )
 
-_SHELL_DOTDOT_TOKEN_RE = re.compile(r"(?:^|[\s/'\"=])\.\.(?:$|[\s/'\";&|()])")
+_SHELL_DOTDOT_TOKEN_RE = _LazyRegex(r"(?:^|[\s/'\"=])\.\.(?:$|[\s/'\";&|()])")
+
+@functools.lru_cache(maxsize=256)
+def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str], ...]:
+    plugin_gov_tail = (
+        r"(?:/(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b"
+        r"|\.(?:mdc?|py[cow]?|m?js|cjs|tsx?|jsx|sh|bash|zsh|fish|ksh|pl|rb|php|ps1|bat|cmd|so|dylib|dll|exe|wasm)\b)"
+    )
+    esc_root = re.escape(root)
+    pats: List[Tuple[re.Pattern[str], str]] = []
+    for sub in _RUNTIME_CONFIG_SUBDIRS:
+        if sub == "plugins":
+            pats.append(
+                (
+                    re.compile(
+                        rf"(['\"]){esc_root}/plugins(?=/)(?![^'\"\n]*{plugin_gov_tail})[^'\"\n]*\1",
+                        re.IGNORECASE,
+                    ),
+                    r"\1__RUNTIME_SUBDIR__\1",
+                )
+            )
+            pats.append(
+                (
+                    re.compile(
+                        rf"(?<!['\"]){esc_root}/plugins(?=/|\s|$|[;&|'\"()])(?![^\s;|&'\"]*{plugin_gov_tail})",
+                        re.IGNORECASE,
+                    ),
+                    "__RUNTIME_SUBDIR__",
+                )
+            )
+        else:
+            pats.append((re.compile(rf"{esc_root}/{re.escape(sub)}(?=/|\s|$|[;&|'\"()])"), "__RUNTIME_SUBDIR__"))
+    return tuple(pats)
+
+
+@functools.lru_cache(maxsize=128)
+def _compiled_state_staging_pattern(st_root: str) -> re.Pattern[str]:
+    return re.compile(rf"{re.escape(st_root)}/staging(?=/|\s|$|[;&|'\"()])")
+
+
+_PURE_READONLY_PY_MODULES = frozenset({
+    "ast", "base64", "bisect", "calendar", "collections", "collections.abc", "copy", "csv",
+    "dataclasses", "datetime", "decimal", "difflib", "dis", "enum", "errno", "fnmatch",
+    "fractions", "glob", "hashlib", "heapq", "hmac", "html", "io", "itertools",
+    "json", "keyword", "locale", "math", "os", "os.path", "pathlib", "platform",
+    "pprint", "re", "secrets", "shlex", "stat", "statistics", "string", "struct", "sys",
+    "textwrap", "time", "token", "tokenize", "tomllib", "traceback", "typing", "unicodedata",
+    "urllib.parse", "uuid", "zlib",
+})
+
+_READONLY_PY_MODULE_ATTRS: Dict[str, frozenset[str]] = {
+    "ast": frozenset({
+        "parse", "walk", "dump", "literal_eval", "unparse", "get_docstring", "iter_fields",
+        "iter_child_nodes", "AST", "Module", "Import", "ImportFrom", "FunctionDef",
+        "AsyncFunctionDef", "ClassDef", "Call", "Attribute", "Name", "Constant", "Assign",
+        "AnnAssign", "AugAssign", "BinOp", "Compare", "Subscript", "JoinedStr", "List", "Tuple",
+        "Dict", "Set", "Load", "Store", "Del", "If", "For", "While", "Try", "With",
+    }),
+    "base64": frozenset({
+        "b64encode", "b64decode", "urlsafe_b64encode", "urlsafe_b64decode",
+        "b32encode", "b32decode", "b16encode", "b16decode", "a85encode", "a85decode",
+    }),
+    "bisect": frozenset({"bisect", "bisect_left", "bisect_right"}),
+    "calendar": frozenset({"isleap", "leapdays", "weekday", "monthrange", "monthcalendar", "timegm", "day_name", "month_name"}),
+    "collections": frozenset({"Counter", "defaultdict", "deque", "namedtuple", "OrderedDict", "ChainMap", "abc"}),
+    "collections.abc": frozenset({"Iterable", "Iterator", "Mapping", "MutableMapping", "Sequence", "Set", "Callable", "Collection", "Container", "Sized"}),
+    "copy": frozenset({"copy", "deepcopy"}),
+    "csv": frozenset({"reader", "DictReader", "Sniffer", "Error", "field_size_limit"}),
+    "dataclasses": frozenset({"fields", "asdict", "astuple", "is_dataclass"}),
+    "datetime": frozenset({"date", "time", "datetime", "timedelta", "timezone", "tzinfo", "UTC"}),
+    "decimal": frozenset({"Decimal", "Context", "DecimalException", "InvalidOperation", "ROUND_HALF_UP", "ROUND_HALF_EVEN"}),
+    "difflib": frozenset({"unified_diff", "context_diff", "ndiff", "get_close_matches", "SequenceMatcher"}),
+    "dis": frozenset({"Bytecode", "get_instructions", "opname", "opmap"}),
+    "enum": frozenset({"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto"}),
+    "errno": frozenset({"ENOENT", "EACCES", "EPERM", "EEXIST", "EISDIR", "ENOTDIR", "EINVAL", "ENOSPC", "EROFS", "errorcode"}),
+    "fnmatch": frozenset({"fnmatch", "fnmatchcase", "filter", "translate"}),
+    "fractions": frozenset({"Fraction"}),
+    "glob": frozenset({"glob", "iglob", "escape", "has_magic"}),
+    "hashlib": frozenset({"sha256", "sha512", "sha384", "sha224", "sha1", "md5", "blake2b", "blake2s", "new", "algorithms_available", "algorithms_guaranteed"}),
+    "heapq": frozenset({"nlargest", "nsmallest", "merge"}),
+    "hmac": frozenset({"new", "digest", "compare_digest"}),
+    "html": frozenset({"escape", "unescape"}),
+    "io": frozenset({"StringIO", "BytesIO", "open"}),
+    "itertools": frozenset({"chain", "islice", "combinations", "permutations", "product", "groupby", "repeat", "count", "cycle", "takewhile", "dropwhile", "filterfalse", "starmap", "zip_longest", "batched", "pairwise"}),
+    "json": frozenset({"loads", "load", "dumps", "JSONDecodeError"}),
+    "keyword": frozenset({"iskeyword", "issoftkeyword", "kwlist", "softkwlist"}),
+    "locale": frozenset({"getpreferredencoding", "getlocale"}),
+    "math": frozenset({"ceil", "floor", "trunc", "sqrt", "isclose", "isfinite", "isinf", "isnan", "log", "log2", "log10", "exp", "pow", "fabs", "factorial", "gcd", "lcm", "pi", "e", "tau", "inf", "nan", "prod", "fsum"}),
+    "os": frozenset({
+        "path", "getcwd", "getcwdb", "listdir", "scandir", "walk", "stat", "lstat", "readlink",
+        "access", "getenv", "environ", "environb", "fspath", "fsencode", "fsdecode", "cpu_count",
+        "getpid", "getppid", "getuid", "geteuid", "getgid", "getegid", "uname", "name", "sep",
+        "altsep", "extsep", "linesep", "pathsep", "devnull", "curdir", "pardir", "F_OK", "R_OK",
+        "W_OK", "X_OK",
+    }),
+    "os.path": frozenset({
+        "abspath", "basename", "commonpath", "commonprefix", "dirname", "exists", "expanduser",
+        "expandvars", "getatime", "getctime", "getmtime", "getsize", "isabs", "isdir", "isfile",
+        "islink", "ismount", "join", "lexists", "normcase", "normpath", "realpath", "relpath",
+        "samefile", "split", "splitdrive", "splitext", "sep", "altsep", "extsep", "pathsep",
+        "devnull", "curdir", "pardir",
+    }),
+    "pathlib": frozenset({"Path", "PurePath", "PosixPath", "WindowsPath", "PurePosixPath", "PureWindowsPath"}),
+    "platform": frozenset({"system", "machine", "release", "version", "platform", "python_version", "python_implementation", "architecture", "uname", "node", "processor"}),
+    "pprint": frozenset({"pformat", "pprint"}),
+    "re": frozenset({"compile", "search", "match", "fullmatch", "findall", "finditer", "sub", "subn", "split", "escape", "Pattern", "Match", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "UNICODE", "U", "error"}),
+    "secrets": frozenset({"token_hex", "token_urlsafe", "token_bytes", "randbelow", "compare_digest"}),
+    "shlex": frozenset({"split", "quote", "join"}),
+    "stat": frozenset({"S_ISDIR", "S_ISREG", "S_ISLNK", "S_ISFIFO", "S_ISSOCK", "S_ISCHR", "S_ISBLK", "S_IMODE", "S_IFMT", "ST_MODE", "S_IRUSR", "S_IWUSR", "S_IXUSR", "filemode"}),
+    "statistics": frozenset({"mean", "fmean", "median", "median_low", "median_high", "mode", "multimode", "stdev", "pstdev", "variance", "pvariance", "quantiles", "StatisticsError"}),
+    "string": frozenset({"ascii_letters", "ascii_lowercase", "ascii_uppercase", "digits", "hexdigits", "octdigits", "punctuation", "printable", "whitespace"}),
+    "struct": frozenset({"pack", "unpack", "unpack_from", "iter_unpack", "calcsize", "Struct", "error"}),
+    "sys": frozenset({
+        "version", "version_info", "platform", "maxsize", "byteorder", "stdout", "stderr",
+        "argv", "implementation", "prefix", "base_prefix", "exec_prefix", "executable",
+        "hexversion", "api_version", "float_info", "int_info", "hash_info",
+    }),
+    "textwrap": frozenset({"dedent", "indent", "wrap", "fill", "shorten"}),
+    "time": frozenset({"time", "time_ns", "monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "gmtime", "localtime", "strftime", "strptime"}),
+    "token": frozenset({"tok_name", "ISTERMINAL", "ISNONTERMINAL", "ISEOF"}),
+    "tokenize": frozenset({"generate_tokens", "tokenize", "TokenInfo", "TokenError"}),
+    "tomllib": frozenset({"loads", "load", "TOMLDecodeError"}),
+    "traceback": frozenset({"format_exc", "format_exception", "format_tb", "extract_tb"}),
+    "typing": frozenset({"Any", "Dict", "List", "Optional", "Sequence", "Set", "Tuple", "Union", "Callable", "Iterator", "Iterable", "Mapping", "Literal", "Final", "ClassVar", "NamedTuple", "TypedDict", "TYPE_CHECKING"}),
+    "unicodedata": frozenset({"normalize", "category", "name", "lookup", "combining", "east_asian_width"}),
+    "urllib.parse": frozenset({"urlparse", "urlsplit", "urlunparse", "urlunsplit", "urljoin", "urlencode", "parse_qs", "parse_qsl", "quote", "quote_plus", "unquote", "unquote_plus"}),
+    "uuid": frozenset({"UUID", "uuid4", "uuid5", "uuid3", "uuid1", "NAMESPACE_DNS", "NAMESPACE_URL", "NAMESPACE_OID", "NAMESPACE_X500"}),
+    "zlib": frozenset({"crc32", "adler32", "compress", "decompress", "error"}),
+}
+
+_SAFE_READONLY_PY_BUILTINS = frozenset({
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes", "callable", "chr",
+    "complex", "dict", "dir", "divmod", "enumerate", "filter", "float", "format", "frozenset",
+    "hasattr", "hash", "hex", "id", "int", "isinstance", "issubclass", "iter", "len", "list",
+    "map", "max", "min", "next", "object", "oct", "open", "ord", "pow", "print", "range",
+    "repr", "reversed", "round", "set", "slice", "sorted", "str", "sum", "tuple", "type", "zip",
+    "Exception", "BaseException", "ValueError", "TypeError", "KeyError", "IndexError",
+    "AttributeError", "OSError", "FileNotFoundError", "PermissionError", "RuntimeError",
+    "StopIteration", "UnicodeDecodeError", "UnicodeEncodeError", "AssertionError",
+})
+
+_FORBIDDEN_INLINE_PY_ATTRS = frozenset({
+    "touch", "unlink", "remove", "removedirs", "rmdir", "mkdir", "makedirs", "rename", "renames",
+    "chmod", "fchmod", "lchmod", "chown", "fchown", "lchown", "symlink", "symlink_to",
+    "hardlink_to", "link", "write", "writelines", "write_text", "write_bytes", "truncate",
+    "ftruncate", "FileIO", "BufferedWriter", "BufferedRandom", "open_code", "utime", "popen",
+    "system", "dump", "NamedTemporaryFile", "TemporaryDirectory", "mkstemp", "mkdtemp",
+    "mkfifo", "mknod", "putenv", "unsetenv", "chdir", "fchdir", "chroot", "Popen", "run",
+    "call", "check_call", "check_output", "spawn", "execv", "execve", "execvp", "execl",
+    "extract", "extractall", "urlretrieve", "import_module", "run_path", "run_module",
+    "rmtree", "eval", "exec", "compile", "getattr", "setattr", "delattr", "getattr_static",
+    "currentframe", "f_builtins", "f_globals", "f_locals", "f_back", "f_code",
+    "os", "sys", "io", "builtins", "bltns", "posix", "nt", "shutil", "pathlib",
+    "posixpath", "ntpath", "genericpath", "subprocess", "importlib", "codecs",
+    "tempfile", "tarfile", "zipfile", "ctypes", "socket",
+})
+
+_SAFE_READONLY_OBJECT_METHODS = frozenset({
+    "exists", "is_file", "is_dir", "is_symlink", "is_fifo", "is_socket", "is_char_device",
+    "is_block_device", "is_mount", "is_absolute", "is_relative_to", "stat", "lstat",
+    "read_text", "read_bytes", "readlink", "iterdir", "glob", "rglob", "walk", "open",
+    "expanduser", "resolve", "absolute", "as_posix", "as_uri", "joinpath", "relative_to",
+    "with_name", "with_stem", "with_suffix", "match", "full_match", "samefile", "inode",
+    "read", "readline", "readlines", "getvalue", "tell", "seek", "readable", "fileno", "close",
+    "strip", "lstrip", "rstrip", "split", "rsplit", "splitlines", "partition", "rpartition",
+    "join", "replace", "lower", "upper", "casefold", "title", "capitalize", "startswith",
+    "endswith", "find", "rfind", "index", "rindex", "count", "encode", "decode", "format",
+    "isdigit", "isalpha", "isalnum", "isspace", "isascii", "isidentifier", "islower", "isupper",
+    "removeprefix", "removesuffix", "zfill", "ljust", "rjust", "center", "hex", "fromhex",
+    "get", "keys", "values", "items", "copy", "append", "extend", "insert", "sort", "reverse",
+    "add", "update", "union", "intersection", "difference", "symmetric_difference",
+    "issubset", "issuperset", "isdisjoint", "most_common",
+    "search", "fullmatch", "findall", "finditer", "sub", "subn", "group", "groups", "groupdict",
+    "start", "end", "span", "hexdigest", "digest", "isoformat", "strftime", "total_seconds",
+    "timestamp", "astimezone",
+})
+
+_PATHLIB_CLASS_NAMES = frozenset({"Path", "PurePath", "PosixPath", "WindowsPath", "PurePosixPath", "PureWindowsPath"})
+
+_CALL_ONLY_PY_NAMES = frozenset({"open", "print", "type", "map", "filter", "sorted", "min", "max"})
+
+_READONLY_PY_M_MODULES = frozenset({
+    "unittest", "pytest", "py_compile", "mypy", "ruff", "flake8", "doctest",
+    "cprofile", "profile", "ast", "tokenize", "dis",
+})
+
+_DANGEROUS_PY_ENV_RE = _LazyRegex(
+    r"\b(?:PYTHONPATH|PYTHONSTARTUP|PYTHONHOME|PYTHONINSPECT|PYTHONUSERBASE|PYTHONEXECUTABLE|PATH|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|DYLD_[A-Z0-9_]+)="
+)
+
+_SAFE_PY_CLI_OPT_RE = _LazyRegex(r"^-(?:[BEIOPSsUuvqbd]+|[WX](?:=\S+)?)$")
+
+
+def _is_pure_readonly_python_snippet(source: str) -> bool:
+    """Returns True iff `source` parses as a pure read-only Python subset with zero mutating/reflective/FFI capabilities."""
+    if not isinstance(source, str) or not source.strip() or len(source) > 65536 or "\x00" in source:
+        return False
+    dedented = textwrap.dedent(source)
+    if _check_pep263_cookie(dedented) is not None or _check_pep263_cookie(source) is not None:
+        return False
+    try:
+        tree = ast.parse(dedented, mode="exec")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return False
+
+    module_aliases: Dict[str, str] = {}
+    imported_symbols: Dict[str, Tuple[str, str]] = {}
+    environ_aliases: set[str] = set()
+    local_defs: set[str] = set()
+    store_counts: Dict[str, int] = {}
+    const_vars: Dict[str, str] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(
+            node,
+            (
+                ast.ClassDef,
+                ast.Delete,
+                ast.Global,
+                ast.Nonlocal,
+                ast.AsyncFunctionDef,
+                ast.AsyncFor,
+                ast.AsyncWith,
+                ast.Await,
+                ast.Yield,
+                ast.YieldFrom,
+            ),
+        ):
+            return False
+        if isinstance(node, ast.FunctionDef):
+            if node.decorator_list or node.name.startswith("__") or node.name.endswith("__"):
+                return False
+            local_defs.add(node.name)
+            store_counts[node.name] = store_counts.get(node.name, 0) + 1
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                mod_name = alias.name
+                root_mod = mod_name.split(".", 1)[0]
+                if mod_name not in _PURE_READONLY_PY_MODULES and root_mod not in _PURE_READONLY_PY_MODULES:
+                    return False
+                if mod_name.startswith("urllib.") and mod_name != "urllib.parse":
+                    return False
+                if mod_name.startswith("collections.") and mod_name != "collections.abc":
+                    return False
+                if mod_name.startswith("os.") and mod_name != "os.path":
+                    return False
+                bound = alias.asname or root_mod
+                if bound in _CALL_ONLY_PY_NAMES or bound.startswith("__") or bound.endswith("__"):
+                    return False
+                mapped_mod = mod_name if alias.asname else root_mod
+                module_aliases[bound] = mapped_mod
+                store_counts[bound] = store_counts.get(bound, 0) + 1
+        elif isinstance(node, ast.ImportFrom):
+            if node.level != 0 or not node.module:
+                return False
+            mod_name = node.module
+            if mod_name not in _PURE_READONLY_PY_MODULES:
+                return False
+            mod_allow = _READONLY_PY_MODULE_ATTRS.get(mod_name)
+            if mod_allow is None:
+                return False
+            for alias in node.names:
+                if alias.name == "*" or alias.name.startswith("_") or alias.name.endswith("__"):
+                    return False
+                if alias.name in _FORBIDDEN_INLINE_PY_ATTRS or alias.name not in mod_allow:
+                    return False
+                bound = alias.asname or alias.name
+                if bound.startswith("__") or bound.endswith("__"):
+                    return False
+                if mod_name == "os" and alias.name == "path":
+                    module_aliases[bound] = "os.path"
+                elif mod_name == "os" and alias.name in ("environ", "environb"):
+                    environ_aliases.add(bound)
+                elif mod_name == "collections" and alias.name == "abc":
+                    module_aliases[bound] = "collections.abc"
+                elif mod_name == "urllib" and alias.name == "parse":
+                    module_aliases[bound] = "urllib.parse"
+                else:
+                    imported_symbols[bound] = (mod_name, alias.name)
+                store_counts[bound] = store_counts.get(bound, 0) + 1
+        elif isinstance(node, ast.arg):
+            if node.arg.startswith("__") or node.arg.endswith("__"):
+                return False
+            store_counts[node.arg] = store_counts.get(node.arg, 0) + 1
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            if node.name.startswith("__") or node.name.endswith("__"):
+                return False
+            store_counts[node.name] = store_counts.get(node.name, 0) + 1
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            if node.name.startswith("__") or node.name.endswith("__"):
+                return False
+            store_counts[node.name] = store_counts.get(node.name, 0) + 1
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            if node.rest.startswith("__") or node.rest.endswith("__"):
+                return False
+            store_counts[node.rest] = store_counts.get(node.rest, 0) + 1
+        elif type(node).__name__ in ("TypeVar", "ParamSpec", "TypeVarTuple") and getattr(node, "name", None):
+            tp_name = str(getattr(node, "name"))
+            store_counts[tp_name] = store_counts.get(tp_name, 0) + 1
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            if node.id.startswith("__") or node.id.endswith("__"):
+                return False
+            store_counts[node.id] = store_counts.get(node.id, 0) + 1
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            return False
+        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+            if isinstance(node.value, ast.Name) and node.value.id in environ_aliases:
+                return False
+            if (
+                isinstance(node.value, ast.Attribute)
+                and node.value.attr in ("environ", "environb")
+                and isinstance(node.value.value, ast.Name)
+                and module_aliases.get(node.value.value.id) == "os"
+            ):
+                return False
+
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            vname = stmt.targets[0].id
+            if store_counts.get(vname, 0) == 1:
+                sval = _eval_workflow_str_expr(stmt.value, const_vars)
+                if sval is not None:
+                    const_vars[vname] = sval
+
+    protected_bindings = (
+        set(module_aliases.keys())
+        | set(imported_symbols.keys())
+        | environ_aliases
+        | local_defs
+        | _CALL_ONLY_PY_NAMES
+    )
+    for bname in protected_bindings:
+        if store_counts.get(bname, 0) > 1 or (bname in _CALL_ONLY_PY_NAMES and bname in store_counts and bname not in imported_symbols):
+            return False
+
+    call_func_ids = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    attr_parent_by_val_id: Dict[int, List[ast.Attribute]] = {}
+    safe_environ_use_ids: set[int] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute):
+            attr_parent_by_val_id.setdefault(id(n.value), []).append(n)
+            if n.attr in _SAFE_ENVIRON_READ_METHODS and id(n) in call_func_ids:
+                safe_environ_use_ids.add(id(n.value))
+        elif isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Load):
+            safe_environ_use_ids.add(id(n.value))
+        elif isinstance(n, ast.Compare):
+            for op, cmp_node in zip(n.ops, n.comparators):
+                if isinstance(op, (ast.In, ast.NotIn)):
+                    safe_environ_use_ids.add(id(cmp_node))
+
+    def _is_sys_std_stream(expr: ast.AST) -> bool:
+        if (
+            isinstance(expr, ast.Attribute)
+            and expr.attr in ("stdout", "stderr")
+            and isinstance(expr.value, ast.Name)
+            and module_aliases.get(expr.value.id) == "sys"
+        ):
+            return True
+        return isinstance(expr, ast.Name) and imported_symbols.get(expr.id) in (("sys", "stdout"), ("sys", "stderr"))
+
+    def _is_environ_node(expr: ast.AST) -> bool:
+        if isinstance(expr, ast.Name) and expr.id in environ_aliases:
+            return True
+        return (
+            isinstance(expr, ast.Attribute)
+            and expr.attr in ("environ", "environb")
+            and isinstance(expr.value, ast.Name)
+            and module_aliases.get(expr.value.id) == "os"
+        )
+
+    def _is_pathlib_class_expr(expr: ast.AST) -> bool:
+        if isinstance(expr, ast.Name) and imported_symbols.get(expr.id, ("", ""))[1] in _PATHLIB_CLASS_NAMES:
+            return True
+        return (
+            isinstance(expr, ast.Attribute)
+            and expr.attr in _PATHLIB_CLASS_NAMES
+            and isinstance(expr.value, ast.Name)
+            and module_aliases.get(expr.value.id) == "pathlib"
+        )
+
+    def _is_safe_callback_expr(cb: ast.AST) -> bool:
+        if isinstance(cb, ast.Lambda):
+            return True
+        if isinstance(cb, ast.Name):
+            if cb.id in local_defs:
+                return True
+            if (
+                cb.id in _SAFE_READONLY_PY_BUILTINS
+                and cb.id not in _CALL_ONLY_PY_NAMES
+                and cb.id not in imported_symbols
+                and cb.id not in module_aliases
+            ):
+                return True
+        return False
+
+    def _is_safe_sub_repl(repl_node: ast.AST) -> bool:
+        if isinstance(repl_node, (ast.Constant, ast.JoinedStr)):
+            return True
+        return _is_safe_callback_expr(repl_node)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            nid = id(node)
+            nm = node.id
+            if nm != "__name__" and (nm.startswith("__") or nm.endswith("__")):
+                return False
+            if nm in module_aliases:
+                if nid not in attr_parent_by_val_id:
+                    return False
+                continue
+            if nm in environ_aliases:
+                if nid not in safe_environ_use_ids:
+                    return False
+                for p_attr in attr_parent_by_val_id.get(nid, []):
+                    if p_attr.attr not in _SAFE_ENVIRON_READ_METHODS or id(p_attr) not in call_func_ids:
+                        return False
+                continue
+            if nm in imported_symbols:
+                imp_mod, imp_sym = imported_symbols[nm]
+                if imp_sym == "open" or (imp_mod == "pprint" and imp_sym == "pprint") or (imp_mod == "re" and imp_sym in ("sub", "subn")):
+                    if nid not in call_func_ids:
+                        return False
+                elif imp_sym in _PATHLIB_CLASS_NAMES:
+                    if nid in call_func_ids:
+                        continue
+                    p_attrs = attr_parent_by_val_id.get(nid, [])
+                    if not p_attrs or any(pa.attr not in ("home", "cwd") or id(pa) not in call_func_ids for pa in p_attrs):
+                        return False
+                continue
+            if nm in _CALL_ONLY_PY_NAMES:
+                if nid not in call_func_ids:
+                    return False
+
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            attr = node.attr
+            if attr.startswith("__") or attr.endswith("__") or attr in _FORBIDDEN_INLINE_PY_ATTRS:
+                return False
+            if attr in ("open", "sort", "sub", "subn") and id(node) not in call_func_ids:
+                return False
+            if isinstance(node.value, ast.Name) and node.value.id in module_aliases:
+                if attr.startswith("_"):
+                    return False
+                m_name = module_aliases[node.value.id]
+                allow_set = _READONLY_PY_MODULE_ATTRS.get(m_name)
+                if allow_set is None or attr not in allow_set:
+                    return False
+                if m_name == "os" and attr == "path":
+                    if id(node) not in attr_parent_by_val_id:
+                        return False
+                elif m_name == "os" and attr in ("environ", "environb"):
+                    if id(node) not in safe_environ_use_ids:
+                        return False
+                    for p_attr in attr_parent_by_val_id.get(id(node), []):
+                        if p_attr.attr not in _SAFE_ENVIRON_READ_METHODS or id(p_attr) not in call_func_ids:
+                            return False
+                elif m_name == "pathlib" and attr in _PATHLIB_CLASS_NAMES:
+                    if id(node) not in call_func_ids:
+                        p_attrs = attr_parent_by_val_id.get(id(node), [])
+                        if not p_attrs or any(pa.attr not in ("home", "cwd") or id(pa) not in call_func_ids for pa in p_attrs):
+                            return False
+                elif (m_name == "io" and attr == "open") or (m_name == "pprint" and attr == "pprint") or (m_name == "re" and attr in ("sub", "subn")):
+                    if id(node) not in call_func_ids:
+                        return False
+                continue
+            if (
+                isinstance(node.value, ast.Attribute)
+                and node.value.attr == "path"
+                and isinstance(node.value.value, ast.Name)
+                and module_aliases.get(node.value.value.id) == "os"
+            ):
+                if attr not in _READONLY_PY_MODULE_ATTRS["os.path"]:
+                    return False
+                continue
+            if _is_environ_node(node.value):
+                if attr not in _SAFE_ENVIRON_READ_METHODS or id(node) not in call_func_ids:
+                    return False
+                continue
+            if _is_pathlib_class_expr(node.value):
+                if attr not in ("home", "cwd") or id(node) not in call_func_ids:
+                    return False
+                continue
+
+        elif isinstance(node, ast.Call):
+            fn = node.func
+            has_star_args = any(isinstance(a, ast.Starred) for a in node.args)
+            has_star_kwargs = any(kw.arg is None for kw in node.keywords)
+            if isinstance(fn, ast.Name):
+                fname = fn.id
+                if fname in local_defs:
+                    continue
+                if fname in imported_symbols:
+                    imp_mod, imp_sym = imported_symbols[fname]
+                    if imp_sym == "open":
+                        if not _is_readonly_open_call(node, 1, const_vars):
+                            return False
+                    elif imp_mod == "pprint" and imp_sym == "pprint":
+                        if has_star_kwargs or any(kw.arg == "stream" for kw in node.keywords) or len(node.args) > 1:
+                            return False
+                    elif imp_mod == "re" and imp_sym in ("sub", "subn"):
+                        if has_star_args or has_star_kwargs or len(node.args) < 2:
+                            return False
+                        if not _is_safe_sub_repl(node.args[1]):
+                            return False
+                        for kw in node.keywords:
+                            if kw.arg == "repl" and not _is_safe_sub_repl(kw.value):
+                                return False
+                    elif imp_sym in _PATHLIB_CLASS_NAMES:
+                        if has_star_args or has_star_kwargs:
+                            return False
+                    continue
+                if fname not in _SAFE_READONLY_PY_BUILTINS:
+                    return False
+                if fname == "open":
+                    if not _is_readonly_open_call(node, 1, const_vars):
+                        return False
+                elif fname == "print":
+                    if has_star_kwargs:
+                        return False
+                    for kw in node.keywords:
+                        if kw.arg == "file" and not _is_sys_std_stream(kw.value):
+                            return False
+                elif fname == "type":
+                    if has_star_args or has_star_kwargs or len(node.args) != 1 or node.keywords:
+                        return False
+                elif fname in ("sorted", "min", "max"):
+                    if has_star_kwargs:
+                        return False
+                    for kw in node.keywords:
+                        if kw.arg == "key" and not (
+                            (isinstance(kw.value, ast.Constant) and kw.value.value is None)
+                            or _is_safe_callback_expr(kw.value)
+                        ):
+                            return False
+                elif fname in ("map", "filter"):
+                    if has_star_args or has_star_kwargs or len(node.args) < 2 or node.keywords:
+                        return False
+                    cb = node.args[0]
+                    if fname == "filter" and isinstance(cb, ast.Constant) and cb.value is None:
+                        continue
+                    if _is_safe_callback_expr(cb):
+                        continue
+                    return False
+            elif isinstance(fn, ast.Attribute):
+                attr = fn.attr
+                if isinstance(fn.value, ast.Name) and fn.value.id in module_aliases:
+                    if attr.startswith("_"):
+                        return False
+                    m_name = module_aliases[fn.value.id]
+                    allow_set = _READONLY_PY_MODULE_ATTRS.get(m_name)
+                    if allow_set is None or attr not in allow_set:
+                        return False
+                    if m_name == "io" and attr == "open":
+                        if not _is_readonly_open_call(node, 1, const_vars):
+                            return False
+                    elif m_name == "pprint" and attr == "pprint":
+                        if has_star_kwargs or any(kw.arg == "stream" for kw in node.keywords) or len(node.args) > 1:
+                            return False
+                    elif m_name == "re" and attr in ("sub", "subn"):
+                        if has_star_args or has_star_kwargs or len(node.args) < 2:
+                            return False
+                        if not _is_safe_sub_repl(node.args[1]):
+                            return False
+                        for kw in node.keywords:
+                            if kw.arg == "repl" and not _is_safe_sub_repl(kw.value):
+                                return False
+                    elif m_name == "pathlib" and attr in _PATHLIB_CLASS_NAMES:
+                        if has_star_args or has_star_kwargs:
+                            return False
+                    continue
+                if (
+                    isinstance(fn.value, ast.Attribute)
+                    and fn.value.attr == "path"
+                    and isinstance(fn.value.value, ast.Name)
+                    and module_aliases.get(fn.value.value.id) == "os"
+                ):
+                    if attr not in _READONLY_PY_MODULE_ATTRS["os.path"]:
+                        return False
+                    continue
+                if _is_environ_node(fn.value):
+                    if attr not in _SAFE_ENVIRON_READ_METHODS:
+                        return False
+                    continue
+                if _is_pathlib_class_expr(fn.value):
+                    if attr not in ("home", "cwd") or node.args or node.keywords:
+                        return False
+                    continue
+                if attr not in _SAFE_READONLY_OBJECT_METHODS:
+                    return False
+                if attr == "open":
+                    if not _is_readonly_open_call(node, 0, const_vars):
+                        return False
+                elif attr == "sort":
+                    if has_star_args or has_star_kwargs or node.args:
+                        return False
+                    for kw in node.keywords:
+                        if kw.arg == "key" and not (
+                            (isinstance(kw.value, ast.Constant) and kw.value.value is None)
+                            or _is_safe_callback_expr(kw.value)
+                        ):
+                            return False
+                elif attr in ("sub", "subn"):
+                    if has_star_args or has_star_kwargs:
+                        return False
+                    if node.args and not _is_safe_sub_repl(node.args[0]):
+                        return False
+                    for kw in node.keywords:
+                        if kw.arg == "repl" and not _is_safe_sub_repl(kw.value):
+                            return False
+                elif attr == "replace":
+                    if has_star_args or has_star_kwargs or len(node.args) not in (2, 3):
+                        return False
+                    if any(kw.arg != "count" for kw in node.keywords):
+                        return False
+            else:
+                return False
+
+    return True
+
+
+def _python_ast_targets_governance(source: str, base_dir: Optional[Path] = None) -> bool:
+    """Folds constant/home/env path expressions inside a non-readonly Python snippet and checks `_targets_governance_dir`."""
+    if not isinstance(source, str) or not source.strip() or len(source) > 65536 or "\x00" in source:
+        return True
+    dedented = textwrap.dedent(source)
+    if _check_pep263_cookie(dedented) is not None or _check_pep263_cookie(source) is not None:
+        return True
+    try:
+        tree = ast.parse(dedented.encode("utf-8"), mode="exec")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return True
+
+    path_vars: Dict[str, str] = {}
+    multi_vars: Dict[str, List[str]] = {}
+
+    def _record_var(vname: str, val: Optional[str]) -> bool:
+        if not vname or val is None or len(val) > _WORKFLOW_MAX_FOLDED_LEN:
+            return False
+        bucket = multi_vars.setdefault(vname, [])
+        changed_local = False
+        if val not in bucket and len(bucket) < 16:
+            bucket.append(val)
+            changed_local = True
+        if path_vars.get(vname) != val:
+            path_vars[vname] = val
+            changed_local = True
+        return changed_local
+
+    for _pass in range(4):
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name):
+                        changed = _record_var(tgt.id, _eval_workflow_path_expr(node.value, path_vars)) or changed
+                    elif isinstance(tgt, (ast.Tuple, ast.List)) and isinstance(node.value, (ast.Tuple, ast.List)):
+                        for sub_t, sub_v in zip(tgt.elts, node.value.elts):
+                            if isinstance(sub_t, ast.Name):
+                                changed = _record_var(sub_t.id, _eval_workflow_path_expr(sub_v, path_vars)) or changed
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+                changed = _record_var(node.target.id, _eval_workflow_path_expr(node.value, path_vars)) or changed
+            elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) and isinstance(node.op, (ast.Add, ast.Div)):
+                lhs_vals = list(multi_vars.get(node.target.id, ()))
+                rhs_val = _eval_workflow_path_expr(node.value, path_vars)
+                if rhs_val is not None:
+                    for lv in lhs_vals:
+                        combined = os.path.join(lv, rhs_val) if isinstance(node.op, ast.Div) else f"{lv}{rhs_val}"
+                        changed = _record_var(node.target.id, combined) or changed
+        if not changed:
+            break
+
+    candidate_envs: List[Dict[str, str]] = [path_vars]
+    for vname, vals in multi_vars.items():
+        for alt in vals:
+            if path_vars.get(vname) != alt and len(candidate_envs) < 16:
+                candidate_envs.append({**path_vars, vname: alt})
+
+    for env_map in candidate_envs:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Call, ast.BinOp, ast.Constant, ast.JoinedStr, ast.Attribute)):
+                cand = _eval_workflow_path_expr(node, env_map)
+                if cand and _targets_governance_dir(cand, base_dir=base_dir):
+                    return True
+    return False
+
+
+def _unescape_safe_dq_py(inner: str) -> Optional[str]:
+    """Unescapes a double-quoted shell string only when free of `$`, backticks, and unsafe escapes."""
+    if "$" in inner or "`" in inner:
+        return None
+    out: List[str] = []
+    i = 0
+    n = len(inner)
+    while i < n:
+        ch = inner[i]
+        if ch == "\\":
+            if i + 1 >= n:
+                return None
+            nxt = inner[i + 1]
+            if nxt in ('"', "\\"):
+                out.append(nxt)
+                i += 2
+                continue
+            if nxt == "\n":
+                i += 2
+                continue
+            # POSIX sh preserves literal backslash + nxt inside double quotes for other chars
+            out.append("\\")
+            out.append(nxt)
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _segment_has_unquoted_redirection_or_subst(seg: str) -> bool:
+    """Returns True if `seg` contains unquoted `>`, `<(`, `>(`, `$(`, backticks, or `$'...'` ANSI-C quotes."""
+    i = 0
+    n = len(seg)
+    mode = ""
+    while i < n:
+        ch = seg[i]
+        if not mode:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "$" and i + 1 < n and seg[i + 1] in ("'", "("):
+                return True
+            if ch == "`" or ch == ">":
+                return True
+            if ch == "<" and i + 1 < n and seg[i + 1] == "(":
+                return True
+            if ch in ("'", '"'):
+                mode = ch
+            i += 1
+        elif mode == "'":
+            if ch == "'":
+                mode = ""
+            i += 1
+        else:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "`" or (ch == "$" and i + 1 < n and seg[i + 1] == "("):
+                return True
+            if ch == '"':
+                mode = ""
+            i += 1
+    return bool(mode)
+
+
+def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
+    """Extracts the Python `-c` source from a single top-level shell segment if safe, else None."""
+    if _segment_has_unquoted_redirection_or_subst(seg) or _DANGEROUS_PY_ENV_RE.search(seg):
+        return None
+    tokens: List[Tuple[str, str]] = []
+    i = 0
+    n = len(seg)
+    while i < n:
+        while i < n and seg[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        if seg[i] == "#":
+            break
+        raw_parts: List[str] = []
+        quote_kinds: set[str] = set()
+        while i < n and not seg[i].isspace():
+            ch = seg[i]
+            if ch == "'":
+                quote_kinds.add("sq")
+                j = seg.find("'", i + 1)
+                if j == -1:
+                    return None
+                raw_parts.append(seg[i + 1 : j])
+                i = j + 1
+            elif ch == '"':
+                quote_kinds.add("dq")
+                j = i + 1
+                buf: List[str] = []
+                closed = False
+                while j < n:
+                    if seg[j] == "\\" and j + 1 < n:
+                        buf.append(seg[j : j + 2])
+                        j += 2
+                        continue
+                    if seg[j] == '"':
+                        closed = True
+                        i = j + 1
+                        break
+                    buf.append(seg[j])
+                    j += 1
+                if not closed:
+                    return None
+                dec = _unescape_safe_dq_py("".join(buf))
+                if dec is None:
+                    return None
+                raw_parts.append(dec)
+            elif ch == "\\":
+                if i + 1 >= n:
+                    return None
+                quote_kinds.add("esc")
+                raw_parts.append(seg[i + 1])
+                i += 2
+            elif ch in "|&;()<>`":
+                return None
+            else:
+                quote_kinds.add("bare")
+                raw_parts.append(ch)
+                i += 1
+        kind = "sq" if quote_kinds == {"sq"} else ("dq" if quote_kinds == {"dq"} else "mixed")
+        tokens.append((kind, "".join(raw_parts)))
+
+    if not tokens:
+        return None
+    safe_env_assign_re = re.compile(
+        r"^(?:PYTHONUTF8|PYTHONIOENCODING|PYTHONDONTWRITEBYTECODE|PYTHONHASHSEED|PYTHONUNBUFFERED|LANG|LC_[A-Z_]+|TZ|NO_COLOR|FORCE_COLOR|TERM)="
+    )
+    idx = 0
+    while idx < len(tokens):
+        _k, tok = tokens[idx]
+        if safe_env_assign_re.match(tok) or tok in ("command", "env", "nice", "nohup", "time"):
+            idx += 1
+            continue
+        break
+    if idx >= len(tokens):
+        return None
+    interp_raw = tokens[idx][1]
+    if ("/" in interp_raw or "\\" in interp_raw) and not interp_raw.startswith(
+        ("/usr/bin/", "/usr/local/bin/", "/bin/", "/opt/homebrew/bin/")
+    ):
+        return None
+    interp_base = Path(interp_raw).name.lower()
+    if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", interp_base):
+        return None
+    idx += 1
+    while idx < len(tokens):
+        _k, opt = tokens[idx]
+        if opt == "-c" or (opt.startswith("-") and not opt.startswith("--") and opt.endswith("c") and _SAFE_PY_CLI_OPT_RE.match(opt[:-1] or "-B")):
+            if idx + 1 != len(tokens) - 1:
+                return None
+            code_kind, code_str = tokens[idx + 1]
+            if code_kind not in ("sq", "dq"):
+                return None
+            return code_str
+        if opt in ("-W", "-X"):
+            idx += 2
+            continue
+        if _SAFE_PY_CLI_OPT_RE.match(opt):
+            idx += 1
+            continue
+        return None
+    return None
+
+
+_NON_PYTHON_INTERP_RE = _LazyRegex(
+    r"(?:"
+    r"\b(?:node|nodejs|deno|bun|ruby|perl|php|lua|py)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*[ceip]\S*)\b|<<)|"
+    r"\|\s*(?:[A-Za-z0-9_.=/-]+\s+)*(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_ANY_PYTHON_INLINE_OR_HEREDOC_RE = _LazyRegex(
+    r"\bpython3?(?:\.\d+)?\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*[cmi])\b|<<)",
+    re.IGNORECASE,
+)
+
+_HEREDOC_PY_HEADER_RE = _LazyRegex(
+    r"^(?P<lead>\s*(?:(?:command|env|nice|nohup|time)\s+)*(?:[^\s;|&'\"`]*/)?python3?(?:\.\d+)?(?:\s+-(?:[BEIOPSsUuvqbd]+|[WX](?:=\S+|\s+\S+)))*\s+<<(?P<dash>-?)\s*(?P<q>['\"]?)(?P<delim>[A-Za-z0-9_]+)(?P=q))(?P<trail>[^\n]*)$"
+)
+
+
+def _scrub_verified_readonly_python_invocations(cmd: str) -> Tuple[str, bool, List[str]]:
+    """
+    Replaces standalone top-level verified pure read-only `python3 -c` and `python3 <<EOF` spans
+    with `__RO_PY__`. Never scrubs inside `$(...)`, `<(...)`, `>(...)`, or backticks.
+    Returns `(scrubbed_cmd, has_unverified_interpreter, mutating_python_sources)`.
+    """
+    has_unverified = bool(_NON_PYTHON_INTERP_RE.search(cmd))
+    mutating_sources: List[str] = []
+    if not _ANY_PYTHON_INLINE_OR_HEREDOC_RE.search(cmd):
+        return cmd, has_unverified, mutating_sources
+
+    lines = cmd.splitlines(keepends=True)
+    processed_lines: List[str] = []
+    line_idx = 0
+    subst_stack: List[str] = []
+    subst_qmode = ""
+    in_backtick_subst = False
+
+    def _advance_subst_state(line_str: str) -> None:
+        nonlocal subst_qmode, in_backtick_subst
+        k = 0
+        ln = len(line_str)
+        while k < ln:
+            ch = line_str[k]
+            if not subst_qmode:
+                if ch == "\\" and k + 1 < ln:
+                    k += 2
+                    continue
+                if ch == "#" and (k == 0 or line_str[k - 1].isspace()):
+                    break
+                if ch == "`":
+                    in_backtick_subst = not in_backtick_subst
+                    k += 1
+                    continue
+                if ch in ("$", "<", ">") and k + 1 < ln and line_str[k + 1] == "(":
+                    subst_stack.append("unq")
+                    k += 2
+                    continue
+                if ch == "(" and subst_stack and subst_stack[-1] == "unq":
+                    subst_stack.append("unq")
+                    k += 1
+                    continue
+                if ch == ")" and subst_stack and subst_stack[-1] == "unq":
+                    subst_stack.pop()
+                    k += 1
+                    continue
+                if ch in ("'", '"'):
+                    subst_qmode = ch
+                k += 1
+            elif subst_qmode == "'":
+                if ch == "'":
+                    subst_qmode = ""
+                k += 1
+            else:
+                if ch == "\\" and k + 1 < ln:
+                    k += 2
+                    continue
+                if ch == "`":
+                    in_backtick_subst = not in_backtick_subst
+                    k += 1
+                    continue
+                if ch == "$" and k + 1 < ln and line_str[k + 1] == "(":
+                    subst_stack.append("dq")
+                    k += 2
+                    continue
+                if ch == "(" and subst_stack and subst_stack[-1] == "dq":
+                    subst_stack.append("dq")
+                    k += 1
+                    continue
+                if ch == ")" and subst_stack and subst_stack[-1] == "dq":
+                    subst_stack.pop()
+                    k += 1
+                    continue
+                if ch == '"':
+                    subst_qmode = ""
+                k += 1
+
+    while line_idx < len(lines):
+        raw_line = lines[line_idx]
+        stripped_nl = raw_line.rstrip("\r\n")
+        nl_suffix = raw_line[len(stripped_nl) :]
+        if (
+            not subst_stack
+            and not in_backtick_subst
+            and not subst_qmode
+            and "<<" in stripped_nl
+            and "python" in stripped_nl.lower()
+        ):
+            m_hd = _HEREDOC_PY_HEADER_RE.match(stripped_nl)
+            if m_hd and not _DANGEROUS_PY_ENV_RE.search(stripped_nl):
+                lead_part = m_hd.group("lead") or ""
+                m_py_bin = re.search(r"(?P<bin>(?:[^\s;|&'\"`]*/)?python3?(?:\.\d+)?)\b", lead_part, re.IGNORECASE)
+                py_bin_raw = m_py_bin.group("bin") if m_py_bin else ""
+                bin_ok = bool(py_bin_raw) and (
+                    ("/" not in py_bin_raw and "\\" not in py_bin_raw)
+                    or py_bin_raw.startswith(("/usr/bin/", "/usr/local/bin/", "/bin/", "/opt/homebrew/bin/"))
+                )
+                dash = m_hd.group("dash")
+                quote_ch = m_hd.group("q")
+                delim = m_hd.group("delim")
+                trail = m_hd.group("trail") or ""
+                trail_head = re.split(r"(?:&&|\|\||;)", trail, maxsplit=1)[0]
+                trail_head_clean = bool(re.fullmatch(r"\s*(?:#.*)?", trail_head))
+                if bin_ok and trail_head_clean and not _segment_has_unquoted_redirection_or_subst(trail):
+                    body_lines: List[str] = []
+                    end_idx = line_idx + 1
+                    found_end = False
+                    while end_idx < len(lines):
+                        cand_ln = lines[end_idx].rstrip("\r\n")
+                        cmp_ln = cand_ln.lstrip("\t") if dash == "-" else cand_ln
+                        if cmp_ln == delim:
+                            found_end = True
+                            break
+                        body_lines.append(cmp_ln if dash == "-" else cand_ln)
+                        end_idx += 1
+                    if found_end:
+                        body_src = "\n".join(body_lines)
+                        raw_body_block = "".join(lines[line_idx + 1 : end_idx])
+                        unquoted_unsafe = (not quote_ch) and (
+                            "$" in body_src or "`" in body_src or "\\\n" in raw_body_block or "\\\r\n" in raw_body_block
+                        )
+                        if not unquoted_unsafe and _is_pure_readonly_python_snippet(body_src):
+                            _advance_subst_state(trail)
+                            processed_lines.append(f"__RO_PY__{trail}{nl_suffix}")
+                            line_idx = end_idx + 1
+                            continue
+                        has_unverified = True
+                        if not unquoted_unsafe:
+                            mutating_sources.append(body_src)
+                        _advance_subst_state(stripped_nl)
+                        processed_lines.extend(lines[line_idx : end_idx + 1])
+                        line_idx = end_idx + 1
+                        continue
+            has_unverified = True
+        _advance_subst_state(stripped_nl)
+        processed_lines.append(raw_line)
+        line_idx += 1
+
+    rebuilt = "".join(processed_lines)
+    if not _ANY_PYTHON_INLINE_OR_HEREDOC_RE.search(rebuilt):
+        return rebuilt, has_unverified, mutating_sources
+
+    out_chunks: List[str] = []
+    seg_start = 0
+    i = 0
+    n = len(rebuilt)
+    qmode = ""
+    paren_depth = 0
+    saw_pipe_in_seg = False
+
+    def _process_top_segment(seg_text: str, piped: bool) -> str:
+        nonlocal has_unverified
+        if "python" not in seg_text.lower() or not _ANY_PYTHON_INLINE_OR_HEREDOC_RE.search(seg_text):
+            return seg_text
+        if piped or paren_depth > 0:
+            m_mod = re.search(r"\bpython3?(?:\.\d+)?\b[^\n;|&]*\s-m\s+([A-Za-z0-9_.]+)", seg_text)
+            if m_mod and m_mod.group(1).lower() in _READONLY_PY_M_MODULES and not re.search(r"\s-[A-Za-z0-9]*[ci]\b|<<", seg_text):
+                return seg_text
+            has_unverified = True
+            return seg_text
+        m_mod_top = re.search(r"\bpython3?(?:\.\d+)?\b[^\n;|&]*\s-m\s+([A-Za-z0-9_.]+)", seg_text)
+        if m_mod_top and not re.search(r"\s-[A-Za-z0-9]*[ci]\b|<<", seg_text):
+            if m_mod_top.group(1).lower() not in _READONLY_PY_M_MODULES:
+                has_unverified = True
+            return seg_text
+        py_code = _try_extract_standalone_py_c(seg_text)
+        if py_code is None:
+            has_unverified = True
+            return seg_text
+        if _is_pure_readonly_python_snippet(py_code):
+            leading_ws = seg_text[: len(seg_text) - len(seg_text.lstrip())]
+            trailing_ws = seg_text[len(seg_text.rstrip()) :]
+            return f"{leading_ws}__RO_PY__{trailing_ws}"
+        has_unverified = True
+        mutating_sources.append(py_code)
+        return seg_text
+
+    while i < n:
+        ch = rebuilt[i]
+        if not qmode:
+            if ch == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if ch in ("'", '"'):
+                qmode = ch
+                i += 1
+                continue
+            if ch == "(":
+                paren_depth += 1
+                i += 1
+                continue
+            if ch == ")":
+                paren_depth = max(0, paren_depth - 1)
+                i += 1
+                continue
+            if paren_depth == 0:
+                if ch in (";", "\n"):
+                    out_chunks.append(_process_top_segment(rebuilt[seg_start:i], saw_pipe_in_seg))
+                    out_chunks.append(ch)
+                    i += 1
+                    seg_start = i
+                    saw_pipe_in_seg = False
+                    continue
+                if rebuilt[i : i + 2] in ("&&", "||"):
+                    out_chunks.append(_process_top_segment(rebuilt[seg_start:i], saw_pipe_in_seg))
+                    out_chunks.append(rebuilt[i : i + 2])
+                    i += 2
+                    seg_start = i
+                    saw_pipe_in_seg = False
+                    continue
+                if ch == "|" and rebuilt[i : i + 2] != "||":
+                    saw_pipe_in_seg = True
+            i += 1
+        elif qmode == "'":
+            if ch == "'":
+                qmode = ""
+            i += 1
+        else:
+            if ch == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if ch == '"':
+                qmode = ""
+            i += 1
+
+    out_chunks.append(_process_top_segment(rebuilt[seg_start:], saw_pipe_in_seg))
+    return "".join(out_chunks), has_unverified, mutating_sources
+
+
+@functools.lru_cache(maxsize=256)
+def _compiled_governance_root_patterns(root: str) -> Tuple[re.Pattern[str], ...]:
+    escaped = re.escape(root)
+    interp_names = r"(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)"
+    ro_m_mods = r"(?:unittest|pytest|py_compile|mypy|ruff|flake8|doctest|cprofile|profile|ast|tokenize|dis)"
+    non_hd_flags = rf"\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*|m\s+(?!{ro_m_mods}\b)\S+)\b"
+    interp_flags = rf"(?:{non_hd_flags}|<<)"
+    same_seg_span = r"(?:[^'\"\n;|&]|'[^']*'|\"(?:\\.|[^\"\\])*\")*?"
+    return (
+        re.compile(rf">{{1,2}}\|?\s*['\"]?{escaped}"),
+        re.compile(rf"\b(?:cd|pushd)\s+['\"]?{escaped}"),
+        re.compile(
+            rf"\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip)\b(?:[^\n;|&]*|\s*\$\([\s\S]*?){escaped}"
+        ),
+        re.compile(
+            rf"{escaped}[^\n;&]*\|\s*(?:{_CMD_WRAPPER_PREFIX})*xargs\b[^\n;&]*\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip|sed|{interp_names}|(?:ba|z|da|k)?sh)\b"
+        ),
+        re.compile(rf"\bfind\b[^\n;|&]*{escaped}[^\n;|&]*\s-(?:delete|exec|execdir|ok)\b"),
+        re.compile(
+            rf"\bsed\b[^\n;|&]*(?:\s-(?:[A-Za-z]*i\S*|-in-place(?:=\S*)?)\b[^\n;|&]*{escaped}|{escaped}[^\n;|&]*\s-(?:[A-Za-z]*i\S*|-in-place(?:=\S*)?)\b)"
+        ),
+        re.compile(rf"\b(?:curl|wget)\b[^\n;|&]*\s-(?:o|O)\b[^\n;|&]*{escaped}"),
+        re.compile(
+            rf"(?:\b{interp_names}\b[^\n;|&]*(?:{non_hd_flags}{same_seg_span}{escaped}|<<[\s\S]*?{escaped})|{escaped}{same_seg_span}(?:\b{interp_names}\b[^\n;|&]*{interp_flags}|\|\s*(?:[A-Za-z0-9_.=/-]+\s+)*{interp_names}\b))"
+        ),
+    )
+
 
 def _command_mutates_governance(cmd: str) -> bool:
     """Detects shell commands that write, copy, move, delete, or chmod inside protected governance or Guard state/runtime trees."""
-    unquoted_expanded = _normalize_governance_globs(_unquote_single_tokens(_expand_simple_shell_vars(cmd)))
+    ro_scrubbed_cmd, saw_unverified_interp, mutating_py_sources = _scrub_verified_readonly_python_invocations(cmd)
+    unquoted_expanded = _normalize_governance_globs(_unquote_single_tokens(_expand_simple_shell_vars(ro_scrubbed_cmd)))
     norm_cmd = _normalize_shell_paths(unquoted_expanded)
     has_dotdot_escape = bool(_SHELL_DOTDOT_TOKEN_RE.search(norm_cmd))
 
@@ -1590,17 +2722,18 @@ def _command_mutates_governance(cmd: str) -> bool:
 
     has_parent_escape = (
         has_dotdot_escape
-        or bool(_SHELL_DOTDOT_TOKEN_RE.search(cmd.replace("\\", "/")))
-        or bool(re.search(r"(?:\.parents?\b|\bdirname\b)", cmd))
+        or bool(_SHELL_DOTDOT_TOKEN_RE.search(ro_scrubbed_cmd.replace("\\", "/")))
+        or bool(re.search(r"(?:\.parents?\b|\bdirname\b)", ro_scrubbed_cmd))
     )
 
-    # Catch inline/heredoc/piped interpreter scripts constructing home-relative governance paths (`Path.home() / '.gemini' / 'config'`)
-    if re.search(
-        r"(?:\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*c|e)\b|<<)|\|\s*(?:[A-Za-z0-9_./-]*\s+)*(?:python3?(?:\.\d+)?|node|ruby|perl)\b)",
-        cmd,
-    ):
-        inline_cmd = cmd
-        if not has_parent_escape and "symlink" not in cmd:
+    for mut_src in mutating_py_sources:
+        if _python_ast_targets_governance(mut_src):
+            return True
+
+    # Catch unverified/mutating inline/heredoc/piped interpreter scripts referencing home/env governance paths
+    if saw_unverified_interp:
+        inline_cmd = ro_scrubbed_cmd
+        if not has_parent_escape and "symlink" not in ro_scrubbed_cmd:
             st_variants = "|".join(re.escape(s) for s in _path_spellings(state_dir()))
             inline_cmd = re.sub(
                 r"(?:['\"]\.local['\"]\s*/\s*['\"]state['\"]\s*/\s*['\"]antigravity-(?:harness|guard)['\"]\s*/\s*['\"]staging['\"]|"
@@ -1616,12 +2749,14 @@ def _command_mutates_governance(cmd: str) -> bool:
             r"Programs(?:[/\\]|\\\\)+antigravity-guard|"
             r"['\"](?:state|share|lib|Programs)['\"]\s*(?:/|,)\s*['\"]antigravity-(?:harness|guard)['\"]|"
             r"['\"]\.local['\"]\s*(?:/|,)\s*['\"]bin['\"]\s*(?:/|,)\s*['\"]agy-|"
-            r"\.local(?:[/\\]|\\\\)+bin(?:[/\\]|\\\\)+agy-)",
+            r"\.local(?:[/\\]|\\\\)+bin(?:[/\\]|\\\\)+agy-|"
+            r"\b(?:ANTIGRAVITY_CONFIG_DIR|AGY_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|AGY_GUARD_DATA_DIR)\b)",
             inline_cmd,
             re.IGNORECASE,
-        ) and re.search(
-            r"(?:write_text|write_bytes|\.write\s*\(|\bopen\s*\([^)]*['\"][wa+x]|unlink|remove|rmtree|rename|replace|chmod|symlink|shutil\.(?:copy|move|rmtree))",
-            cmd,
+        ):
+            return True
+        if re.search(r"['\"]\.gemini['\"]", inline_cmd, re.IGNORECASE) and re.search(
+            r"['\"](?:config|GEMINI\.md|AGENTS\.md)['\"]", inline_cmd, re.IGNORECASE
         ):
             return True
 
@@ -1715,75 +2850,35 @@ def _command_mutates_governance(cmd: str) -> bool:
     # ONLY when no `..`/`.parent` traversal, link creation (`ln`), or archive extraction (`tar`/`unzip`) is present.
     scrubbed = norm_cmd
     if not has_parent_escape and not re.search(r"\b(?:ln|tar|unzip)\b", scrubbed):
-        plugin_gov_tail = (
-            r"(?:/(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b"
-            r"|\.(?:mdc?|py[cow]?|m?js|cjs|tsx?|jsx|sh|bash|zsh|fish|ksh|pl|rb|php|ps1|bat|cmd|so|dylib|dll|exe|wasm)\b)"
-        )
         for root in cfg_roots:
-            esc_root = re.escape(root)
-            for sub in _RUNTIME_CONFIG_SUBDIRS:
-                if sub == "plugins":
-                    scrubbed = re.sub(
-                        rf"(['\"]){esc_root}/plugins(?=/)(?![^'\"\n]*{plugin_gov_tail})[^'\"\n]*\1",
-                        r"\1__RUNTIME_SUBDIR__\1",
-                        scrubbed,
-                        flags=re.IGNORECASE,
-                    )
-                    scrubbed = re.sub(
-                        rf"(?<!['\"]){esc_root}/plugins(?=/|\s|$|[;&|'\"()])(?![^\s;|&'\"]*{plugin_gov_tail})",
-                        "__RUNTIME_SUBDIR__",
-                        scrubbed,
-                        flags=re.IGNORECASE,
-                    )
-                else:
-                    scrubbed = re.sub(
-                        rf"{esc_root}/{re.escape(sub)}(?=/|\s|$|[;&|'\"()])",
-                        "__RUNTIME_SUBDIR__",
-                        scrubbed,
-                    )
+            if root in scrubbed:
+                for rx_sub, repl_sub in _compiled_cfg_subdir_patterns(root):
+                    scrubbed = rx_sub.sub(repl_sub, scrubbed)
         for st_root in state_roots:
-            esc_st = re.escape(st_root)
-            scrubbed = re.sub(
-                rf"{esc_st}/staging(?=/|\s|$|[;&|'\"()])",
-                "__RUNTIME_SUBDIR__",
-                scrubbed,
-            )
+            if st_root in scrubbed:
+                scrubbed = _compiled_state_staging_pattern(st_root).sub("__RUNTIME_SUBDIR__", scrubbed)
     if not any(tok in scrubbed for tok in roots):
         return False
     # Read-only commands are permitted only when not redirecting or running mutating flags/interpreters
+    has_mut_ind: Optional[bool] = None
     for root in roots:
-        escaped = re.escape(root)
-        if re.search(rf">{{1,2}}\|?\s*['\"]?{escaped}", scrubbed):
+        if root not in scrubbed:
+            continue
+        rx_redir, rx_cd, rx_verb, rx_xargs, rx_find, rx_sed, rx_dl, rx_interp = _compiled_governance_root_patterns(root)
+        if rx_redir.search(scrubbed):
             return True
-        if re.search(rf"\b(?:cd|pushd)\s+['\"]?{escaped}", scrubbed) and _SHELL_MUTATION_INDICATOR_RE.search(scrubbed):
-            return True
-        if re.search(
-            rf"\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip)\b[^\n;|&]*{escaped}",
-            scrubbed,
-        ):
-            return True
-        if re.search(
-            rf"{escaped}[^\n;&]*\|\s*(?:{_CMD_WRAPPER_PREFIX})*xargs\b[^\n;&]*\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip|sed|python3?(?:\.\d+)?|node|ruby|perl|(?:ba|z|da|k)?sh)\b",
-            scrubbed,
-        ):
-            return True
-        if re.search(rf"\bfind\b[^\n;|&]*{escaped}[^\n;|&]*\s-(?:delete|exec|execdir|ok)\b", scrubbed):
-            return True
-        if re.search(
-            rf"\bsed\b[^\n;|&]*(?:\s-(?:[A-Za-z]*i\S*|-in-place(?:=\S*)?)\b[^\n;|&]*{escaped}|{escaped}[^\n;|&]*\s-(?:[A-Za-z]*i\S*|-in-place(?:=\S*)?)\b)",
-            scrubbed,
-        ):
-            return True
-        if re.search(rf"\b(?:curl|wget)\b[^\n;|&]*\s-(?:o|O)\b[^\n;|&]*{escaped}", scrubbed):
-            return True
-        if re.search(
-            rf"(?:\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b[^\n;|&]*{escaped}|{escaped}[^\n;|&]*\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b)",
-            scrubbed,
-        ):
-            return True
-        if re.search(r"\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*<<", scrubbed) and re.search(
-            r"(?:write|open\s*\(|unlink|remove|rmtree|rename|replace|chmod|symlink|shutil|fs\.)",
-            scrubbed,
+        if rx_cd.search(scrubbed):
+            if has_mut_ind is None:
+                has_mut_ind = bool(_SHELL_MUTATION_INDICATOR_RE.search(scrubbed))
+            if has_mut_ind:
+                return True
+        if (
+            rx_verb.search(scrubbed)
+            or rx_xargs.search(scrubbed)
+            or rx_find.search(scrubbed)
+            or rx_sed.search(scrubbed)
+            or rx_dl.search(scrubbed)
+            or rx_interp.search(scrubbed)
         ):
             return True
     return False
@@ -1845,35 +2940,35 @@ _ALLOWED_TOP_EFFORT_VALUES = frozenset({
     "100%",
 })
 
-_SETTINGS_MODEL_RE = re.compile(
+_SETTINGS_MODEL_RE = _LazyRegex(
     r"changed\s+setting\s+`?Model\s+Selection`?\s+from\s+[^\n]+?\s+to\s+([^\n]+?)\.(?=\s|$)",
     re.IGNORECASE,
 )
 
-_SETTINGS_EFFORT_RE = re.compile(
+_SETTINGS_EFFORT_RE = _LazyRegex(
     r"changed\s+setting\s+`?(?:Effort(?:\s+Level)?|Thinking\s+Level|Reasoning\s+Effort)`?\s+from\s+[^\n]+?\s+to\s+([^\n]+?)\.(?=\s|$)",
     re.IGNORECASE,
 )
 
-_SETTINGS_KV_MODEL_RE = re.compile(
+_SETTINGS_KV_MODEL_RE = _LazyRegex(
     r"(?:^|[\n,{])\s*['\"`]?(?:modelName|model_name|model|Model\s+Selection)['\"`]?\s*:\s*['\"`]?([^\n,\"'`\}]+)",
     re.IGNORECASE,
 )
 
-_SETTINGS_KV_EFFORT_RE = re.compile(
+_SETTINGS_KV_EFFORT_RE = _LazyRegex(
     r"(?:^|[\n,{])\s*['\"`]?(?:effort|effortLevel|effort_level|thinkingLevel|thinking_level|reasoningEffort|Effort(?:\s+Level)?)['\"`]?\s*:\s*['\"`]?([^\n,\"'`\}]+)",
     re.IGNORECASE,
 )
 
-_MODEL_EMBEDDED_EFFORT_RE = re.compile(
+_MODEL_EMBEDDED_EFFORT_RE = _LazyRegex(
     r"(?:(?:\(\s*|(?:,|\s+-\s+)\s*)(xhigh|extra(?:\s*-\s*high|\s+high)?|high|max|maximum|medium|med|low|minimal|min)\s*\)\s*$|"
     r"-(xhigh|extra-high|extra|high|max|maximum|medium|low|minimal)$)",
     re.IGNORECASE,
 )
 
-_USER_REQUEST_BLOCK_RE = re.compile(r"(?is)<USER_REQUEST\b[^<>]*>.*?</USER_REQUEST\s*>")
+_USER_REQUEST_BLOCK_RE = _LazyRegex(r"(?is)<USER_REQUEST\b[^<>]*>.*?</USER_REQUEST\s*>")
 
-_USER_SETTINGS_BLOCK_RE = re.compile(r"(?is)<USER_SETTINGS_CHANGE\b[^<>]*>(.*?)</USER_SETTINGS_CHANGE\s*>")
+_USER_SETTINGS_BLOCK_RE = _LazyRegex(r"(?is)<USER_SETTINGS_CHANGE\b[^<>]*>(.*?)</USER_SETTINGS_CHANGE\s*>")
 
 _CUST_CMD_UNIVERSAL_TARGET_PAT = (
     r"(?:\.agents?\b|_agents?\b|\.claude\b|\.cursor\b|\.harness\b|"
@@ -2177,7 +3272,37 @@ def _text_targets_customization(
 
 def _command_mutates_customization_structure(cmd: str, *, harness_scope: bool = True) -> bool:
     """Detects shell commands that write, overwrite, move, delete, or regenerate customization/governance files."""
-    norm_cmd = _normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(cmd)))
+    if "python" in cmd.lower() or _NON_PYTHON_INTERP_RE.search(cmd):
+        ro_cmd, saw_unv_cust, mut_py_cust = _scrub_verified_readonly_python_invocations(cmd)
+    else:
+        ro_cmd, saw_unv_cust, mut_py_cust = cmd, False, []
+
+    def _neutralize_ro_exec_argv(src_text: str) -> str:
+        if not _EXEC_CALL_ARGV_RE.search(src_text):
+            return src_text
+
+        def _repl(m: re.Match[str]) -> str:
+            argv_src = m.group(1) if m.group(1) is not None else (m.group(2) or "")
+            parts = [
+                tm.group(1) if tm.group(1) is not None else (tm.group(2) or "")
+                for tm in _STR_ARGV_TOKEN_RE.finditer(argv_src)
+            ]
+            synth = " ".join(parts).strip()
+            if (
+                synth
+                and synth != cmd.strip()
+                and not _EXEC_CALL_ARGV_RE.search(synth)
+                and not _command_mutates_customization_structure(synth, harness_scope=harness_scope)
+            ):
+                full_m = m.group(0)
+                return full_m[: full_m.find("(") + 1] + "None"
+            return m.group(0)
+
+        return _EXEC_CALL_ARGV_RE.sub(_repl, src_text)
+
+    ro_cmd = _neutralize_ro_exec_argv(ro_cmd)
+    mut_py_cust = [_neutralize_ro_exec_argv(ms) for ms in mut_py_cust]
+    norm_cmd = _normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(ro_cmd)))
     masked_cmd = _mask_quoted_operators(norm_cmd)
     has_subshell_c = bool(re.search(r"\b(?:ba|z|da|k)?sh\s+-(?:[A-Za-z]*c)\b", norm_cmd))
     verb_haystack = norm_cmd if has_subshell_c else masked_cmd
@@ -2216,10 +3341,14 @@ def _command_mutates_customization_structure(cmd: str, *, harness_scope: bool = 
     if re.search(rf"{cmd_start}(?:curl|wget)\b[^\n;|&]*\s-(?:o|O)\b[^\n;|&]*{target_pat}", norm_cmd):
         return True
     if re.search(
-        rf"(?:\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b[^\n;|&]*{target_pat}|{target_pat}[^\n;|&]*\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b)",
+        rf"(?:\b(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b[^\n;|&]*{target_pat}|<<[\s\S]*?{target_pat})|{target_pat}[^\n;|&]*\b(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b[^\n;|&]*\s-(?:[A-Za-z0-9]*c|e|i\S*|p[ie]\S*)\b)",
         norm_cmd,
     ):
         return True
+    if saw_unv_cust and mut_py_cust:
+        for mut_src in mut_py_cust:
+            if re.search(target_pat, mut_src):
+                return True
     if re.search(r"\bporter\.py\s+manifest\b(?![^\n;|&]*--check)", norm_cmd):
         return True
     return False
@@ -2247,12 +3376,51 @@ def _seed_placeholder_diagnostic(placeholder_id: str, *, effort_verified: bool =
             if seed_file.is_file():
                 data = json.loads(seed_file.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
+                    raw_kpm = data.get("known_placeholder_models")
+                    if isinstance(raw_kpm, dict):
+                        for k, v in raw_kpm.items():
+                            if (
+                                isinstance(k, str)
+                                and k.strip().upper() == target_up
+                                and isinstance(v, str)
+                                and v.strip()
+                                and not _is_model_placeholder(v)
+                                and v.strip().lower() != "auto"
+                            ):
+                                mapped = v.strip()
+                                seed_pbtxt = str(data.get("last_pbtxt_model") or "").strip()
+                                if seed_pbtxt and seed_pbtxt.upper() == target_up:
+                                    return f"matches seed `last_pbtxt_model` / `known_placeholder_models` -> `{mapped}`, {eff_note}"
+                                return f"matches seed `known_placeholder_models` -> `{mapped}`, {eff_note}"
                     seed_pbtxt = str(data.get("last_pbtxt_model") or "").strip()
                     seed_model = str(data.get("last_audited_model") or "").strip()
-                    if seed_pbtxt and seed_pbtxt.upper() == target_up and seed_model:
+                    if seed_pbtxt and seed_pbtxt.upper() == target_up and seed_model and not _is_model_placeholder(seed_model):
                         return f"matches seed `last_pbtxt_model` -> `{seed_model}`, {eff_note}"
         except (OSError, ValueError):
             continue
+    state_file = state_dir() / "upstream_state.json"
+    try:
+        if state_file.is_file():
+            st_data = json.loads(state_file.read_text(encoding="utf-8"))
+            if isinstance(st_data, dict):
+                st_kpm = st_data.get("known_placeholder_models")
+                if isinstance(st_kpm, dict):
+                    for k, v in st_kpm.items():
+                        if (
+                            isinstance(k, str)
+                            and k.strip().upper() == target_up
+                            and isinstance(v, str)
+                            and v.strip()
+                            and not _is_model_placeholder(v)
+                            and v.strip().lower() != "auto"
+                        ):
+                            return f"matches state `known_placeholder_models` -> `{v.strip()}`, {eff_note}"
+                st_pbtxt = str(st_data.get("last_pbtxt_model") or "").strip()
+                st_model = str(st_data.get("last_audited_model") or "").strip()
+                if st_pbtxt and st_pbtxt.upper() == target_up and st_model and not _is_model_placeholder(st_model):
+                    return f"matches state `last_pbtxt_model` -> `{st_model}`, {eff_note}"
+    except (OSError, ValueError):
+        pass
     return "unmapped placeholder not registered in `upstream_state.seed.json` — run `/audit-upstream --model`"
 
 def _evaluate_customization_model_and_effort(payload: Dict[str, Any]) -> Optional[Tuple[str, str]]:
@@ -2511,686 +3679,13 @@ _WORKFLOW_MAX_ARG_DEPTH = 32
 
 _WORKFLOW_MAX_FOLDED_LEN = 16384
 
-_WORKFLOW_READONLY_MODE_RE = re.compile(r"^[rtbU]+$")
+_WORKFLOW_READONLY_MODE_RE = _LazyRegex(r"^[rtbU]+$")
 
-_WORKFLOW_ARCHIVE_READONLY_MODE_RE = re.compile(r"^(?:r(?::[a-z0-9*]*)?|[rtb]+)$")
+_WORKFLOW_ARCHIVE_READONLY_MODE_RE = _LazyRegex(r"^(?:r(?::[a-z0-9*]*)?|[rtb]+)$")
 
-_PEP263_ENCODING_RE = re.compile(r"coding[:=]\s*([-\w.]+)")
-
-_FORBIDDEN_WORKFLOW_MODULES = frozenset({
-    "subprocess",
-    "pty",
-    "popen2",
-    "commands",
-    "multiprocessing",
-    "_posixsubprocess",
-    "_winapi",
-    "msvcrt",
-    "posix",
-    "nt",
-    "os2",
-    "ce",
-    "_io",
-    "_pyio",
-    "fileinput",
-    "ctypes",
-    "cffi",
-    "importlib",
-    "runpy",
-    "code",
-    "codeop",
-    "builtins",
-    "operator",
-    "gc",
-    "inspect",
-    "pdb",
-    "bdb",
-    "py_compile",
-    "compileall",
-    "zipapp",
-    "signal",
-    "fcntl",
-    "resource",
-    "tempfile",
-    "sqlite3",
-    "dbm",
-    "shelve",
-    "marshal",
-    "pickle",
-    "urllib",
-    "http",
-    "socket",
-    "ssl",
-    "ftplib",
-    "poplib",
-    "imaplib",
-    "smtplib",
-    "telnetlib",
-    "xmlrpc",
-    "logging",
-    "xml",
-    "webbrowser",
-})
-
-_FORBIDDEN_CHILD_PROC_MODULES = frozenset({
-    "subprocess",
-    "pty",
-    "popen2",
-    "commands",
-    "multiprocessing",
-    "_posixsubprocess",
-    "_winapi",
-})
-
-_FORBIDDEN_OS_EXEC_NAMES = frozenset({
-    "system",
-    "startfile",
-    "popen",
-    "fdopen",
-    "openpty",
-    "login_tty",
-    "pidfd_open",
-    "putenv",
-    "unsetenv",
-    "execl",
-    "execle",
-    "execlp",
-    "execlpe",
-    "execv",
-    "execve",
-    "execvp",
-    "execvpe",
-    "spawnl",
-    "spawnle",
-    "spawnlp",
-    "spawnlpe",
-    "spawnv",
-    "spawnve",
-    "spawnvp",
-    "spawnvpe",
-    "fork",
-    "forkpty",
-    "posix_spawn",
-    "posix_spawnp",
-    "kill",
-    "killpg",
-})
-
-_FORBIDDEN_OS_FS_NAMES = frozenset({
-    "open",
-    "write",
-    "pwrite",
-    "writev",
-    "pwritev",
-    "remove",
-    "unlink",
-    "rmdir",
-    "removedirs",
-    "rename",
-    "renames",
-    "replace",
-    "chdir",
-    "fchdir",
-    "chroot",
-    "chmod",
-    "fchmod",
-    "lchmod",
-    "chown",
-    "fchown",
-    "lchown",
-    "symlink",
-    "link",
-    "truncate",
-    "ftruncate",
-    "posix_fallocate",
-    "sendfile",
-    "copy_file_range",
-    "splice",
-    "setxattr",
-    "lsetxattr",
-    "fsetxattr",
-    "removexattr",
-    "lremovexattr",
-    "fremovexattr",
-    "memfd_create",
-    "mkdir",
-    "makedirs",
-    "mknod",
-    "mkfifo",
-    "utime",
-})
-
-_FORBIDDEN_ASYNCIO_EXEC_NAMES = frozenset({
-    "create_subprocess_exec",
-    "create_subprocess_shell",
-    "open_connection",
-    "open_unix_connection",
-    "start_server",
-    "start_unix_server",
-    "create_connection",
-    "create_unix_connection",
-    "create_server",
-    "create_unix_server",
-    "create_datagram_endpoint",
-    "connect_write_pipe",
-    "connect_read_pipe",
-    "sock_connect",
-    "sock_sendall",
-    "sock_sendfile",
-    "run_in_executor",
-    "to_thread",
-})
-
-_FORBIDDEN_EXEC_ATTRS = (
-    _FORBIDDEN_OS_EXEC_NAMES
-    | _FORBIDDEN_ASYNCIO_EXEC_NAMES
-    | frozenset({"subprocess_exec", "subprocess_shell", "Popen", "check_call", "check_output"})
-)
-
-_FORBIDDEN_DIRECT_FS_ATTRS = frozenset({
-    "write",
-    "writelines",
-    "pwrite",
-    "writev",
-    "pwritev",
-    "write_text",
-    "write_bytes",
-    "touch",
-    "mkdir",
-    "makedirs",
-    "unlink",
-    "rmdir",
-    "removedirs",
-    "rename",
-    "renames",
-    "chdir",
-    "fchdir",
-    "chroot",
-    "chmod",
-    "fchmod",
-    "lchmod",
-    "chown",
-    "fchown",
-    "lchown",
-    "symlink",
-    "symlink_to",
-    "hardlink_to",
-    "truncate",
-    "ftruncate",
-    "posix_fallocate",
-    "sendfile",
-    "copy_file_range",
-    "splice",
-    "setxattr",
-    "lsetxattr",
-    "fsetxattr",
-    "removexattr",
-    "lremovexattr",
-    "fremovexattr",
-    "memfd_create",
-    "utime",
-    "mknod",
-    "mkfifo",
-    "move",
-    "move_into",
-    "copy_into",
-    "copy2",
-    "copyfile",
-    "copyfileobj",
-    "copymode",
-    "copystat",
-    "copytree",
-    "unpack_archive",
-    "make_archive",
-    "extract",
-    "extractall",
-    "writestr",
-    "FileType",
-    "open_code",
-    "bltn_open",
-    "BufferedWriter",
-    "BufferedRandom",
-})
-
-_NON_ALIASABLE_FS_ATTRS = (
-    _FORBIDDEN_DIRECT_FS_ATTRS
-    | _FORBIDDEN_OS_FS_NAMES
-    | frozenset({
-        "rmtree",
-        "open",
-        "FileIO",
-        "ZipFile",
-        "PyZipFile",
-        "TarFile",
-        "GzipFile",
-        "BZ2File",
-        "LZMAFile",
-        "copy",
-        "write",
-        "writelines",
-    })
-)
-
-_STDLIB_MODULES: frozenset[str] = frozenset(getattr(sys, "stdlib_module_names", ()))
-
-_ALLOWED_STDLIB_WORKFLOW_MODULES = frozenset({
-    "__future__",
-    "abc",
-    "argparse",
-    "ast",
-    "asyncio",
-    "base64",
-    "bisect",
-    "bz2",
-    "calendar",
-    "codecs",
-    "collections",
-    "contextlib",
-    "copy",
-    "csv",
-    "dataclasses",
-    "datetime",
-    "decimal",
-    "difflib",
-    "enum",
-    "errno",
-    "fnmatch",
-    "fractions",
-    "functools",
-    "glob",
-    "gzip",
-    "hashlib",
-    "heapq",
-    "hmac",
-    "html",
-    "io",
-    "ipaddress",
-    "itertools",
-    "json",
-    "keyword",
-    "lzma",
-    "math",
-    "numbers",
-    "os",
-    "pathlib",
-    "posixpath",
-    "pprint",
-    "queue",
-    "random",
-    "re",
-    "secrets",
-    "shlex",
-    "shutil",
-    "stat",
-    "statistics",
-    "struct",
-    "sys",
-    "tarfile",
-    "textwrap",
-    "time",
-    "tomllib",
-    "typing",
-    "unicodedata",
-    "uuid",
-    "zipfile",
-    "zlib",
-})
-
-_FORBIDDEN_DUNDER_NAMES = frozenset({
-    "__builtins__",
-    "__import__",
-    "__subclasses__",
-    "__globals__",
-    "__code__",
-    "__loader__",
-    "__spec__",
-    "__dict__",
-    "__class__",
-    "__bases__",
-    "__mro__",
-    "__closure__",
-    "__func__",
-    "__self__",
-    "__wrapped__",
-    "__traceback__",
-    "__cause__",
-    "__context__",
-    "__suppress_context__",
-    "__objclass__",
-    "__getattribute__",
-    "__getattr__",
-    "__setattr__",
-    "__delattr__",
-    "__match_args__",
-    "__instancecheck__",
-    "__subclasscheck__",
-    "__init_subclass__",
-    "__class_getitem__",
-    "__prepare__",
-    "__set_name__",
-    "__reduce__",
-    "__reduce_ex__",
-    "__getstate__",
-    "__setstate__",
-})
-
-_FORBIDDEN_FRAME_ATTRS = frozenset({
-    "gi_frame",
-    "gi_code",
-    "gi_yieldfrom",
-    "gi_running",
-    "gi_suspended",
-    "cr_frame",
-    "cr_code",
-    "cr_origin",
-    "cr_await",
-    "cr_running",
-    "cr_suspended",
-    "ag_frame",
-    "ag_code",
-    "ag_await",
-    "ag_running",
-    "ag_suspended",
-    "tb_frame",
-    "tb_next",
-    "tb_lasti",
-    "tb_lineno",
-    "f_builtins",
-    "f_globals",
-    "f_locals",
-    "f_back",
-    "f_code",
-    "f_trace",
-    "f_trace_lines",
-    "f_trace_opcodes",
-    "f_lasti",
-    "f_lineno",
-})
-
-_FORBIDDEN_CALLABLE_BUILTINS = frozenset({
-    "eval",
-    "exec",
-    "compile",
-    "__import__",
-    "breakpoint",
-    "help",
-    "getattr",
-    "setattr",
-    "delattr",
-    "globals",
-    "locals",
-    "vars",
-    "input",
-    "type",
-})
-
-_FORBIDDEN_REFLECTIVE_ATTRS = frozenset({
-    "exec",
-    "eval",
-    "__import__",
-    "getattr",
-    "setattr",
-    "delattr",
-    "globals",
-    "locals",
-    "vars",
-    "breakpoint",
-    "help",
-    "import_module",
-    "exec_module",
-    "load_module",
-    "run_path",
-    "run_module",
-    "attrgetter",
-    "methodcaller",
-    "MethodType",
-    "capture_call_graph",
-    "format",
-    "format_map",
-    "vformat",
-    "get_field",
-    "get_value",
-    "Formatter",
-    "Template",
-})
-
-_SAFE_WORKFLOW_HOST_CALLABLES = frozenset({
-    "parallel",
-    "pipeline",
-    "phase",
-    "trajectory",
-    "log",
-    "print",
-})
-
-_SAFE_WORKFLOW_BUILTINS = frozenset({
-    "abs",
-    "aiter",
-    "all",
-    "anext",
-    "any",
-    "ascii",
-    "bin",
-    "bool",
-    "bytearray",
-    "bytes",
-    "callable",
-    "chr",
-    "classmethod",
-    "complex",
-    "dict",
-    "divmod",
-    "enumerate",
-    "filter",
-    "float",
-    "frozenset",
-    "hash",
-    "hex",
-    "id",
-    "int",
-    "isinstance",
-    "issubclass",
-    "iter",
-    "len",
-    "list",
-    "map",
-    "max",
-    "memoryview",
-    "min",
-    "next",
-    "object",
-    "oct",
-    "ord",
-    "pow",
-    "property",
-    "range",
-    "repr",
-    "reversed",
-    "round",
-    "set",
-    "slice",
-    "sorted",
-    "staticmethod",
-    "str",
-    "sum",
-    "super",
-    "tuple",
-    "zip",
-    "BaseException",
-    "Exception",
-    "ArithmeticError",
-    "AssertionError",
-    "AttributeError",
-    "BlockingIOError",
-    "BrokenPipeError",
-    "BufferError",
-    "ChildProcessError",
-    "ConnectionError",
-    "EOFError",
-    "FileExistsError",
-    "FileNotFoundError",
-    "FloatingPointError",
-    "GeneratorExit",
-    "ImportError",
-    "IndexError",
-    "InterruptedError",
-    "IsADirectoryError",
-    "KeyError",
-    "KeyboardInterrupt",
-    "LookupError",
-    "MemoryError",
-    "ModuleNotFoundError",
-    "NameError",
-    "NotADirectoryError",
-    "NotImplementedError",
-    "OSError",
-    "OverflowError",
-    "PermissionError",
-    "ProcessLookupError",
-    "RecursionError",
-    "ReferenceError",
-    "RuntimeError",
-    "StopAsyncIteration",
-    "StopIteration",
-    "SyntaxError",
-    "SystemError",
-    "SystemExit",
-    "TimeoutError",
-    "TypeError",
-    "UnboundLocalError",
-    "UnicodeDecodeError",
-    "UnicodeEncodeError",
-    "UnicodeError",
-    "UnicodeTranslateError",
-    "ValueError",
-    "ZeroDivisionError",
-})
+_PEP263_ENCODING_RE = _LazyRegex(r"coding[:=]\s*([-\w.]+)")
 
 _SAFE_ENVIRON_READ_METHODS = frozenset({"get", "keys", "values", "items", "copy"})
-
-_PROTECTED_HOST_PRIMITIVES = frozenset({
-    "open",
-    "call_tool",
-    "agent",
-    "parallel",
-    "pipeline",
-    "trajectory",
-    "log",
-    "phase",
-    "args",
-})
-
-_NON_ALIASABLE_WORKFLOW_NAMES = _FORBIDDEN_CALLABLE_BUILTINS | frozenset({
-    "open",
-    "call_tool",
-    "agent",
-    "parallel",
-    "pipeline",
-    "trajectory",
-})
-
-_UNCONDITIONAL_FORBIDDEN_SYS_ATTRS = frozenset({
-    "meta_path",
-    "path_hooks",
-    "path_importer_cache",
-    "addaudithook",
-    "settrace",
-    "gettrace",
-    "setprofile",
-    "getprofile",
-    "monitoring",
-    "exc_info",
-    "last_traceback",
-    "last_exc",
-    "last_value",
-    "last_type",
-    "_getframe",
-    "_getframemodulename",
-    "_current_frames",
-    "_current_exceptions",
-    "breakpointhook",
-    "excepthook",
-    "unraisablehook",
-    "displayhook",
-    "remote_exec",
-    "call_tracing",
-})
-
-_FORBIDDEN_SYS_ATTRS = _UNCONDITIONAL_FORBIDDEN_SYS_ATTRS | frozenset({
-    "modules",
-    "path",
-    "audit",
-    "exception",
-    "setdlopenflags",
-})
-
-_FORBIDDEN_REEXPORT_ATTRS = (
-    (_FORBIDDEN_WORKFLOW_MODULES - frozenset({"code"}))
-    | _FORBIDDEN_CHILD_PROC_MODULES
-    | frozenset({
-        "builtins",
-        "bltns",
-        "os",
-        "posix",
-        "nt",
-        "sys",
-        "shutil",
-        "io",
-        "codecs",
-        "tarfile",
-        "zipfile",
-        "gzip",
-        "bz2",
-        "lzma",
-        "types",
-        "concurrent",
-        "threading",
-        "importlib",
-        "annotationlib",
-        "copyreg",
-        "weakref",
-        "pwd",
-        "grp",
-        "pathlib",
-        "posixpath",
-        "ntpath",
-        "genericpath",
-        "linecache",
-        "tokenize",
-        "subprocess",
-        "base_subprocess",
-        "unix_events",
-        "selector_events",
-        "proactor_events",
-        "windows_events",
-        "windows_utils",
-        "base_events",
-        "base_futures",
-        "base_tasks",
-        "events",
-        "tasks",
-        "coroutines",
-        "futures",
-        "locks",
-        "queues",
-        "protocols",
-        "threads",
-        "timeouts",
-        "staggered",
-        "constants",
-        "exceptions",
-        "format_helpers",
-        "mixins",
-        "taskgroups",
-        "tools",
-        "graph",
-        "runners",
-        "streams",
-        "sslproto",
-        "trsock",
-        "transports",
-    })
-)
 
 def _check_pep263_cookie(source_text: str) -> Optional[str]:
     for header_line in source_text.splitlines()[:2]:
@@ -3211,194 +3706,45 @@ def _check_pep263_cookie(source_text: str) -> Optional[str]:
     return None
 
 def _collect_workflow_arg_strings(value: Any, out: List[str], depth: int = 0) -> Optional[str]:
-    if depth > _WORKFLOW_MAX_ARG_DEPTH:
-        return "[Harness Workflow Shield] `run_workflow` `Args` exceeds maximum nesting depth (32)."
-    if isinstance(value, str):
-        if "\x00" in value:
-            return "[Harness Workflow Shield] Null bytes are prohibited inside `run_workflow` `Args`."
-        if value:
-            out.append(value)
-        return None
-    if isinstance(value, dict):
-        for k, v in value.items():
-            if isinstance(k, str):
-                if "\x00" in k:
-                    return "[Harness Workflow Shield] Null bytes are prohibited inside `run_workflow` `Args`."
-                if k:
-                    out.append(k)
-            err = _collect_workflow_arg_strings(v, out, depth + 1)
-            if err:
-                return err
-        return None
-    if isinstance(value, (list, tuple)):
-        for elt in value:
-            if isinstance(elt, str) and "\x00" in elt:
-                return "[Harness Workflow Shield] Null bytes are prohibited inside `run_workflow` `Args`."
-        str_parts = [elt for elt in value if isinstance(elt, str) and elt]
-        if len(str_parts) >= 2:
-            out.append(" ".join(str_parts))
-        for elt in value:
-            err = _collect_workflow_arg_strings(elt, out, depth + 1)
-            if err:
-                return err
-        return None
-    return None
+    try:
+        from . import _workflow_ast
+    except (ImportError, SyntaxError) as exc:
+        return f"[Harness Workflow Shield] Failed to load workflow AST verifier ({type(exc).__name__}): {exc}"
+
+    return _workflow_ast._collect_workflow_arg_strings(value, out, depth)
+
 
 def _extract_workflow_sources_ex(
     args: Dict[str, Any], workspace: Optional[Path]
 ) -> Tuple[List[str], List[str], Optional[Path], List[Tuple[Path, int]], Optional[str]]:
-    """
-    Extracts `(script_sources, arg_strings, workflow_cwd, script_paths_meta, error_reason)` from `run_workflow`.
-    `script_paths_meta` records `(resolved_path, st_mode)` for every `ScriptPath` file read so TOCTOU
-    risk on external/world-writable `ScriptPath` targets can require confirmation (`I-01`).
-    """
     try:
-        base_dir: Optional[Path] = workspace if workspace is not None else Path.cwd()
-    except OSError:
-        base_dir = workspace
+        from . import _workflow_ast
+    except (ImportError, SyntaxError) as exc:
+        return (
+            [],
+            [],
+            None,
+            [],
+            f"[Harness Workflow Shield] Failed to load workflow AST verifier ({type(exc).__name__}): {exc}",
+        )
 
-    cwd_values: List[str] = []
-    for ck in ("Cwd", "cwd"):
-        if ck not in args:
-            continue
-        cwd_raw = args.get(ck)
-        if cwd_raw is None:
-            continue
-        if not isinstance(cwd_raw, str):
-            return [], [], base_dir, [], f"[Harness Workflow Shield] `run_workflow` `{ck}` argument must be a string."
-        if "\x00" in cwd_raw:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] Null bytes are prohibited inside `run_workflow` `{ck}`."
-        if cwd_raw != cwd_raw.strip():
-            return (
-                [],
-                [],
-                base_dir,
-                [],
-                f"[Harness Workflow Shield] `run_workflow` `{ck}` must not contain leading or trailing whitespace.",
-            )
-        if cwd_raw:
-            cwd_values.append(cwd_raw)
-    if len(set(cwd_values)) > 1:
-        return [], [], base_dir, [], "[Harness Workflow Shield] Conflicting `Cwd`/`cwd` arguments in `run_workflow`."
-    if cwd_values:
-        cwd_path = Path(os.path.expanduser(cwd_values[0]))
-        if not cwd_path.is_absolute():
-            if base_dir is None:
-                return [], [], None, [], "[Harness Workflow Shield] Cannot resolve relative `Cwd` without a working directory."
-            base_dir = base_dir / cwd_path
-        else:
-            base_dir = cwd_path
+    return _workflow_ast._extract_workflow_sources_ex(args, workspace)
 
-    script_sources: List[str] = []
-    script_paths_meta: List[Tuple[Path, int]] = []
-    for sk in ("Script", "script"):
-        if sk not in args:
-            continue
-        inline = args.get(sk)
-        if inline is None:
-            continue
-        if not isinstance(inline, str):
-            return [], [], base_dir, [], f"[Harness Workflow Shield] `run_workflow` `{sk}` argument must be a string."
-        if "\x00" in inline:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] Null bytes are prohibited inside `run_workflow` `{sk}`."
-        if inline.strip():
-            if len(inline.encode("utf-8", errors="replace")) > _WORKFLOW_MAX_BYTES:
-                return [], [], base_dir, [], "[Harness Workflow Shield] `run_workflow` inline `Script` exceeds 1 MB inspection limit."
-            cookie_err = _check_pep263_cookie(inline)
-            if cookie_err:
-                return [], [], base_dir, [], cookie_err
-            script_sources.append(inline)
-
-    for sp_key in ("ScriptPath", "scriptPath", "script_path"):
-        if sp_key not in args:
-            continue
-        sp_raw = args.get(sp_key)
-        if sp_raw is None:
-            continue
-        if not isinstance(sp_raw, str):
-            return [], [], base_dir, [], f"[Harness Workflow Shield] `run_workflow` `{sp_key}` argument must be a string."
-        if "\x00" in sp_raw:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] Null bytes are prohibited inside `run_workflow` `{sp_key}`."
-        if sp_raw != sp_raw.strip():
-            return (
-                [],
-                [],
-                base_dir,
-                [],
-                f"[Harness Workflow Shield] `run_workflow` `{sp_key}` must not contain leading or trailing whitespace.",
-            )
-        if not sp_raw:
-            continue
-        sp = Path(os.path.expanduser(sp_raw))
-        if not sp.is_absolute():
-            if base_dir is None:
-                return [], [], None, [], f"[Harness Workflow Shield] Cannot resolve relative `{sp_key}` without a working directory."
-            sp = base_dir / sp
-        try:
-            if sp.is_symlink():
-                return [], [], base_dir, [], "[Harness Workflow Shield] `run_workflow` `ScriptPath` must not be a symbolic link."
-            open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-            fd = os.open(str(sp), open_flags)
-        except (OSError, ValueError) as exc:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] Cannot inspect `run_workflow` `ScriptPath` (`{sp}`): {exc}"
-        try:
-            st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode):
-                return [], [], base_dir, [], f"[Harness Workflow Shield] `run_workflow` `ScriptPath` (`{sp}`) must be a regular file."
-            if st.st_size > _WORKFLOW_MAX_BYTES:
-                return [], [], base_dir, [], "[Harness Workflow Shield] `run_workflow` `ScriptPath` exceeds 1 MB inspection limit."
-            chunks_b: List[bytes] = []
-            total_b = 0
-            while True:
-                chunk = os.read(fd, 65536)
-                if not chunk:
-                    break
-                total_b += len(chunk)
-                if total_b > _WORKFLOW_MAX_BYTES:
-                    return [], [], base_dir, [], "[Harness Workflow Shield] `run_workflow` `ScriptPath` exceeds 1 MB inspection limit."
-                chunks_b.append(chunk)
-            raw_bytes = b"".join(chunks_b)
-            file_mode = int(st.st_mode)
-        except OSError as exc:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] Failed reading `run_workflow` `ScriptPath` (`{sp}`): {exc}"
-        finally:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        if b"\x00" in raw_bytes:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] Null bytes are prohibited inside `ScriptPath` (`{sp}`)."
-        try:
-            decoded_src = raw_bytes.decode("utf-8-sig", errors="strict")
-        except UnicodeDecodeError as exc:
-            return [], [], base_dir, [], f"[Harness Workflow Shield] `run_workflow` `ScriptPath` (`{sp}`) must be valid UTF-8: {exc}"
-        cookie_err = _check_pep263_cookie(decoded_src)
-        if cookie_err:
-            return [], [], base_dir, [], cookie_err
-        if decoded_src.strip():
-            script_sources.append(decoded_src)
-            script_paths_meta.append((sp, file_mode))
-
-    if not script_sources:
-        return [], [], base_dir, [], "[Harness Workflow Shield] `run_workflow` requires a non-empty `Script` or `ScriptPath`."
-
-    arg_strings: List[str] = []
-    for ak in ("Args", "args"):
-        if ak not in args:
-            continue
-        wf_args = args.get(ak)
-        if wf_args is not None:
-            err = _collect_workflow_arg_strings(wf_args, arg_strings)
-            if err:
-                return [], [], base_dir, [], err
-
-    return script_sources, arg_strings, base_dir, script_paths_meta, None
 
 def _extract_workflow_sources(
     args: Dict[str, Any], workspace: Optional[Path]
 ) -> Tuple[List[str], List[str], Optional[Path], Optional[str]]:
-    sources, arg_strings, base_dir, _sp_meta, err = _extract_workflow_sources_ex(args, workspace)
-    return sources, arg_strings, base_dir, err
+    try:
+        from . import _workflow_ast
+    except (ImportError, SyntaxError) as exc:
+        return (
+            [],
+            [],
+            None,
+            f"[Harness Workflow Shield] Failed to load workflow AST verifier ({type(exc).__name__}): {exc}",
+        )
+
+    return _workflow_ast._extract_workflow_sources(args, workspace)
 
 def _eval_workflow_str_expr(node: Optional[ast.AST], const_vars: Dict[str, str], depth: int = 0) -> Optional[str]:
     if node is None or depth > 24:
@@ -3450,56 +3796,30 @@ def _eval_workflow_str_expr(node: Optional[ast.AST], const_vars: Dict[str, str],
         return "".join(parts)
     return None
 
-def _extract_partial_text_and_dynamic(
-    node: Optional[ast.AST],
-    const_vars: Dict[str, str],
-    depth: int = 0,
-    memo: Optional[Dict[int, Tuple[str, bool]]] = None,
-) -> Tuple[str, bool]:
-    """Extracts static text fragments from an AST string/f-string expression and flags dynamic holes."""
-    if node is None or depth > 24:
-        return "", False
-    if memo is None:
-        memo = {}
-    nid = id(node)
-    if nid in memo:
-        return memo[nid]
-    exact = _eval_workflow_str_expr(node, const_vars, depth)
-    if exact is not None:
-        res = (exact, False)
-        memo[nid] = res
-        return res
-    if isinstance(node, ast.JoinedStr):
-        frags: List[str] = []
-        has_dyn = False
-        for val in node.values:
-            if isinstance(val, ast.Constant) and isinstance(val.value, str):
-                frags.append(val.value)
-            elif isinstance(val, ast.FormattedValue):
-                sub_txt, sub_dyn = _extract_partial_text_and_dynamic(val.value, const_vars, depth + 1, memo)
-                if sub_txt:
-                    frags.append(sub_txt)
-                has_dyn = True or sub_dyn
-            else:
-                has_dyn = True
-        res = (" ".join(frags)[:_WORKFLOW_MAX_FOLDED_LEN], has_dyn)
-        memo[nid] = res
-        return res
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        l_txt, l_dyn = _extract_partial_text_and_dynamic(node.left, const_vars, depth + 1, memo)
-        r_txt, r_dyn = _extract_partial_text_and_dynamic(node.right, const_vars, depth + 1, memo)
-        res = (f"{l_txt}{r_txt}"[:_WORKFLOW_MAX_FOLDED_LEN], (l_dyn or r_dyn))
-        memo[nid] = res
-        return res
-    memo[nid] = ("", True)
-    return "", True
-
 def _eval_workflow_path_expr(node: Optional[ast.AST], const_vars: Dict[str, str], depth: int = 0) -> Optional[str]:
     if node is None or depth > 24:
         return None
     as_str = _eval_workflow_str_expr(node, const_vars, depth)
     if as_str is not None:
         return as_str
+    if isinstance(node, ast.Attribute) and node.attr == "parent":
+        base_parent = _eval_workflow_path_expr(node.value, const_vars, depth + 1)
+        if base_parent is not None:
+            trimmed = base_parent.rstrip("/\\") or base_parent
+            parent_out = os.path.dirname(trimmed) or "."
+            return parent_out if len(parent_out) <= _WORKFLOW_MAX_FOLDED_LEN else None
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+        and (
+            (isinstance(node.value, ast.Name) and node.value.id == "environ")
+            or (isinstance(node.value, ast.Attribute) and node.value.attr == "environ")
+        )
+    ):
+        env_val = os.environ.get(node.slice.value)
+        if env_val:
+            return env_val if len(env_val) <= _WORKFLOW_MAX_FOLDED_LEN else None
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
         left = _eval_workflow_path_expr(node.left, const_vars, depth + 1)
         right = _eval_workflow_path_expr(node.right, const_vars, depth + 1)
@@ -3515,7 +3835,7 @@ def _eval_workflow_path_expr(node: Optional[ast.AST], const_vars: Dict[str, str]
     if isinstance(node, ast.Call):
         if any(isinstance(a, ast.Starred) for a in node.args) or any(kw.arg is None for kw in node.keywords):
             return None
-        if isinstance(node.func, ast.Name) and node.func.id in ("Path", "PurePath", "PosixPath"):
+        if ((isinstance(node.func, ast.Name) and node.func.id in ("Path", "PurePath", "PosixPath", "WindowsPath", "PurePosixPath", "PureWindowsPath")) or (isinstance(node.func, ast.Attribute) and node.func.attr in ("Path", "PurePath", "PosixPath", "WindowsPath", "PurePosixPath", "PureWindowsPath"))):
             if not node.args:
                 return "."
             parts = [_eval_workflow_path_expr(a, const_vars, depth + 1) for a in node.args]
@@ -3548,6 +3868,21 @@ def _eval_workflow_path_expr(node: Optional[ast.AST], const_vars: Dict[str, str]
                     return out if len(out) <= _WORKFLOW_MAX_FOLDED_LEN else None
             if node.func.attr == "home" and not node.args:
                 return str(Path.home())
+            if node.func.attr in ("getenv", "get") and len(node.args) >= 1:
+                env_key = _eval_workflow_str_expr(node.args[0], const_vars, depth + 1)
+                if env_key in (
+                    "HOME",
+                    "USERPROFILE",
+                    "ANTIGRAVITY_CONFIG_DIR",
+                    "AGY_GUARD_STATE_DIR",
+                    "ANTIGRAVITY_STATE_DIR",
+                    "AGY_GUARD_DATA_DIR",
+                    "XDG_STATE_HOME",
+                    "XDG_DATA_HOME",
+                ):
+                    env_v = os.environ.get(env_key)
+                    if env_v:
+                        return env_v if len(env_v) <= _WORKFLOW_MAX_FOLDED_LEN else None
             if node.func.attr == "join" and node.args:
                 parts = [_eval_workflow_path_expr(a, const_vars, depth + 1) for a in node.args]
                 if all(p is not None for p in parts):
@@ -3560,55 +3895,6 @@ def _eval_workflow_path_expr(node: Optional[ast.AST], const_vars: Dict[str, str]
                     joined = os.path.join(base, *(p for p in parts if p is not None))
                     return joined if len(joined) <= _WORKFLOW_MAX_FOLDED_LEN else None
     return None
-
-def _eval_workflow_const_value(
-    node: Optional[ast.AST], const_vars: Dict[str, str], depth: int = 0
-) -> Tuple[Any, bool]:
-    if node is None or depth > 24:
-        return None, False
-    folded_str = _eval_workflow_path_expr(node, const_vars, depth)
-    if folded_str is not None:
-        return folded_str, True
-    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float, bool, type(None))):
-        if isinstance(node.value, str) and len(node.value) > _WORKFLOW_MAX_FOLDED_LEN:
-            return None, False
-        return node.value, True
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, (ast.USub, ast.UAdd))
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, (int, float))
-        and not isinstance(node.operand.value, bool)
-    ):
-        return (-node.operand.value if isinstance(node.op, ast.USub) else +node.operand.value), True
-    if isinstance(node, (ast.List, ast.Tuple)):
-        if len(node.elts) > 256:
-            return None, False
-        items: List[Any] = []
-        for elt in node.elts:
-            if isinstance(elt, ast.Starred):
-                return None, False
-            val, ok = _eval_workflow_const_value(elt, const_vars, depth + 1)
-            if not ok:
-                return None, False
-            items.append(val)
-        return (items if isinstance(node, ast.List) else tuple(items)), True
-    if isinstance(node, ast.Dict):
-        if len(node.keys) > 256:
-            return None, False
-        out_dict: Dict[Any, Any] = {}
-        for k_node, v_node in zip(node.keys, node.values):
-            if k_node is None:
-                return None, False
-            k_val, k_ok = _eval_workflow_const_value(k_node, const_vars, depth + 1)
-            if not k_ok or not isinstance(k_val, (str, int, float, bool, type(None))):
-                return None, False
-            v_val, v_ok = _eval_workflow_const_value(v_node, const_vars, depth + 1)
-            if not v_ok:
-                return None, False
-            out_dict[k_val] = v_val
-        return out_dict, True
-    return None, False
 
 def _is_readonly_open_call(node: ast.Call, mode_pos_index: int, const_vars: Dict[str, str], archive: bool = False) -> bool:
     if any(isinstance(a, ast.Starred) for a in node.args):
@@ -3654,1543 +3940,29 @@ def _inspect_workflow_script(
     swarm_overlay: Optional[Dict[str, Any]] = None,
     pending_swarm_ops: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, Any], List[Tuple[str, str]]]:
-    """
-    Statically inspects a `run_workflow` Python script and its `Args` strings for:
-      - Human-only `agy-guard` admin commands, `install.py`, and git hook bypasses (`Rule 12`)
-      - Child-process / dynamic-eval / FFI / aliasing escapes (`subprocess`, `os.system`, `eval`, `ctypes` — `Rule 15e`)
-      - Direct Python filesystem writes/mutations bypassing `call_tool` & Flight Recorder (`Rule 12`, `15a`, `15e`)
-      - Static `call_tool(...)` invocations targeting governance, customization, or destructive commands
-      - Delegated `agent(...)` model downgrades (`model='flash' | 'flash_lite'`) on customization files (`Rule 17`)
-    """
-    eff_cwd = workflow_cwd if workflow_cwd is not None else workspace
-    local_swarm_ops: List[Dict[str, Any]] = []
-    if swarm_overlay is None:
-        swarm_overlay = {}
-
-    def _path_hits_gov(cand: str, resolve_rel: bool = False) -> bool:
-        return _targets_governance_dir(cand, base_dir=(eff_cwd if resolve_rel else None))
-
-    def _path_hits_cust(cand: str, resolve_rel: bool = False) -> bool:
-        if not cand or not cand.strip() or "\x00" in cand:
-            return False
-        ws_ctx = workspace if workspace is not None else eff_cwd
-        if resolve_rel and eff_cwd is not None:
-            exp = Path(os.path.expanduser(cand.strip()))
-            if not exp.is_absolute():
-                return _targets_customization_structure(str(eff_cwd / exp), workspace=ws_ctx)
-        return _targets_customization_structure(cand, workspace=ws_ctx)
-
     try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError, RecursionError) as exc:
+        from . import _workflow_ast
+    except (ImportError, SyntaxError) as exc:
         return (
             {
                 "decision": "deny",
                 "reason": (
-                    f"[Harness Workflow Shield] Failed to parse Python `run_workflow` script "
+                    f"[Harness Workflow Shield] Failed to load workflow AST verifier "
                     f"({type(exc).__name__}): {exc}"
                 ),
             },
             [],
         )
 
-    # Single-assignment constant propagation plus bounded multi-assignment candidate tracking (`P09`):
-    # variables bound more than once are excluded from `const_vars`, while all candidate values are
-    # tracked in `multi_var_values` so reassignment (`p = ''; p = 'GEM' + 'INI.md'`) cannot mask targets.
-    bind_counts: Dict[str, int] = {}
-    store_counts: Dict[str, int] = {}
-    single_rhs: Dict[str, ast.AST] = {}
-    multi_rhs: Dict[str, List[ast.AST]] = {}
-    local_callable_defs: Dict[str, int] = {}
-    rebound_host_primitive: Optional[str] = None
-    forbidden_dunder_def: Optional[str] = None
-    for stmt in ast.walk(tree):
-        if isinstance(stmt, ast.Name) and isinstance(stmt.ctx, (ast.Store, ast.Del)):
-            bind_counts[stmt.id] = bind_counts.get(stmt.id, 0) + 1
-            if isinstance(stmt.ctx, ast.Store):
-                store_counts[stmt.id] = store_counts.get(stmt.id, 0) + 1
-            if stmt.id in _PROTECTED_HOST_PRIMITIVES:
-                rebound_host_primitive = stmt.id
-        elif isinstance(stmt, ast.arg):
-            bind_counts[stmt.arg] = bind_counts.get(stmt.arg, 0) + 1
-            store_counts[stmt.arg] = store_counts.get(stmt.arg, 0) + 1
-            if stmt.arg in _PROTECTED_HOST_PRIMITIVES:
-                rebound_host_primitive = stmt.arg
-        elif isinstance(stmt, ast.ExceptHandler) and stmt.name:
-            bind_counts[stmt.name] = bind_counts.get(stmt.name, 0) + 1
-            store_counts[stmt.name] = store_counts.get(stmt.name, 0) + 1
-            if stmt.name in _PROTECTED_HOST_PRIMITIVES:
-                rebound_host_primitive = stmt.name
-        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bind_counts[stmt.name] = bind_counts.get(stmt.name, 0) + 1
-            store_counts[stmt.name] = store_counts.get(stmt.name, 0) + 1
-            local_callable_defs[stmt.name] = local_callable_defs.get(stmt.name, 0) + 1
-            if stmt.name in _PROTECTED_HOST_PRIMITIVES:
-                rebound_host_primitive = stmt.name
-            if stmt.name in _FORBIDDEN_DUNDER_NAMES:
-                forbidden_dunder_def = stmt.name
-        elif isinstance(stmt, (ast.MatchAs, ast.MatchStar)) and stmt.name:
-            bind_counts[stmt.name] = bind_counts.get(stmt.name, 0) + 1
-            store_counts[stmt.name] = store_counts.get(stmt.name, 0) + 1
-            if stmt.name in _PROTECTED_HOST_PRIMITIVES:
-                rebound_host_primitive = stmt.name
-        elif isinstance(stmt, ast.MatchMapping) and stmt.rest:
-            bind_counts[stmt.rest] = bind_counts.get(stmt.rest, 0) + 1
-            store_counts[stmt.rest] = store_counts.get(stmt.rest, 0) + 1
-            if stmt.rest in _PROTECTED_HOST_PRIMITIVES:
-                rebound_host_primitive = stmt.rest
-        elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
-            for al in stmt.names:
-                bname = al.asname or al.name.split(".", 1)[0]
-                bind_counts[bname] = bind_counts.get(bname, 0) + 1
-                store_counts[bname] = store_counts.get(bname, 0) + 1
-                if bname in _PROTECTED_HOST_PRIMITIVES:
-                    rebound_host_primitive = bname
-        if isinstance(stmt, ast.Assign):
-            if len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
-                single_rhs[stmt.targets[0].id] = stmt.value
-            for tgt in stmt.targets:
-                if isinstance(tgt, ast.Name):
-                    multi_rhs.setdefault(tgt.id, []).append(stmt.value)
-                elif isinstance(tgt, (ast.Tuple, ast.List)) and isinstance(stmt.value, (ast.Tuple, ast.List)):
-                    if len(tgt.elts) == len(stmt.value.elts):
-                        for sub_t, sub_v in zip(tgt.elts, stmt.value.elts):
-                            if isinstance(sub_t, ast.Name):
-                                multi_rhs.setdefault(sub_t.id, []).append(sub_v)
-        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.value is not None:
-            single_rhs[stmt.target.id] = stmt.value
-            multi_rhs.setdefault(stmt.target.id, []).append(stmt.value)
-        elif isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name):
-            multi_rhs.setdefault(stmt.target.id, []).append(
-                ast.BinOp(left=ast.Name(id=stmt.target.id, ctx=ast.Load()), op=stmt.op, right=stmt.value)
-            )
-        elif isinstance(stmt, ast.NamedExpr) and isinstance(stmt.target, ast.Name):
-            single_rhs[stmt.target.id] = stmt.value
-            multi_rhs.setdefault(stmt.target.id, []).append(stmt.value)
-
-    const_vars: Dict[str, str] = {}
-    for _ in range(8):
-        progressed = False
-        for vname, rhs in single_rhs.items():
-            if bind_counts.get(vname, 0) != 1 or vname in const_vars:
-                continue
-            folded = _eval_workflow_path_expr(rhs, const_vars)
-            if folded is not None:
-                const_vars[vname] = folded
-                progressed = True
-        if not progressed:
-            break
-
-    def _eval_multi_candidates(
-        expr: Optional[ast.AST], env_map: Dict[str, List[str]], depth: int = 0
-    ) -> List[str]:
-        if expr is None or depth > 16:
-            return []
-        direct = _eval_workflow_path_expr(expr, const_vars)
-        if direct is not None:
-            return [direct]
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-            return [expr.value] if len(expr.value) <= _WORKFLOW_MAX_FOLDED_LEN else []
-        if isinstance(expr, ast.Name):
-            return list(env_map.get(expr.id, ()))[:8]
-        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
-            lefts = _eval_multi_candidates(expr.left, env_map, depth + 1)
-            rights = _eval_multi_candidates(expr.right, env_map, depth + 1)
-            out_add: List[str] = []
-            for l_s in lefts[:6]:
-                for r_s in rights[:6]:
-                    if len(l_s) + len(r_s) <= _WORKFLOW_MAX_FOLDED_LEN:
-                        comb = l_s + r_s
-                        if comb not in out_add:
-                            out_add.append(comb)
-                        if len(out_add) >= 12:
-                            return out_add
-            return out_add
-        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Div):
-            lefts = _eval_multi_candidates(expr.left, env_map, depth + 1)
-            rights = _eval_multi_candidates(expr.right, env_map, depth + 1)
-            out_div: List[str] = []
-            for l_s in lefts[:6]:
-                for r_s in rights[:6]:
-                    comb = f"{l_s.rstrip('/')}/{r_s.lstrip('/')}"
-                    if len(comb) <= _WORKFLOW_MAX_FOLDED_LEN and comb not in out_div:
-                        out_div.append(comb)
-                        if len(out_div) >= 12:
-                            return out_div
-            return out_div
-        if isinstance(expr, ast.JoinedStr):
-            acc = [""]
-            for val in expr.values:
-                if isinstance(val, ast.Constant) and isinstance(val.value, str):
-                    step_vals = [val.value]
-                elif isinstance(val, ast.FormattedValue):
-                    step_vals = _eval_multi_candidates(val.value, env_map, depth + 1)
-                    if not step_vals:
-                        return []
-                else:
-                    return []
-                next_acc: List[str] = []
-                for prefix in acc[:8]:
-                    for sv in step_vals[:6]:
-                        if len(prefix) + len(sv) <= _WORKFLOW_MAX_FOLDED_LEN:
-                            joined_s = prefix + sv
-                            if joined_s not in next_acc:
-                                next_acc.append(joined_s)
-                            if len(next_acc) >= 12:
-                                break
-                    if len(next_acc) >= 12:
-                        break
-                acc = next_acc
-                if not acc:
-                    return []
-            return acc
-        return []
-
-    multi_var_values: Dict[str, List[str]] = {k: [v] for k, v in const_vars.items()}
-    for _ in range(4):
-        progressed_m = False
-        for vname, rhs_list in multi_rhs.items():
-            existing = multi_var_values.setdefault(vname, [])
-            for rhs_expr in rhs_list[:8]:
-                for cand_s in _eval_multi_candidates(rhs_expr, multi_var_values):
-                    if cand_s not in existing and len(existing) < 16:
-                        existing.append(cand_s)
-                        progressed_m = True
-        if not progressed_m:
-            break
-
-    # Map persistent `var = agent(...)` bindings (across Assign, AnnAssign, NamedExpr, and reassignments)
-    # and chained `agent(...)(prompt, ...)` calls BEFORE collecting benign prose node IDs.
-    persistent_agents: Dict[str, List[ast.Call]] = {}
-    persistent_agent_turn_nodes: Dict[str, List[ast.AST]] = {}
-    chained_agent_turns: Dict[int, List[ast.AST]] = {}
-
-    def _unwrap_agent_call(expr: Optional[ast.AST], allow_await: bool = True) -> Optional[ast.Call]:
-        inner = expr.value if (allow_await and isinstance(expr, ast.Await)) else expr
-        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id == "agent":
-            return inner
-        return None
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            ag_val = _unwrap_agent_call(node.value, allow_await=False)
-            if ag_val is not None:
-                for tgt in node.targets:
-                    if isinstance(tgt, ast.Name):
-                        persistent_agents.setdefault(tgt.id, []).append(ag_val)
-                        persistent_agent_turn_nodes.setdefault(tgt.id, [])
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
-            ag_val = _unwrap_agent_call(node.value, allow_await=False)
-            if ag_val is not None:
-                persistent_agents.setdefault(node.target.id, []).append(ag_val)
-                persistent_agent_turn_nodes.setdefault(node.target.id, [])
-        elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
-            ag_val = _unwrap_agent_call(node.value, allow_await=False)
-            if ag_val is not None:
-                persistent_agents.setdefault(node.target.id, []).append(ag_val)
-                persistent_agent_turn_nodes.setdefault(node.target.id, [])
-
-    # Track non-executing UI/prompt string node ids so prose in `log(...)`, `phase(...)`, `agent(...)`,
-    # persistent `var(prompt, ...)`, or chained `agent(...)(prompt, ...)` does not trigger shell regex false positives.
-    benign_prose_node_ids: set[int] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name):
-            if node.func.id in ("log", "phase"):
-                for sub in ast.walk(node):
-                    benign_prose_node_ids.add(id(sub))
-            elif node.func.id == "agent":
-                for arg_node in node.args[:3]:
-                    for sub in ast.walk(arg_node):
-                        benign_prose_node_ids.add(id(sub))
-                for kw in node.keywords:
-                    if kw.arg in ("prompt", "role", "schema"):
-                        for sub in ast.walk(kw.value):
-                            benign_prose_node_ids.add(id(sub))
-            elif node.func.id in persistent_agents:
-                for arg_node in node.args[:2]:
-                    for sub in ast.walk(arg_node):
-                        benign_prose_node_ids.add(id(sub))
-                for kw in node.keywords:
-                    if kw.arg in ("prompt", "schema"):
-                        for sub in ast.walk(kw.value):
-                            benign_prose_node_ids.add(id(sub))
-        else:
-            chained_ag = _unwrap_agent_call(node.func, allow_await=True)
-            if chained_ag is not None:
-                turns = chained_agent_turns.setdefault(id(chained_ag), [])
-                if node.args:
-                    turns.append(node.args[0])
-                for arg_node in node.args[:2]:
-                    for sub in ast.walk(arg_node):
-                        benign_prose_node_ids.add(id(sub))
-                for kw in node.keywords:
-                    if kw.arg == "prompt":
-                        turns.append(kw.value)
-                    if kw.arg in ("prompt", "schema"):
-                        for sub in ast.walk(kw.value):
-                            benign_prose_node_ids.add(id(sub))
-
-    all_literals: List[str] = []
-    cmd_candidates: List[str] = list(arg_strings)
-    for vals in multi_var_values.values():
-        for mv in vals:
-            if mv and mv not in all_literals:
-                all_literals.append(mv)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value:
-            all_literals.append(node.value)
-            if id(node) not in benign_prose_node_ids:
-                cmd_candidates.append(node.value)
-        elif isinstance(node, (ast.BinOp, ast.JoinedStr)) or (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "join"
-        ):
-            for folded_s in _eval_multi_candidates(node, multi_var_values):
-                if folded_s:
-                    all_literals.append(folded_s)
-                    if id(node) not in benign_prose_node_ids:
-                        cmd_candidates.append(folded_s)
-        elif isinstance(node, (ast.List, ast.Tuple)):
-            parts = [
-                elt_str
-                for elt in node.elts
-                for elt_str in [_eval_workflow_str_expr(elt, const_vars)]
-                if elt_str
-            ]
-            if len(parts) >= 2:
-                joined = " ".join(parts)
-                all_literals.append(joined)
-                if id(node) not in benign_prose_node_ids:
-                    cmd_candidates.append(joined)
-
-    def _gov_deny_or(default_reason: str) -> Tuple[Dict[str, Any], List[Tuple[str, str]]]:
-        for cand in [*const_vars.values(), *arg_strings, *all_literals]:
-            if _path_hits_gov(cand, resolve_rel=False):
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            f"[Harness Governance Shield] Protected governance path (`{cand}`) targeted via "
-                            f"prohibited `run_workflow` construct: {default_reason}"
-                        ),
-                    },
-                    [],
-                )
-        return {"decision": "deny", "reason": default_reason}, []
-
-    if rebound_host_primitive is not None:
-        return _gov_deny_or(
-            f"[Harness Workflow Shield] Rebinding or redefining host primitive `{rebound_host_primitive}` "
-            "inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-        )
-    if forbidden_dunder_def is not None:
-        return _gov_deny_or(
-            f"[Harness Workflow Shield] Defining reflective dunder hook `{forbidden_dunder_def}` inside "
-            "`run_workflow` is prohibited (GEMINI.md Rule 15e)."
-        )
-
-    # 1. Human-only Guard admin, install.py, and git hook bypasses across workflow Args & non-prose candidates
-    for text in cmd_candidates:
-        masked_text = _mask_quoted_operators(text)
-        if _GUARD_ADMIN_RE.search(masked_text) or _GUARD_INLINE_PY_RE.search(text):
-            return (
-                {
-                    "decision": "deny",
-                    "reason": (
-                        "[Harness Workflow Shield] Human-only `agy-guard` administration commands are "
-                        "prohibited inside `run_workflow` (GEMINI.md Rule 12)."
-                    ),
-                },
-                [],
-            )
-        if _WORKFLOW_INSTALL_EXEC_RE.search(masked_text):
-            return (
-                {
-                    "decision": "deny",
-                    "reason": (
-                        "[Harness Workflow Shield] Executing `install.py` inside `run_workflow` is "
-                        "prohibited (GEMINI.md Rule 12)."
-                    ),
-                },
-                [],
-            )
-        if _GIT_HOOK_BYPASS_RE.search(masked_text):
-            return (
-                {
-                    "decision": "deny",
-                    "reason": (
-                        "[Harness Workflow Shield] Git hook bypass flags (`--no-verify`, `commit -n`, "
-                        "`core.hooksPath`, `HUSKY=0`) are prohibited inside `run_workflow`."
-                    ),
-                },
-                [],
-            )
-
-    # 2. Collect module aliases, imported callables, dunder/frame/MatchClass escapes, and anti-aliasing structural sets
-    os_aliases: set[str] = set()
-    environ_aliases: set[str] = set()
-    shutil_aliases: set[str] = set()
-    io_open_aliases: set[str] = set()
-    archive_aliases: set[str] = set()
-    sys_aliases: set[str] = set()
-    copy_mod_aliases: set[str] = set()
-    json_mod_aliases: set[str] = set()
-    collections_mod_aliases: set[str] = set()
-    namedtuple_factory_names: set[str] = set()
-    imported_module_names: set[str] = set()
-    safe_imported_callables: Dict[str, int] = {}
-    pathlib_names: set[str] = {
-        "Path",
-        "PurePath",
-        "PosixPath",
-        "WindowsPath",
-        "PurePosixPath",
-        "PureWindowsPath",
-    }
-    imported_os_fs_funcs: set[str] = set()
-    imported_shutil_fs_funcs: set[str] = set()
-    imported_io_open_funcs: set[str] = set()
-    imported_archive_open_funcs: set[str] = set()
-    rmtree_funcs: set[str] = set()
-    forbidden_child_exec_reason: Optional[str] = None
-    forbidden_runtime_escape_reason: Optional[str] = None
-    direct_fs_mutation_detected = False
-    direct_fs_candidate_paths: List[str] = []
-
-    call_func_node_ids: set[int] = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    attr_value_node_ids: set[int] = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in _FORBIDDEN_DUNDER_NAMES:
-            forbidden_runtime_escape_reason = (
-                f"[Harness Workflow Shield] Introspective/dunder escape (`{node.id}`) inside `run_workflow` "
-                "is prohibited (GEMINI.md Rule 15e)."
-            )
-        elif isinstance(node, ast.Attribute) and (
-            node.attr in _FORBIDDEN_DUNDER_NAMES or node.attr in _FORBIDDEN_FRAME_ATTRS
-        ):
-            forbidden_runtime_escape_reason = (
-                f"[Harness Workflow Shield] Introspective/frame/dunder attribute (`{node.attr}`) inside `run_workflow` "
-                "is prohibited (GEMINI.md Rule 15e)."
-            )
-        elif isinstance(node, ast.MatchClass):
-            for kwd_attr in node.kwd_attrs:
-                if (
-                    kwd_attr.startswith("_")
-                    or kwd_attr in _FORBIDDEN_DUNDER_NAMES
-                    or kwd_attr in _FORBIDDEN_FRAME_ATTRS
-                    or kwd_attr in _FORBIDDEN_EXEC_ATTRS
-                    or kwd_attr in _FORBIDDEN_REFLECTIVE_ATTRS
-                    or kwd_attr in _NON_ALIASABLE_WORKFLOW_NAMES
-                    or kwd_attr in _NON_ALIASABLE_FS_ATTRS
-                    or kwd_attr in _FORBIDDEN_REEXPORT_ATTRS
-                    or kwd_attr in _FORBIDDEN_SYS_ATTRS
-                ):
-                    forbidden_runtime_escape_reason = (
-                        f"[Harness Workflow Shield] `match` class attribute extraction (`{kwd_attr}=`) "
-                        "inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                    )
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                segments = alias.name.split(".")
-                root_mod = segments[0]
-                bound = alias.asname or root_mod
-                imported_module_names.add(bound)
-                if alias.asname is None:
-                    imported_module_names.add(root_mod)
-                if any(seg in _FORBIDDEN_CHILD_PROC_MODULES for seg in segments) or (
-                    root_mod == "asyncio" and len(segments) > 1
-                ):
-                    forbidden_child_exec_reason = (
-                        f"[Harness Workflow Shield] Direct child-process/event-loop submodule (`{alias.name}`) inside "
-                        "`run_workflow` scripts bypasses tool-level safety gates; use `call_tool('run_command', ...)` "
-                        "or delegated `agent(...)` turns (GEMINI.md Rule 15e)."
-                    )
-                elif (
-                    (root_mod.startswith("_") and root_mod != "__future__")
-                    or any(seg.startswith("_") for seg in segments[1:])
-                    or any(seg in _FORBIDDEN_WORKFLOW_MODULES for seg in segments)
-                    or (root_mod != "__future__" and root_mod not in _ALLOWED_STDLIB_WORKFLOW_MODULES)
-                    or (len(segments) > 1 and alias.name != "os.path")
-                ):
-                    forbidden_runtime_escape_reason = (
-                        f"[Harness Workflow Shield] Module `{alias.name}` is prohibited inside `run_workflow` "
-                        "orchestration scripts; use `call_tool(...)` or `agent(...)` (GEMINI.md Rule 15e)."
-                    )
-                elif root_mod == "os":
-                    if alias.name == "os":
-                        os_aliases.add(bound)
-                    elif alias.asname is None:
-                        os_aliases.add("os")
-                elif root_mod == "shutil":
-                    shutil_aliases.add(bound if alias.name == "shutil" else "shutil")
-                elif root_mod in ("io", "codecs"):
-                    io_open_aliases.add(bound if alias.name == root_mod else root_mod)
-                elif root_mod in ("tarfile", "zipfile", "gzip", "bz2", "lzma"):
-                    archive_aliases.add(bound if alias.name == root_mod else root_mod)
-                elif root_mod == "sys":
-                    sys_aliases.add(bound if alias.name == "sys" else "sys")
-                elif root_mod == "copy":
-                    copy_mod_aliases.add(bound if alias.name == "copy" else "copy")
-                elif root_mod == "json":
-                    json_mod_aliases.add(bound if alias.name == "json" else "json")
-                elif root_mod == "collections":
-                    collections_mod_aliases.add(bound if alias.name == "collections" else "collections")
-        elif isinstance(node, ast.ImportFrom):
-            mod_str = node.module or ""
-            segments = mod_str.split(".") if mod_str else []
-            root_mod = segments[0] if segments else ""
-            if (node.level or 0) > 0:
-                forbidden_runtime_escape_reason = (
-                    "[Harness Workflow Shield] Relative imports inside `run_workflow` scripts are prohibited (GEMINI.md Rule 15e)."
-                )
-            elif any(seg in _FORBIDDEN_CHILD_PROC_MODULES for seg in segments) or (
-                root_mod == "asyncio" and len(segments) > 1
-            ):
-                forbidden_child_exec_reason = (
-                    f"[Harness Workflow Shield] Direct child-process/event-loop import (`from {mod_str} import ...`) "
-                    "inside `run_workflow` bypasses tool-level safety gates; use `call_tool('run_command', ...)` "
-                    "or `agent(...)` (GEMINI.md Rule 15e)."
-                )
-            elif (
-                (root_mod.startswith("_") and root_mod != "__future__")
-                or any(seg.startswith("_") for seg in segments[1:])
-                or any(seg in _FORBIDDEN_WORKFLOW_MODULES for seg in segments)
-                or (root_mod != "__future__" and root_mod not in _ALLOWED_STDLIB_WORKFLOW_MODULES)
-                or (len(segments) > 1 and mod_str != "os.path")
-            ):
-                forbidden_runtime_escape_reason = (
-                    f"[Harness Workflow Shield] Importing from `{mod_str}` is prohibited inside "
-                    "`run_workflow` orchestration scripts (GEMINI.md Rule 15e)."
-                )
-            else:
-                for alias in node.names:
-                    local = alias.asname or alias.name
-                    if alias.name == "*":
-                        forbidden_runtime_escape_reason = (
-                            f"[Harness Workflow Shield] Wildcard `from {mod_str} import *` is prohibited inside `run_workflow`."
-                        )
-                    elif alias.name.startswith("_"):
-                        forbidden_runtime_escape_reason = (
-                            f"[Harness Workflow Shield] Importing private attribute `{mod_str}.{alias.name}` "
-                            "inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                        )
-                    elif alias.name in _FORBIDDEN_EXEC_ATTRS:
-                        forbidden_child_exec_reason = (
-                            f"[Harness Workflow Shield] Direct process/socket primitive (`{mod_str}.{alias.name}`) "
-                            "inside `run_workflow` is prohibited; use `call_tool('run_command', ...)` (GEMINI.md Rule 15e)."
-                        )
-                    elif (
-                        alias.name in _FORBIDDEN_DUNDER_NAMES
-                        or alias.name in _FORBIDDEN_CALLABLE_BUILTINS
-                        or alias.name in _FORBIDDEN_REFLECTIVE_ATTRS
-                        or alias.name in _FORBIDDEN_REEXPORT_ATTRS
-                        or (root_mod == "json" and alias.name == "tool")
-                        or (root_mod == "asyncio" and alias.name == "log")
-                        or (root_mod == "functools" and alias.name in ("partial", "partialmethod", "reduce"))
-                    ):
-                        forbidden_runtime_escape_reason = (
-                            f"[Harness Workflow Shield] Importing re-exported/reflective symbol `{mod_str}.{alias.name}` "
-                            "inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                        )
-                    elif root_mod == "sys" and alias.name in _FORBIDDEN_SYS_ATTRS:
-                        forbidden_runtime_escape_reason = (
-                            f"[Harness Workflow Shield] Importing `sys.{alias.name}` inside `run_workflow` "
-                            "is prohibited (GEMINI.md Rule 15e)."
-                        )
-                    elif root_mod == "os" and alias.name in ("environ", "environb"):
-                        environ_aliases.add(local)
-                    elif alias.name == "rmtree":
-                        rmtree_funcs.add(local)
-                    elif alias.name in ("ZipFile", "PyZipFile", "TarFile", "GzipFile", "BZ2File", "LZMAFile") or (
-                        root_mod in ("tarfile", "zipfile", "gzip", "bz2", "lzma") and alias.name == "open"
-                    ):
-                        imported_archive_open_funcs.add(local)
-                    elif alias.name in ("open", "FileIO"):
-                        imported_io_open_funcs.add(local)
-                    elif alias.name in _FORBIDDEN_DIRECT_FS_ATTRS or alias.name in _FORBIDDEN_OS_FS_NAMES:
-                        imported_os_fs_funcs.add(local)
-                    elif root_mod == "shutil":
-                        imported_shutil_fs_funcs.add(local)
-                    elif root_mod == "pathlib" or (root_mod == "zipfile" and alias.name == "Path"):
-                        pathlib_names.add(local)
-                        safe_imported_callables[local] = safe_imported_callables.get(local, 0) + 1
-                    elif mod_str == "os" and alias.name == "path":
-                        imported_module_names.add(local)
-                    else:
-                        safe_imported_callables[local] = safe_imported_callables.get(local, 0) + 1
-                        if (root_mod == "collections" and alias.name == "namedtuple") or (
-                            root_mod == "typing" and alias.name == "NamedTuple"
-                        ):
-                            namedtuple_factory_names.add(local)
-
-    if forbidden_child_exec_reason:
-        return _gov_deny_or(forbidden_child_exec_reason)
-    if forbidden_runtime_escape_reason:
-        return _gov_deny_or(forbidden_runtime_escape_reason)
-
-    def _is_environ_expr(expr: ast.AST) -> bool:
-        if isinstance(expr, ast.Attribute) and expr.attr in ("environ", "environb"):
-            return True
-        if isinstance(expr, ast.Name) and expr.id in environ_aliases:
-            return True
-        return False
-
-    safe_environ_node_ids: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and _is_environ_expr(node.value):
-            safe_environ_node_ids.add(id(node.value))
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in _SAFE_ENVIRON_READ_METHODS
-            and _is_environ_expr(node.func.value)
-        ):
-            safe_environ_node_ids.add(id(node.func.value))
-        elif isinstance(node, ast.Compare) and all(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
-            for comp in node.comparators:
-                if _is_environ_expr(comp):
-                    safe_environ_node_ids.add(id(comp))
-
-    guarded_imported_funcs = (
-        rmtree_funcs
-        | imported_os_fs_funcs
-        | imported_shutil_fs_funcs
-        | imported_io_open_funcs
-        | imported_archive_open_funcs
+    return _workflow_ast._inspect_workflow_script(
+        source,
+        arg_strings,
+        payload,
+        workspace,
+        workflow_cwd=workflow_cwd,
+        swarm_overlay=swarm_overlay,
+        pending_swarm_ops=pending_swarm_ops,
     )
-    guarded_module_aliases = (
-        imported_module_names
-        | os_aliases
-        | shutil_aliases
-        | io_open_aliases
-        | archive_aliases
-        | sys_aliases
-        | copy_mod_aliases
-        | json_mod_aliases
-    )
-
-    for node in ast.walk(tree):
-        if _is_environ_expr(node) and id(node) not in safe_environ_node_ids:
-            return _gov_deny_or(
-                "[Harness Workflow Shield] Mutating or aliasing `os.environ` inside `run_workflow` "
-                "is prohibited (GEMINI.md Rule 15e)."
-            )
-        if isinstance(node, ast.Name):
-            if isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in _PROTECTED_HOST_PRIMITIVES:
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Rebinding host primitive `{node.id}` inside "
-                    "`run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                )
-            if isinstance(node.ctx, ast.Load):
-                if (
-                    node.id in _NON_ALIASABLE_WORKFLOW_NAMES
-                    or node.id in guarded_imported_funcs
-                    or node.id in persistent_agents
-                ) and (id(node) not in call_func_node_ids):
-                    return _gov_deny_or(
-                        f"[Harness Workflow Shield] Aliasing or passing primitive `{node.id}` as a "
-                        "first-class value inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                    )
-                if node.id in guarded_module_aliases and id(node) not in attr_value_node_ids:
-                    return _gov_deny_or(
-                        f"[Harness Workflow Shield] Aliasing or passing module `{node.id}` as a "
-                        "first-class value inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                    )
-        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            if isinstance(node.value, ast.Attribute) and node.value.attr in ("environ", "environb"):
-                return _gov_deny_or(
-                    "[Harness Workflow Shield] Mutating `os.environ` inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                )
-        elif isinstance(node, ast.Attribute):
-            if node.attr in _FORBIDDEN_EXEC_ATTRS:
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Direct child-process primitive (`.{node.attr}`) inside "
-                    "`run_workflow` bypasses tool-level safety gates; use `call_tool('run_command', ...)` "
-                    "or delegated `agent(...)` turns (GEMINI.md Rule 15e)."
-                )
-            if node.attr in _FORBIDDEN_REFLECTIVE_ATTRS:
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Reflective/dynamic execution attribute (`.{node.attr}`) "
-                    "inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                )
-            if (
-                node.attr in _FORBIDDEN_REEXPORT_ATTRS
-                or (
-                    node.attr.startswith("_")
-                    and node.attr not in ("_asdict", "_replace", "_fields", "_field_defaults")
-                )
-                or (
-                    node.attr == "tool"
-                    and isinstance(node.value, ast.Name)
-                    and node.value.id in json_mod_aliases
-                )
-            ):
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Re-exported or private module attribute traversal (`.{node.attr}`) "
-                    "inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                )
-            if node.attr in _UNCONDITIONAL_FORBIDDEN_SYS_ATTRS or (
-                isinstance(node.value, ast.Name)
-                and node.value.id in sys_aliases
-                and node.attr in _FORBIDDEN_SYS_ATTRS
-            ):
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Accessing `sys.{node.attr}` inside `run_workflow` "
-                    "is prohibited (GEMINI.md Rule 15e)."
-                )
-            if (
-                isinstance(node.ctx, ast.Load)
-                and id(node) not in call_func_node_ids
-                and node.attr in _NON_ALIASABLE_FS_ATTRS
-            ):
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Aliasing or referencing filesystem/I/O method (`.{node.attr}`) "
-                    "without a direct call inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
-                )
-
-    flight_writes: List[Tuple[str, str]] = []
-    force_ask_reasons: List[str] = []
-    rmtree_calls: List[ast.Call] = []
-    indirect_call_reason: Optional[str] = None
-
-    # 3. Inspect all AST calls for child-process escapes, direct Python writes, `rmtree`, `call_tool`, and `agent`
-    raw_agent_call_nodes: List[ast.Call] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-
-        if not isinstance(node.func, (ast.Name, ast.Attribute)) and _unwrap_agent_call(node.func, allow_await=True) is None:
-            for arg_node in node.args[:2]:
-                p = _eval_workflow_path_expr(arg_node, const_vars)
-                if p:
-                    direct_fs_candidate_paths.append(p)
-            indirect_call_reason = (
-                "[Harness Workflow Shield] Indirect/computed call targets (such as container indexing or "
-                "factory chaining) inside `run_workflow` are prohibited so safety gates can inspect every call "
-                "(GEMINI.md Rule 15e)."
-            )
-            continue
-
-        if isinstance(node.func, ast.Name):
-            fn = node.func.id
-            if fn in _FORBIDDEN_CALLABLE_BUILTINS:
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            f"[Harness Workflow Shield] Dynamic/reflective builtin `{fn}()` is prohibited "
-                            "inside `run_workflow` (GEMINI.md Rule 15e)."
-                        ),
-                    },
-                    [],
-                )
-            if fn in rmtree_funcs:
-                rmtree_calls.append(node)
-                continue
-            if fn in imported_os_fs_funcs or fn in imported_shutil_fs_funcs:
-                direct_fs_mutation_detected = True
-                for arg_node in node.args[:2]:
-                    p = _eval_workflow_path_expr(arg_node, const_vars)
-                    if p:
-                        direct_fs_candidate_paths.append(p)
-                continue
-            if fn in imported_io_open_funcs or fn == "open":
-                if not _is_readonly_open_call(node, 1, const_vars):
-                    direct_fs_mutation_detected = True
-                    if node.args:
-                        p = _eval_workflow_path_expr(node.args[0], const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                    for kw in node.keywords:
-                        if kw.arg == "file":
-                            p = _eval_workflow_path_expr(kw.value, const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                continue
-            if fn in imported_archive_open_funcs:
-                if not _is_readonly_open_call(node, 1, const_vars, archive=True):
-                    direct_fs_mutation_detected = True
-                    if node.args:
-                        p = _eval_workflow_path_expr(node.args[0], const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                continue
-            if fn == "call_tool":
-                if len(node.args) != 1 or isinstance(node.args[0], ast.Starred):
-                    return (
-                        {
-                            "decision": "deny",
-                            "reason": (
-                                "[Harness Workflow Shield] `call_tool()` inside `run_workflow` requires "
-                                "exactly one positional tool-name string and static keyword arguments."
-                            ),
-                        },
-                        [],
-                    )
-                inner_name = _eval_workflow_str_expr(node.args[0], const_vars)
-                if not inner_name or not inner_name.strip():
-                    return (
-                        {
-                            "decision": "deny",
-                            "reason": (
-                                "[Harness Workflow Shield] `call_tool()` inside `run_workflow` must specify a "
-                                "static string tool name so safety gates can inspect it."
-                            ),
-                        },
-                        [],
-                    )
-                inner_tool = inner_name.strip().lower().rsplit(":", 1)[-1]
-                if inner_tool == "run_workflow":
-                    return (
-                        {
-                            "decision": "deny",
-                            "reason": (
-                                "[Harness Workflow Shield] Nested `call_tool('run_workflow', ...)` inside "
-                                "`run_workflow` is prohibited."
-                            ),
-                        },
-                        [],
-                    )
-                static_kwargs: Dict[str, Any] = {}
-                has_dynamic_kw = False
-                for kw in node.keywords:
-                    if kw.arg is None:
-                        has_dynamic_kw = True
-                        continue
-                    const_val, const_ok = _eval_workflow_const_value(kw.value, const_vars)
-                    if const_ok:
-                        static_kwargs[kw.arg] = const_val
-                    else:
-                        has_dynamic_kw = True
-
-                if inner_tool in WRITE_TOOL_NAMES:
-                    targets = _extract_write_targets(static_kwargs)
-                    if not targets or has_dynamic_kw:
-                        for cand in [*targets, *arg_strings, *all_literals]:
-                            if _path_hits_gov(cand, resolve_rel=(cand in targets)):
-                                return (
-                                    {
-                                        "decision": "deny",
-                                        "reason": (
-                                            "[Harness Governance Shield] Direct write to the protected governance tree "
-                                            f"(`{cand}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                                        ),
-                                    },
-                                    [],
-                                )
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside `run_workflow` "
-                                    "must pass static arguments (including `Path`) so Governance Shield and Flight Recorder can verify the write."
-                                ),
-                            },
-                            [],
-                        )
-                    for target in targets:
-                        if "\x00" in target:
-                            return (
-                                {
-                                    "decision": "deny",
-                                    "reason": "[Harness Workflow Shield] Null bytes in `call_tool` target paths are prohibited.",
-                                },
-                                [],
-                            )
-                        if _path_hits_gov(target, resolve_rel=True):
-                            return (
-                                {
-                                    "decision": "deny",
-                                    "reason": (
-                                        "[Harness Governance Shield] Direct write to the protected governance tree "
-                                        f"(`{target}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                                    ),
-                                },
-                                [],
-                            )
-                    if any(_path_hits_cust(target, resolve_rel=True) for target in targets):
-                        mod_eval = _evaluate_customization_model_and_effort(payload)
-                        if mod_eval is not None:
-                            if mod_eval[0] == "deny":
-                                return {"decision": "deny", "reason": mod_eval[1]}, []
-                            force_ask_reasons.append(mod_eval[1])
-                    for target in targets:
-                        if _write_mutates_authorized_test_section(target, static_kwargs, eff_cwd):
-                            force_ask_reasons.append(
-                                "[Harness Test Boundary] Modifying `## Authorized Test Modifications` in `tasks.md` "
-                                "requires explicit human confirmation (GEMINI.md Rule 9)."
-                            )
-                        exp_t = Path(os.path.expanduser(target.strip()))
-                        rec_t = str(eff_cwd / exp_t) if (not exp_t.is_absolute() and eff_cwd is not None) else target
-                        flight_writes.append((inner_tool, rec_t))
-                elif inner_tool in COMMAND_TOOL_NAMES:
-                    if has_dynamic_kw:
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside `run_workflow` "
-                                    "must pass static command arguments or delegate to `agent(...)`."
-                                ),
-                            },
-                            [],
-                        )
-                    if inner_tool == "manage_task":
-                        mt_act = str(static_kwargs.get("Action") or static_kwargs.get("action") or "").strip().lower()
-                        mt_inp = str(static_kwargs.get("Input") or static_kwargs.get("input") or "").strip()
-                        if mt_act not in ("list", "status", "kill") and not mt_inp:
-                            return (
-                                {
-                                    "decision": "deny",
-                                    "reason": (
-                                        "[Harness Workflow Shield] `call_tool('manage_task', ...)` inside `run_workflow` "
-                                        "requires an explicit `Action` (`list`/`status`/`kill` or non-empty `send_input`)."
-                                    ),
-                                },
-                                [],
-                            )
-                    elif inner_tool == "send_command_input":
-                        sci_inp = str(
-                            static_kwargs.get("Input")
-                            or static_kwargs.get("input")
-                            or static_kwargs.get("CommandLine")
-                            or static_kwargs.get("command")
-                            or ""
-                        ).strip()
-                        if not sci_inp:
-                            return (
-                                {
-                                    "decision": "deny",
-                                    "reason": (
-                                        "[Harness Workflow Shield] `call_tool('send_command_input', ...)` inside "
-                                        "`run_workflow` requires a non-empty static `Input` string."
-                                    ),
-                                },
-                                [],
-                            )
-                    else:
-                        rc_cmd = str(static_kwargs.get("CommandLine") or static_kwargs.get("command") or "").strip()
-                        if not rc_cmd:
-                            return (
-                                {
-                                    "decision": "deny",
-                                    "reason": (
-                                        f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside "
-                                        "`run_workflow` requires a non-empty static `CommandLine` string."
-                                    ),
-                                },
-                                [],
-                            )
-                    inner_payload = {
-                        **payload,
-                        "_workflowDryCheck": True,
-                        **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
-                        "toolCall": {"name": inner_tool, "args": static_kwargs},
-                    }
-                    inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(inner_payload)
-                    if inner_res.get("decision") == "deny":
-                        return inner_res, []
-                    if inner_res.get("decision") == "force_ask":
-                        force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                elif inner_tool in ("invoke_subagent", "swarm", "post_message", "send_message", "define_subagent", "schedule"):
-                    if has_dynamic_kw:
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside "
-                                    "`run_workflow` must pass static arguments."
-                                ),
-                            },
-                            [],
-                        )
-                    inner_payload: Dict[str, Any] = {
-                        **payload,
-                        "_workflowDryCheck": True,
-                        **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
-                        "toolCall": {"name": inner_tool, "args": static_kwargs},
-                    }
-                    if inner_tool in ("swarm", "post_message", "send_message", "define_subagent", "invoke_subagent"):
-                        inner_payload["_swarmOverlay"] = swarm_overlay
-                        inner_payload["_pendingSwarmOps"] = local_swarm_ops
-                    inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(inner_payload)
-                    if inner_res.get("decision") == "deny":
-                        return inner_res, []
-                    if inner_res.get("decision") == "force_ask":
-                        force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                elif inner_tool == "call_mcp_tool" or inner_tool.startswith("mcp_"):
-                    if has_dynamic_kw:
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside "
-                                    "`run_workflow` must pass static arguments so MCP safety gates can inspect it."
-                                ),
-                            },
-                            [],
-                        )
-                    inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(
-                        {
-                            **payload,
-                            "_workflowDryCheck": True,
-                            **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
-                            "toolCall": {"name": inner_tool, "args": static_kwargs},
-                        }
-                    )
-                    if inner_res.get("decision") == "deny":
-                        return inner_res, []
-                    if inner_res.get("decision") == "force_ask":
-                        force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                    mcp_nested = (
-                        static_kwargs.get("Arguments")
-                        if isinstance(static_kwargs.get("Arguments"), dict)
-                        else (
-                            static_kwargs.get("arguments")
-                            if isinstance(static_kwargs.get("arguments"), dict)
-                            else static_kwargs
-                        )
-                    )
-                    for mcp_t in _extract_mcp_target_paths(mcp_nested):
-                        exp_mt = Path(os.path.expanduser(mcp_t.strip()))
-                        rec_mt = str(eff_cwd / exp_mt) if (not exp_mt.is_absolute() and eff_cwd is not None) else mcp_t
-                        flight_writes.append((inner_tool, rec_mt))
-                continue
-            if fn == "agent":
-                raw_agent_call_nodes.append(node)
-                continue
-            if fn in persistent_agents and len(persistent_agents[fn]) == store_counts.get(fn, 0):
-                if node.args:
-                    persistent_agent_turn_nodes[fn].append(node.args[0])
-                for kw in node.keywords:
-                    if kw.arg == "prompt":
-                        persistent_agent_turn_nodes[fn].append(kw.value)
-                continue
-
-            is_namedtuple_ctor = False
-            if store_counts.get(fn, 0) == 1 and isinstance(single_rhs.get(fn), ast.Call):
-                rhs_call = single_rhs[fn]
-                assert isinstance(rhs_call, ast.Call)
-                if (
-                    isinstance(rhs_call.func, ast.Name)
-                    and rhs_call.func.id in namedtuple_factory_names
-                    and store_counts.get(rhs_call.func.id, 0) == 1
-                ) or (
-                    isinstance(rhs_call.func, ast.Attribute)
-                    and rhs_call.func.attr == "namedtuple"
-                    and isinstance(rhs_call.func.value, ast.Name)
-                    and rhs_call.func.value.id in collections_mod_aliases
-                    and store_counts.get(rhs_call.func.value.id, 0) == 1
-                ):
-                    is_namedtuple_ctor = True
-
-            is_verified_name_call = (
-                (fn in _SAFE_WORKFLOW_HOST_CALLABLES and bind_counts.get(fn, 0) == 0)
-                or (fn in _SAFE_WORKFLOW_BUILTINS and bind_counts.get(fn, 0) == 0)
-                or (fn in local_callable_defs and local_callable_defs[fn] == store_counts.get(fn, 0))
-                or (fn in safe_imported_callables and safe_imported_callables[fn] == store_counts.get(fn, 0))
-                or is_namedtuple_ctor
-            )
-            if not is_verified_name_call:
-                return _gov_deny_or(
-                    f"[Harness Workflow Shield] Calling dynamically bound or unverified symbol `{fn}()` "
-                    "inside `run_workflow` is prohibited so safety gates can inspect every call (GEMINI.md Rule 15e)."
-                )
-            continue
-
-        elif isinstance(node.func, ast.Attribute):
-            attr = node.func.attr
-            recv = node.func.value
-            recv_name = recv.id if isinstance(recv, ast.Name) else ""
-
-            if attr in _FORBIDDEN_EXEC_ATTRS:
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            f"[Harness Workflow Shield] Direct child-process execution (`.{attr}()`) inside "
-                            "`run_workflow` bypasses tool-level safety gates; use `call_tool('run_command', ...)` "
-                            "or delegated `agent(...)` turns (GEMINI.md Rule 15e)."
-                        ),
-                    },
-                    [],
-                )
-            if attr == "rmtree":
-                rmtree_calls.append(node)
-                continue
-            if attr in _FORBIDDEN_DIRECT_FS_ATTRS:
-                direct_fs_mutation_detected = True
-                recv_path = _eval_workflow_path_expr(recv, const_vars)
-                if recv_path:
-                    direct_fs_candidate_paths.append(recv_path)
-                for arg_node in node.args[:2]:
-                    p = _eval_workflow_path_expr(arg_node, const_vars)
-                    if p:
-                        direct_fs_candidate_paths.append(p)
-                for kw in node.keywords:
-                    if kw.arg in ("src", "dst", "target", "target_dir", "path"):
-                        p = _eval_workflow_path_expr(kw.value, const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                continue
-            if attr == "replace":
-                has_star = any(isinstance(a, ast.Starred) for a in node.args) or any(
-                    kw.arg is None for kw in node.keywords
-                )
-                is_path_replace = (
-                    recv_name in pathlib_names
-                    or (isinstance(recv, ast.Attribute) and recv.attr in pathlib_names)
-                    or (len(node.args) == 1 and not node.keywords)
-                    or (len(node.args) == 0 and any(kw.arg == "target" for kw in node.keywords))
-                    or has_star
-                )
-                if recv_name in os_aliases or is_path_replace:
-                    direct_fs_mutation_detected = True
-                    recv_path = _eval_workflow_path_expr(recv, const_vars)
-                    if recv_path:
-                        direct_fs_candidate_paths.append(recv_path)
-                    for arg_node in node.args[:2]:
-                        p = _eval_workflow_path_expr(arg_node, const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                    for kw in node.keywords:
-                        if kw.arg in ("target", "dst"):
-                            p = _eval_workflow_path_expr(kw.value, const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                continue
-            if attr in ("remove", "truncate", "ftruncate", "link", "utime") and recv_name in os_aliases:
-                direct_fs_mutation_detected = True
-                for arg_node in node.args[:2]:
-                    p = _eval_workflow_path_expr(arg_node, const_vars)
-                    if p:
-                        direct_fs_candidate_paths.append(p)
-                continue
-            if attr == "copy" and (
-                recv_name in shutil_aliases
-                or len(node.args) >= 2
-                or ((bool(node.args) or bool(node.keywords)) and recv_name not in copy_mod_aliases)
-            ):
-                direct_fs_mutation_detected = True
-                recv_path = _eval_workflow_path_expr(recv, const_vars)
-                if recv_path:
-                    direct_fs_candidate_paths.append(recv_path)
-                for arg_node in node.args[:2]:
-                    p = _eval_workflow_path_expr(arg_node, const_vars)
-                    if p:
-                        direct_fs_candidate_paths.append(p)
-                for kw in node.keywords:
-                    if kw.arg in ("src", "dst", "target"):
-                        p = _eval_workflow_path_expr(kw.value, const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                continue
-            if attr == "FileIO":
-                if not _is_readonly_open_call(node, 1, const_vars):
-                    direct_fs_mutation_detected = True
-                    if node.args:
-                        p = _eval_workflow_path_expr(node.args[0], const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                    for kw in node.keywords:
-                        if kw.arg == "file":
-                            p = _eval_workflow_path_expr(kw.value, const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                continue
-            if attr in ("ZipFile", "PyZipFile", "TarFile", "GzipFile", "BZ2File", "LZMAFile"):
-                if not _is_readonly_open_call(node, 1, const_vars, archive=True):
-                    direct_fs_mutation_detected = True
-                    if node.args:
-                        p = _eval_workflow_path_expr(node.args[0], const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                    for kw in node.keywords:
-                        if kw.arg in ("file", "name"):
-                            p = _eval_workflow_path_expr(kw.value, const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                continue
-            if attr == "open":
-                is_unbound_path_open = recv_name in pathlib_names or (
-                    isinstance(recv, ast.Attribute) and recv.attr in pathlib_names
-                )
-                if recv_name in os_aliases:
-                    direct_fs_mutation_detected = True
-                    if node.args:
-                        p = _eval_workflow_path_expr(node.args[0], const_vars)
-                        if p:
-                            direct_fs_candidate_paths.append(p)
-                    for kw in node.keywords:
-                        if kw.arg in ("path", "file"):
-                            p = _eval_workflow_path_expr(kw.value, const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                elif recv_name in io_open_aliases:
-                    if not _is_readonly_open_call(node, 1, const_vars):
-                        direct_fs_mutation_detected = True
-                        if node.args:
-                            p = _eval_workflow_path_expr(node.args[0], const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                elif recv_name in archive_aliases:
-                    if not _is_readonly_open_call(node, 1, const_vars, archive=True):
-                        direct_fs_mutation_detected = True
-                        if node.args:
-                            p = _eval_workflow_path_expr(node.args[0], const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                elif is_unbound_path_open:
-                    if not _is_readonly_open_call(node, 1, const_vars):
-                        direct_fs_mutation_detected = True
-                        if node.args:
-                            p = _eval_workflow_path_expr(node.args[0], const_vars)
-                            if p:
-                                direct_fs_candidate_paths.append(p)
-                else:
-                    # Bound `Path(...).open(mode='r', ...)` has `mode` at positional index 0
-                    if not _is_readonly_open_call(node, 0, const_vars):
-                        direct_fs_mutation_detected = True
-                        recv_path = _eval_workflow_path_expr(recv, const_vars)
-                        if recv_path:
-                            direct_fs_candidate_paths.append(recv_path)
-                continue
-
-    if direct_fs_mutation_detected:
-        for cand in [*direct_fs_candidate_paths, *const_vars.values()]:
-            if _path_hits_gov(cand, resolve_rel=True):
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            "[Harness Governance Shield] Direct Python mutation of protected governance path "
-                            f"(`{cand}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                        ),
-                    },
-                    [],
-                )
-        for cand in [*arg_strings, *all_literals]:
-            if _path_hits_gov(cand, resolve_rel=False):
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            "[Harness Governance Shield] Direct Python mutation of protected governance path "
-                            f"(`{cand}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                        ),
-                    },
-                    [],
-                )
-        return (
-            {
-                "decision": "deny",
-                "reason": (
-                    "[Harness Workflow Shield] Direct Python filesystem writes/mutations inside `run_workflow` "
-                    "bypass tool-level safety and Flight Recorder gates; use `call_tool('write_file', ...)` "
-                    "or `agent(...)` instead (GEMINI.md Rule 15e)."
-                ),
-            },
-            [],
-        )
-
-    if indirect_call_reason:
-        return _gov_deny_or(indirect_call_reason)
-
-    for rmtree_node in rmtree_calls:
-        if any(isinstance(a, ast.Starred) for a in rmtree_node.args) or any(
-            kw.arg is None for kw in rmtree_node.keywords
-        ):
-            resolved_rm = None
-        else:
-            target_arg = rmtree_node.args[0] if rmtree_node.args else None
-            if target_arg is None:
-                for kw in rmtree_node.keywords:
-                    if kw.arg == "path":
-                        target_arg = kw.value
-                        break
-            resolved_rm = _eval_workflow_path_expr(target_arg, const_vars)
-        if resolved_rm is None:
-            if eff_cwd is not None and _targets_governance_dir(str(eff_cwd)):
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            "[Harness Governance Shield] Recursive deletion inside protected governance Cwd "
-                            f"(`{eff_cwd}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                        ),
-                    },
-                    [],
-                )
-            for cand in [*const_vars.values(), *arg_strings, *all_literals]:
-                if _path_hits_gov(cand, resolve_rel=False):
-                    return (
-                        {
-                            "decision": "deny",
-                            "reason": (
-                                "[Harness Governance Shield] Recursive deletion targeting protected governance path "
-                                f"(`{cand}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                            ),
-                        },
-                        [],
-                    )
-            return (
-                {
-                    "decision": "deny",
-                    "reason": (
-                        "[Harness Workflow Shield] `shutil.rmtree()` inside `run_workflow` requires a static "
-                        "path literal so Governance Shield can verify the target (GEMINI.md Rule 12 & Rule 15e)."
-                    ),
-                },
-                [],
-            )
-        if _path_hits_gov(resolved_rm, resolve_rel=True):
-            return (
-                {
-                    "decision": "deny",
-                    "reason": (
-                        "[Harness Governance Shield] Recursive deletion of protected governance path "
-                        f"(`{resolved_rm}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                    ),
-                },
-                [],
-            )
-        if _path_hits_cust(resolved_rm, resolve_rel=True):
-            mod_eval = _evaluate_customization_model_and_effort(payload)
-            if mod_eval is not None:
-                if mod_eval[0] == "deny":
-                    return {"decision": "deny", "reason": mod_eval[1]}, []
-                force_ask_reasons.append(mod_eval[1])
-        force_ask_reasons.append(
-            "[Harness Workflow Shield] Recursive directory deletion (`shutil.rmtree`) inside `run_workflow` "
-            "requires explicit human confirmation (GEMINI.md Rule 12)."
-        )
-
-    # 4. Enforce Customization Model Gate on one-shot, persistent (`var = agent(...)`), and chained `agent(...)(...)` calls
-    def _agent_has_oneshot_prompt(ag_call: ast.Call) -> bool:
-        if any(isinstance(a, ast.Starred) for a in ag_call.args) or any(k.arg is None for k in ag_call.keywords):
-            return False
-        prompt_arg: Optional[ast.AST] = ag_call.args[0] if ag_call.args else None
-        if prompt_arg is None:
-            for k in ag_call.keywords:
-                if k.arg == "prompt":
-                    prompt_arg = k.value
-                    break
-        if prompt_arg is None:
-            return False
-        folded_prompt = _eval_workflow_str_expr(prompt_arg, const_vars)
-        if folded_prompt is not None:
-            return bool(folded_prompt.strip())
-        if isinstance(prompt_arg, ast.JoinedStr):
-            return True
-        if isinstance(prompt_arg, ast.BinOp) and isinstance(prompt_arg.op, ast.Add):
-            frag, _ = _extract_partial_text_and_dynamic(prompt_arg, const_vars)
-            return bool(frag.strip())
-        return False
-
-    def _direct_parallel_agent_calls(par_call: ast.Call) -> List[ast.Call]:
-        found: List[ast.Call] = []
-        for par_arg in par_call.args:
-            cand = _unwrap_agent_call(par_arg, allow_await=True)
-            if cand is not None:
-                found.append(cand)
-            elif isinstance(par_arg, ast.Lambda):
-                lam_cand = _unwrap_agent_call(par_arg.body, allow_await=True)
-                if lam_cand is not None:
-                    found.append(lam_cand)
-            elif isinstance(par_arg, (ast.List, ast.Tuple)):
-                for elt in par_arg.elts:
-                    elt_cand = _unwrap_agent_call(elt, allow_await=True)
-                    if elt_cand is not None:
-                        found.append(elt_cand)
-                    elif isinstance(elt, ast.Lambda):
-                        lam_cand = _unwrap_agent_call(elt.body, allow_await=True)
-                        if lam_cand is not None:
-                            found.append(lam_cand)
-            elif isinstance(par_arg, (ast.ListComp, ast.GeneratorExp)):
-                comp_cand = _unwrap_agent_call(par_arg.elt, allow_await=True)
-                if comp_cand is not None:
-                    found.append(comp_cand)
-                elif isinstance(par_arg.elt, ast.Lambda):
-                    lam_cand = _unwrap_agent_call(par_arg.elt.body, allow_await=True)
-                    if lam_cand is not None:
-                        found.append(lam_cand)
-        return found
-
-    call_to_vars: Dict[int, List[str]] = {}
-    allowed_agent_call_ids: set[int] = set(chained_agent_turns.keys())
-    for var_name, ag_list in persistent_agents.items():
-        for ag_c in ag_list:
-            call_to_vars.setdefault(id(ag_c), []).append(var_name)
-            allowed_agent_call_ids.add(id(ag_c))
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Await):
-            aw_ag = _unwrap_agent_call(n.value, allow_await=False)
-            if aw_ag is not None and _agent_has_oneshot_prompt(aw_ag):
-                allowed_agent_call_ids.add(id(aw_ag))
-        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("parallel", "pipeline"):
-            for sub in _direct_parallel_agent_calls(n):
-                if _agent_has_oneshot_prompt(sub):
-                    allowed_agent_call_ids.add(id(sub))
-
-    for ag_node in raw_agent_call_nodes:
-        if id(ag_node) not in allowed_agent_call_ids:
-            return (
-                {
-                    "decision": "deny",
-                    "reason": (
-                        "[Harness Workflow Shield] Persistent `agent()` handles inside `run_workflow` must be "
-                        "bound directly to a variable name (`var = agent(...)`) or awaited directly so safety "
-                        "gates can inspect every turn (GEMINI.md Rule 15e & Rule 17)."
-                    ),
-                },
-                [],
-            )
-        extra_prompt_nodes: List[ast.AST] = list(chained_agent_turns.get(id(ag_node), []))
-        for var_name in call_to_vars.get(id(ag_node), ()):
-            extra_prompt_nodes.extend(persistent_agent_turn_nodes.get(var_name, []))
-
-        # Signature: agent(prompt=None, schema=None, role=None, type_name="self", workspace="inherit", model=None)
-        model_node: Optional[ast.AST] = ag_node.args[5] if len(ag_node.args) >= 6 else None
-        type_node: Optional[ast.AST] = ag_node.args[3] if len(ag_node.args) >= 4 else None
-        prompt_nodes: List[ast.AST] = list(extra_prompt_nodes)
-        if ag_node.args:
-            prompt_nodes.append(ag_node.args[0])
-        if len(ag_node.args) >= 3:
-            prompt_nodes.append(ag_node.args[2])
-        has_star_kw = any(isinstance(a, ast.Starred) for a in ag_node.args)
-        for kw in ag_node.keywords:
-            if kw.arg is None:
-                has_star_kw = True
-            elif kw.arg == "model":
-                model_node = kw.value
-            elif kw.arg == "type_name":
-                type_node = kw.value
-            elif kw.arg in ("prompt", "role"):
-                prompt_nodes.append(kw.value)
-
-        model_dynamic = has_star_kw
-        if model_node is None or (isinstance(model_node, ast.Constant) and model_node.value is None):
-            model_tier = "inherit"
-        else:
-            eval_m = _eval_workflow_str_expr(model_node, const_vars)
-            if eval_m is None:
-                model_tier = ""
-                model_dynamic = True
-            else:
-                model_tier = eval_m.strip().lower()
-
-        if type_node is None or (isinstance(type_node, ast.Constant) and type_node.value is None):
-            agent_type = "self"
-        else:
-            type_val = _eval_workflow_str_expr(type_node, const_vars)
-            agent_type = type_val.strip().lower() if type_val is not None else "__dynamic__"
-        if has_star_kw and type_node is None:
-            agent_type = "__dynamic__"
-
-        prompt_fragments: List[str] = []
-        prompt_has_dynamic = False
-        for p_node in prompt_nodes:
-            frag, is_dyn = _extract_partial_text_and_dynamic(p_node, const_vars)
-            if frag:
-                prompt_fragments.append(frag)
-            for multi_frag in _eval_multi_candidates(p_node, multi_var_values):
-                if multi_frag and multi_frag not in prompt_fragments:
-                    prompt_fragments.append(multi_frag)
-            for sub_p in ast.walk(p_node):
-                if isinstance(sub_p, ast.Name) and sub_p.id in multi_var_values:
-                    for mv_cand in multi_var_values[sub_p.id]:
-                        if mv_cand and mv_cand not in prompt_fragments:
-                            prompt_fragments.append(mv_cand)
-            if is_dyn:
-                prompt_has_dynamic = True
-
-        parent_cust_eval = _evaluate_customization_model_and_effort(payload) if agent_type != "research" else None
-        parent_model_fails_cust = parent_cust_eval is not None
-        agent_fails_cust_gate = (
-            model_dynamic
-            or model_tier in ("flash", "flash_lite")
-            or (agent_type != "research" and model_tier not in ("", "none", "inherit"))
-            or parent_model_fails_cust
-        )
-
-        haystacks = list(prompt_fragments)
-        if prompt_has_dynamic or model_dynamic:
-            haystacks.extend(arg_strings)
-            if agent_fails_cust_gate:
-                haystacks.extend(all_literals)
-
-        wf_workspaces = _workspaces_from_payload(payload)
-        ws_ctx = eff_cwd if eff_cwd is not None else workspace
-        combined_prompt = " ".join(haystacks)
-        targets_cust = (
-            _text_targets_customization(
-                combined_prompt,
-                wf_workspaces,
-                fallback_ws=workspace,
-                effective_cwd=eff_cwd,
-                extra_tokens=haystacks,
-            )
-            or (
-                eff_cwd is not None
-                and (
-                    _targets_governance_dir(str(eff_cwd))
-                    or _targets_customization_structure(str(eff_cwd), workspace=ws_ctx)
-                )
-            )
-        )
-        if targets_cust and agent_type != "research":
-            if model_dynamic:
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            "[Harness Customization Model Gate] `run_workflow` `agent()` targeting "
-                            "customization or governance files must specify literal `model='inherit'` "
-                            "(GEMINI.md Rule 15e & Rule 17)."
-                        ),
-                    },
-                    [],
-                )
-            if model_tier in ("flash", "flash_lite") or model_tier not in ("", "none", "inherit"):
-                return (
-                    {
-                        "decision": "deny",
-                        "reason": (
-                            "[Harness Customization Model Gate] `run_workflow` cannot delegate "
-                            f"customization or governance modifications to downgraded model tier `{model_tier}` "
-                            "(GEMINI.md Rule 15e & Rule 17)."
-                        ),
-                    },
-                    [],
-                )
-            if parent_cust_eval is not None:
-                if parent_cust_eval[0] == "deny":
-                    return {"decision": "deny", "reason": parent_cust_eval[1]}, []
-                force_ask_reasons.append(parent_cust_eval[1])
-
-    # 5. Prompt (`force_ask`) on destructive shell patterns, unpinned remote packages, or `shutil.rmtree`
-    for text in cmd_candidates:
-        unquoted_t = _unquote_single_tokens(text)
-        for pattern, reason in _DESTRUCTIVE_CMD_PATTERNS:
-            if pattern.search(unquoted_t):
-                force_ask_reasons.append(f"[Harness Workflow Shield] {reason}")
-                break
-        unpinned_reason = _detect_unpinned_package_exec(unquoted_t)
-        if unpinned_reason:
-            force_ask_reasons.append(f"[Harness Workflow Shield] {unpinned_reason}")
-
-    if force_ask_reasons:
-        if pending_swarm_ops is not None and local_swarm_ops:
-            pending_swarm_ops.extend(local_swarm_ops)
-        return {"decision": "force_ask", "reason": force_ask_reasons[0]}, []
-
-    if pending_swarm_ops is not None and local_swarm_ops:
-        pending_swarm_ops.extend(local_swarm_ops)
-    return {"decision": "allow"}, flight_writes
 
 def _payload_cwd(payload: Dict[str, Any], args: Dict[str, Any]) -> Optional[Path]:
     for container in (args, payload):
@@ -5360,13 +4132,21 @@ def _extract_shell_path_tokens(sub_cmd: str) -> List[str]:
 def _shell_has_unquoted_mutation(sub_cmd: str) -> bool:
     expanded = _unquote_single_tokens(_strip_unquoted_shell_comments(sub_cmd))
     scrubbed = _QUOTED_SPAN_RE.sub('"__QUOTED__"', expanded)
-    return bool(_SHELL_MUTATION_INDICATOR_RE.search(scrubbed))
+    if not _SHELL_MUTATION_INDICATOR_RE.search(scrubbed):
+        return False
+    if "python" in sub_cmd.lower():
+        ro_scrubbed, _unverified, _mut_srcs = _scrub_verified_readonly_python_invocations(sub_cmd)
+        if ro_scrubbed != sub_cmd:
+            exp_ro = _unquote_single_tokens(_strip_unquoted_shell_comments(ro_scrubbed))
+            scrubbed_ro = _QUOTED_SPAN_RE.sub('"__QUOTED__"', exp_ro)
+            return bool(_SHELL_MUTATION_INDICATOR_RE.search(scrubbed_ro))
+    return True
 
-_CD_SEG_RE = re.compile(
+_CD_SEG_RE = _LazyRegex(
     r"^\s*\(*\s*(?:builtin\s+|command\s+)?(?P<verb>cd|pushd|popd)(?:\s+(?P<rest>.*))?$"
 )
 
-_INLINE_DIR_FLAG_RE = re.compile(
+_INLINE_DIR_FLAG_RE = _LazyRegex(
     r"(?:^|\s)(?:-C\s+(?P<c_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)|--(?:directory|chdir)(?:=(?P<eq_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)|\s+(?P<sp_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)))"
 )
 
@@ -5440,7 +4220,14 @@ def _iter_shell_segments_with_cwd(
     return out
 
 def _command_mutates_governance_in_cwd(sub_cmd: str, effective_cwd: Optional[Path]) -> bool:
-    for seg, seg_cwd in _iter_shell_segments_with_cwd(sub_cmd, effective_cwd):
+    if "python" in sub_cmd.lower() or _NON_PYTHON_INTERP_RE.search(sub_cmd):
+        ro_scrubbed, _saw_unv, mut_srcs = _scrub_verified_readonly_python_invocations(sub_cmd)
+    else:
+        ro_scrubbed, mut_srcs = sub_cmd, []
+    seen_cwds: List[Optional[Path]] = [effective_cwd]
+    for seg, seg_cwd in _iter_shell_segments_with_cwd(ro_scrubbed, effective_cwd):
+        if seg_cwd not in seen_cwds:
+            seen_cwds.append(seg_cwd)
         if not _shell_has_unquoted_mutation(seg):
             continue
         tokens = _extract_shell_path_tokens(seg)
@@ -5451,18 +4238,41 @@ def _command_mutates_governance_in_cwd(sub_cmd: str, effective_cwd: Optional[Pat
             rel_tokens = [t for t in tokens if not Path(os.path.expanduser(t)).is_absolute()]
             if not tokens or any(_targets_governance_dir(t, base_dir=seg_cwd) for t in rel_tokens):
                 return True
+    for mut_src in mut_srcs:
+        for cand_cwd in seen_cwds:
+            if _python_ast_targets_governance(mut_src, base_dir=cand_cwd):
+                return True
     return False
 
 def _command_mutates_customization_in_cwd(
     sub_cmd: str, effective_cwd: Optional[Path], workspaces: Sequence[Path], fallback_ws: Optional[Path]
 ) -> bool:
-    for seg, seg_cwd in _iter_shell_segments_with_cwd(sub_cmd, effective_cwd):
+    if "python" in sub_cmd.lower() or _NON_PYTHON_INTERP_RE.search(sub_cmd):
+        ro_sub, saw_unv_c, mut_srcs_c = _scrub_verified_readonly_python_invocations(sub_cmd)
+    else:
+        ro_sub, saw_unv_c, mut_srcs_c = sub_cmd, False, []
+
+    def _matches_cust_target(cand_str: str, base_dir: Optional[Path]) -> bool:
+        exp_c = Path(os.path.expanduser(cand_str))
+        if not exp_c.is_absolute() and base_dir is None:
+            return False
+        res_c = str(base_dir / exp_c) if (not exp_c.is_absolute() and base_dir is not None) else str(exp_c)
+        t_ws = _workspace_for_target(res_c, workspaces, fallback=(fallback_ws or base_dir))
+        return _targets_customization_structure(res_c, workspace=t_ws)
+
+    seen_cwds_c: List[Optional[Path]] = [effective_cwd if effective_cwd is not None else fallback_ws]
+    for seg, seg_cwd in _iter_shell_segments_with_cwd(ro_sub, effective_cwd):
+        base_cwd = seg_cwd if seg_cwd is not None else fallback_ws
+        if base_cwd not in seen_cwds_c:
+            seen_cwds_c.append(base_cwd)
         is_interp = bool(
-            re.search(r"\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*\s-(?:[A-Za-z0-9]*[ceip])", seg)
+            re.search(
+                r"\b(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*[ceip])|<<)",
+                seg,
+            )
         )
         if not _shell_has_unquoted_mutation(seg) and not is_interp:
             continue
-        base_cwd = seg_cwd if seg_cwd is not None else fallback_ws
         ws_root = (
             _workspace_for_target(str(base_cwd), workspaces, fallback=(fallback_ws or base_cwd))
             if base_cwd is not None
@@ -5472,16 +4282,65 @@ def _command_mutates_customization_in_cwd(
         if is_interp:
             tokens.extend(re.findall(r"['\"]([^'\"]*[/\\][^'\"]+)['\"]", seg))
         for tok in tokens:
-            exp = Path(os.path.expanduser(tok))
-            if not exp.is_absolute() and base_cwd is None:
-                continue
-            resolved_str = str(base_cwd / exp) if (not exp.is_absolute() and base_cwd is not None) else str(exp)
-            tok_ws = _workspace_for_target(resolved_str, workspaces, fallback=(ws_root or base_cwd))
-            if _targets_customization_structure(resolved_str, workspace=tok_ws):
+            if _matches_cust_target(tok, base_cwd):
                 return True
         if not is_interp and base_cwd is not None and _targets_customization_structure(str(base_cwd), workspace=ws_root):
             if not tokens or any(not Path(os.path.expanduser(t)).is_absolute() for t in tokens):
                 return True
+
+    if saw_unv_c:
+        in_h_scope = _workspaces_in_harness_scope(workspaces, effective_cwd)
+
+        def _neutralize_ro_exec_cwd(src_text: str) -> str:
+            if not _EXEC_CALL_ARGV_RE.search(src_text):
+                return src_text
+
+            def _repl_c(m: re.Match[str]) -> str:
+                argv_src = m.group(1) if m.group(1) is not None else (m.group(2) or "")
+                parts = [
+                    tm.group(1) if tm.group(1) is not None else (tm.group(2) or "")
+                    for tm in _STR_ARGV_TOKEN_RE.finditer(argv_src)
+                ]
+                synth = " ".join(parts).strip()
+                if (
+                    synth
+                    and synth != sub_cmd.strip()
+                    and not _EXEC_CALL_ARGV_RE.search(synth)
+                    and not _command_mutates_customization_in_cwd(synth, effective_cwd, workspaces, fallback_ws)
+                    and not _command_mutates_customization_structure(synth, harness_scope=in_h_scope)
+                ):
+                    full_m = m.group(0)
+                    return full_m[: full_m.find("(") + 1] + "None"
+                return m.group(0)
+
+            return _EXEC_CALL_ARGV_RE.sub(_repl_c, src_text)
+
+        ro_sub_clean = _neutralize_ro_exec_cwd(ro_sub)
+        for cand_str in re.findall(r"['\"]([^'\"\n]{1,512})['\"]", ro_sub_clean):
+            for bc in seen_cwds_c:
+                if _matches_cust_target(cand_str, bc):
+                    return True
+        for mut_src in mut_srcs_c:
+            mut_src_clean = _neutralize_ro_exec_cwd(mut_src)
+            try:
+                ded_c = textwrap.dedent(mut_src_clean)
+                tree_c = ast.parse(ded_c.encode("utf-8"), mode="exec")
+            except (SyntaxError, ValueError, RecursionError, MemoryError):
+                return True
+            pvars_c: Dict[str, str] = {}
+            for _ in range(3):
+                for nd in ast.walk(tree_c):
+                    if isinstance(nd, ast.Assign) and len(nd.targets) == 1 and isinstance(nd.targets[0], ast.Name):
+                        fv = _eval_workflow_path_expr(nd.value, pvars_c)
+                        if fv is not None:
+                            pvars_c[nd.targets[0].id] = fv
+            for nd in ast.walk(tree_c):
+                if isinstance(nd, (ast.Call, ast.BinOp, ast.Constant, ast.JoinedStr, ast.Attribute)):
+                    fc = _eval_workflow_path_expr(nd, pvars_c)
+                    if fc:
+                        for bc in seen_cwds_c:
+                            if _matches_cust_target(fc, bc):
+                                return True
     return False
 
 def _shell_targets_tasks_md(sub_cmd: str) -> bool:
@@ -5497,7 +4356,7 @@ def _shell_targets_tasks_md(sub_cmd: str) -> bool:
                 return True
     return False
 
-_INTERP_SCRIPT_SEG_RE = re.compile(
+_INTERP_SCRIPT_SEG_RE = _LazyRegex(
     rf"^\s*{_CMD_WRAPPER_PREFIX}"
     r"(?P<interp>(?:[^\s;|&`'\"()]*/)?(?:python3?(?:\.\d+)?|py|(?:ba|z|da|k)?sh|node|nodejs|ruby|perl)|source|\.)\s+"
     r"(?P<rest>.+)$",
@@ -5515,11 +4374,11 @@ _PY_MODULE_SCRIPT_RUNNERS = frozenset({
     "doctest",
 })
 
-_STR_LIST_SEQ_RE = re.compile(
+_STR_LIST_SEQ_RE = _LazyRegex(
     r"[\[(]\s*(?:['\"][^'\"\n]+['\"]\s*,\s*)+['\"][^'\"\n]*['\"]\s*,?\s*[\])]"
 )
 
-_QUOTED_ITEM_RE = re.compile(r"'([^'\\\n]*)'|\"([^\"\\\n]*)\"")
+_QUOTED_ITEM_RE = _LazyRegex(r"'([^'\\\n]*)'|\"([^\"\\\n]*)\"")
 
 # Root-level gate entry points of a harness checkout whose edits are held by the Customization Model Gate.
 _HARNESS_CHECKOUT_GATE_ENTRIES = (
@@ -5756,9 +4615,9 @@ def _inspect_external_script_command(
                 }
     return None
 
-_MCP_DEBUGGER_ESCAPE_RE = re.compile(r"^\s*(?:!+|\.!|#!(?:pipe|python3?|ba?sh)\s+|(?:shell|system)\s+)", re.IGNORECASE)
+_MCP_DEBUGGER_ESCAPE_RE = _LazyRegex(r"^\s*(?:!+|\.!|#!(?:pipe|python3?|ba?sh)\s+|(?:shell|system)\s+)", re.IGNORECASE)
 
-_MCP_MUTATING_TOOL_HINT_RE = re.compile(
+_MCP_MUTATING_TOOL_HINT_RE = _LazyRegex(
     r"(?:write|edit|create|delete|remove|unlink|mv|move|rename|copy|chmod|chown|push|install|uninstall|"
     r"extract|save|exec|command|console|frida|script|gdb|rizin|cutter|adb|patch|modify|update|set_|put)",
     re.IGNORECASE,
@@ -6261,15 +5120,15 @@ def _check_delegated_model_gate(
             return {"decision": mod_eval[0], "reason": mod_eval[1]}, True
     return None, is_downgraded
 
-_DELEGATION_MUTATION_VERB_RE = re.compile(
+_DELEGATION_MUTATION_VERB_RE = _LazyRegex(
     r"\b(?:edit|write|modify|overwrite|replace|update|patch|append|create|delete|remove|rm|unlink|"
     r"chmod|chown|unlock|rebaseline|copy|cp|mv|move|symlink|ln)\b",
     re.IGNORECASE,
 )
 
-_DELEGATION_PATH_TOKEN_RE = re.compile(r"(?:~|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|[A-Za-z]:)?[^\s'\"`<>|;&(),]+")
+_DELEGATION_PATH_TOKEN_RE = _LazyRegex(r"(?:~|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|[A-Za-z]:)?[^\s'\"`<>|;&(),]+")
 
-_SWARM_MENTION_RE = re.compile(r"(?<![A-Za-z0-9._-])@([a-z0-9][a-z0-9_-]*)", re.IGNORECASE)
+_SWARM_MENTION_RE = _LazyRegex(r"(?<![A-Za-z0-9._-])@([a-z0-9][a-z0-9_-]*)", re.IGNORECASE)
 
 def _swarm_ledger_context(
     payload: Dict[str, Any],
@@ -7144,8 +6003,13 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                     sub_cmd, effective_cwd, workspaces, workspace
                 )
                 if not cmd_cust_hit:
+                    ro_cust_sub = (
+                        _scrub_verified_readonly_python_invocations(sub_cmd)[0]
+                        if "python" in sub_cmd.lower()
+                        else sub_cmd
+                    )
                     segs_with_cwd = _iter_shell_segments_with_cwd(
-                        sub_cmd, effective_cwd if effective_cwd is not None else workspace
+                        ro_cust_sub, effective_cwd if effective_cwd is not None else workspace
                     )
                     if (
                         segs_with_cwd

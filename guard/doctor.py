@@ -296,6 +296,14 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
                 warnings.append(
                     f"Upstream watchdog state file {upstream_file} field 'pending_repo_updates' is not a JSON object."
                 )
+            if (
+                "known_placeholder_models" in upstream_data
+                and upstream_data.get("known_placeholder_models") is not None
+                and not isinstance(upstream_data.get("known_placeholder_models"), dict)
+            ):
+                warnings.append(
+                    f"Upstream watchdog state file {upstream_file} field 'known_placeholder_models' is not a JSON object."
+                )
             if upstream_data.get("last_audit_failed"):
                 warnings.append(f"Last upstream repository audit failed in {upstream_file}; check network/rate-limit status.")
 

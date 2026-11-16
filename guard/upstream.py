@@ -55,6 +55,34 @@ def _clean_model_name(val: Any) -> str:
     return cleaned
 
 
+def _clean_known_placeholder_map(raw: Any) -> Dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: Dict[str, str] = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or not k.strip().upper().startswith("MODEL_PLACEHOLDER"):
+            continue
+        concrete = _clean_model_name(v)
+        if concrete and concrete.lower() != "auto":
+            cleaned[k.strip()] = concrete
+    return cleaned
+
+
+def _lookup_known_placeholder(placeholder_id: Any, *sources: Any) -> str:
+    if not isinstance(placeholder_id, str):
+        return ""
+    target_up = placeholder_id.strip().upper()
+    if not target_up.startswith("MODEL_PLACEHOLDER"):
+        return ""
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        for k, mapped in _clean_known_placeholder_map(src.get("known_placeholder_models")).items():
+            if k.upper() == target_up:
+                return mapped
+    return ""
+
+
 def _parse_iso_ts(value: Any) -> Optional[datetime]:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -68,7 +96,7 @@ def _parse_iso_ts(value: Any) -> Optional[datetime]:
 
 
 def compute_seed_digest(seed: Dict[str, Any]) -> str:
-    canonical = {
+    canonical: Dict[str, Any] = {
         "last_audited_model": seed.get("last_audited_model"),
         "last_model_slug": seed.get("last_model_slug"),
         "last_pbtxt_model": seed.get("last_pbtxt_model"),
@@ -77,6 +105,10 @@ def compute_seed_digest(seed: Dict[str, Any]) -> str:
         "recorded_builtin_skills": seed.get("recorded_builtin_skills"),
         "tracked_repositories": seed.get("tracked_repositories"),
     }
+    if "approved_customization_models" in seed:
+        canonical["approved_customization_models"] = seed.get("approved_customization_models")
+    if "known_placeholder_models" in seed:
+        canonical["known_placeholder_models"] = seed.get("known_placeholder_models")
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -154,6 +186,14 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
             if state.get("approved_customization_models") != clean_acm:
                 state["approved_customization_models"] = clean_acm
                 changed = True
+        if isinstance(seed.get("known_placeholder_models"), dict) and (
+            state.get("known_placeholder_models") is None
+            or isinstance(state.get("known_placeholder_models"), dict)
+        ):
+            clean_kpm = _clean_known_placeholder_map(seed["known_placeholder_models"])
+            if state.get("known_placeholder_models") != clean_kpm:
+                state["known_placeholder_models"] = clean_kpm
+                changed = True
         if "environment_Target" in seed and state.get("environment_Target") != seed.get("environment_Target"):
             state["environment_Target"] = seed["environment_Target"]
             changed = True
@@ -176,6 +216,11 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
             state["approved_customization_models"] = [
                 m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()
             ]
+        if isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
+            state["known_placeholder_models"] = _clean_known_placeholder_map(seed["known_placeholder_models"])
+        changed = True
+    elif isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
+        state["known_placeholder_models"] = _clean_known_placeholder_map(seed["known_placeholder_models"])
         changed = True
 
     if seed_ts is not None and (state_ts is None or seed_ts > state_ts):
@@ -235,7 +280,10 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
                         changed = True
 
     tracked_schema_ok = not isinstance(seed_repos, dict) or isinstance(state.get("tracked_repositories"), dict)
-    if tracked_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
+    kpm_schema_ok = state.get("known_placeholder_models") is None or isinstance(
+        state.get("known_placeholder_models"), dict
+    )
+    if tracked_schema_ok and kpm_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
         state["_reconciled_seed_digest"] = seed_digest
         changed = True
 
@@ -336,6 +384,11 @@ class UpstreamAuditorBridge:
                 "orchestrator-argon-high",
                 "orchestrator-argon-xhigh",
             ],
+            "known_placeholder_models": {
+                "MODEL_PLACEHOLDER_M417": "Gemini 4 Argon (High)",
+                "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
+                "MODEL_PLACEHOLDER_M528": "Gemini 4 Hydrogen (XHigh)",
+            },
             "tracked_repositories": {
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
@@ -557,18 +610,24 @@ class UpstreamAuditorBridge:
     def get_model_drift_status(self) -> Dict[str, str]:
         """Reports the active model ONLY when it is actually known; nothing here is inferred."""
         env_model = _clean_model_name(os.environ.get("ANTIGRAVITY_MODEL"))
-        pbtxt_model = _clean_model_name(self._get_pbtxt_model())
+        raw_pbtxt = self._get_pbtxt_model()
+        pbtxt_model = _clean_model_name(raw_pbtxt)
         state = self.load_state()
+        seed = self._load_seed()
+        mapped_pbtxt = _lookup_known_placeholder(raw_pbtxt, state, seed) if not pbtxt_model else ""
         recorded = (
             _clean_model_name(state.get("last_seen_model"))
             or _clean_model_name(state.get("current_model"))
             or _clean_model_name(state.get("last_audited_model"))
             or _clean_model_name(state.get("last_pbtxt_model"))
+            or _lookup_known_placeholder(state.get("last_pbtxt_model"), state, seed)
         )
         if env_model:
             active_model, source = env_model, "ANTIGRAVITY_MODEL environment variable"
         elif pbtxt_model:
             active_model, source = pbtxt_model, "antigravity_state.pbtxt"
+        elif mapped_pbtxt:
+            active_model, source = mapped_pbtxt, f"antigravity_state.pbtxt ({raw_pbtxt.strip()} via known_placeholder_models)"
         elif recorded:
             active_model, source = str(recorded), "last value recorded by the upstream watcher"
         else:
@@ -608,6 +667,10 @@ class UpstreamAuditorBridge:
         if pending_raw is not None and not isinstance(pending_raw, dict):
             schema_mismatch = True
             warnings.append(f"Upstream state field 'pending_repo_updates' in {self.state_file} is not a JSON object.")
+        kpm_raw = state.get("known_placeholder_models")
+        if kpm_raw is not None and not isinstance(kpm_raw, dict):
+            schema_mismatch = True
+            warnings.append(f"Upstream state field 'known_placeholder_models' in {self.state_file} is not a JSON object.")
         if audit_failed:
             warnings.append(f"Last upstream repository check failed in {self.state_file}.")
         if corrupt:
@@ -642,21 +705,44 @@ class UpstreamAuditorBridge:
         if self.last_load_error:
             return False, f"Cannot acknowledge drift while upstream state is corrupt: {self.last_load_error}"
         pbtxt_model = self._get_pbtxt_model()
-        seen_model = str(state.get("last_seen_model") or "").strip()
-        clean_pbtxt = "" if pbtxt_model.upper().startswith("MODEL_PLACEHOLDER") else pbtxt_model
-        explicit_model = (model_name if model_name is not None else acknowledged_model) or ""
+        raw_seen = state.get("last_seen_model")
+        seen_clean = _clean_model_name(raw_seen)
+        seen_model = "" if seen_clean.lower() == "auto" else seen_clean
+        clean_pbtxt_raw = _clean_model_name(pbtxt_model)
+        clean_pbtxt = "" if clean_pbtxt_raw.lower() == "auto" else clean_pbtxt_raw
+        seed = self._load_seed()
+        mapped_pbtxt = _lookup_known_placeholder(pbtxt_model, state, seed) if not clean_pbtxt else ""
+        raw_explicit = model_name if model_name is not None else acknowledged_model
+        explicit_str = raw_explicit.strip() if isinstance(raw_explicit, str) else ""
+        explicit_clean = _clean_model_name(explicit_str)
+        if explicit_clean.lower() == "auto":
+            explicit_clean = ""
+        explicit_mapped = _lookup_known_placeholder(explicit_str, state, seed) if not explicit_clean else ""
+        env_raw = os.environ.get("ANTIGRAVITY_MODEL", "").strip()
+        env_clean = _clean_model_name(env_raw)
+        if env_clean.lower() == "auto":
+            env_clean = ""
+        env_mapped = _lookup_known_placeholder(env_raw, state, seed) if not env_clean else ""
+        audited_clean = _clean_model_name(state.get("last_audited_model"))
+        if audited_clean.lower() == "auto":
+            audited_clean = ""
         resolved_model = (
-            explicit_model.strip()
-            or os.environ.get("ANTIGRAVITY_MODEL", "").strip()
-            or seen_model
+            explicit_clean
+            or explicit_mapped
+            or env_clean
+            or env_mapped
+            or ("" if explicit_str.upper().startswith("MODEL_PLACEHOLDER") else seen_model)
             or clean_pbtxt
-            or str(state.get("last_audited_model") or "").strip()
+            or mapped_pbtxt
+            or audited_clean
         )
         if resolved_model and resolved_model.lower() != "auto":
             state["last_audited_model"] = resolved_model
             state["current_model"] = resolved_model
             state["last_model_slug"] = re.sub(r"[^a-z0-9.]+", "-", resolved_model.lower()).strip("-")
-        if pbtxt_model:
+        if explicit_str.upper().startswith("MODEL_PLACEHOLDER"):
+            state["last_pbtxt_model"] = explicit_str
+        elif pbtxt_model:
             state["last_pbtxt_model"] = pbtxt_model
 
         reasons: list[str] = []

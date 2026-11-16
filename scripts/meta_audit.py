@@ -401,6 +401,135 @@ class MetaAuditEngine:
                         f"Replace `{old_tool}` with `{DEPRECATED_V1_TOOLS[old_tool]}`.",
                     )
 
+        self._check_test_hermetic_imports(name)
+
+    def _check_test_hermetic_imports(self, pass_name: str) -> None:
+        tests_dir = self.repo_root / "tests"
+        if not tests_dir.is_dir():
+            return
+        sibling_helpers = {
+            p.stem
+            for p in tests_dir.rglob("*.py")
+            if p.is_file() and p.stem not in ("__init__", "hermetic") and not p.stem.startswith("test_")
+        }
+        repo_pkgs = {"guard", "porter", "scripts", "install", "skills", "tests"} | sibling_helpers
+        test_skip_dirs = {"__pycache__", ".git"}
+
+        test_candidates: List[Path] = []
+        for cand in sorted(tests_dir.rglob("*.py")):
+            try:
+                rel_parts = cand.relative_to(self.repo_root).parts
+            except ValueError:
+                continue
+            if test_skip_dirs.intersection(rel_parts):
+                continue
+            if cand.name.startswith("test_") or cand.name.endswith("_test.py"):
+                test_candidates.append(cand)
+
+        for test_file in test_candidates:
+            target = self._rel(test_file)
+            if test_file.is_symlink() or not test_file.is_file():
+                self._add(
+                    "CRITICAL",
+                    pass_name,
+                    target,
+                    f"Test module `{target}` is a symlink or non-regular file inside `tests/`",
+                    f"Replace `{target}` with a regular Python test file importing `hermetic`.",
+                )
+                continue
+            try:
+                src = test_file.read_text(encoding="utf-8")
+                tree = ast.parse(src, filename=str(test_file))
+            except (OSError, SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+                self._add(
+                    "CRITICAL",
+                    pass_name,
+                    target,
+                    f"Test module `{target}` failed static AST parse for `hermetic` verification: {exc}",
+                    f"Fix syntax/encoding in `{target}` and import `hermetic` at module top-level.",
+                )
+                continue
+
+            def _is_top_hermetic_stmt(stmt: ast.stmt) -> bool:
+                if isinstance(stmt, ast.Import):
+                    return any(a.name in ("hermetic", "tests.hermetic") for a in stmt.names)
+                if isinstance(stmt, ast.ImportFrom):
+                    mod = stmt.module or ""
+                    imported_names = {a.name for a in stmt.names}
+                    return (
+                        (stmt.level == 0 and mod in ("hermetic", "tests.hermetic"))
+                        or (stmt.level == 0 and mod == "tests" and "hermetic" in imported_names)
+                        or (
+                            stmt.level >= 1
+                            and (mod == "hermetic" or (not mod and "hermetic" in imported_names))
+                        )
+                    )
+                return False
+
+            hermetic_imported = False
+            early_repo_imports: List[str] = []
+            for stmt in tree.body:
+                # Inspect nested imports/dynamic loads inside any statement executed before `hermetic`
+                if not hermetic_imported and not isinstance(
+                    stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    if _is_top_hermetic_stmt(stmt):
+                        # Still check if the same `import guard, hermetic` line put a repo pkg first
+                        if isinstance(stmt, ast.Import):
+                            seen_h_in_stmt = False
+                            for alias in stmt.names:
+                                if alias.name in ("hermetic", "tests.hermetic"):
+                                    seen_h_in_stmt = True
+                                elif not seen_h_in_stmt and alias.name.split(".", 1)[0] in repo_pkgs:
+                                    early_repo_imports.append(alias.name)
+                        hermetic_imported = True
+                        continue
+
+                    for sub in ast.walk(stmt):
+                        if isinstance(sub, ast.Import):
+                            for alias in sub.names:
+                                if alias.name not in ("hermetic", "tests.hermetic"):
+                                    if alias.name.split(".", 1)[0] in repo_pkgs:
+                                        early_repo_imports.append(alias.name)
+                        elif isinstance(sub, ast.ImportFrom):
+                            mod = sub.module or ""
+                            imported_names = {a.name for a in sub.names}
+                            is_h_sub = (
+                                (sub.level == 0 and mod in ("hermetic", "tests.hermetic"))
+                                or (sub.level == 0 and mod == "tests" and imported_names == {"hermetic"})
+                                or (
+                                    sub.level >= 1
+                                    and (mod == "hermetic" or (not mod and imported_names == {"hermetic"}))
+                                )
+                            )
+                            if not is_h_sub:
+                                root_pkg = mod.split(".", 1)[0] if sub.level == 0 else "tests"
+                                if root_pkg in repo_pkgs or sub.level >= 1:
+                                    early_repo_imports.append(mod or ".")
+                        elif isinstance(sub, ast.Call):
+                            fn = sub.func
+                            if isinstance(fn, ast.Name) and fn.id in ("__import__", "import_module", "exec_module"):
+                                early_repo_imports.append(fn.id)
+                            elif isinstance(fn, ast.Attribute) and fn.attr in ("import_module", "exec_module"):
+                                early_repo_imports.append(fn.attr)
+
+            if not hermetic_imported:
+                self._add(
+                    "CRITICAL",
+                    pass_name,
+                    target,
+                    f"Test module `{target}` does not import `hermetic` at module top-level (standalone unittest runs may leak into real HOME/config/state directories)",
+                    f"Add `import hermetic  # noqa: F401` near the top of `{target}` before importing `guard` or `porter`.",
+                )
+            elif early_repo_imports:
+                self._add(
+                    "CRITICAL",
+                    pass_name,
+                    target,
+                    f"Test module `{target}` imports `{early_repo_imports[0]}` before `hermetic` at module top-level",
+                    f"Move `import hermetic` above `{early_repo_imports[0]}` in `{target}` so environment isolation runs first.",
+                )
+
     # ------------------------------------------------------------------
     # Pass 2
     # ------------------------------------------------------------------
@@ -514,7 +643,33 @@ class MetaAuditEngine:
         h_text = hooks_py.read_text(encoding="utf-8", errors="ignore") if hooks_py.is_file() else ""
         hooks_pkg_dir = hooks_py.parent / "hooks"
         if hooks_py.is_file() and "_SUBMODULE_EXPORTS" in h_text:
-            for req_sub in ("__init__.py", "common.py", "pre_invocation.py", "pre_tool_use.py", "stop_gate.py"):
+            declared_submods: Set[str] = set()
+            try:
+                h_tree = ast.parse(h_text, filename=str(hooks_py))
+                for h_node in h_tree.body:
+                    val_node = None
+                    if isinstance(h_node, ast.Assign):
+                        if any(isinstance(t, ast.Name) and t.id == "_SUBMODULE_EXPORTS" for t in h_node.targets):
+                            val_node = h_node.value
+                    elif (
+                        isinstance(h_node, ast.AnnAssign)
+                        and isinstance(h_node.target, ast.Name)
+                        and h_node.target.id == "_SUBMODULE_EXPORTS"
+                    ):
+                        val_node = h_node.value
+                    if isinstance(val_node, ast.Dict):
+                        for k_node in val_node.keys:
+                            if isinstance(k_node, ast.Constant) and isinstance(k_node.value, str):
+                                declared_submods.add(f"{k_node.value}.py")
+            except (SyntaxError, ValueError, RecursionError, MemoryError):
+                pass
+            req_subs = list(
+                dict.fromkeys(
+                    ("__init__.py", "common.py", "pre_invocation.py", "pre_tool_use.py", "stop_gate.py")
+                    + tuple(sorted(declared_submods))
+                )
+            )
+            for req_sub in req_subs:
                 if not (hooks_pkg_dir / req_sub).is_file():
                     self._add(
                         "CRITICAL",

@@ -50,7 +50,7 @@ When a session or delegated call targets customization/governance files (`GEMINI
 | `(High)` (e.g., `Gemini 4 Argon (High)`, `Claude Opus 5.5 (High)`) | `high` or `xhigh` | `allow` | Meets or exceeds the approved `(High)` model's highest supported reasoning effort tier. |
 | `(High)` | `medium` or `low` | `deny` | Explicit effort downgrade below `high` is prohibited on governance writes. |
 | `(XHigh)` or `(High)` | *absent / empty* (no explicit `effort` in payload or `(XHigh)`/`(High)` in model string) | `force_ask` (or `deny` if model unverified) | Fails closed when runtime effort cannot be verified without human confirmation. |
-| Unresolved `MODEL_PLACEHOLDER_*` | `xhigh` / `high` (or *absent*) | `force_ask` (`deny` on `medium`/`low`) | Surfaces seed/state baseline diagnostic (`MODEL_PLACEHOLDER_M417`) for human confirmation while denying explicit effort downgrades. |
+| Unresolved `MODEL_PLACEHOLDER_*` | `xhigh` / `high` (or *absent*) | `force_ask` (`deny` on `medium`/`low`) | Surfaces seed/state `known_placeholder_models` / `last_pbtxt_model` diagnostic (`MODEL_PLACEHOLDER_M528` / `M427` / `M417`) for human confirmation while denying explicit effort downgrades. |
 
 ---
 

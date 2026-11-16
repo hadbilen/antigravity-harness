@@ -27,6 +27,7 @@ from .common import (
     _EXPLICIT_CMD_TOKEN_RE,
     _FENCE_RE,
     _INLINE_CODE_RE,
+    _LazyRegex,
     _PATH_WORD_POST,
     _PATH_WORD_PRE,
     _SLASH_POST,
@@ -904,7 +905,7 @@ def _has_explicit_route_slug_mention(cleaned: str, route_key: str) -> bool:
     """Returns True when any explicit slug mapped to `route_key` appears in prose outside paths."""
     return any(_has_explicit_slug_mention(cleaned, slug) for slug in _ROUTE_EXPLICIT_SLUGS.get(route_key, ()))
 
-_ANY_EXPLICIT_SLUG_RE = re.compile(
+_ANY_EXPLICIT_SLUG_RE = _LazyRegex(
     rf"(?:^|(?<=[\s(\[\"'«“]))(?:{'|'.join(re.escape(s) for s in sorted(_KNOWN_INLINE_EXPLICIT_SLUGS, key=len, reverse=True))}){_SLASH_POST}",
     re.IGNORECASE,
 )
@@ -934,13 +935,13 @@ def _load_conv_hint_state(raw_entry: Any) -> Tuple[Dict[str, int], int, str]:
         return seen, max(turn, 1 if seen else 0), last_sig
     return {}, 0, ""
 
-_HANDOFF_IN_PROGRESS_RE = re.compile(r"(?im)^\s*(?:\*\*Status:\*\*|Status:)\s*\[IN-PROGRESS\]\s*$")
+_HANDOFF_IN_PROGRESS_RE = _LazyRegex(r"(?im)^\s*(?:\*\*Status:\*\*|Status:)\s*\[IN-PROGRESS\]\s*$")
 
-_TASKS_PENDING_RE = re.compile(r"(?m)^\s*-\s*\[\s\]\s+\S")
+_TASKS_PENDING_RE = _LazyRegex(r"(?m)^\s*-\s*\[\s\]\s+\S")
 
-_TASKS_PARTIAL_RE = re.compile(r"(?m)^\s*(?:-\s*\[~\]|\|[^\n]*\[~\])")
+_TASKS_PARTIAL_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[~\]|\|[^\n]*\[~\])")
 
-_TASKS_BLOCKED_RE = re.compile(r"(?m)^\s*(?:-\s*\[!\]|\|[^\n]*\[!\])")
+_TASKS_BLOCKED_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[!\]|\|[^\n]*\[!\])")
 
 def _acknowledge_interrupted_flight(workspace: Path, expected_seq: int) -> None:
     """Marks an `"in_flight"` crash record as `"interrupted_notified"` once its recovery hint is committed."""
@@ -1187,16 +1188,16 @@ _WS_SKIP_DIRS = frozenset({
     ".cursor",
 })
 
-_GAME_PKG_RE = re.compile(
+_GAME_PKG_RE = _LazyRegex(
     r'"(?:phaser|pixi\.js|kaboom|kaplay|excalibur|littlejs|rot-js|three|babylonjs|@babylonjs/core)"',
     re.IGNORECASE,
 )
 
-_RUST_BRIDGE_RE = re.compile(r"\b(?:pyo3|cxx|cbindgen|bindgen|maturin)\b", re.IGNORECASE)
+_RUST_BRIDGE_RE = _LazyRegex(r"\b(?:pyo3|cxx|cbindgen|bindgen|maturin)\b", re.IGNORECASE)
 
-_CANVAS_RE = re.compile(r"(?:<canvas\b|getContext\s*\(\s*[\"'](?:2d|webgl2?)[\"'])", re.IGNORECASE)
+_CANVAS_RE = _LazyRegex(r"(?:<canvas\b|getContext\s*\(\s*[\"'](?:2d|webgl2?)[\"'])", re.IGNORECASE)
 
-_RAF_RE = re.compile(r"\brequestAnimationFrame\b")
+_RAF_RE = _LazyRegex(r"\brequestAnimationFrame\b")
 
 _AUDIO_VIDEO_EXTS = frozenset({
     ".wav",
@@ -1221,9 +1222,9 @@ _RASTER_MEDIA_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".tiff
 
 _MEDIA_ASSET_DIRS = frozenset({"assets", "sprites", "audio", "sfx", "media", "video"})
 
-_SPRITE_NAME_RE = re.compile(r"(?:sprite|spritesheet|tileset|atlas|sfx|bgm|foley|frame_\d|anim_)", re.IGNORECASE)
+_SPRITE_NAME_RE = _LazyRegex(r"(?:sprite|spritesheet|tileset|atlas|sfx|bgm|foley|frame_\d|anim_)", re.IGNORECASE)
 
-_WEB_ICON_IGNORE_RE = re.compile(r"^(?:favicon|logo|icon|apple-touch-icon)(?:[-._].*)?$", re.IGNORECASE)
+_WEB_ICON_IGNORE_RE = _LazyRegex(r"^(?:favicon|logo|icon|apple-touch-icon)(?:[-._].*)?$", re.IGNORECASE)
 
 _BINARY_ARTIFACT_EXTS = frozenset({
     ".exe",
@@ -1239,7 +1240,7 @@ _BINARY_ARTIFACT_EXTS = frozenset({
     ".pak",
 })
 
-_COMPILER_TRACE_MARKER_RE = re.compile(
+_COMPILER_TRACE_MARKER_RE = _LazyRegex(
     r"(?:"
     r"\berror\s+TS\d+\b|\berror\[E\d+\]|Traceback\s*\(most\s+recent\s+call\s+last\):|"
     r"\bFAILED\s*\(|"
@@ -1248,15 +1249,15 @@ _COMPILER_TRACE_MARKER_RE = re.compile(
     r")"
 )
 
-_NONZERO_EXIT_CODE_RE = re.compile(r"\bCommand\s+exited\s+with\s+code\s+([1-9]\d*)\b")
+_NONZERO_EXIT_CODE_RE = _LazyRegex(r"\bCommand\s+exited\s+with\s+code\s+([1-9]\d*)\b")
 
-_TRACE_ERROR_MARKER_RE = re.compile(
+_TRACE_ERROR_MARKER_RE = _LazyRegex(
     rf"(?:{_COMPILER_TRACE_MARKER_RE.pattern}|{_NONZERO_EXIT_CODE_RE.pattern})"
 )
 
 _SHELL_EXEC_TOOL_NAMES = frozenset({"run_command", "bash", "execute_command", "shell"})
 _BENIGN_SEARCH_VERBS = frozenset({"grep", "egrep", "fgrep", "rg", "diff", "cmp", "test", "["})
-_BENIGN_STDERR_REDIR_RE = re.compile(r"(?<!\w)(?:\d*>\s*&\d+|&>\s*/dev/null|\d*>\s*/dev/null)(?!\S)")
+_BENIGN_STDERR_REDIR_RE = _LazyRegex(r"(?<!\w)(?:\d*>\s*&\d+|&>\s*/dev/null|\d*>\s*/dev/null)(?!\S)")
 
 
 def _extract_cmd_from_args_obj(args_obj: Any) -> str:
@@ -1362,9 +1363,82 @@ def _is_pure_search_or_diff_command(cmd_line: str) -> bool:
             return False
     return True
 
-_CLEAN_BUILD_PASS_RE = re.compile(
+_CLEAN_BUILD_PASS_RE = _LazyRegex(
     r"(?:Ran\s+\d+\s+tests?(?:\s+in\s+[^\n]+)?\s+\bOK\b|\b\d+\s+passed\b|\bFinished\s+`(?:dev|test|release)`|\b0\s+errors?\b|Found\s+0\s+errors?|\bok\s+\S+\s+[0-9.]+s\b|Success:\s+no\s+issues\s+found\b|All\s+checks?\s+passed\b)"
 )
+
+_COMPILER_OR_TEST_CMD_VERBS = frozenset({
+    "tsc", "tsgo", "mypy", "pyright", "basedpyright", "ruff", "flake8", "pylint", "pytest",
+    "py.test", "nosetests", "vitest", "jest", "mocha", "ava", "eslint", "biome", "oxlint",
+    "rustc", "gcc", "g++", "clang", "clang++", "cc", "c++", "cmake", "make", "gmake", "ninja",
+    "meson", "javac", "kotlinc", "scalac", "mvn", "mvnw", "gradle", "gradlew", "msbuild",
+    "csc", "fsc", "zig", "cabal", "stack", "ghc", "mix", "elixirc", "erlc", "phpunit",
+    "phpstan", "psalm", "rspec", "rubocop", "luacheck", "shellcheck", "golangci-lint", "staticcheck",
+})
+
+_SUBCMD_BUILD_RUNNERS: Dict[str, frozenset[str]] = {
+    "cargo": frozenset({"build", "b", "check", "c", "test", "t", "clippy", "bench", "doc"}),
+    "go": frozenset({"build", "test", "vet", "install"}),
+    "dotnet": frozenset({"build", "test", "publish", "pack"}),
+    "swift": frozenset({"build", "test"}),
+    "npm": frozenset({"test", "t", "tst", "build", "check", "typecheck", "lint", "compile"}),
+    "pnpm": frozenset({"test", "t", "build", "check", "typecheck", "lint", "compile"}),
+    "yarn": frozenset({"test", "build", "check", "typecheck", "lint", "compile"}),
+    "bun": frozenset({"test", "build", "check", "typecheck", "lint"}),
+    "deno": frozenset({"test", "check", "lint", "compile"}),
+}
+
+_PY_M_BUILD_MODULES = frozenset({
+    "unittest", "pytest", "mypy", "pyright", "ruff", "flake8", "pylint", "doctest", "compileall", "py_compile",
+})
+
+_SHORT_UNATTRIBUTED_BUILD_RE = _LazyRegex(
+    r"(?:^\s*FAIL(?:\s|$)|\bFAIL\t|:\d+(?::\d+)?:\s*error:|^\s*FAILED\b)",
+    re.MULTILINE,
+)
+
+
+def _invokes_compiler_or_test_runner(cmd_line: str) -> bool:
+    """Returns True when any shell segment in `cmd_line` invokes a compiler, typechecker, linter, or test runner."""
+    if not cmd_line or not cmd_line.strip():
+        return False
+    scrubbed = _scrub_shell_quotes_and_substitutions(cmd_line)
+    surface = _BENIGN_STDERR_REDIR_RE.sub(" ", scrubbed if scrubbed is not None else cmd_line)
+    segments = [seg.strip() for seg in re.split(r"(?:&&|\|\||&|;|\||\n)", surface) if seg.strip()]
+    for seg in segments:
+        tokens = [t.strip("()'\"") for t in seg.split() if t.strip("()'\"")]
+        idx = 0
+        while idx < len(tokens):
+            tok = tokens[idx]
+            low_tok = Path(tok).name.lower()
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok) or low_tok in (
+                "command", "builtin", "env", "nice", "nohup", "time", "sudo", "!", "npx", "bunx", "uvx",
+            ):
+                idx += 1
+                continue
+            if low_tok == "timeout" and idx + 1 < len(tokens):
+                idx += 2
+                continue
+            if low_tok in ("poetry", "pipenv", "uv") and idx + 1 < len(tokens) and tokens[idx + 1].lower() == "run":
+                idx += 2
+                continue
+            break
+        if idx >= len(tokens):
+            continue
+        verb = Path(tokens[idx]).name.lower()
+        if verb in _COMPILER_OR_TEST_CMD_VERBS:
+            return True
+        if verb in _SUBCMD_BUILD_RUNNERS:
+            rest = [t.lower() for t in tokens[idx + 1 :] if not t.startswith("-")]
+            if rest:
+                sub = rest[1] if (rest[0] == "run" and len(rest) > 1 and verb in ("npm", "pnpm", "yarn", "bun")) else rest[0]
+                if sub in _SUBCMD_BUILD_RUNNERS[verb] or sub.startswith(("test:", "build:", "lint:", "typecheck:", "check:")):
+                    return True
+        if re.fullmatch(r"python(?:3(?:\.\d+)?)?|py", verb):
+            for j in range(idx + 1, len(tokens) - 1):
+                if tokens[j] == "-m" and tokens[j + 1].lower() in _PY_M_BUILD_MODULES:
+                    return True
+    return False
 
 _NON_EXEC_READ_TOOLS = frozenset(
     {"read_file", "view_file", "list_dir", "grep_search", "find_by_name", "search_web", "read_url_content"}
@@ -1541,68 +1615,95 @@ def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[s
 
     heavy_fail = False
     consec_build_fails = 0
-    snippets: List[str] = []
-    pending_shell_cmds: List[str] = []
+    heavy_snippets: List[str] = []
+    consec_snippets: List[str] = []
+    pending_tool_calls: List[Tuple[str, str]] = []
     for entry in tail_entries:
         step_type = str(entry.get("type", "")).upper()
-        if step_type == "USER_INPUT":
+        if step_type in ("USER_INPUT", "SYSTEM_MESSAGE"):
             continue
         if step_type == "PLANNER_RESPONSE":
-            pending_shell_cmds.clear()
-            tcs = entry.get("tool_calls")
+            pending_tool_calls.clear()
+            tcs = entry.get("tool_calls") or entry.get("toolCalls")
             if isinstance(tcs, list):
                 for tc in tcs:
                     if not isinstance(tc, dict):
                         continue
                     tc_name = str(tc.get("name") or tc.get("tool_name") or tc.get("tool") or "").strip().lower()
-                    if tc_name in _SHELL_EXEC_TOOL_NAMES:
-                        pending_shell_cmds.append(
-                            _extract_cmd_from_args_obj(tc.get("args") or tc.get("arguments") or tc.get("input"))
-                        )
+                    tc_cmd = (
+                        _extract_cmd_from_args_obj(tc.get("args") or tc.get("arguments") or tc.get("input"))
+                        if tc_name in _SHELL_EXEC_TOOL_NAMES
+                        else ""
+                    )
+                    pending_tool_calls.append((tc_name, tc_cmd))
             continue
         status = str(entry.get("status", "")).upper()
         err_field = entry.get("error")
         content = entry.get("content") if isinstance(entry.get("content"), str) else ""
         truncated = entry.get("truncated_fields")
         tool_name = str(entry.get("tool_name") or entry.get("tool") or entry.get("name") or "").strip().lower()
-        if (
-            tool_name in _NON_EXEC_READ_TOOLS
-            and status != "ERROR"
-            and not re.search(r"\bCommand\s+exited\s+with\s+code\s+[1-9]", content)
-        ):
-            continue
-        cmd_line = _extract_entry_command_line(entry)
-        is_shell_result = tool_name in _SHELL_EXEC_TOOL_NAMES or (
+        queued_tool = ""
+        queued_cmd = ""
+        if pending_tool_calls and (
             not tool_name
-            and ("Command exited with code" in content or "[Harness PreToolUse" in content)
-        )
-        if is_shell_result and pending_shell_cmds:
-            queued_cmd = pending_shell_cmds.pop(0)
-            if not cmd_line:
-                cmd_line = queued_cmd
+            or tool_name == pending_tool_calls[0][0]
+            or (tool_name in _SHELL_EXEC_TOOL_NAMES and pending_tool_calls[0][0] in _SHELL_EXEC_TOOL_NAMES)
+        ):
+            queued_tool, queued_cmd = pending_tool_calls.pop(0)
+        resolved_tool = tool_name or queued_tool
         is_error_status = status == "ERROR" or (
             isinstance(err_field, str) and bool(err_field.strip())
         ) or (isinstance(err_field, dict) and bool(err_field))
+        if resolved_tool in _NON_EXEC_READ_TOOLS and not is_error_status:
+            continue
+        if (
+            not resolved_tool
+            and not is_error_status
+            and status == "DONE"
+            and content.startswith("Created At:")
+            and "Command exited with code" not in content[:320]
+        ):
+            continue
+        cmd_line = _extract_entry_command_line(entry) or queued_cmd
         is_clean_exit_zero = bool(re.search(r"\bCommand\s+exited\s+with\s+code\s+0\b", content)) and not is_error_status
         has_compiler_marker = False if is_clean_exit_zero else bool(_COMPILER_TRACE_MARKER_RE.search(content))
         m_nonzero = None if is_clean_exit_zero else _NONZERO_EXIT_CODE_RE.search(content)
         exit_code = _safe_int(m_nonzero.group(1), default=0) if m_nonzero else 0
         has_trace_marker = has_compiler_marker or (exit_code > 0)
 
-        if is_clean_exit_zero and _CLEAN_BUILD_PASS_RE.search(content):
+        if is_clean_exit_zero:
             consec_build_fails = 0
-            heavy_fail = False
-            snippets.clear()
+            consec_snippets.clear()
+            if _CLEAN_BUILD_PASS_RE.search(content):
+                heavy_fail = False
+                heavy_snippets.clear()
             continue
 
         is_truncated_content = isinstance(truncated, list) and "content" in truncated
         line_count = content.count("\n") + (1 if content else 0)
+        if (
+            exit_code in (126, 127)
+            and not has_compiler_marker
+            and line_count <= 500
+            and not is_truncated_content
+        ):
+            continue
         if (
             exit_code in (1, 2)
             and not has_compiler_marker
             and line_count <= 500
             and not is_truncated_content
             and _is_pure_search_or_diff_command(cmd_line)
+        ):
+            continue
+        if (
+            not has_compiler_marker
+            and line_count <= 25
+            and not is_truncated_content
+            and (
+                (bool(cmd_line.strip()) and not _invokes_compiler_or_test_runner(cmd_line))
+                or (not cmd_line.strip() and exit_code > 0 and not _SHORT_UNATTRIBUTED_BUILD_RE.search(content))
+            )
         ):
             continue
 
@@ -1614,14 +1715,15 @@ def _detect_transcript_tool_signals(payload: Dict[str, Any]) -> Optional[Tuple[s
             is_error_status and line_count > 500
         ):
             heavy_fail = True
-            snippets.append(content[-400:] if content else str(err_field)[:400])
+            heavy_snippets.append(content[-400:] if content else str(err_field)[:400])
 
         if has_trace_marker or (is_error_status and exit_code > 0):
             consec_build_fails += 1
-            snippets.append(content[:300] if content else str(err_field)[:300])
+            consec_snippets.append(content[:300] if content else str(err_field)[:300])
 
     if heavy_fail or consec_build_fails >= 2:
-        digest = hashlib.sha256("\n".join(snippets)[:4096].encode("utf-8")).hexdigest()[:12]
+        combined_snips = (heavy_snippets if heavy_fail else []) + (consec_snippets if consec_build_fails >= 2 else [])
+        digest = hashlib.sha256("\n".join(combined_snips)[:4096].encode("utf-8")).hexdigest()[:12]
         return ("route:subagent:build-error-resolver", f"tx_err:{digest}")
     return None
 
@@ -1787,7 +1889,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
         inv_raw = payload.get("invocation_num")
     inv_num = _safe_int(inv_raw, default=1)
     if inv_raw is not None and inv_num == 1:
-        is_mid_turn = False
+        is_mid_turn = bool(has_tx and tx_mid_turn)
     else:
         is_mid_turn = (inv_num > 1) or tx_mid_turn
 
@@ -1827,6 +1929,16 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             if not ledger_ok:
                 sys.stderr.write(f"[Harness PreInvocation] Quarantine/read fallback on `{hints_file}`.\n")
             seen_turns, turn_num, last_sig = _load_conv_hint_state(ledger.get(conv_id))
+            if (
+                is_mid_turn
+                and inv_raw is not None
+                and inv_num == 1
+                and not _tx_text
+                and raw_prompt
+                and last_sig
+                and not last_sig.endswith(f":{prompt_hash}")
+            ):
+                is_mid_turn = False
             first_turn_in_conv = "__workspace_checked__" not in seen_turns
             is_distinct_user_turn = (not is_mid_turn) and (current_sig != last_sig)
             is_new_user_turn = (not is_short_or_continuation) and is_distinct_user_turn

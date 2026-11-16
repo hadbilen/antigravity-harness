@@ -152,30 +152,6 @@ CONTINUATION_WORDS = frozenset({
     "onayliyorum",
 })
 
-_FENCE_RE = re.compile(r"(?ms)^[ \t]{0,3}(`{3,}(?!`)|~{3,}(?!~)).*?^[ \t]{0,3}\1[ \t]*$")
-
-_PASTED_RE = re.compile(r"(?s)<pasted_content\b[^<>]*>.*?</pasted_content[^<>]*>")
-
-_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
-
-_INLINE_TAG_CODE_RE = re.compile(r"`[^`\n]*[<>][^`\n]*`")
-
-_USER_REQUEST_TAG_RE = re.compile(r"(?is)<user_request\b[^<>]*>(.*?)</user_request\b[^<>]*>")
-
-_SLASH_PRE = r"(?=[/\$])(?:^|(?<=[\s(\[\"'«“]))"
-
-_SLASH_POST = r"(?=$|[\s,!?;:)\]>\"'»”]|\.(?![A-Za-z0-9_]))"
-
-_PATH_WORD_PRE = r"(?=[\w.$])(?<![/\w\\-])(?<!(?<!\.\.)\.)"
-
-_PATH_WORD_POST = r"(?![/\w\\-])(?!\.[A-Za-z0-9_])"
-
-_EXPLICIT_CMD_TOKEN_RE = re.compile(
-    rf"{_SLASH_PRE}[/\$][a-zA-Z][a-zA-Z0-9_-]{{1,63}}{_SLASH_POST}"
-)
-
-_VIABLE_HINT_TOKEN_RE = re.compile(r"(?=[\w.$])(?<![/\w\\-])")
-
 class _LazyRegex:
     """Delays compilation of non-Pass-7 regexes until first match/search/sub/finditer call."""
 
@@ -197,6 +173,9 @@ class _LazyRegex:
     def match(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
         return self._get().match(string, pos, endpos)
 
+    def fullmatch(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
+        return self._get().fullmatch(string, pos, endpos)
+
     def finditer(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Iterator[re.Match[str]]:
         return self._get().finditer(string, pos, endpos)
 
@@ -206,13 +185,52 @@ class _LazyRegex:
     def sub(self, repl: Any, string: str, count: int = 0) -> str:
         return self._get().sub(repl, string, count)
 
+    def subn(self, repl: Any, string: str, count: int = 0) -> Tuple[str, int]:
+        return self._get().subn(repl, string, count)
+
+    def split(self, string: str, maxsplit: int = 0) -> List[Any]:
+        return self._get().split(string, maxsplit)
+
     @property
     def pattern(self) -> str:
         return self._pattern
 
     @property
     def flags(self) -> int:
-        return self._flags
+        return self._get().flags
+
+    @property
+    def groups(self) -> int:
+        return self._get().groups
+
+    @property
+    def groupindex(self) -> Any:
+        return self._get().groupindex
+
+
+_FENCE_RE = _LazyRegex(r"(?ms)^[ \t]{0,3}(`{3,}(?!`)|~{3,}(?!~)).*?^[ \t]{0,3}\1[ \t]*$")
+
+_PASTED_RE = _LazyRegex(r"(?s)<pasted_content\b[^<>]*>.*?</pasted_content[^<>]*>")
+
+_INLINE_CODE_RE = _LazyRegex(r"`[^`\n]+`")
+
+_INLINE_TAG_CODE_RE = _LazyRegex(r"`[^`\n]*[<>][^`\n]*`")
+
+_USER_REQUEST_TAG_RE = _LazyRegex(r"(?is)<user_request\b[^<>]*>(.*?)</user_request\b[^<>]*>")
+
+_SLASH_PRE = r"(?=[/\$])(?:^|(?<=[\s(\[\"'«“]))"
+
+_SLASH_POST = r"(?=$|[\s,!?;:)\]>\"'»”]|\.(?![A-Za-z0-9_]))"
+
+_PATH_WORD_PRE = r"(?=[\w.$])(?<![/\w\\-])(?<!(?<!\.\.)\.)"
+
+_PATH_WORD_POST = r"(?![/\w\\-])(?!\.[A-Za-z0-9_])"
+
+_EXPLICIT_CMD_TOKEN_RE = _LazyRegex(
+    rf"{_SLASH_PRE}[/\$][a-zA-Z][a-zA-Z0-9_-]{{1,63}}{_SLASH_POST}"
+)
+
+_VIABLE_HINT_TOKEN_RE = _LazyRegex(r"(?=[\w.$])(?<![/\w\\-])")
 
 def _conversation_id(payload: Dict[str, Any]) -> str:
     for key in (
@@ -275,7 +293,7 @@ def _extract_user_request_with_inline(raw_prompt: str) -> str:
     return _strip_non_user_prose("\n".join(blocks), strip_inline_code=False) if blocks else sanitized
 
 
-_CONV_ID_FALLBACK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_CONV_ID_FALLBACK_RE = _LazyRegex(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def _resolve_transcript_path(payload: Dict[str, Any]) -> Optional[Path]:
@@ -415,7 +433,7 @@ def _extract_latest_user_prompt(
         return tx_text, tx_step
     return "", 0
 
-_HEX_OID_RE = re.compile(r"^[0-9a-fA-F]{40,64}$")
+_HEX_OID_RE = _LazyRegex(r"^[0-9a-fA-F]{40,64}$")
 
 _UNRECOVERED_FLIGHT_STATES = frozenset({"in_flight", "interrupted_notified", "in_progress_blocked"})
 
@@ -577,7 +595,7 @@ def _iter_jsonl_tail_entries(
 def _is_harness_repo_root(root: Path) -> bool:
     return (root / ".harness" / "manifest.json").is_file() or (root / "guard" / "agy_hooks.py").is_file()
 
-_AUTH_HEADING_RE = re.compile(
+_AUTH_HEADING_RE = _LazyRegex(
     r"(?ims)^[^\S\r\n]*#{1,6}[^\S\r\n]+Authorized\s+Test\s+Modifications(?:\s*:\s*([^\r\n]*))?[^\S\r\n]*\r?$(.*?)(?=^[^\S\r\n]*#{1,6}[^\S\r\n]+|\Z)"
 )
 

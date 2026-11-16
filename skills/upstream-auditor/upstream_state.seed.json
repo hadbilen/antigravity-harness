@@ -12,7 +12,12 @@
     "orchestrator-argon-high",
     "orchestrator-argon-xhigh"
   ],
-  "last_pbtxt_model": "MODEL_PLACEHOLDER_M417",
+  "last_pbtxt_model": "MODEL_PLACEHOLDER_M528",
+  "known_placeholder_models": {
+    "MODEL_PLACEHOLDER_M417": "Gemini 4 Argon (High)",
+    "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
+    "MODEL_PLACEHOLDER_M528": "Gemini 4 Hydrogen (XHigh)"
+  },
   "builtin_skills_hash": "34565a8e728e5ba5124bfafb638ef621bb162b70b0391c8534536720192360b9",
   "recorded_builtin_skills": [
     "agy-customizations",
@@ -30,7 +35,7 @@
     "swarm_narrator",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-11-15T19:05:00+03:00",
+  "last_audit_timestamp": "2026-11-16T10:00:00+03:00",
   "last_skills_audit_timestamp": "2026-11-15T19:05:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
