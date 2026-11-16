@@ -4,6 +4,17 @@ All notable changes to Antigravity Harness are documented in this file.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-16
+Cross-platform CI/release hardening (`ubuntu-24.04`, `macos-15`, `windows-2022`), Windows path / `file://` URI / `guard.log` handle & `8.3` short-path fixes, PyInstaller frozen `guard.hooks` package resolution, and `681` hermetic unit tests.
+
+- **Cross-Platform CI Matrix & Release Pipeline (`ci.yml`, `skills/media-studio/scripts/media_qc.py`):**
+  - Migrated macOS matrix runners (`test` and `build-binaries`) from retired `macos-14` to `macos-15` (`arm64`) and provisioned `ffmpeg`/`ffprobe` across Linux (`apt-get`), macOS (keg-only `ffmpeg-full` on `$GITHUB_PATH` for `libvorbis`/`libwebp` encoder parity under Homebrew FFmpeg 8+), Windows (`choco` + MSYS2 `pacman` fallback with explicit `$LASTEXITCODE` checks), and `trusted-boundary`.
+  - Pinned UTF-8 (`errors="replace"`) subprocess stream decoding in `skills/media-studio/scripts/media_qc.py` (`_run_media_subprocess`) for Windows `cp1252` environments.
+- **Windows Path, `file://` URI, Audit Handle & Init/MCP Hardening (`guard/audit_log.py`, `guard/hooks/pre_tool_use.py`, `guard/agy_hooks.py`, `guard/cli.py`, `guard/environment.py`, `guard/doctor.py`, `install.py`):**
+  - Replaced persistent `RotatingFileHandler` descriptors in `guard/audit_log.py` with `_TransientRotatingFileHandler` (`RLock`-guarded, `0o600` rollover opener, immediate post-`emit` stream release, and transient recovery without latching `NullHandler`), eliminating Windows `PermissionError` (`WinError 32`) on temporary state cleanup.
+  - Added token-anchored Windows drive normalization (`C:\...`), root-clamped `C:/..` path collapsing, shared `_parse_file_uri` (`file://C:\...`, `file://C:/...`, `file:///C:/...`, `%5c`/`%3A` unquoting, and `%00` null-byte rejection across `write_file` and MCP arguments), dual/escaped governance root spellings (`str`, `as_posix`, `\\`), Windows `%LOCALAPPDATA%\Programs\antigravity-guard` coverage, `.parent` / space-quoted `plugins` scrubbing guards, and backslash `rm`/`mv`/`.agents\hooks.json` shell checks in `guard/hooks/pre_tool_use.py` without weakening POSIX backslash/parameter-expansion obfuscation detection.
+  - Preserved lexical `abspath` `--target` paths (Windows `8.3` short names & macOS `/var` symlinked ancestors) while rejecting symlinked `--target` roots and fixing `_uninstall_init_profile` template cleanup in `guard/cli.py`; added POSIX `/`-rooted `antigravity-harness` script repointing and `(OSError, RuntimeError, ValueError)` symlink-loop safety in `guard/environment.py`; kept `ensure_skill_script_permissions` directly unit-testable on Windows in `install.py`; normalized relative `.agents/hooks.json` collision warnings in `guard/doctor.py`; and added a PyInstaller `sys.frozen` PYZ fast-path in `guard/agy_hooks.py` (`_needs_synthetic_hooks_package`; `681` total tests).
+
 ## [2.1.0] - 2026-11-16
 Constitutional slimming (`GEMINI.md` `< 6.5 KB`, `Rule 4: Simplicity First (YAGNI)`), `34 -> 20` top-level skill consolidation with automatic `mcp_config.json` script migration (`ADR-0009`), lazy event-scoped `guard/hooks/` modularization (`ADR-0008`), native Antigravity `v2.32.0` `systemMessage` and `swarm` / delegation hook coverage (`ADR-0005`, `ADR-0007`), linked-worktree `TestBoundaryGuard` support, and ecosystem routing + Rust `2024` / game / media / legacy modernization (`ADR-0006`; `680` hermetic tests).
 

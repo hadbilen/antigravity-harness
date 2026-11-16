@@ -129,6 +129,8 @@ def _needs_synthetic_hooks_package() -> bool:
     reg = sys.modules.get("guard.agy_hooks")
     if reg is None or reg.__dict__ is not globals():
         return True
+    if getattr(sys, "frozen", False) and not (SCRIPT_DIR / "hooks" / "__init__.py").is_file():
+        return False
     guard_mod = sys.modules.get("guard")
     if guard_mod is not None:
         guard_paths = getattr(guard_mod, "__path__", None)

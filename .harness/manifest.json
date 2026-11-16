@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "schema_version": "1.2.0",
   "generated_at": "",
   "constitution": {
@@ -446,7 +446,7 @@
     "description": "Engineering harness, behavioral constitution, and auditor subagent ecosystem.",
     "author": "hadbilen",
     "repository": "https://github.com/hadbilen/antigravity-harness",
-    "content_digest": "fe9847181d821aac4c548ea87a6077798dd09ec24746a63b3006c5c9ad4cb657"
+    "content_digest": "3ab0f08d6f8098edaac6bc8731f3dcdf53509441942c1aaf10eb8c298c718e69"
   },
   "templates": {
     "HANDOFF.template.md": "# Session Handoff Document\n\n**Status:** {{[COMPLETE] | [IN-PROGRESS]}}\n**Handoff Trigger:** {{milestone completed | marathon window boundary | circuit breaker | trace > 500 lines | repeated user correction}}\n**Date & Time:** {{ISO_TIMESTAMP}}\n**Previous Conversation / Session ID:** {{CONVERSATION_ID_OR_LABEL}}\n**Git Branch / Commit:** {{BRANCH}} @ {{COMMIT_HASH}}\n\n---\n\n## 0. Authoritative Goal & Exit Criteria\n- **Goal:** The user's objective for this line of work, in one or two sentences (inherited unchanged from the originating task).\n- **Exit Criteria:** Verifiable conditions that end the work. If the user never stated them, write `[TBD: ask the user]`; do not invent them.\n  - [ ] Criterion 1 (e.g. `pytest tests/test_x.py` passes)\n  - [ ] Criterion 2\n- **Progress:** {{N}}/{{M}} exit criteria met. When all are met the status is `[COMPLETE]` and no further handoff is issued.\n\n## 1. Executive Summary & Active Constraints\n- **Completed Milestone:** What the preceding session delivered.\n- **Active Constraints:** Invariants, decisions (ADR references) and user instructions that still apply.\n\n## 2. Completed Changes & Evidence\n- **Modified / Created Files:** Key files, public types and production entry points touched.\n- **Verified (with proof):** Commands, test suites and checks that passed.\n- **Assumed / Not Verified:** Edge cases or boundaries that were not verified, and assumptions still unproven.\n\n## 3. Active System State\n- **Current Workspace State:** Working tree status (clean / dirty / untracked files).\n- **Active Plan (`tasks.md`):** Remaining checkboxes, in order.\n- **Known Blockers / Warnings:** Pending user reviews or external prerequisites.\n\n## 4. Cold-Start Directive for the Incoming Agent\n- **Where:** {{continue in this window | new window with this HANDOFF.md}}\n- **Window Index:** {{Single-Handoff | Window k/N — <Window Title>}}\n- **Recommended Model & Effort:** {{Top Reasoning / Balanced / Fast Model Tier (<Effort Level>) — <1-line rationale>}}\n- **Required Skills to Load:** {{e.g. `harness`, `marathon` (`skills/harness/SKILL.md`, `skills/harness/references/marathon.md`)}}\n- **Immediate Next Action:** The single next justified step: exact file, symbol or command to run on turn 1, and the skill to load if any.\n- **Ready-to-Use Prompt:** A short task prompt that carries only the coordinates above (goal, exit criteria, required skills, next action). Task prompts never include harness maintenance commands.\n",
