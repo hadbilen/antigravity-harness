@@ -506,7 +506,7 @@ def _strip_unquoted_shell_comments(cmd: str) -> str:
 def _unquote_single_tokens(cmd: str) -> str:
     """Unquotes whitespace-free quoted tokens (`"agy-guard"`, `agy-""guard`, `'--no-verify'`) while preserving multi-word quoted prose."""
     win_drive_re = re.compile(
-        r"(?:^|(?<=[\s;|&()<>`]))"
+        r"(?:^|(?<=[\s;|&()<>`'\"=,\[]))"
         r"(?:(?:--?[A-Za-z0-9_-]+|[A-Za-z_][A-Za-z0-9_]*)=|[<>]+)*"
         r"[A-Za-z]:\\[^\s;|&()<>'\"`{}$,]*"
     )
@@ -514,7 +514,9 @@ def _unquote_single_tokens(cmd: str) -> str:
     def _norm_chunk(chunk: str) -> str:
         if "\\" not in chunk:
             return chunk
-        with_win_drives = win_drive_re.sub(lambda m: m.group(0).replace("\\", "/"), chunk)
+        with_win_drives = win_drive_re.sub(
+            lambda m: m.group(0).replace("\\\\", "/").replace("\\", "/"), chunk
+        )
         return re.sub(r"\\([A-Za-z0-9_./~-])", r"\1", with_win_drives)
 
     raw_pieces: List[Tuple[bool, str]] = []
@@ -1470,6 +1472,8 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
         if parsed_local is None:
             return False
         cleaned = parsed_local
+    if os.name != "nt" and re.match(r"^[A-Za-z]:\\", cleaned):
+        cleaned = cleaned.replace("\\\\", "/").replace("\\", "/")
     expanded = Path(os.path.expanduser(cleaned))
     if not expanded.is_absolute() and base_dir is not None:
         expanded = base_dir / expanded
@@ -1492,8 +1496,12 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
 
 def _normalize_shell_paths(cmd: str) -> str:
     """Normalizes duplicate slashes, current-directory `.` segments, and parent-directory `..` segments inside shell command text."""
+    def _collapse_slashes(text: str) -> str:
+        collapsed_drive = re.sub(r"((?:^|(?<=[^A-Za-z0-9+.-]))[A-Za-z]:)/{2,}", r"\1/", text)
+        return re.sub(r"(?<!:)/{2,}", "/", collapsed_drive)
+
     norm = cmd.replace("${HOME}", "$HOME")
-    norm = re.sub(r"(?<!:)/{2,}", "/", norm)
+    norm = _collapse_slashes(norm)
     for _ in range(16):
         collapsed_dot = re.sub(r"/\.(?=/|\s|$|[;&|'\"()])", "", norm)
         if collapsed_dot == norm:
@@ -1515,11 +1523,11 @@ def _normalize_shell_paths(cmd: str) -> str:
             r"\1/",
             collapsed,
         )
-        collapsed = re.sub(r"(?<!:)/{2,}", "/", collapsed)
+        collapsed = _collapse_slashes(collapsed)
         if collapsed == norm:
             break
         norm = collapsed
-    norm = re.sub(r"(?<!:)/{2,}", "/", norm)
+    norm = _collapse_slashes(norm)
     return norm
 
 _SIMPLE_VAR_ASSIGN_RE = _LazyRegex(
@@ -1581,8 +1589,9 @@ _SHELL_DOTDOT_TOKEN_RE = _LazyRegex(r"(?:^|[\s/'\"=])\.\.(?:$|[\s/'\";&|()])")
 
 @functools.lru_cache(maxsize=256)
 def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str], ...]:
+    sep = r"(?:[/\\]|\\\\)+"
     plugin_gov_tail = (
-        r"(?:/(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b"
+        rf"(?:{sep}(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b"
         r"|\.(?:mdc?|py[cow]?|m?js|cjs|tsx?|jsx|sh|bash|zsh|fish|ksh|pl|rb|php|ps1|bat|cmd|so|dylib|dll|exe|wasm)\b)"
     )
     esc_root = re.escape(root)
@@ -1592,7 +1601,7 @@ def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str
             pats.append(
                 (
                     re.compile(
-                        rf"(['\"]){esc_root}/plugins(?=/)(?![^'\"\n]*{plugin_gov_tail})[^'\"\n]*\1",
+                        rf"(['\"]){esc_root}{sep}plugins(?=[/\\])(?![^'\"\n]*{plugin_gov_tail})[^'\"\n]*\1",
                         re.IGNORECASE,
                     ),
                     r"\1__RUNTIME_SUBDIR__\1",
@@ -1601,20 +1610,20 @@ def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str
             pats.append(
                 (
                     re.compile(
-                        rf"(?<!['\"]){esc_root}/plugins(?=/|\s|$|[;&|'\"()])(?![^\s;|&'\"]*{plugin_gov_tail})",
+                        rf"(?<!['\"]){esc_root}{sep}plugins(?=[/\\]|\s|$|[;&|'\"(),])(?![^\s;|&'\"]*{plugin_gov_tail})",
                         re.IGNORECASE,
                     ),
                     "__RUNTIME_SUBDIR__",
                 )
             )
         else:
-            pats.append((re.compile(rf"{esc_root}/{re.escape(sub)}(?=/|\s|$|[;&|'\"()])"), "__RUNTIME_SUBDIR__"))
+            pats.append((re.compile(rf"{esc_root}{sep}{re.escape(sub)}(?=[/\\]|\s|$|[;&|'\"(),])"), "__RUNTIME_SUBDIR__"))
     return tuple(pats)
 
 
 @functools.lru_cache(maxsize=128)
 def _compiled_state_staging_pattern(st_root: str) -> re.Pattern[str]:
-    return re.compile(rf"{re.escape(st_root)}/staging(?=/|\s|$|[;&|'\"()])")
+    return re.compile(rf"{re.escape(st_root)}(?:[/\\]|\\\\)+staging(?=[/\\]|\s|$|[;&|'\"(),])")
 
 
 _PURE_READONLY_PY_MODULES = frozenset({
@@ -2328,11 +2337,39 @@ def _segment_has_unquoted_redirection_or_subst(seg: str) -> bool:
     return bool(mode)
 
 
-def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
-    """Extracts the Python `-c` source from a single top-level shell segment if safe, else None."""
+def _try_extract_standalone_py_c(
+    seg: str, *, all_candidates: bool = False
+) -> Optional[Any]:
+    """Extracts Python `-c` source (or `[posix, win_argv]` candidates when `all_candidates=True`) if safe, else None."""
     if _segment_has_unquoted_redirection_or_subst(seg) or _DANGEROUS_PY_ENV_RE.search(seg):
         return None
-    tokens: List[Tuple[str, str]] = []
+
+    def _unescape_win_dq(inner: str) -> Optional[str]:
+        if "$" in inner or "`" in inner:
+            return None
+        out_w: List[str] = []
+        wi = 0
+        wn = len(inner)
+        while wi < wn:
+            if inner[wi] == "\\":
+                bs = 0
+                while wi + bs < wn and inner[wi + bs] == "\\":
+                    bs += 1
+                if wi + bs < wn and inner[wi + bs] == '"':
+                    if bs % 2 == 0:
+                        return None
+                    out_w.append("\\" * (bs // 2))
+                    out_w.append('"')
+                    wi += bs + 1
+                    continue
+                out_w.append("\\" * bs)
+                wi += bs
+                continue
+            out_w.append(inner[wi])
+            wi += 1
+        return "".join(out_w)
+
+    tokens: List[Tuple[str, str, Optional[str]]] = []
     i = 0
     n = len(seg)
     while i < n:
@@ -2343,6 +2380,8 @@ def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
         if seg[i] == "#":
             break
         raw_parts: List[str] = []
+        win_parts: List[str] = []
+        win_valid = True
         quote_kinds: set[str] = set()
         while i < n and not seg[i].isspace():
             ch = seg[i]
@@ -2351,7 +2390,9 @@ def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
                 j = seg.find("'", i + 1)
                 if j == -1:
                     return None
-                raw_parts.append(seg[i + 1 : j])
+                piece = seg[i + 1 : j]
+                raw_parts.append(piece)
+                win_parts.append(piece)
                 i = j + 1
             elif ch == '"':
                 quote_kinds.add("dq")
@@ -2371,24 +2412,32 @@ def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
                     j += 1
                 if not closed:
                     return None
-                dec = _unescape_safe_dq_py("".join(buf))
+                raw_dq = "".join(buf)
+                dec = _unescape_safe_dq_py(raw_dq)
                 if dec is None:
                     return None
                 raw_parts.append(dec)
+                dec_win = _unescape_win_dq(raw_dq)
+                if dec_win is None:
+                    win_valid = False
+                else:
+                    win_parts.append(dec_win)
             elif ch == "\\":
                 if i + 1 >= n:
                     return None
                 quote_kinds.add("esc")
                 raw_parts.append(seg[i + 1])
+                win_parts.append(seg[i + 1])
                 i += 2
             elif ch in "|&;()<>`":
                 return None
             else:
                 quote_kinds.add("bare")
                 raw_parts.append(ch)
+                win_parts.append(ch)
                 i += 1
         kind = "sq" if quote_kinds == {"sq"} else ("dq" if quote_kinds == {"dq"} else "mixed")
-        tokens.append((kind, "".join(raw_parts)))
+        tokens.append((kind, "".join(raw_parts), "".join(win_parts) if win_valid else None))
 
     if not tokens:
         return None
@@ -2397,7 +2446,7 @@ def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
     )
     idx = 0
     while idx < len(tokens):
-        _k, tok = tokens[idx]
+        _k, tok, _wt = tokens[idx]
         if safe_env_assign_re.match(tok) or tok in ("command", "env", "nice", "nohup", "time"):
             idx += 1
             continue
@@ -2414,13 +2463,17 @@ def _try_extract_standalone_py_c(seg: str) -> Optional[str]:
         return None
     idx += 1
     while idx < len(tokens):
-        _k, opt = tokens[idx]
+        _k, opt, _wo = tokens[idx]
         if opt == "-c" or (opt.startswith("-") and not opt.startswith("--") and opt.endswith("c") and _SAFE_PY_CLI_OPT_RE.match(opt[:-1] or "-B")):
             if idx + 1 != len(tokens) - 1:
                 return None
-            code_kind, code_str = tokens[idx + 1]
+            code_kind, code_str, win_code_str = tokens[idx + 1]
             if code_kind not in ("sq", "dq"):
                 return None
+            if all_candidates:
+                if code_kind == "dq" and win_code_str is not None and win_code_str != code_str:
+                    return [code_str, win_code_str]
+                return [code_str]
             return code_str
         if opt in ("-W", "-X"):
             idx += 2
@@ -2600,6 +2653,18 @@ def _scrub_verified_readonly_python_invocations(cmd: str) -> Tuple[str, bool, Li
     paren_depth = 0
     saw_pipe_in_seg = False
 
+    def _can_ast_parse_cleanly(source: str) -> bool:
+        if not isinstance(source, str) or not source.strip() or len(source) > 65536 or "\x00" in source:
+            return False
+        dedented = textwrap.dedent(source)
+        if _check_pep263_cookie(dedented) is not None or _check_pep263_cookie(source) is not None:
+            return False
+        try:
+            ast.parse(dedented.encode("utf-8"), mode="exec")
+            return True
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            return False
+
     def _process_top_segment(seg_text: str, piped: bool) -> str:
         nonlocal has_unverified
         if "python" not in seg_text.lower() or not _ANY_PYTHON_INLINE_OR_HEREDOC_RE.search(seg_text):
@@ -2615,16 +2680,22 @@ def _scrub_verified_readonly_python_invocations(cmd: str) -> Tuple[str, bool, Li
             if m_mod_top.group(1).lower() not in _READONLY_PY_M_MODULES:
                 has_unverified = True
             return seg_text
-        py_code = _try_extract_standalone_py_c(seg_text)
-        if py_code is None:
+        py_cands = _try_extract_standalone_py_c(seg_text, all_candidates=True)
+        if not py_cands:
             has_unverified = True
             return seg_text
-        if _is_pure_readonly_python_snippet(py_code):
+        parseable_cands = [c for c in py_cands if _can_ast_parse_cleanly(c)]
+        if parseable_cands and all(_is_pure_readonly_python_snippet(c) for c in parseable_cands):
             leading_ws = seg_text[: len(seg_text) - len(seg_text.lstrip())]
             trailing_ws = seg_text[len(seg_text.rstrip()) :]
             return f"{leading_ws}__RO_PY__{trailing_ws}"
         has_unverified = True
-        mutating_sources.append(py_code)
+        if parseable_cands:
+            for c in parseable_cands:
+                if not _is_pure_readonly_python_snippet(c):
+                    mutating_sources.append(c)
+        else:
+            mutating_sources.extend(py_cands)
         return seg_text
 
     while i < n:
@@ -2718,6 +2789,9 @@ def _command_mutates_governance(cmd: str) -> bool:
         raw_s = str(p)
         posix_s = p.as_posix()
         esc_bs = raw_s.replace("\\", "\\\\")
+        if re.match(r"^[A-Za-z]:/", posix_s):
+            win_s = posix_s.replace("/", "\\")
+            return list(dict.fromkeys([raw_s, posix_s, win_s, esc_bs, win_s.replace("\\", "\\\\")]))
         return list(dict.fromkeys([raw_s, posix_s, esc_bs]))
 
     has_parent_escape = (

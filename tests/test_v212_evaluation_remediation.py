@@ -1356,6 +1356,63 @@ class TestAuditorMutualFalsificationRegressions(HermeticHookCase):
             doc_report.warnings,
         )
 
+    def test_windows_drive_double_backslash_and_dq_staging_parity(self) -> None:
+        """Catches `C://` duplicate-slash normalization misses, POSIX-vs-CommandLineToArgvW `-c` `\\U` SyntaxErrors, and `\\\\staging` regex misses."""
+        from pathlib import PureWindowsPath
+        from guard.hooks import pre_tool_use
+
+        self.assertEqual(
+            pre_tool_use._normalize_shell_paths("C://Users//RUNNER~1//AppData//Local//Temp//state"),
+            "C:/Users/RUNNER~1/AppData/Local/Temp/state",
+        )
+        self.assertEqual(
+            pre_tool_use._normalize_shell_paths("https://example.com//a//b"),
+            "https://example.com/a/b",
+        )
+
+        win_cfg_p = Path("C:/Users/RUNNER~1/AppData/Local/Temp/agy-win-parity/.gemini/config")
+        win_state_p = Path("C:/Users/RUNNER~1/AppData/Local/Temp/agy-win-parity/state/antigravity-harness")
+        win_cfg_bs = str(PureWindowsPath(win_cfg_p.as_posix()))
+        win_state_bs = str(PureWindowsPath(win_state_p.as_posix()))
+
+        with (
+            mock.patch.object(pre_tool_use, "configured_config_dir", return_value=win_cfg_p),
+            mock.patch.object(pre_tool_use, "config_dir", return_value=win_cfg_p),
+            mock.patch.object(pre_tool_use, "_config_root_candidates", return_value=[win_cfg_p]),
+            mock.patch.object(pre_tool_use, "state_dir", return_value=win_state_p),
+            mock.patch.object(pre_tool_use, "_state_root_candidates", return_value=[win_state_p]),
+            mock.patch.object(pre_tool_use, "_governance_roots", return_value=[win_cfg_p, win_state_p]),
+        ):
+            leases_bs = win_state_bs + "\\leases.json"
+            for mut_cmd in (
+                f"python3 -c 'import sqlite3; sqlite3.connect({leases_bs!r})'",
+                f"python3 -c 'import tarfile; tarfile.open({leases_bs!r}, \"w\")'",
+                f"python3 -c 'import zipfile; zipfile.ZipFile({leases_bs!r}, \"w\")'",
+                f'cp payload.py "{win_cfg_bs}\\plugins\\pkg\\skills\\SKILL.md"',
+            ):
+                res_deny = agy_hooks.handle_pre_tool_use(
+                    {
+                        "conversationId": "conv-win-deny",
+                        "workspace": str(self.ws_dir),
+                        "toolCall": {"name": "run_command", "args": {"CommandLine": mut_cmd}},
+                    }
+                )
+                self.assertEqual(res_deny.get("decision"), "deny", f"Expected deny for {mut_cmd}, got {res_deny}")
+
+            staging_bs = win_state_bs + "\\staging\\out.json"
+            staging_dq_cmd = f'python3 -c "from pathlib import Path; Path({staging_bs!r}).write_text(\'ok\')"'
+            self.assertFalse(agy_hooks._command_mutates_governance(staging_dq_cmd))
+
+            ro_dq_cmd = f'python3 -c "from pathlib import Path; print(Path({(win_cfg_bs + chr(92) + "GEMINI.md")!r}).read_text())"'
+            res_ro = agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-win-ro",
+                    "workspace": str(self.ws_dir),
+                    "toolCall": {"name": "run_command", "args": {"CommandLine": ro_dq_cmd}},
+                }
+            )
+            self.assertEqual(res_ro, {"decision": "allow"}, res_ro)
+
 
 if __name__ == "__main__":
     unittest.main()
