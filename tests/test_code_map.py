@@ -11,7 +11,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+import sys
 
+TESTS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = TESTS_DIR.parent
+for _p in (str(TESTS_DIR), str(REPO_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import hermetic  # noqa: E402, F401
 from scripts.code_map import (
     compute_blast_radius,
     find_callers,

@@ -21,7 +21,11 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+TESTS_DIR = Path(__file__).resolve().parent
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
 
+import hermetic  # noqa: E402, F401
 from guard import agy_hooks  # noqa: E402
 from porter.sanitizer import ConstitutionalSanitizer  # noqa: E402
 
@@ -1139,6 +1143,32 @@ class TestStopCompletionGate(HooksTempCase):
 
 
 class TestPorterSanitizerNewPatterns(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="agy_porter_san_"))
+        self.cfg_dir = self.tmp / ".gemini" / "config"
+        self.state_dir = self.tmp / "state"
+        self.data_dir = self.tmp / "data"
+        for d in (self.cfg_dir, self.state_dir, self.data_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        self._env_patch = mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.tmp),
+                "USERPROFILE": str(self.tmp),
+                "XDG_STATE_HOME": str(self.tmp / "xdg_state"),
+                "XDG_DATA_HOME": str(self.tmp / "xdg_data"),
+                "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
+                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
+                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+            },
+        )
+        self._env_patch.start()
+
+    def tearDown(self) -> None:
+        self._env_patch.stop()
+        hermetic.force_rmtree(self.tmp)
+
     def test_flags_snapshot_regeneration_and_hook_allow_bypasses(self) -> None:
         sample = (
             "update snapshots to make tests pass.\n"

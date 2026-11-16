@@ -15,6 +15,12 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+TESTS_DIR = Path(__file__).resolve().parent
+for _p in (str(TESTS_DIR), str(REPO_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import hermetic  # noqa: E402, F401
 MEDIA_QC_PATH = REPO_ROOT / "skills" / "media-studio" / "scripts" / "media_qc.py"
 
 spec = importlib.util.spec_from_file_location("media_qc", MEDIA_QC_PATH)
