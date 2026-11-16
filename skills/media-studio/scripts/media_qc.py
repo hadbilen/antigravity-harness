@@ -85,6 +85,8 @@ def _run_media_subprocess(
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=eff_timeout,
         )

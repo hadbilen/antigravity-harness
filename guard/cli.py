@@ -43,7 +43,7 @@ from guard.environment import (
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.lease import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, LeaseManager
 from guard.notifier import GuardNotifier, NotificationSeverity, load_settings, save_settings, settings_file
-from guard.paths import atomic_write_json, config_dir, copy_entry, data_dir, read_json, state_dir
+from guard.paths import atomic_write_json, config_dir, configured_config_dir, copy_entry, data_dir, read_json, state_dir
 from guard.porter_bridge import PorterBridge
 from guard.provenance import RunProvenanceTracker
 from guard.snapshot import SnapshotEngine
@@ -383,16 +383,16 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
                 tracked_rel.extend(f"agents/{p.name}" for p in sorted((opt_source / "agents").glob("*.md")))
             if (opt_source / "skills").is_dir():
                 tracked_rel.extend(f"skills/{p.name}" for p in sorted((opt_source / "skills").iterdir()) if p.is_dir())
-        for slug in CONSOLIDATED_SKILL_SLUGS:
-            rel_slug = f"skills/{slug}"
-            if rel_slug not in tracked_rel:
-                tracked_rel.append(rel_slug)
             if (opt_source / "templates").is_dir():
                 tracked_rel.extend(
                     f"templates/{p.name}"
                     for p in sorted((opt_source / "templates").iterdir())
                     if p.is_file() and p.name != "config.example.json"
                 )
+        for slug in CONSOLIDATED_SKILL_SLUGS:
+            rel_slug = f"skills/{slug}"
+            if rel_slug not in tracked_rel:
+                tracked_rel.append(rel_slug)
 
     hooks_path = target_dir / "hooks.json"
     if os.path.lexists(hooks_path):
@@ -460,7 +460,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
 
     monitor = _monitor(env, registry)
     state_files = [monitor.state_file, monitor.pending_file]
-    if receipt_matches_target or target_dir == config_dir().expanduser().resolve():
+    if receipt_matches_target or target_dir.resolve() == config_dir():
         state_files.append(receipt_path)
     for st_file in state_files:
         if os.path.lexists(st_file):
@@ -496,10 +496,18 @@ def cmd_init(args: argparse.Namespace) -> int:
     dry_run = bool(getattr(args, "dry_run", False))
     no_lock = bool(getattr(args, "no_lock", False))
     target_override = getattr(args, "target", None)
-    target_dir = Path(target_override).expanduser().resolve() if target_override else config_dir().expanduser().resolve()
+    target_dir = (
+        Path(os.path.abspath(Path(target_override).expanduser()))
+        if target_override
+        else configured_config_dir()
+    )
 
     if bool(getattr(args, "uninstall", False)):
         return _uninstall_init_profile(args, target_dir, dry_run)
+
+    if os.path.islink(target_dir):
+        print(f"[ERROR] Refusing to initialize governance through symlinked target directory: {target_dir}", file=sys.stderr)
+        return 1
 
     source_dir = _resolve_init_source(getattr(args, "source", None))
     if source_dir is None:
@@ -539,7 +547,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     if quarantined is not None:
         print(f"[RECOVERED] Quarantined corrupt environment registry -> {quarantined}")
     env = registry.get_environment("antigravity")
-    if env is None or Path(env.get_root()).resolve() != target_dir:
+    target_resolved = target_dir.resolve()
+    if env is None or Path(env.get_root()).resolve() != target_resolved:
         env = AgentEnvironment(
             id="antigravity",
             name="Antigravity Global Config",
@@ -549,7 +558,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
 
     def _engage_init_lock() -> Tuple[bool, str]:
-        if target_override and Path(registry.get_environment("antigravity").get_root()).resolve() != target_dir:
+        if target_override and Path(registry.get_environment("antigravity").get_root()).resolve() != target_resolved:
             lock_ok_inner = True
             lock_msgs_inner: List[str] = []
             for gp in env.get_governance_paths(existing_only=True):
@@ -574,13 +583,18 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
     )
 
-    lease_mgr = LeaseManager(registry=registry)
-    try:
-        if lease_mgr.get_active_lease("antigravity") is not None:
-            lease_mgr.complete_lease(env_id="antigravity", interactive=False)
-    except Exception:
-        pass
-    registry.unlock("antigravity")
+    reg_global_env = registry.get_environment("antigravity")
+    targets_global_env = bool(
+        reg_global_env is not None and Path(reg_global_env.get_root()).resolve() == target_resolved
+    )
+    if targets_global_env:
+        lease_mgr = LeaseManager(registry=registry)
+        try:
+            if lease_mgr.get_active_lease("antigravity") is not None:
+                lease_mgr.complete_lease(env_id="antigravity", interactive=False)
+        except Exception:
+            pass
+        registry.unlock("antigravity")
     if target_dir.exists() and not os.path.islink(target_dir):
         registry.os_adapter.unlock(target_dir, recursive=False)
         for rt_name in ANTIGRAVITY_RUNTIME_ENTRIES:

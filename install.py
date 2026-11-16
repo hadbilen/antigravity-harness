@@ -120,7 +120,7 @@ def _trees_identical(src: Path, dest: Path) -> bool:
 
 def ensure_skill_script_permissions(skills_root: Path) -> None:
     """Ensures 0o755 executable permissions on .py, .sh, and .mjs skill scripts."""
-    if IS_WINDOWS or not skills_root.is_dir() or os.path.islink(skills_root):
+    if not skills_root.is_dir() or os.path.islink(skills_root):
         return
     candidates: List[Path] = []
     for scripts_dir in skills_root.rglob("scripts"):

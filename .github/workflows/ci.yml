@@ -4,10 +4,10 @@ name: CI
 # - Every third-party action is pinned to a full commit SHA (tag in the trailing comment).
 # - pip installs name exact versions (==) but are NOT hash-locked; transitive dependencies
 #   (e.g. of pyinstaller, pystray, pillow) are resolved from PyPI at install time.
-# - Runner images are selected by OS version label (ubuntu-24.04, macos-14, windows-2022);
+# - Runner images are selected by OS version label (ubuntu-24.04, macos-15, windows-2022);
 #   GitHub updates their contents, so they are not immutable.
-# - apt packages are NOT pinned: `apt-get install` takes whatever the runner image's
-#   configured repositories serve on the day of the run.
+# - System packages (e.g. apt-get, brew, choco/pacman for ffmpeg and packaging tools) are NOT
+#   version-pinned: package managers install what the runner's configured repositories serve.
 
 on:
   push:
@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2022]
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -50,6 +50,52 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Test-FfmpegReady {
+            return [bool]((Get-Command ffmpeg -ErrorAction SilentlyContinue) -and (Get-Command ffprobe -ErrorAction SilentlyContinue))
+          }
+          if (-not (Test-FfmpegReady)) {
+            Start-Sleep -Milliseconds (Get-Random -Minimum 0 -Maximum 3000)
+            for ($i = 1; $i -le 2; $i++) {
+              $global:LASTEXITCODE = 0
+              choco install ffmpeg -y --no-progress
+              if (($LASTEXITCODE -eq 0) -and (Test-Path "C:\ProgramData\chocolatey\bin\ffmpeg.exe") -and (Test-Path "C:\ProgramData\chocolatey\bin\ffprobe.exe")) {
+                "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+                break
+              }
+              Start-Sleep -Seconds (4 * $i)
+            }
+          }
+          if (-not (Test-FfmpegReady) -and (Test-Path "C:\msys64\usr\bin\pacman.exe")) {
+            $global:LASTEXITCODE = 0
+            & "C:\msys64\usr\bin\pacman.exe" -Sy --noconfirm --needed mingw-w64-x86_64-ffmpeg
+            if (($LASTEXITCODE -eq 0) -and (Test-Path "C:\msys64\mingw64\bin\ffmpeg.exe") -and (Test-Path "C:\msys64\mingw64\bin\ffprobe.exe")) {
+              "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+            }
+          }
+          if (-not (Test-FfmpegReady)) {
+            Write-Error "ffmpeg and/or ffprobe could not be installed on PATH."
+            exit 1
+          }
+          $global:LASTEXITCODE = 0
+          $ffOut = & ffmpeg -version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $ffOut | Select-Object -First 1
+          $global:LASTEXITCODE = 0
+          $fpOut = & ffprobe -version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $fpOut | Select-Object -First 1
       - name: Compile all sources
         run: python -m compileall -q guard porter installers skills tests scripts install.py porter.py guard.py
       - name: Unit test suite
@@ -95,6 +141,8 @@ jobs:
           python-version: '3.12'
       - name: Install grader dependency (pinned)
         run: python -m pip install pyyaml==6.0.3
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Build trusted worktree with candidate product code
         shell: bash
         env:
@@ -143,7 +191,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2022]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0

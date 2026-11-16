@@ -319,13 +319,15 @@ def _check_workspace_hooks_collision(ws_root: Path, warnings: List[str]) -> None
             try:
                 ws_hooks_data = json.loads(ws_hooks_file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
-                warnings.append(f"Workspace lifecycle hooks file {ws_hooks_file} is not a valid JSON object.")
+                warnings.append(
+                    f"Workspace lifecycle hooks file {rel_ws_hooks} ({ws_hooks_file}) is not a valid JSON object."
+                )
                 continue
             if isinstance(ws_hooks_data, dict):
                 colliding_keys = [k for k in ("harness-gate", "upstream-watchdog") if k in ws_hooks_data]
                 if colliding_keys:
                     warnings.append(
-                        f"Workspace lifecycle hooks file {ws_hooks_file} defines {colliding_keys}, which may "
+                        f"Workspace lifecycle hooks file {rel_ws_hooks} ({ws_hooks_file}) defines {colliding_keys}, which may "
                         "override or disable global Antigravity Harness lifecycle hooks."
                     )
 

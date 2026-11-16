@@ -503,24 +503,55 @@ def _strip_unquoted_shell_comments(cmd: str) -> str:
 
 def _unquote_single_tokens(cmd: str) -> str:
     """Unquotes whitespace-free quoted tokens (`"agy-guard"`, `agy-""guard`, `'--no-verify'`) while preserving multi-word quoted prose."""
-    parts: List[str] = []
+    win_drive_re = re.compile(
+        r"(?:^|(?<=[\s;|&()<>`]))"
+        r"(?:(?:--?[A-Za-z0-9_-]+|[A-Za-z_][A-Za-z0-9_]*)=|[<>]+)*"
+        r"[A-Za-z]:\\[^\s;|&()<>'\"`{}$,]*"
+    )
+
+    def _norm_chunk(chunk: str) -> str:
+        if "\\" not in chunk:
+            return chunk
+        with_win_drives = win_drive_re.sub(lambda m: m.group(0).replace("\\", "/"), chunk)
+        return re.sub(r"\\([A-Za-z0-9_./~-])", r"\1", with_win_drives)
+
+    raw_pieces: List[Tuple[bool, str]] = []
     last = 0
     for m in _QUOTED_SPAN_RE.finditer(cmd):
         outside = cmd[last : m.start()]
-        parts.append(re.sub(r"\\([A-Za-z0-9_./~-])", r"\1", outside))
+        if outside:
+            raw_pieces.append((False, outside))
         span = m.group(0)
         inner = span[1:-1]
         if inner == "":
             adjacent = (m.start() > 0 and not cmd[m.start() - 1].isspace()) or (
                 m.end() < len(cmd) and not cmd[m.end()].isspace()
             )
-            parts.append("" if adjacent else span)
+            if not adjacent:
+                raw_pieces.append((True, span))
         elif not re.search(r"[\s\\;|&()<>`]", inner):
-            parts.append(inner)
+            raw_pieces.append((True, inner))
+        elif re.match(r"^[A-Za-z]:\\", inner) and not re.search(r"[\s;|&()<>`\"'{}$,]", inner):
+            raw_pieces.append((True, inner.replace("\\\\", "/").replace("\\", "/")))
         else:
-            parts.append(span)
+            raw_pieces.append((True, span))
         last = m.end()
-    parts.append(re.sub(r"\\([A-Za-z0-9_./~-])", r"\1", cmd[last:]))
+    tail = cmd[last:]
+    if tail:
+        raw_pieces.append((False, tail))
+
+    parts: List[str] = []
+    buf: List[str] = []
+    for is_quoted, piece in raw_pieces:
+        if is_quoted:
+            if buf:
+                parts.append(_norm_chunk("".join(buf)))
+                buf.clear()
+            parts.append(piece)
+        else:
+            buf.append(piece)
+    if buf:
+        parts.append(_norm_chunk("".join(buf)))
     return "".join(parts)
 
 def _unescape_dq_payload(raw_dq: str) -> str:
@@ -648,7 +679,7 @@ _DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[Any, str], ...] = (
     (
         _LazyRegex(
             r"\brm\s+-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r|--recursive)\b\s+"
-            r"(?:/(?:\s|$|[;&|])|~(?:/|\s|$|[;&|])|\$HOME\b|\.\.(?:/|\s|$|[;&|])|\*(?:\s|$|[;&|]))"
+            r"(?:/(?:\s|$|[;&|])|~(?:[/\\]|\s|$|[;&|])|\$HOME\b|\.\.(?:[/\\]|\s|$|[;&|])|\*(?:\s|$|[;&|]))"
         ),
         "High-risk recursive deletion (`rm -rf` on root, home, parent, or wildcard) requires confirmation (GEMINI.md Rule 12).",
     ),
@@ -705,7 +736,12 @@ def _detect_out_of_workspace_rm_or_mv(
     """Detects recursive `rm` (`-r`/`-rf`/`--recursive`) or `mv` targeting paths outside active workspaces and `/tmp`."""
     home_str = str(Path.home())
     base_dir = effective_cwd if effective_cwd is not None else (workspaces[0] if workspaces else _repo_root())
-    allowed_roots: List[Path] = [Path("/tmp"), Path("/var/tmp")]
+    allowed_roots: List[Path] = [
+        Path("/tmp"),
+        Path("/var/tmp"),
+        Path(os.path.abspath("/tmp")),
+        Path(os.path.abspath("/var/tmp")),
+    ]
     env_tmp = os.environ.get("TMPDIR", "").strip()
     if env_tmp:
         allowed_roots.append(Path(os.path.abspath(env_tmp)))
@@ -726,15 +762,33 @@ def _detect_out_of_workspace_rm_or_mv(
         is_recursive_rm = False
         pos_args: List[str] = []
         after_ddash = False
+        expect_target_dir = False
         for tok in raw_tokens:
             if not tok or re.match(r"^\d*>{1,2}", tok) or tok in ("2>&1", ">/dev/null", "2>/dev/null"):
+                continue
+            if expect_target_dir:
+                pos_args.append(tok.strip("'\""))
+                expect_target_dir = False
                 continue
             if not after_ddash and tok == "--":
                 after_ddash = True
                 continue
             if not after_ddash and tok.startswith("-") and len(tok) > 1:
-                if tok == "--recursive" or (not tok.startswith("--") and ("r" in tok[1:] or "R" in tok[1:])):
+                if tok == "--recursive" or (
+                    tok.startswith("--recursive=")
+                    and tok.split("=", 1)[1].strip("'\"").lower() not in ("never", "no", "false", "0")
+                ):
                     is_recursive_rm = True
+                elif not tok.startswith("--") and ("r" in tok[1:] or "R" in tok[1:]):
+                    is_recursive_rm = True
+                if tok in ("-t", "--target-directory"):
+                    expect_target_dir = True
+                elif tok.startswith("--target-directory="):
+                    td_val = tok.split("=", 1)[1].strip("'\"")
+                    if td_val:
+                        pos_args.append(td_val)
+                elif tok.startswith("-t") and len(tok) > 2:
+                    pos_args.append(tok[2:].strip("'\""))
                 continue
             pos_args.append(tok)
 
@@ -745,17 +799,24 @@ def _detect_out_of_workspace_rm_or_mv(
 
         for arg in pos_args:
             norm_arg = arg.replace("${HOME}", home_str).replace("$HOME", home_str)
-            if norm_arg == "~" or norm_arg.startswith("~/"):
+            if norm_arg == "~" or norm_arg.startswith(("~/", "~\\")):
                 norm_arg = home_str + norm_arg[1:]
-            if norm_arg.startswith("$"):
+            if norm_arg.startswith("$") or (norm_arg.startswith("%") and norm_arg.endswith("%")):
                 continue
-            if norm_arg in ("/dev/null",):
+            if norm_arg in ("/dev/null", "NUL", "nul"):
                 continue
-            if not norm_arg.startswith("/") and ".." not in norm_arg.split("/"):
+            norm_slashes = norm_arg.replace("\\", "/")
+            is_win_drive = bool(re.match(r"^[A-Za-z]:/", norm_slashes))
+            is_abs_like = norm_slashes.startswith("/") or is_win_drive or Path(norm_arg).is_absolute()
+            if not is_abs_like and ".." not in norm_slashes.split("/"):
                 continue
-            cand_raw = Path(norm_arg) if norm_arg.startswith("/") else (base_dir / norm_arg)
-            cand_abs = Path(os.path.abspath(cand_raw))
-            if not any(is_within(cand_abs, root) for root in allowed_roots):
+            if is_win_drive and os.name != "nt":
+                within_allowed = False
+            else:
+                cand_raw = Path(norm_slashes) if is_abs_like else (base_dir / norm_slashes)
+                cand_abs = Path(os.path.abspath(cand_raw))
+                within_allowed = any(is_within(cand_abs, root) for root in allowed_roots)
+            if not within_allowed:
                 if verb == "rm":
                     return (
                         f"High-risk recursive deletion (`rm -rf {arg}`) targeting path outside the active "
@@ -1368,24 +1429,45 @@ def _is_runtime_config_subdir(candidate: Path, root: Path) -> bool:
 _URI_SCHEME_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 
 
+def _parse_file_uri(raw_uri: str) -> Optional[str]:
+    """Parses a local `file://` URI (POSIX or Windows drive) into a filesystem path, or `None` if remote/malformed."""
+    s = raw_uri.strip()
+    if not s.lower().startswith("file://"):
+        return None
+    if "\x00" in s or "%00" in s.lower():
+        return None
+    parsed = urllib.parse.urlparse(s.replace("\\", "/"))
+    netloc = urllib.parse.unquote(parsed.netloc or "").replace("\\", "/")
+    uri_path = urllib.parse.unquote(parsed.path or "").replace("\\", "/")
+    if "\x00" in netloc or "\x00" in uri_path:
+        return None
+    if re.match(r"^[A-Za-z]:(?:/|$)", netloc):
+        if "/" in netloc:
+            drive_part, rest_part = netloc.split("/", 1)
+            uri_path = f"{drive_part}/{rest_part}{uri_path}"
+        else:
+            uri_path = f"{netloc}{uri_path}"
+    elif netloc and netloc.lower() != "localhost":
+        return None
+    if re.match(r"^/[A-Za-z]:(?:/|$)", uri_path):
+        uri_path = uri_path[1:]
+    cleaned = uri_path.strip()
+    return cleaned or None
+
+
 def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = None) -> bool:
     if not target_path_str:
         return False
-    cleaned = target_path_str.split("\x00", 1)[0].strip()
+    if "\x00" in target_path_str:
+        return False
+    cleaned = target_path_str.strip()
     if not cleaned:
         return False
     if _URI_SCHEME_PREFIX_RE.match(cleaned):
-        if not cleaned.lower().startswith("file://"):
+        parsed_local = _parse_file_uri(cleaned)
+        if parsed_local is None:
             return False
-        parsed_uri = urllib.parse.urlparse(cleaned)
-        if parsed_uri.netloc and parsed_uri.netloc.lower() != "localhost":
-            return False
-        uri_path = urllib.parse.unquote(parsed_uri.path or "")
-        if re.match(r"^/[A-Za-z]:/", uri_path):
-            uri_path = uri_path[1:]
-        cleaned = uri_path.split("\x00", 1)[0].strip()
-        if not cleaned:
-            return False
+        cleaned = parsed_local
     expanded = Path(os.path.expanduser(cleaned))
     if not expanded.is_absolute() and base_dir is not None:
         expanded = base_dir / expanded
@@ -1417,10 +1499,21 @@ def _normalize_shell_paths(cmd: str) -> str:
         norm = collapsed_dot
     for _ in range(32):
         collapsed = re.sub(
-            r"/(?!\.\.?(?:/|\s|$|[;&|'\"()]))[^/\s;|&'\"()]+/\.\.(?=/|\s|$|[;&|'\"()])",
+            r"/(?!\.\.?(?:/|\s|$|[;&|'\"()]))[^/\s;|&'\"():]+/\.\.(?=/|\s|$|[;&|'\"()])",
             "",
             norm,
         )
+        collapsed = re.sub(
+            r"((?:^|(?<=[\s;|&'\"()=<>]))[A-Za-z]:)/\.\.(?=/|\s|$|[;&|'\"()])",
+            r"\1",
+            collapsed,
+        )
+        collapsed = re.sub(
+            r"(^|(?<=[\s;|&'\"()=<>]))/\.\.(?=/|\s|$|[;&|'\"()])",
+            r"\1/",
+            collapsed,
+        )
+        collapsed = re.sub(r"(?<!:)/{2,}", "/", collapsed)
         if collapsed == norm:
             break
         norm = collapsed
@@ -1489,26 +1582,41 @@ def _command_mutates_governance(cmd: str) -> bool:
     norm_cmd = _normalize_shell_paths(unquoted_expanded)
     has_dotdot_escape = bool(_SHELL_DOTDOT_TOKEN_RE.search(norm_cmd))
 
+    def _path_spellings(p: Path) -> List[str]:
+        raw_s = str(p)
+        posix_s = p.as_posix()
+        esc_bs = raw_s.replace("\\", "\\\\")
+        return list(dict.fromkeys([raw_s, posix_s, esc_bs]))
+
+    has_parent_escape = (
+        has_dotdot_escape
+        or bool(_SHELL_DOTDOT_TOKEN_RE.search(cmd.replace("\\", "/")))
+        or bool(re.search(r"(?:\.parents?\b|\bdirname\b)", cmd))
+    )
+
     # Catch inline/heredoc/piped interpreter scripts constructing home-relative governance paths (`Path.home() / '.gemini' / 'config'`)
     if re.search(
         r"(?:\b(?:python3?(?:\.\d+)?|node|ruby|perl)\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*c|e)\b|<<)|\|\s*(?:[A-Za-z0-9_./-]*\s+)*(?:python3?(?:\.\d+)?|node|ruby|perl)\b)",
         cmd,
     ):
         inline_cmd = cmd
-        if not has_dotdot_escape and "symlink" not in cmd:
+        if not has_parent_escape and "symlink" not in cmd:
+            st_variants = "|".join(re.escape(s) for s in _path_spellings(state_dir()))
             inline_cmd = re.sub(
                 r"(?:['\"]\.local['\"]\s*/\s*['\"]state['\"]\s*/\s*['\"]antigravity-(?:harness|guard)['\"]\s*/\s*['\"]staging['\"]|"
-                rf"(?:~|\$HOME|{re.escape(str(state_dir()))}|[^\s'\"/]+/\.local/state)/antigravity-(?:harness|guard)/staging(?=/|['\"\s,)]))",
+                rf"(?:{st_variants})(?:[/\\]|\\\\)+staging(?=[/\\]|['\"\s,)])|"
+                r"(?:~|\$HOME|[^\s'\"]+)(?:[/\\]|\\\\)+\.local(?:[/\\]|\\\\)+state(?:[/\\]|\\\\)+antigravity-(?:harness|guard)(?:[/\\]|\\\\)+staging(?=[/\\]|['\"\s,)]))",
                 "__RUNTIME_STAGING__",
                 inline_cmd,
             )
         if re.search(
             r"(?:['\"]\.gemini['\"]\s*(?:/|,)\s*['\"](?:config|GEMINI\.md|AGENTS\.md)['\"]|"
-            r"\.gemini/(?:config|GEMINI\.md|AGENTS\.md)|"
-            r"(?:\.local/(?:state|share)|/usr/(?:lib|share))/antigravity-(?:harness|guard)|"
-            r"['\"](?:state|share|lib)['\"]\s*(?:/|,)\s*['\"]antigravity-(?:harness|guard)['\"]|"
+            r"\.gemini(?:[/\\]|\\\\)+(?:config|GEMINI\.md|AGENTS\.md)|"
+            r"(?:\.local(?:[/\\]|\\\\)+(?:state|share)|/usr/(?:lib|share))(?:[/\\]|\\\\)+antigravity-(?:harness|guard)|"
+            r"Programs(?:[/\\]|\\\\)+antigravity-guard|"
+            r"['\"](?:state|share|lib|Programs)['\"]\s*(?:/|,)\s*['\"]antigravity-(?:harness|guard)['\"]|"
             r"['\"]\.local['\"]\s*(?:/|,)\s*['\"]bin['\"]\s*(?:/|,)\s*['\"]agy-|"
-            r"\.local/bin/agy-)",
+            r"\.local(?:[/\\]|\\\\)+bin(?:[/\\]|\\\\)+agy-)",
             inline_cmd,
             re.IGNORECASE,
         ) and re.search(
@@ -1520,12 +1628,16 @@ def _command_mutates_governance(cmd: str) -> bool:
     home = Path.home()
     cfg_roots = list(
         dict.fromkeys(
-            [*(str(p) for p in _config_root_candidates()), "~/.gemini/config", "$HOME/.gemini/config"]
+            [
+                *(sp for p in _config_root_candidates() for sp in _path_spellings(p)),
+                "~/.gemini/config",
+                "$HOME/.gemini/config",
+            ]
         )
     )
     gemini_top_files = [
-        str(home / ".gemini" / "GEMINI.md"),
-        str(home / ".gemini" / "AGENTS.md"),
+        *_path_spellings(home / ".gemini" / "GEMINI.md"),
+        *_path_spellings(home / ".gemini" / "AGENTS.md"),
         "~/.gemini/GEMINI.md",
         "$HOME/.gemini/GEMINI.md",
         "~/.gemini/AGENTS.md",
@@ -1533,12 +1645,12 @@ def _command_mutates_governance(cmd: str) -> bool:
     ]
     for cfg_cand in _config_root_candidates():
         if cfg_cand.name == "config" and cfg_cand.parent.name == ".gemini":
-            gemini_top_files.append(str(cfg_cand.parent / "GEMINI.md"))
-            gemini_top_files.append(str(cfg_cand.parent / "AGENTS.md"))
+            gemini_top_files.extend(_path_spellings(cfg_cand.parent / "GEMINI.md"))
+            gemini_top_files.extend(_path_spellings(cfg_cand.parent / "AGENTS.md"))
     state_roots = list(
         dict.fromkeys(
             [
-                *(str(p) for p in _state_root_candidates()),
+                *(sp for p in _state_root_candidates() for sp in _path_spellings(p)),
                 "~/.local/state/antigravity-harness",
                 "$HOME/.local/state/antigravity-harness",
                 "~/.local/state/antigravity-guard",
@@ -1548,7 +1660,7 @@ def _command_mutates_governance(cmd: str) -> bool:
     )
     custom_root_tokens: List[str] = []
     for c_root in _custom_enforced_governance_roots():
-        custom_root_tokens.append(str(c_root))
+        custom_root_tokens.extend(_path_spellings(c_root))
         try:
             rel_home = c_root.relative_to(home).as_posix()
             if rel_home and rel_home != ".":
@@ -1561,15 +1673,15 @@ def _command_mutates_governance(cmd: str) -> bool:
             state_roots
             + gemini_top_files
             + [
-                str(data_dir()),
-                str(data_dir() / "runtime"),
-                str(data_dir() / "snapshots"),
+                *_path_spellings(data_dir()),
+                *_path_spellings(data_dir() / "runtime"),
+                *_path_spellings(data_dir() / "snapshots"),
                 "~/.local/share/antigravity-harness",
                 "$HOME/.local/share/antigravity-harness",
                 "~/.local/share/antigravity-guard",
                 "$HOME/.local/share/antigravity-guard",
-                str(home / ".local" / "bin" / "agy-guard"),
-                str(home / ".local" / "bin" / "agy-porter"),
+                *_path_spellings(home / ".local" / "bin" / "agy-guard"),
+                *_path_spellings(home / ".local" / "bin" / "agy-porter"),
                 "~/.local/bin/agy-guard",
                 "$HOME/.local/bin/agy-guard",
                 "~/.local/bin/agy-porter",
@@ -1580,11 +1692,16 @@ def _command_mutates_governance(cmd: str) -> bool:
                 "/usr/share/antigravity-harness",
                 *(
                     [
-                        str(home / ".local" / "bin" / "porter"),
+                        *_path_spellings(home / ".local" / "bin" / "porter"),
                         "~/.local/bin/porter",
                         "$HOME/.local/bin/porter",
                     ]
                     if (home / ".local" / "bin" / "porter") in _governance_roots()
+                    else []
+                ),
+                *(
+                    _path_spellings(Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local")) / "Programs" / "antigravity-guard")
+                    if os.name == "nt"
                     else []
                 ),
                 *custom_root_tokens,
@@ -1595,16 +1712,25 @@ def _command_mutates_governance(cmd: str) -> bool:
     if not any(tok in norm_cmd for tok in roots):
         return False
     # Strip references to non-governance runtime subdirectories under ~/.gemini/config
-    # ONLY when no `..` traversal, link creation (`ln`), or archive extraction (`tar`/`unzip`) is present.
+    # ONLY when no `..`/`.parent` traversal, link creation (`ln`), or archive extraction (`tar`/`unzip`) is present.
     scrubbed = norm_cmd
-    has_dotdot_escape = bool(_SHELL_DOTDOT_TOKEN_RE.search(norm_cmd))
-    if not has_dotdot_escape and not re.search(r"\b(?:ln|tar|unzip)\b", scrubbed):
+    if not has_parent_escape and not re.search(r"\b(?:ln|tar|unzip)\b", scrubbed):
+        plugin_gov_tail = (
+            r"(?:/(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b"
+            r"|\.(?:mdc?|py[cow]?|m?js|cjs|tsx?|jsx|sh|bash|zsh|fish|ksh|pl|rb|php|ps1|bat|cmd|so|dylib|dll|exe|wasm)\b)"
+        )
         for root in cfg_roots:
             esc_root = re.escape(root)
             for sub in _RUNTIME_CONFIG_SUBDIRS:
                 if sub == "plugins":
                     scrubbed = re.sub(
-                        rf"{esc_root}/plugins(?=/|\s|$|[;&|'\"()])(?![^\s;|&'\"]*(?:/(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b|\.(?:mdc?|py[cow]?|m?js|cjs|tsx?|jsx|sh|bash|zsh|fish|ksh|pl|rb|php|ps1|bat|cmd|so|dylib|dll|exe|wasm)\b))",
+                        rf"(['\"]){esc_root}/plugins(?=/)(?![^'\"\n]*{plugin_gov_tail})[^'\"\n]*\1",
+                        r"\1__RUNTIME_SUBDIR__\1",
+                        scrubbed,
+                        flags=re.IGNORECASE,
+                    )
+                    scrubbed = re.sub(
+                        rf"(?<!['\"]){esc_root}/plugins(?=/|\s|$|[;&|'\"()])(?![^\s;|&'\"]*{plugin_gov_tail})",
                         "__RUNTIME_SUBDIR__",
                         scrubbed,
                         flags=re.IGNORECASE,
@@ -5223,8 +5349,11 @@ def _extract_shell_path_tokens(sub_cmd: str) -> List[str]:
             continue
         out.append(tok)
     for m_q in _QUOTED_SPAN_RE.finditer(expanded):
-        inner = m_q.group(0)[1:-1].strip()
-        if inner and "\n" not in inner and ("/" in inner or inner.endswith(".md") or inner.endswith(".py") or inner.endswith(".json")):
+        raw_q = m_q.group(0)
+        inner = raw_q[1:-1].strip()
+        if raw_q.startswith('"') and re.match(r"^[A-Za-z]:\\", inner):
+            inner = inner.replace("\\\\", "\\")
+        if inner and "\n" not in inner and ("/" in inner or "\\" in inner or inner.endswith(".md") or inner.endswith(".py") or inner.endswith(".json")):
             out.append(inner)
     return out
 
@@ -5312,13 +5441,13 @@ def _iter_shell_segments_with_cwd(
 
 def _command_mutates_governance_in_cwd(sub_cmd: str, effective_cwd: Optional[Path]) -> bool:
     for seg, seg_cwd in _iter_shell_segments_with_cwd(sub_cmd, effective_cwd):
-        if seg_cwd is None or not _shell_has_unquoted_mutation(seg):
+        if not _shell_has_unquoted_mutation(seg):
             continue
         tokens = _extract_shell_path_tokens(seg)
         for tok in tokens:
             if _targets_governance_dir(tok, base_dir=seg_cwd):
                 return True
-        if _targets_governance_dir(str(seg_cwd)):
+        if seg_cwd is not None and _targets_governance_dir(str(seg_cwd)):
             rel_tokens = [t for t in tokens if not Path(os.path.expanduser(t)).is_absolute()]
             if not tokens or any(_targets_governance_dir(t, base_dir=seg_cwd) for t in rel_tokens):
                 return True
@@ -5639,7 +5768,7 @@ def _collect_mcp_strings(value: Any, out: List[str], depth: int = 0) -> Optional
     if depth > _WORKFLOW_MAX_ARG_DEPTH:
         return "[Harness MCP Shield] MCP `Arguments` exceed maximum nesting depth (failing closed)."
     if isinstance(value, str):
-        if "\x00" in value:
+        if "\x00" in value or (value.strip().lower().startswith("file://") and "%00" in value.lower()):
             return "[Harness MCP Shield] Null bytes in MCP arguments are prohibited."
         if value:
             out.append(value)
@@ -5692,8 +5821,7 @@ _MCP_PATH_ARG_KEYS_LOWER = frozenset({
 def _normalize_mcp_path_value(val: str) -> str:
     s = val.strip()
     if s.lower().startswith("file://"):
-        parsed = urllib.parse.urlparse(s)
-        return urllib.parse.unquote(parsed.path or "")
+        return _parse_file_uri(s) or ""
     return s
 
 def _extract_mcp_target_paths(mcp_args: Dict[str, Any], depth: int = 0) -> List[str]:
@@ -6878,7 +7006,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     if tool_name in WRITE_TOOL_NAMES:
         targets = _extract_write_targets(args)
         for target in targets:
-            if "\x00" in target:
+            if "\x00" in target or (target.strip().lower().startswith("file://") and "%00" in target.lower()):
                 return {
                     "decision": "deny",
                     "reason": "[Harness Governance Shield] Null bytes in target paths are prohibited.",
@@ -7057,8 +7185,12 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                         }
 
                 unquoted_sub = _unquote_single_tokens(sub_cmd)
+                sub_variants = (unquoted_sub, sub_cmd) if "\\" in sub_cmd else (unquoted_sub,)
                 if (
-                    re.search(r"(?:^|[\s/'\"=])(?:\.agents?|_agents?)/hooks\.json\b", unquoted_sub, re.IGNORECASE)
+                    any(
+                        re.search(r"(?:^|[\s/\\'\"=])(?:\.agents?|_agents?)[/\\]hooks\.json\b", sv, re.IGNORECASE)
+                        for sv in sub_variants
+                    )
                     and _shell_has_unquoted_mutation(sub_cmd)
                     and pending_cmd_force_ask is None
                 ):
@@ -7072,7 +7204,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                     }
 
                 for pattern, reason in _DESTRUCTIVE_CMD_PATTERNS:
-                    if pattern.search(unquoted_sub):
+                    if any(pattern.search(sv) for sv in sub_variants):
                         if pending_cmd_force_ask is None:
                             pending_cmd_force_ask = {
                                 "decision": "force_ask",
@@ -7081,6 +7213,8 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                         break
 
                 out_ws_msg = _detect_out_of_workspace_rm_or_mv(unquoted_sub, workspaces, effective_cwd)
+                if out_ws_msg is None and "\\" in sub_cmd:
+                    out_ws_msg = _detect_out_of_workspace_rm_or_mv(sub_cmd, workspaces, effective_cwd)
                 if out_ws_msg and pending_cmd_force_ask is None:
                     pending_cmd_force_ask = {
                         "decision": "force_ask",

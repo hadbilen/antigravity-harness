@@ -100,7 +100,7 @@ _SUBMODULE_EXPORTS: Dict[str, Tuple[str, ...]] = {
         "_infer_effort_from_model_label _inspect_delegation_rule12_text _inspect_external_script_command _inspect_mcp_tool_call _inspect_workflow_script _is_model_placeholder "
         "_is_pinned_npm_spec _is_pinned_py_spec _is_plugin_governance_path _is_readonly_open_call _is_runtime_config_subdir _is_tracked_swarm_cust_worker _iter_shell_segments_with_cwd "
         "_join_shell_line_continuations _load_cmd_input_prefix _mask_quoted_operators _normalize_effort_value _normalize_governance_globs _normalize_mcp_path_value _normalize_model_slug "
-        "_normalize_shell_paths _payload_cwd _persist_post_message_cust_mentions _read_swarm_workers_ledger _record_flight_pre_write _record_swarm_cust_worker _resolve_shell_dir_token "
+        "_normalize_shell_paths _parse_file_uri _payload_cwd _persist_post_message_cust_mentions _read_swarm_workers_ledger _record_flight_pre_write _record_swarm_cust_worker _resolve_shell_dir_token "
         "_save_cmd_input_prefix _seed_placeholder_diagnostic _shell_has_unquoted_mutation _shell_targets_tasks_md _state_root_candidates _strip_unquoted_shell_comments _swarm_entry_has_cust "
         "_swarm_ledger_context _swarm_targets_customization _swarm_workers_file _targets_customization_structure _targets_governance_dir _text_mutates_governance_path _text_targets_customization "
         "_transcript_subagent_is_downgraded _unescape_dq_payload _unquote_single_tokens _update_swarm_workers_ledger _worker_matches_downgraded _workspace_for_target "

@@ -504,6 +504,244 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         )
         self.assertTrue(agy_hooks._command_mutates_governance(real_gov_cmd))
 
+    def test_cross_platform_windows_paths_uris_audit_handle_and_symlink_init(self) -> None:
+        import argparse
+        import contextlib
+        import importlib.util
+        import io
+        import logging
+        import shutil
+
+        import guard.audit_log as audit_log
+        import install
+        from guard import cli as guard_cli
+        from guard.environment import AgentEnvironment, EnvironmentRegistry, migrate_harness_mcp_config
+        from guard.hooks import pre_tool_use
+        from guard.integrity import FileIntegrityMonitor
+        from guard.paths import configured_config_dir, state_dir
+
+        # 1. guard/audit_log.py releases stream handle after each emit, preserves 0o600 on rollover, and recovers after transient OSError
+        audit_log._configured_for = None
+        real_open = audit_log.os.open
+        with mock.patch.object(audit_log.os, "open", side_effect=OSError("transient lock")):
+            audit_log.warn("test.transient_fail")
+        self.assertIsNone(audit_log._configured_for)
+
+        audit_log.warn("test.handle_release_1", detail="first")
+        audit_log.warn("test.handle_release_2", detail="second")
+        logger = logging.getLogger(audit_log.LOGGER_NAME)
+        self.assertTrue(logger.handlers)
+        for h in logger.handlers:
+            self.assertIsNone(getattr(h, "stream", None))
+        log_lines = [json.loads(ln) for ln in audit_log.log_path().read_text(encoding="utf-8").splitlines() if ln.strip()]
+        self.assertEqual([r["event"] for r in log_lines[-2:]], ["test.handle_release_1", "test.handle_release_2"])
+        with mock.patch.object(audit_log, "MAX_BYTES", 64):
+            audit_log._configured_for = None
+            audit_log.warn("test.rollover_1", payload="x" * 80)
+            audit_log.warn("test.rollover_2", payload="y" * 80)
+        if os.name != "nt":
+            self.assertEqual(audit_log.log_path().stat().st_mode & 0o777, 0o600)
+        # Immediate deletion without logging.shutdown() or ignore_errors=True proves no open Windows handle
+        shutil.rmtree(audit_log.log_path().parent)
+        self.assertIsNotNone(real_open)
+
+        # 2. _unquote_single_tokens, _normalize_shell_paths & _command_mutates_governance Windows + POSIX parity
+        self.assertEqual(
+            pre_tool_use._unquote_single_tokens(r"touch D:\a\antigravity-harness\skills\real.md"),
+            "touch D:/a/antigravity-harness/skills/real.md",
+        )
+        self.assertEqual(
+            pre_tool_use._unquote_single_tokens(r'touch "C:\Users\runneradmin\skills\real.md"'),
+            "touch C:/Users/runneradmin/skills/real.md",
+        )
+        self.assertIn("foo-bar", pre_tool_use._unquote_single_tokens("${z:+a:\\b}foo-\\bar"))
+        self.assertIn("foo-bar", pre_tool_use._unquote_single_tokens('${z:+""a:\\b}foo-\\bar'))
+        self.assertEqual(
+            pre_tool_use._unquote_single_tokens(r"r\m -rf ~/\.gemini/config"),
+            "rm -rf ~/.gemini/config",
+        )
+        self.assertEqual(pre_tool_use._normalize_shell_paths("C:/../Users/alice"), "C:/Users/alice")
+        self.assertTrue(agy_hooks._command_mutates_governance(r"r\m -rf ~/\.gemini/config"))
+        self.assertTrue(
+            agy_hooks._command_mutates_governance(
+                r'''python3 -c "open('C:\\Users\\runner\\.gemini\\config\\GEMINI.md', 'w').write('x')"'''
+            )
+        )
+        self.assertTrue(
+            agy_hooks._command_mutates_governance(
+                "python3 -c \"from pathlib import Path; (Path.home() / '.local' / 'state' / 'antigravity-harness' / 'staging').parent.joinpath('leases.json').write_text('{}')\""
+            )
+        )
+        self.assertTrue(
+            agy_hooks._command_mutates_governance('cp x.py "~/.gemini/config/plugins/my plugin/payload.py"')
+        )
+        staging_ok_cmd = (
+            f'python3 -c "from pathlib import Path; Path({str(state_dir() / "staging" / "out.json")!r}).write_text(\'ok\')"'
+        )
+        self.assertFalse(agy_hooks._command_mutates_governance(staging_ok_cmd))
+
+        # 3. _targets_governance_dir, _normalize_mcp_path_value & %00 file:// rejection execute real production code
+        fake_win_gov = Path("C:/Users/runner/.gemini/config")
+        with (
+            mock.patch.object(pre_tool_use, "_governance_roots", return_value=[fake_win_gov]),
+            mock.patch.object(pre_tool_use, "_config_root_candidates", return_value=[]),
+            mock.patch.object(pre_tool_use, "_state_root_candidates", return_value=[]),
+        ):
+            for win_uri in (
+                r"file://C:\Users\runner\.gemini\config/skills/antislop/SKILL.md",
+                "file://C:/Users/runner/.gemini/config/skills/antislop/SKILL.md",
+                "file:///C:/Users/runner/.gemini/config/skills/antislop/SKILL.md",
+                "file://C:%5cUsers%5crunner%5c.gemini%5cconfig%5cGEMINI.md",
+                "file://C%3A/Users/runner/.gemini/config/GEMINI.md",
+            ):
+                self.assertTrue(pre_tool_use._targets_governance_dir(win_uri), win_uri)
+                res_uri_w = agy_hooks.handle_pre_tool_use(
+                    {"toolCall": {"name": "write_file", "args": {"Path": win_uri, "Content": "x"}}}
+                )
+                self.assertEqual(res_uri_w.get("decision"), "deny", win_uri)
+            self.assertFalse(pre_tool_use._targets_governance_dir("file://C:/Users/runner/other/SKILL.md"))
+            self.assertFalse(pre_tool_use._targets_governance_dir("file://evil.example.com/skills/antislop/SKILL.md"))
+
+        res_pct00 = agy_hooks.handle_pre_tool_use(
+            {
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": f"file://{configured_config_dir().as_posix()}/sidecars/ok%00/../../DESIGN.md",
+                        "Content": "x",
+                    },
+                }
+            }
+        )
+        self.assertEqual(res_pct00.get("decision"), "deny")
+        self.assertIn("Null bytes", res_pct00.get("reason", ""))
+        self.assertEqual(pre_tool_use._normalize_mcp_path_value(r"file://C:\ws\tasks.md"), "C:/ws/tasks.md")
+
+        # 4. Out-of-workspace rm/mv and .agents\hooks.json shell guard under approved top model
+        ws = self._init_git_ws("ws_win_slashes")
+        expected_force_ask = [
+            (r"rm -rf \opt\agy_w5_outside_important_data", "outside the active workspace"),
+            (r"rm -rf ..\..\outside_ws_target", "rm -rf"),
+            (r"mv app.py \opt\agy_w5_outside_important_data\app.py", "outside the active workspace"),
+            ("mv --target-directory=/opt/agy_w5_outside_important_data app.py", "outside the active workspace"),
+            (r"echo {} > .agents\hooks.json", ".agents/hooks.json"),
+        ]
+        if os.name != "nt":
+            expected_force_ask.append(("rm -rf C:/Users/other/Docs", "outside the active workspace"))
+        for win_cmd, expected_reason_sub in expected_force_ask:
+            res_win = agy_hooks.handle_pre_tool_use(
+                {
+                    "modelName": "gemini-4-argon-high",
+                    "effort": "high",
+                    "workspacePaths": [str(ws)],
+                    "toolCall": {"name": "run_command", "args": {"CommandLine": win_cmd, "Cwd": str(ws)}},
+                }
+            )
+            self.assertEqual(res_win.get("decision"), "force_ask", f"Expected force_ask for {win_cmd!r}, got {res_win}")
+            self.assertIn(expected_reason_sub, res_win.get("reason", ""), f"Unexpected reason for {win_cmd!r}: {res_win}")
+
+        # 5. media_qc cp1252-undefined bytes, doctor relative .agents/hooks.json warning, install IS_WINDOWS chmod, and _uninstall_init_profile
+        mq_spec = importlib.util.spec_from_file_location(
+            "media_qc_xplat", REPO_ROOT / "skills" / "media-studio" / "scripts" / "media_qc.py"
+        )
+        assert mq_spec is not None and mq_spec.loader is not None
+        mq_mod = importlib.util.module_from_spec(mq_spec)
+        sys.modules["media_qc_xplat"] = mq_mod
+        mq_spec.loader.exec_module(mq_mod)
+        cp_proc = mq_mod._run_media_subprocess(
+            [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok:\\x81\\x8d\\xc4\\xb0')"]
+        )
+        self.assertEqual(cp_proc.returncode, 0)
+        self.assertIn("ok:", cp_proc.stdout)
+
+        doc_ws = self.tmp / "doc_ws_hooks"
+        (doc_ws / ".agents").mkdir(parents=True, exist_ok=True)
+        (doc_ws / ".agents" / "hooks.json").write_text('{"harness-gate": {}}', encoding="utf-8")
+        doc_warnings: list[str] = []
+        doctor._check_workspace_hooks_collision(doc_ws, doc_warnings)
+        self.assertTrue(
+            any("Workspace lifecycle hooks file .agents/hooks.json (" in w for w in doc_warnings),
+            doc_warnings,
+        )
+
+        perm_skills = self.tmp / "perm_skills"
+        (perm_skills / "demo" / "scripts").mkdir(parents=True, exist_ok=True)
+        (perm_skills / "demo" / "scripts" / "run.py").write_text("print(1)\n", encoding="utf-8")
+        err_buf = io.StringIO()
+        with (
+            mock.patch.object(install, "IS_WINDOWS", True),
+            mock.patch.object(Path, "chmod", side_effect=OSError("win chmod fail")),
+            contextlib.redirect_stderr(err_buf),
+        ):
+            install.ensure_skill_script_permissions(perm_skills)
+        self.assertIn("[WARN] Could not set executable permission", err_buf.getvalue())
+
+        uninst_dir = self.tmp / "empty_uninst_target"
+        uninst_dir.mkdir(parents=True, exist_ok=True)
+        uninst_ns = argparse.Namespace(source=str(self.tmp / "nonexistent_share"), registry=None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(guard_cli._uninstall_init_profile(uninst_ns, uninst_dir, dry_run=True), 0)
+
+        # 6. cmd_init preserves lexical --target path across symlinked ancestor & rejects symlinked target root
+        if hasattr(os, "symlink"):
+            real_private = self.tmp / "private_var"
+            real_private.mkdir(parents=True, exist_ok=True)
+            sym_var = self.tmp / "var_link"
+            try:
+                os.symlink(real_private, sym_var, target_is_directory=True)
+            except OSError:
+                sym_var = None  # type: ignore[assignment]
+            if sym_var is not None:
+                parser = guard_cli.build_parser()
+                sym_direct_args = parser.parse_args(
+                    ["init", "--source", str(REPO_ROOT), "--target", str(sym_var), "--no-lock"]
+                )
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(guard_cli.cmd_init(sym_direct_args), 1)
+
+                cfg_via_link = sym_var / "cfg_init_lexical"
+                cfg_via_link.mkdir(parents=True, exist_ok=True)
+                (cfg_via_link / "mcp_config.json").write_text(
+                    json.dumps(
+                        {
+                            "mcpServers": {
+                                "antislop-contrast": {
+                                    "command": "python3",
+                                    "args": [str(cfg_via_link / "skills" / "antislop-human" / "contrast-mcp.py")],
+                                },
+                                "antislop-posix": {
+                                    "command": "python3",
+                                    "args": ["/tmp/other/antigravity-harness/skills/antislop-human/contrast-mcp.py"],
+                                },
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                reg_path = self.tmp / "state" / "sym_init_reg.json"
+                reg_check = EnvironmentRegistry(config_path=reg_path)
+                self.assertIsNotNone(reg_check.get_environment("antigravity"))
+                cli_args = parser.parse_args(
+                    ["--registry", str(reg_path), "init", "--source", str(REPO_ROOT), "--target", str(cfg_via_link), "--no-lock"]
+                )
+                with mock.patch("guard.cli.request_approval", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+                    rc_init = guard_cli.cmd_init(cli_args)
+                self.assertEqual(rc_init, 0)
+                migrated_servers = json.loads((cfg_via_link / "mcp_config.json").read_text(encoding="utf-8"))["mcpServers"]
+                expected_script = str(cfg_via_link / "skills" / "antislop" / "scripts" / "contrast-mcp.py")
+                self.assertEqual(migrated_servers["antislop-contrast"]["args"], [expected_script])
+                self.assertEqual(migrated_servers["antislop-posix"]["args"], [expected_script])
+                self.assertEqual(migrated_servers["antislop-posix"]["command"], sys.executable)
+                fim_env = AgentEnvironment(
+                    id="antigravity",
+                    name="Antigravity Global Config",
+                    platform_type="antigravity",
+                    root_path=str(cfg_via_link.resolve()),
+                    policy="enforced",
+                )
+                self.assertTrue(FileIntegrityMonitor.for_environment(fim_env).verify().is_intact)
+                self.assertFalse(migrate_harness_mcp_config(cfg_via_link, source_dir=REPO_ROOT, dry_run=False))
+
 
 if __name__ == "__main__":
     unittest.main()

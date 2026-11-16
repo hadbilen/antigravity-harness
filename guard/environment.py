@@ -14,7 +14,7 @@ import os
 import re
 import sys
 from dataclasses import asdict, dataclass, field, fields
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from guard.audit_log import audit
@@ -713,15 +713,15 @@ def migrate_harness_mcp_config(
 
     try:
         target_dir_res: Optional[Path] = target_dir.resolve()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         target_dir_res = None
     try:
         source_dir_res: Optional[Path] = source_dir.resolve()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         source_dir_res = None
     try:
         target_skills_res: Optional[Path] = target_skills_dir.resolve()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         target_skills_res = None
 
     bare_python_names = {"python", "python3", "python.exe", "python3.exe"}
@@ -744,27 +744,43 @@ def migrate_harness_mcp_config(
             if not isinstance(arg, str) or not arg.strip() or "\x00" in arg:
                 continue
             arg_str = arg.strip()
-            raw_path = Path(os.path.expanduser(arg_str))
-            if not raw_path.is_absolute() or ".." in raw_path.parts:
+            expanded_str = os.path.expanduser(arg_str)
+            raw_path = Path(expanded_str)
+            arg_path: Optional[Path] = None
+            if raw_path.is_absolute():
+                if ".." in raw_path.parts or ".." in expanded_str.replace("\\", "/").split("/"):
+                    continue
+                arg_path = Path(os.path.abspath(raw_path))
+                parts: Tuple[str, ...] = arg_path.parts
+            elif expanded_str.startswith("/") and not expanded_str.startswith("//") and "\\" not in expanded_str:
+                posix_path = PurePosixPath(expanded_str)
+                if ".." in posix_path.parts:
+                    continue
+                parts = posix_path.parts
+            else:
                 continue
-            arg_path = Path(os.path.abspath(raw_path))
-            parts = arg_path.parts
             skill_indices = [idx for idx, part in enumerate(parts) if part == "skills"]
             for skills_idx in reversed(skill_indices):
                 skill_name = parts[skills_idx + 1] if (skills_idx + 1) < len(parts) else ""
                 if skill_name not in harness_skills:
                     continue
-                prefix_dir = Path(*parts[:skills_idx]) if skills_idx > 0 else Path("/")
-                try:
-                    prefix_res: Optional[Path] = prefix_dir.resolve()
-                except OSError:
-                    prefix_res = None
+                if Path(parts[-1]).suffix.lower() not in (".py", ".mjs", ".js", ".cjs", ".sh"):
+                    continue
+                prefix_res: Optional[Path] = None
+                if arg_path is not None:
+                    prefix_dir = Path(*parts[:skills_idx]) if skills_idx > 0 else Path("/")
+                    try:
+                        prefix_res = prefix_dir.resolve()
+                    except (OSError, RuntimeError, ValueError):
+                        prefix_res = None
                 is_repo_tree = (
                     (skills_idx > 0 and parts[skills_idx - 1] == "antigravity-harness")
-                    or _is_within_lexically(arg_path, repo_skills_dir)
+                    or (arg_path is not None and _is_within_lexically(arg_path, repo_skills_dir))
                     or (prefix_res is not None and source_dir_res is not None and prefix_res == source_dir_res)
                 )
-                is_target_tree = _is_within_lexically(arg_path, target_skills_dir) or (
+                is_target_tree = (
+                    arg_path is not None and _is_within_lexically(arg_path, target_skills_dir)
+                ) or (
                     prefix_res is not None and target_dir_res is not None and prefix_res == target_dir_res
                 )
                 raw_rel_posix = "/".join(parts[skills_idx:])
@@ -776,20 +792,21 @@ def migrate_harness_mcp_config(
                         cand_within = (
                             _is_within_lexically(candidate, target_skills_dir)
                             and not os.path.islink(candidate)
-                            and (
-                                target_skills_res is None
-                                or is_within(candidate.resolve(), target_skills_res)
-                            )
+                            and target_skills_res is not None
+                            and is_within(candidate.resolve(), target_skills_res)
                         )
-                    except OSError:
+                    except (OSError, RuntimeError, ValueError):
                         cand_within = False
                     if not cand_within:
                         _emit(f"[WARN] Skipping unsafe MCP target {candidate}; leaving argument unchanged.")
                         continue
                     src_candidate = source_dir / mapped_rel
-                    dest_ready = (not os.path.islink(candidate) and candidate.is_file()) or (
-                        dry_run and not os.path.islink(src_candidate) and src_candidate.is_file()
-                    )
+                    try:
+                        dest_ready = (not os.path.islink(candidate) and candidate.is_file()) or (
+                            dry_run and not os.path.islink(src_candidate) and src_candidate.is_file()
+                        )
+                    except (OSError, RuntimeError, ValueError):
+                        dest_ready = False
                     if dest_ready:
                         is_harness_server = True
                         if str(candidate) != arg:
