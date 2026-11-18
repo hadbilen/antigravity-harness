@@ -1,6 +1,6 @@
 # Antigravity Harness
 
-[![Release](https://img.shields.io/badge/release-v2.1.2-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases)
+[![Release](https://img.shields.io/badge/release-v2.2.0-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases)
 [![CI](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml)
 [![Runtime](https://img.shields.io/badge/core%20runtime-Python%20stdlib%20only-brightgreen.svg)](#dependencies)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20antislop-orange.svg)](DESIGN.md)
@@ -344,8 +344,8 @@ Release assets (see [GitHub Releases](https://github.com/hadbilen/antigravity-ha
 `.sha256` file each; verify before installing:
 
 ```bash
-sha256sum -c antigravity-guard_2.1.2_amd64.deb.sha256
-sudo apt install ./antigravity-guard_2.1.2_amd64.deb
+sha256sum -c antigravity-guard_2.2.0_amd64.deb.sha256
+sudo apt install ./antigravity-guard_2.2.0_amd64.deb
 agy-guard init              # bootstrap ~/.gemini/config, hooks, FIM baseline & lock from /usr/share/antigravity-harness
 ```
 
