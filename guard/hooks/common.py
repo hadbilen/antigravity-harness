@@ -465,19 +465,45 @@ def _read_ledger_safe(path: Path) -> Dict[str, Any]:
     """Reads a JSON dict ledger, quarantining (`move_aside`) corrupt state rather than silently wiping it."""
     return _read_ledger_checked(path)[1]
 
-def _read_bounded_markdown_checked(path: Path, limit: int = 262144) -> Tuple[bool, str]:
+def _read_bounded_markdown_checked(path: Path, limit: int = 524288) -> Tuple[bool, str]:
     """Reads up to `limit` bytes from a non-symlink regular file and reports whether a regular read succeeded."""
     try:
-        if path.is_symlink() or not path.is_file():
+        path_str = os.fspath(path)
+        if "\x00" in path_str:
+            return False, ""
+        lst = os.lstat(path_str)
+    except FileNotFoundError:
+        return True, ""
+    except (OSError, TypeError, ValueError):
+        return False, ""
+    if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
+        return True, ""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path_str, flags)
+    except FileNotFoundError:
+        return True, ""
+    except (OSError, TypeError, ValueError):
+        return False, ""
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
             return True, ""
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(str(path), flags)
-        with os.fdopen(fd, "rb") as f:
-            return True, f.read(limit).decode("utf-8", errors="replace")
+        fh = os.fdopen(fd, "rb")
+    except OSError:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return False, ""
+    try:
+        with fh:
+            return True, fh.read(limit).decode("utf-8", errors="replace")
     except OSError:
         return False, ""
 
-def _read_bounded_markdown(path: Path, limit: int = 262144) -> str:
+def _read_bounded_markdown(path: Path, limit: int = 524288) -> str:
     """Reads up to `limit` bytes from a non-symlink regular file without skipping large logs."""
     return _read_bounded_markdown_checked(path, limit=limit)[1]
 

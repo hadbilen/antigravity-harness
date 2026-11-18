@@ -1065,12 +1065,25 @@ def _record_flight_pre_write(
     except (OSError, ValueError):
         return
 
-    expanded = Path(os.path.expanduser(target_path_str.strip()))
+    raw_target = target_path_str.strip()
+    if raw_target.lower().startswith("file:"):
+        parsed_target = _parse_file_uri(raw_target)
+        if parsed_target is None:
+            sys.stderr.write(
+                f"[Harness Flight Recorder] Skipping unparsable `file:` target `{target_path_str}`.\n"
+            )
+            return
+        raw_target = parsed_target
+    expanded = Path(os.path.expanduser(raw_target))
     candidate = (workspace / expanded) if not expanded.is_absolute() else expanded
     try:
         ws_resolved = workspace.resolve()
         cand_resolved = candidate.resolve()
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError) as exc:
+        sys.stderr.write(
+            f"[Harness Flight Recorder] Failed to resolve target `{target_path_str}` in `{workspace}` "
+            f"({type(exc).__name__}): {exc}\n"
+        )
         return
 
     if not is_within(cand_resolved, ws_resolved):
@@ -1145,16 +1158,28 @@ def _workspace_for_target(
         return fallback
     if not target_path_str or not target_path_str.strip() or "\x00" in target_path_str:
         return fallback if fallback is not None else workspaces[0]
-    expanded = Path(os.path.expanduser(target_path_str.strip()))
+    raw_target = target_path_str.strip()
+    if raw_target.lower().startswith("file:"):
+        parsed_target = _parse_file_uri(raw_target)
+        if parsed_target is None:
+            return fallback if fallback is not None else workspaces[0]
+        raw_target = parsed_target
+    expanded = Path(os.path.expanduser(raw_target))
     if expanded.is_absolute():
+        matched: List[Tuple[int, Path]] = []
         for ws in workspaces:
             if is_within(expanded, ws):
-                return ws
+                matched.append((len(os.path.abspath(ws)), ws))
+                continue
             try:
-                if is_within(expanded.resolve(), ws.resolve()):
-                    return ws
+                ws_res = ws.resolve()
+                if is_within(expanded.resolve(), ws_res):
+                    matched.append((len(str(ws_res)), ws))
             except (OSError, RuntimeError, ValueError):
                 continue
+        if matched:
+            matched.sort(key=lambda item: item[0], reverse=True)
+            return matched[0][1]
         return fallback if fallback is not None else workspaces[0]
     if fallback is not None:
         return fallback
@@ -1436,29 +1461,79 @@ _URI_SCHEME_PREFIX_RE = _LazyRegex(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 
 
 def _parse_file_uri(raw_uri: str) -> Optional[str]:
-    """Parses a local `file://` URI (POSIX or Windows drive) into a filesystem path, or `None` if remote/malformed."""
+    """Parses a local `file:` / `file://` URI (RFC 8089, POSIX, WSL, or Windows drive) into a filesystem path, or `None` if remote/malformed."""
     s = raw_uri.strip()
-    if not s.lower().startswith("file://"):
+    if not s.lower().startswith("file:"):
         return None
     if "\x00" in s or "%00" in s.lower():
         return None
-    parsed = urllib.parse.urlparse(s.replace("\\", "/"))
-    netloc = urllib.parse.unquote(parsed.netloc or "").replace("\\", "/")
-    uri_path = urllib.parse.unquote(parsed.path or "").replace("\\", "/")
-    if "\x00" in netloc or "\x00" in uri_path:
-        return None
-    if re.match(r"^[A-Za-z]:(?:/|$)", netloc):
-        if "/" in netloc:
-            drive_part, rest_part = netloc.split("/", 1)
-            uri_path = f"{drive_part}/{rest_part}{uri_path}"
+    if s.lower().startswith("file://"):
+        rest = s[7:].replace("\\", "/")
+        raw_netloc, sep, raw_path = rest.partition("/")
+        netloc = urllib.parse.unquote(raw_netloc).replace("\\", "/").strip()
+        uri_path = ("/" + urllib.parse.unquote(raw_path).replace("\\", "/")) if sep else ""
+        if "\x00" in netloc or "\x00" in uri_path:
+            return None
+        m_drive_auth = re.match(r"^([A-Za-z])[:|$](?:/(.*))?$", netloc)
+        if m_drive_auth:
+            drv = m_drive_auth.group(1)
+            rem_auth = m_drive_auth.group(2)
+            uri_path = f"{drv}:/{rem_auth}{uri_path}" if rem_auth is not None else f"{drv}:{uri_path}"
+        elif netloc == "" or netloc.lower() in ("localhost", "localhost.", ".", "?", "[::1]") or bool(
+            re.match(r"^127(?:\.\d{1,3}){3}$", netloc)
+        ):
+            pass
+        elif netloc.lower() in ("wsl.localhost", "wsl$"):
+            m_wsl = re.match(r"^/[^/]+(/.*)$", uri_path)
+            if not m_wsl:
+                return None
+            uri_path = m_wsl.group(1)
         else:
-            uri_path = f"{netloc}{uri_path}"
-    elif netloc and netloc.lower() != "localhost":
+            return None
+        uri_path = re.sub(r"^/+([A-Za-z])[:|$](?=/|$)", r"\1:", uri_path)
+        cleaned = uri_path.strip()
+        return cleaned or None
+    rest_single = urllib.parse.unquote(s[5:]).replace("\\", "/")
+    if "\x00" in rest_single:
         return None
-    if re.match(r"^/[A-Za-z]:(?:/|$)", uri_path):
-        uri_path = uri_path[1:]
-    cleaned = uri_path.strip()
-    return cleaned or None
+    rest_single = re.sub(r"^/+([A-Za-z])[:|$](?=/|$)", r"\1:", rest_single)
+    rest_single = re.sub(r"^([A-Za-z])[|$](?=/|$)", r"\1:", rest_single)
+    cleaned_single = rest_single.strip()
+    return cleaned_single or None
+
+
+def _canonicalize_check_path(raw_target: str) -> str:
+    """Normalizes `file:` URIs, `//`, `.`/`..` segments, and Win32 trailing dots/spaces for boundary checks."""
+    s = raw_target.strip()
+    if s.lower().startswith("file:"):
+        parsed = _parse_file_uri(s)
+        s = parsed if parsed is not None else urllib.parse.unquote(s)
+    else:
+        s = urllib.parse.unquote(s)
+    s = s.replace("\\", "/")
+    prefix = ""
+    m_drv = re.match(r"^([A-Za-z]:)(?:/|$)(.*)$", s)
+    if m_drv:
+        prefix = m_drv.group(1) + "/"
+        body = m_drv.group(2)
+    elif s.startswith("/"):
+        prefix = "/"
+        body = s.lstrip("/")
+    else:
+        body = s
+    stack: List[str] = []
+    for seg in body.split("/"):
+        if not seg or seg == ".":
+            continue
+        if seg == "..":
+            if stack and stack[-1] != "..":
+                stack.pop()
+            elif not prefix:
+                stack.append("..")
+            continue
+        trimmed = seg.rstrip(". ")
+        stack.append(trimmed if trimmed else seg)
+    return prefix + "/".join(stack)
 
 
 def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = None) -> bool:
@@ -1469,7 +1544,7 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
     cleaned = target_path_str.strip()
     if not cleaned:
         return False
-    if _URI_SCHEME_PREFIX_RE.match(cleaned):
+    if cleaned.lower().startswith("file:") or _URI_SCHEME_PREFIX_RE.match(cleaned):
         parsed_local = _parse_file_uri(cleaned)
         if parsed_local is None:
             return False
@@ -3265,7 +3340,16 @@ def _targets_customization_structure(target_path_str: str, workspace: Optional[P
     """
     if not target_path_str or not target_path_str.strip():
         return False
-    raw = os.path.expanduser(target_path_str.strip()).replace("\\", "/")
+    cleaned_target = target_path_str.strip()
+    if "\x00" in cleaned_target or (cleaned_target.lower().startswith("file:") and "%00" in cleaned_target.lower()):
+        return True
+    if cleaned_target.lower().startswith("file:"):
+        parsed_cust_uri = _parse_file_uri(cleaned_target)
+        cleaned_target = parsed_cust_uri if parsed_cust_uri is not None else urllib.parse.unquote(cleaned_target)
+        if "\x00" in cleaned_target:
+            return True
+    canon_cust = _canonicalize_check_path(cleaned_target)
+    raw = os.path.expanduser(canon_cust or cleaned_target).replace("\\", "/")
     collapsed = _normalize_shell_paths(raw if raw.startswith("/") else f"/{raw}")
     norm = re.sub(r"^/+", "", collapsed) if not raw.startswith("/") else collapsed
     norm = re.sub(r"^\./+", "", norm)
@@ -3279,7 +3363,7 @@ def _targets_customization_structure(target_path_str: str, workspace: Optional[P
     if any(p.lower() in _CUSTOMIZATION_DIR_SEGMENTS for p in parts):
         return True
 
-    expanded = Path(os.path.expanduser(target_path_str.strip()))
+    expanded = Path(os.path.expanduser(cleaned_target))
     base_ws = workspace if workspace is not None else _repo_root()
     cand_raw = expanded if expanded.is_absolute() else (base_ws / expanded)
 
@@ -4704,7 +4788,7 @@ def _collect_mcp_strings(value: Any, out: List[str], depth: int = 0) -> Optional
     if depth > _WORKFLOW_MAX_ARG_DEPTH:
         return "[Harness MCP Shield] MCP `Arguments` exceed maximum nesting depth (failing closed)."
     if isinstance(value, str):
-        if "\x00" in value or (value.strip().lower().startswith("file://") and "%00" in value.lower()):
+        if "\x00" in value or (value.strip().lower().startswith("file:") and "%00" in value.lower()):
             return "[Harness MCP Shield] Null bytes in MCP arguments are prohibited."
         if value:
             out.append(value)
@@ -4756,8 +4840,8 @@ _MCP_PATH_ARG_KEYS_LOWER = frozenset({
 
 def _normalize_mcp_path_value(val: str) -> str:
     s = val.strip()
-    if s.lower().startswith("file://"):
-        return _parse_file_uri(s) or ""
+    if s.lower().startswith("file:"):
+        return _parse_file_uri(s) or s
     return s
 
 def _extract_mcp_target_paths(mcp_args: Dict[str, Any], depth: int = 0) -> List[str]:
@@ -4919,13 +5003,29 @@ def _inspect_mcp_tool_call(
                 ),
             }
 
-    if checks_gov_path and mcp_targets:
-        def _resolve_mcp_target_and_ws(t_str: str) -> Tuple[str, Optional[Path]]:
-            exp_t = Path(os.path.expanduser(t_str.strip()))
-            res_str = str(effective_cwd / exp_t) if (effective_cwd is not None and not exp_t.is_absolute()) else t_str
-            t_ws = _workspace_for_target(res_str, workspaces, fallback=(workspace if workspace is not None else effective_cwd))
-            return res_str, t_ws
+    def _resolve_mcp_target_and_ws(t_str: str) -> Tuple[str, Optional[Path]]:
+        raw_t = t_str.strip()
+        is_unparsed_file_uri = False
+        if raw_t.lower().startswith("file:"):
+            parsed_t = _parse_file_uri(raw_t)
+            if parsed_t is not None:
+                raw_t = parsed_t
+            else:
+                is_unparsed_file_uri = True
+        if is_unparsed_file_uri:
+            t_ws = _workspace_for_target(raw_t, workspaces, fallback=(effective_cwd or workspace))
+            return raw_t, t_ws
+        exp_t = Path(os.path.expanduser(raw_t))
+        t_ws = _workspace_for_target(
+            raw_t, workspaces, fallback=(effective_cwd if effective_cwd is not None else workspace)
+        )
+        base_rel = effective_cwd if effective_cwd is not None else t_ws
+        res_str = str(base_rel / exp_t) if (base_rel is not None and not exp_t.is_absolute()) else raw_t
+        if exp_t.is_absolute() or base_rel is not None:
+            t_ws = _workspace_for_target(res_str, workspaces, fallback=(effective_cwd or workspace))
+        return res_str, t_ws
 
+    if checks_gov_path and mcp_targets:
         if payload is not None and any(
             _targets_customization_structure(res_t, workspace=t_ws)
             or (res_t == t_raw and _targets_customization_structure(t_raw, workspace=t_ws))
@@ -4938,6 +5038,27 @@ def _inspect_mcp_tool_call(
 
         for t_raw in mcp_targets:
             res_t, t_ws = _resolve_mcp_target_and_ws(t_raw)
+            canon_mcp_t = _canonicalize_check_path(res_t)
+            resolved_mcp_str = ""
+            try:
+                if not res_t.lower().startswith("file:"):
+                    resolved_mcp_str = str(Path(os.path.expanduser(res_t)).resolve()).replace("\\", "/")
+            except (OSError, RuntimeError, ValueError):
+                resolved_mcp_str = ""
+            if any(
+                re.search(r"(?:^|/)(?:\.agents?|_agents?)/hooks\.json$", cand_h, re.IGNORECASE)
+                for cand_h in (canon_mcp_t, resolved_mcp_str)
+                if cand_h
+            ):
+                if bool(workspaces) or not _workspaces_in_harness_scope(workspaces, effective_cwd or t_ws):
+                    return {
+                        "decision": "force_ask",
+                        "reason": (
+                            "[Harness Governance Shield] Modifying workspace `.agents/hooks.json` via MCP tool "
+                            f"(`{effective_label}`) can shadow or disable global lifecycle hooks and requires "
+                            "explicit human confirmation (GEMINI.md Rule 12 & Rule 15a)."
+                        ),
+                    }
             if _write_mutates_authorized_test_section(
                 t_raw, mcp_args, effective_cwd or t_ws, conv_id=_conversation_id(payload or {})
             ):
@@ -4948,20 +5069,20 @@ def _inspect_mcp_tool_call(
                         "requires explicit human confirmation (GEMINI.md Rule 9)."
                     ),
                 }
-            if Path(t_raw.replace("\\", "/")).name.lower() == "tasks.md" and not any(
+            if Path(canon_mcp_t).name.lower() == "tasks.md" and not any(
                 ck in mcp_args for ck in ("Content", "FileContent", "CodeContent", "content", "file_text")
             ):
-                tasks_disk = Path(os.path.expanduser(res_t))
+                tasks_disk = Path(os.path.expanduser(canon_mcp_t))
                 has_auth_heading = any("authorized test modifications" in x.lower() for x in strings)
                 if not has_auth_heading:
                     try:
-                        if tasks_disk.is_file():
+                        if os.path.lexists(tasks_disk):
                             has_auth_heading = (
                                 "authorized test modifications"
                                 in tasks_disk.read_text(encoding="utf-8", errors="ignore").lower()
                             )
                     except OSError:
-                        pass
+                        has_auth_heading = True
                 if has_auth_heading:
                     return {
                         "decision": "force_ask",
@@ -4983,9 +5104,7 @@ def _inspect_mcp_tool_call(
 
     if checks_gov_path and mcp_targets and payload is not None and not payload.get("_workflowDryCheck"):
         for t_raw in mcp_targets:
-            exp_t = Path(os.path.expanduser(t_raw.strip()))
-            res_t = str(effective_cwd / exp_t) if (effective_cwd is not None and not exp_t.is_absolute()) else t_raw
-            t_ws = _workspace_for_target(res_t, workspaces, fallback=workspace)
+            res_t, t_ws = _resolve_mcp_target_and_ws(t_raw)
             _record_flight_pre_write(payload, t_ws, tool_name, res_t)
 
     return {"decision": "allow"}
@@ -5944,7 +6063,7 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     if tool_name in WRITE_TOOL_NAMES:
         targets = _extract_write_targets(args)
         for target in targets:
-            if "\x00" in target or (target.strip().lower().startswith("file://") and "%00" in target.lower()):
+            if "\x00" in target or (target.strip().lower().startswith("file:") and "%00" in target.lower()):
                 return {
                     "decision": "deny",
                     "reason": "[Harness Governance Shield] Null bytes in target paths are prohibited.",
@@ -5967,10 +6086,26 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
         def _resolve_target_and_ws(t_str: str) -> Tuple[str, Optional[Path]]:
-            exp_t = Path(os.path.expanduser(t_str.strip()))
-            res_str = str(effective_cwd / exp_t) if (effective_cwd is not None and not exp_t.is_absolute()) else t_str
+            raw_t = t_str.strip()
+            is_unparsed_file_uri = False
+            if raw_t.lower().startswith("file:"):
+                parsed_t = _parse_file_uri(raw_t)
+                if parsed_t is not None:
+                    raw_t = parsed_t
+                else:
+                    is_unparsed_file_uri = True
+            if is_unparsed_file_uri:
+                t_ws = _workspace_for_target(
+                    raw_t, workspaces, fallback=(effective_cwd if effective_cwd is not None else workspace)
+                )
+                return raw_t, t_ws
+            exp_t = Path(os.path.expanduser(raw_t))
+            rel_fallback = effective_cwd if payload_cwd is not None else None
+            t_ws = _workspace_for_target(raw_t, workspaces, fallback=rel_fallback)
+            base_for_rel = effective_cwd if payload_cwd is not None else (t_ws if t_ws is not None else effective_cwd)
+            res_str = str(base_for_rel / exp_t) if (base_for_rel is not None and not exp_t.is_absolute()) else raw_t
             t_ws = _workspace_for_target(
-                res_str, workspaces, fallback=(effective_cwd if effective_cwd is not None else workspace)
+                res_str, workspaces, fallback=(t_ws if t_ws is not None else (effective_cwd or workspace))
             )
             return res_str, t_ws
 
@@ -5993,8 +6128,18 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         for target in targets:
             res_t, t_ws = _resolve_target_and_ws(target)
-            norm_res_t = res_t.replace("\\", "/")
-            if re.search(r"(?:^|/)(?:\.agents?|_agents?)/hooks\.json$", norm_res_t, re.IGNORECASE):
+            canon_res_t = _canonicalize_check_path(res_t)
+            resolved_res_t = ""
+            try:
+                if not res_t.lower().startswith("file:"):
+                    resolved_res_t = str(Path(os.path.expanduser(res_t)).resolve()).replace("\\", "/")
+            except (OSError, RuntimeError, ValueError):
+                resolved_res_t = ""
+            if any(
+                re.search(r"(?:^|/)(?:\.agents?|_agents?)/hooks\.json$", cand_h, re.IGNORECASE)
+                for cand_h in (canon_res_t, resolved_res_t)
+                if cand_h
+            ):
                 if (
                     bool(write_content_str.strip())
                     or bool(workspaces)
@@ -6770,9 +6915,9 @@ def _write_mutates_authorized_test_section(
         parsed_uri = _parse_file_uri(raw_s)
         if parsed_uri is None:
             return "tasks" in urllib.parse.unquote(raw_s).lower()
-        norm_target = parsed_uri.replace("\\", "/").strip()
+        norm_target = _canonicalize_check_path(parsed_uri)
     else:
-        norm_target = raw_s.replace("\\", "/").strip()
+        norm_target = _canonicalize_check_path(raw_s)
     if Path(norm_target).name.lower() != "tasks.md":
         return False
     raw_disk_path = Path(os.path.expanduser(norm_target))

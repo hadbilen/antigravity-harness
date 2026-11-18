@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import stat
 import sys
 import urllib.parse
@@ -27,6 +28,7 @@ from .pre_tool_use import (
     _WORKFLOW_MAX_ARG_DEPTH,
     _WORKFLOW_MAX_BYTES,
     _WORKFLOW_MAX_FOLDED_LEN,
+    _canonicalize_check_path,
     _check_pep263_cookie,
     _detect_unpinned_package_exec,
     _eval_workflow_path_expr,
@@ -36,10 +38,12 @@ from .pre_tool_use import (
     _extract_write_targets,
     _is_readonly_open_call,
     _mask_quoted_operators,
+    _parse_file_uri,
     _targets_customization_structure,
     _targets_governance_dir,
     _text_targets_customization,
     _unquote_single_tokens,
+    _workspaces_in_harness_scope,
     _write_mutates_authorized_test_section,
     handle_pre_tool_use,
 )
@@ -1029,14 +1033,22 @@ def _inspect_workflow_script(
         return _targets_governance_dir(cand, base_dir=(eff_cwd if resolve_rel else None))
 
     def _path_hits_cust(cand: str, resolve_rel: bool = False) -> bool:
-        if not cand or not cand.strip() or "\x00" in cand:
+        if not cand or not cand.strip():
             return False
+        raw_c = cand.strip()
+        if "\x00" in raw_c or (raw_c.lower().startswith("file:") and "%00" in raw_c.lower()):
+            return True
+        if raw_c.lower().startswith("file:"):
+            parsed_c = _parse_file_uri(raw_c)
+            if parsed_c is None:
+                return _targets_customization_structure(raw_c, workspace=(workspace if workspace is not None else eff_cwd))
+            raw_c = parsed_c
         ws_ctx = workspace if workspace is not None else eff_cwd
         if resolve_rel and eff_cwd is not None:
-            exp = Path(os.path.expanduser(cand.strip()))
+            exp = Path(os.path.expanduser(raw_c))
             if not exp.is_absolute():
                 return _targets_customization_structure(str(eff_cwd / exp), workspace=ws_ctx)
-        return _targets_customization_structure(cand, workspace=ws_ctx)
+        return _targets_customization_structure(raw_c, workspace=ws_ctx)
 
     try:
         tree = ast.parse(source)
@@ -1860,7 +1872,7 @@ def _inspect_workflow_script(
                             [],
                         )
                     for target in targets:
-                        if "\x00" in target:
+                        if "\x00" in target or (target.strip().lower().startswith("file:") and "%00" in target.lower()):
                             return (
                                 {
                                     "decision": "deny",
@@ -1886,8 +1898,30 @@ def _inspect_workflow_script(
                                 return {"decision": "deny", "reason": mod_eval[1]}, []
                             force_ask_reasons.append(mod_eval[1])
                     for target in targets:
-                        norm_wf_t = urllib.parse.unquote(target.strip()).replace("\\", "/")
-                        if Path(norm_wf_t).name.lower() == "tasks.md":
+                        raw_wf_t = target.strip()
+                        unparsed_wf_uri = False
+                        if raw_wf_t.lower().startswith("file:"):
+                            parsed_wf_t = _parse_file_uri(raw_wf_t)
+                            if parsed_wf_t is not None:
+                                raw_wf_t = parsed_wf_t
+                            else:
+                                unparsed_wf_uri = True
+                        exp_t = Path(os.path.expanduser(raw_wf_t))
+                        rec_t = (
+                            str(eff_cwd / exp_t)
+                            if (not unparsed_wf_uri and not exp_t.is_absolute() and eff_cwd is not None)
+                            else raw_wf_t
+                        )
+                        canon_wf_t = _canonicalize_check_path(rec_t)
+                        if re.search(r"(?:^|/)(?:\.agents?|_agents?)/hooks\.json$", canon_wf_t, re.IGNORECASE):
+                            wf_workspaces = _workspaces_from_payload(payload)
+                            if bool(wf_workspaces) or not _workspaces_in_harness_scope(wf_workspaces, eff_cwd or workspace):
+                                force_ask_reasons.append(
+                                    "[Harness Governance Shield] Modifying workspace `.agents/hooks.json` inside "
+                                    "`run_workflow` can shadow or disable global lifecycle hooks and requires explicit "
+                                    "human confirmation (GEMINI.md Rule 12 & Rule 15a)."
+                                )
+                        if Path(canon_wf_t).name.lower() == "tasks.md":
                             tasks_md_write_count += 1
                         if _write_mutates_authorized_test_section(target, static_kwargs, eff_cwd):
                             force_ask_reasons.append(
@@ -1898,8 +1932,6 @@ def _inspect_workflow_script(
                             target, static_kwargs, eff_cwd, allow_stale_reset=False
                         ):
                             tasks_md_rely_on_stale_reset = True
-                        exp_t = Path(os.path.expanduser(target.strip()))
-                        rec_t = str(eff_cwd / exp_t) if (not exp_t.is_absolute() and eff_cwd is not None) else target
                         flight_writes.append((inner_tool, rec_t))
                 elif inner_tool in COMMAND_TOOL_NAMES:
                     has_command_or_mcp_mutation = True

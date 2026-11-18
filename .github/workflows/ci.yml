@@ -52,7 +52,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          set -euo pipefail
+          enc="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! grep -q 'libvorbis' <<<"$enc" || ! grep -q 'libwebp' <<<"$enc"; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -o Acquire::Retries=3 && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg
+            enc="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+            command -v ffprobe >/dev/null 2>&1 && grep -q 'libvorbis' <<<"$enc" && grep -q 'libwebp' <<<"$enc"
+          fi
+          ff_ver="$(ffmpeg -version)"
+          printf '%s\n' "${ff_ver%%$'\n'*}"
+          fp_ver="$(ffprobe -version)"
+          printf '%s\n' "${fp_ver%%$'\n'*}"
       - name: Install ffmpeg (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -154,7 +165,14 @@ jobs:
       - name: Install grader dependency (pinned)
         run: python -m pip install pyyaml==6.0.3
       - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          set -euo pipefail
+          enc="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1 || ! grep -q 'libvorbis' <<<"$enc" || ! grep -q 'libwebp' <<<"$enc"; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -o Acquire::Retries=3 && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg
+            enc="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+            command -v ffprobe >/dev/null 2>&1 && grep -q 'libvorbis' <<<"$enc" && grep -q 'libwebp' <<<"$enc"
+          fi
       - name: Build trusted worktree with candidate product code
         shell: bash
         env:
