@@ -545,12 +545,25 @@ class TestExportParityExtended(unittest.TestCase):
                 emitter.emit(self.manifest, out)  # identical content: must not raise EmitterConflictError
 
     def test_templates_are_exported_and_runtime_config_is_not(self):
-        self.assertEqual(sorted(self.manifest.templates), ["HANDOFF.template.md", "MISTAKES.template.md"])
+        self.assertEqual(
+            sorted(self.manifest.templates),
+            [
+                "ARCHITECTURE.template.md",
+                "HANDOFF.template.md",
+                "MISTAKES.template.md",
+                "SECURITY_POSTURE.template.md",
+            ],
+        )
         for target, emitter in EMITTERS.items():
             with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
                 out = Path(tmp)
                 emitter.emit(self.manifest, out)
-                for name in ("HANDOFF.template.md", "MISTAKES.template.md"):
+                for name in (
+                    "ARCHITECTURE.template.md",
+                    "HANDOFF.template.md",
+                    "MISTAKES.template.md",
+                    "SECURITY_POSTURE.template.md",
+                ):
                     self.assertEqual((out / "templates" / name).read_bytes(), (REPO_ROOT / "templates" / name).read_bytes())
                 self.assertEqual(list(out.rglob("config.example.json")), [])
 
@@ -576,6 +589,7 @@ class TestExportParityExtended(unittest.TestCase):
             "security-boundary-verifier": "Read, Grep, Glob",
             "test-adequacy-auditor": "Read, Grep, Glob",
             "contract-change-auditor": "Read, Grep, Glob",
+            "simplicity-auditor": "Read, Grep, Glob",
             "meta-auditor": "Read, Grep, Glob",
             "build-error-resolver": "Read, Grep, Glob",
         }
