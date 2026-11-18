@@ -10,6 +10,7 @@ import ast
 import os
 import stat
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -1719,6 +1720,9 @@ def _inspect_workflow_script(
     force_ask_reasons: List[str] = []
     rmtree_calls: List[ast.Call] = []
     indirect_call_reason: Optional[str] = None
+    tasks_md_write_count = 0
+    tasks_md_rely_on_stale_reset = False
+    has_command_or_mcp_mutation = False
 
     # 3. Inspect all AST calls for child-process escapes, direct Python writes, `rmtree`, `call_tool`, and `agent`
     raw_agent_call_nodes: List[ast.Call] = []
@@ -1882,15 +1886,23 @@ def _inspect_workflow_script(
                                 return {"decision": "deny", "reason": mod_eval[1]}, []
                             force_ask_reasons.append(mod_eval[1])
                     for target in targets:
+                        norm_wf_t = urllib.parse.unquote(target.strip()).replace("\\", "/")
+                        if Path(norm_wf_t).name.lower() == "tasks.md":
+                            tasks_md_write_count += 1
                         if _write_mutates_authorized_test_section(target, static_kwargs, eff_cwd):
                             force_ask_reasons.append(
                                 "[Harness Test Boundary] Modifying `## Authorized Test Modifications` in `tasks.md` "
                                 "requires explicit human confirmation (GEMINI.md Rule 9)."
                             )
+                        elif _write_mutates_authorized_test_section(
+                            target, static_kwargs, eff_cwd, allow_stale_reset=False
+                        ):
+                            tasks_md_rely_on_stale_reset = True
                         exp_t = Path(os.path.expanduser(target.strip()))
                         rec_t = str(eff_cwd / exp_t) if (not exp_t.is_absolute() and eff_cwd is not None) else target
                         flight_writes.append((inner_tool, rec_t))
                 elif inner_tool in COMMAND_TOOL_NAMES:
+                    has_command_or_mcp_mutation = True
                     if has_dynamic_kw:
                         return (
                             {
@@ -2019,6 +2031,13 @@ def _inspect_workflow_script(
                         )
                     )
                     for mcp_t in _extract_mcp_target_paths(mcp_nested):
+                        norm_mcp_t = urllib.parse.unquote(mcp_t.strip()).replace("\\", "/")
+                        if Path(norm_mcp_t).name.lower() == "tasks.md":
+                            tasks_md_write_count += 1
+                            if _write_mutates_authorized_test_section(
+                                mcp_t, mcp_nested, eff_cwd, allow_stale_reset=False
+                            ):
+                                tasks_md_rely_on_stale_reset = True
                         exp_mt = Path(os.path.expanduser(mcp_t.strip()))
                         rec_mt = str(eff_cwd / exp_mt) if (not exp_mt.is_absolute() and eff_cwd is not None) else mcp_t
                         flight_writes.append((inner_tool, rec_mt))
@@ -2545,6 +2564,19 @@ def _inspect_workflow_script(
         unpinned_reason = _detect_unpinned_package_exec(unquoted_t)
         if unpinned_reason:
             force_ask_reasons.append(f"[Harness Workflow Shield] {unpinned_reason}")
+
+    if tasks_md_write_count > 1:
+        force_ask_reasons.append(
+            "[Harness Test Boundary] Multiple writes targeting `tasks.md` inside `run_workflow` "
+            "require explicit human confirmation (GEMINI.md Rule 9)."
+        )
+    elif tasks_md_rely_on_stale_reset and (
+        len(flight_writes) > 1 or has_command_or_mcp_mutation or bool(raw_agent_call_nodes) or bool(rmtree_calls)
+    ):
+        force_ask_reasons.append(
+            "[Harness Test Boundary] Resetting `## Authorized Test Modifications` in `tasks.md` "
+            "alongside other workflow operations requires explicit human confirmation (GEMINI.md Rule 9)."
+        )
 
     if force_ask_reasons:
         if pending_swarm_ops is not None and local_swarm_ops:

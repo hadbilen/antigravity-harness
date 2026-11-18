@@ -595,15 +595,21 @@ def _iter_jsonl_tail_entries(
 def _is_harness_repo_root(root: Path) -> bool:
     return (root / ".harness" / "manifest.json").is_file() or (root / "guard" / "agy_hooks.py").is_file()
 
+_UNICODE_NEWLINE_RE = _LazyRegex(r"\r\n|[\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
+
 _AUTH_HEADING_RE = _LazyRegex(
     r"(?ims)^[^\S\r\n]*#{1,6}[^\S\r\n]+Authorized\s+Test\s+Modifications(?:\s*:\s*([^\r\n]*))?[^\S\r\n]*\r?$(.*?)(?=^[^\S\r\n]*#{1,6}[^\S\r\n]+|\Z)"
 )
 
 _EMPTY_AUTH_TOKENS = frozenset({"", "none", "yok", "n/a", "na", "null", "nil", "false", "hayir", "hayır"})
 
+def _normalize_markdown_newlines(text: str) -> str:
+    return _UNICODE_NEWLINE_RE.sub("\n", (text or "").lstrip("\ufeff"))
+
 def _extract_normalized_auth_section(text: str) -> str:
     sections: List[str] = []
-    for match in _AUTH_HEADING_RE.finditer(text or ""):
+    norm_text = _normalize_markdown_newlines(text)
+    for match in _AUTH_HEADING_RE.finditer(norm_text):
         combined = f"{match.group(1) or ''}\n{match.group(2) or ''}".strip()
         cleaned = re.sub(r"[-*•\[\]\s.`_:;()]+", "", combined.lower())
         if cleaned not in _EMPTY_AUTH_TOKENS:

@@ -1,5 +1,6 @@
 # Session Handoff Document
 
+**Campaign ID:** {{YYYY-MM-DD-<topic-slug>}}
 **Status:** {{[COMPLETE] | [IN-PROGRESS]}}
 **Handoff Trigger:** {{milestone completed | marathon window boundary | circuit breaker | trace > 500 lines | repeated user correction}}
 **Date & Time:** {{ISO_TIMESTAMP}}
@@ -13,7 +14,7 @@
 - **Exit Criteria:** Verifiable conditions that end the work. If the user never stated them, write `[TBD: ask the user]`; do not invent them.
   - [ ] Criterion 1 (e.g. `pytest tests/test_x.py` passes)
   - [ ] Criterion 2
-- **Progress:** {{N}}/{{M}} exit criteria met. When all are met the status is `[COMPLETE]` and no further handoff is issued.
+- **Progress:** {{N}}/{{M}} exit criteria met. When all are met the status is `[COMPLETE]` and no further handoff is issued; any subsequent unrelated task starts a fresh `Campaign ID` at `W1` (`AC-1`) rather than appending `Wn+1` or `AC-(M+1)`.
 
 ## 1. Executive Summary & Active Constraints
 - **Completed Milestone:** What the preceding session delivered.
@@ -31,8 +32,8 @@
 
 ## 4. Cold-Start Directive for the Incoming Agent
 - **Where:** {{continue in this window | new window with this HANDOFF.md}}
-- **Window Index:** {{Single-Handoff | Window k/N — <Window Title>}}
-- **Recommended Model & Effort:** {{Top Reasoning / Balanced / Fast Model Tier (<Effort Level>) — <1-line rationale>}}
-- **Required Skills to Load:** {{e.g. `harness`, `marathon` (`skills/harness/SKILL.md`, `skills/harness/references/marathon.md`)}}
+- **Window Index:** {{Single-Handoff | Window k/N: <Window Title> (Campaign: <YYYY-MM-DD-topic-slug>)}}
+- **Recommended Model & Effort:** {{Top Reasoning / Balanced / Fast Model Tier (<Effort Level>): <1-line rationale>}}
+- **Required Skills to Load:** {{e.g. `harness` (`skills/harness/SKILL.md`, `skills/harness/references/marathon.md`)}}
 - **Immediate Next Action:** The single next justified step: exact file, symbol or command to run on turn 1, and the skill to load if any.
-- **Ready-to-Use Prompt:** A short task prompt that carries only the coordinates above (goal, exit criteria, required skills, next action). Task prompts never include harness maintenance commands.
+- **Ready-to-Use Prompt:** A short task prompt starting with `[Campaign: <YYYY-MM-DD-topic-slug> | Window <k>/<N>: <Window Title>]` on line 1 that carries only the coordinates above (goal, exit criteria, required skills, next action). Task prompts never include harness maintenance commands.

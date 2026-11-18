@@ -47,6 +47,7 @@ KNOWN_EXTERNAL_MD = {
     "AGENTS.md", "CLAUDE.md", "CODEX.md", "CONVENTIONS.md", "RULES.md", "GATES.md", "HANDOFF.md",
     "tasks.md", "plan.md", "PLAN.md", "implementation_plan.md", "walkthrough.md", "SKILL.md",
     "MISTAKES.md", "GEMINI.md", "DESIGN.md", "README.md", "CHANGELOG.md", "SECURITY.md",
+    "ARCHITECTURE.md", "SECURITY_POSTURE.md",
     "CONTRIBUTING.md", "task.md", "spec.md", "todo.md", "backlog.md", "sprint.md", "ADR.md",
     "RELEASE.md", "template.md", "GLOSSARY.md", "PRODUCT.md",  # files the skills create inside the user's project
 }

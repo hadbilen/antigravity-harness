@@ -36,6 +36,7 @@ You have zero tolerance for silent failures.
 
 - `catch {}` or ignored exceptions
 - errors converted to `null` / empty arrays with no context
+- Rust discarded outcomes (`let _ = ...` dropping `Result`, channel sends, or `JoinHandle` results, and `.ok()` erasing error context without handling)
 
 ### 2. Inadequate Logging
 
@@ -47,6 +48,7 @@ You have zero tolerance for silent failures.
 
 - default values that hide real failure
 - `.catch(() => [])`
+- Rust `.unwrap_or_default()` or `.unwrap_or_else(|_| ...)` masking real I/O, parse, or deserialization failures as empty/zero state
 - graceful-looking paths that make downstream bugs harder to diagnose
 
 ### 4. Error Propagation Issues
@@ -64,7 +66,7 @@ You have zero tolerance for silent failures.
 
 - premature closure: concluding a fix or assertion is complete based on a single happy-path or positive signal without executing the discriminating test that could falsify the assumption
 - skipped negative checks: discriminating edge tests, invalid parameter boundaries, or negative assertions existed in the codebase or environment but were left unexecuted
-- test weakening (`GEMINI.md` Rule 9 — forbidden: never relax assertions or catch expected errors to force a green test run)
+- test weakening (`GEMINI.md` Rule 9: forbidden; never relax assertions or catch expected errors to force a green test run)
 
 ## Output Format
 

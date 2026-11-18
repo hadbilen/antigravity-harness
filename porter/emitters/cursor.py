@@ -31,6 +31,8 @@ def _globs_for(name: str) -> str:
         return "**/*.test.*, **/*.spec.*, **/tests/**"
     if any(k in name for k in ("database", "migration", "sql")):
         return "**/*.sql, **/prisma/**, **/drizzle/**, **/migrations/**"
+    if name == "rust-harden":
+        return "**/*.rs, **/Cargo.toml"
     if re.search(r"(?:^|[-_])rust", name):
         return "**/*.rs, **/Cargo.toml, **/*.c, **/*.h, **/*.cpp, **/*.cc, **/*.cxx, **/*.hpp, **/*.hh, **/*.hxx"
     if any(k in name for k in ("ui", "design", "css", "html", "layout")) or (

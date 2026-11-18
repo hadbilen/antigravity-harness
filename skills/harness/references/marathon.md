@@ -1,6 +1,6 @@
-# Marathon — Multi-Window Execution Planner & Handoff Orchestrator
+# Marathon: Multi-Window Execution Planner & Handoff Orchestrator
 
-Large architectural builds, deep reworks, and multi-round audit-and-remediation campaigns degrade when forced into a single exhausted context window—or when chopped into too many tiny, unverifiable fragments. `marathon` establishes a clear target upfront, packs the work into the **minimum viable number of self-contained context windows (`W1..Wn`)**, assigns the right **Model, Effort, and Skills** to each window, and drives execution through the repository's canonical `tasks.md` and `HANDOFF.md` files with zero unsolicited scope drift.
+Large architectural builds, deep reworks, and multi-round audit-and-remediation campaigns degrade when forced into a single exhausted context window, or when chopped into too many tiny, unverifiable fragments. `marathon` establishes a clear target upfront, packs the work into the **minimum viable number of self-contained context windows (`W1..Wn`)**, assigns the right **Model, Effort, and Skills** to each window, and drives execution through the repository's canonical `tasks.md` and `HANDOFF.md` files with zero unsolicited scope drift.
 
 ## Mutual Exclusion
 
@@ -9,7 +9,7 @@ Large architectural builds, deep reworks, and multi-round audit-and-remediation 
   - When promoting a `vibecoder` prototype into a production system, `vibecoder` prototype mode ends and `marathon` + `harness` Tier 3 (`skills/harness/SKILL.md` §6) take over.
   - Repositories governed by `.procoder/` use the `procoder` sprint/backlog chain instead of `marathon`.
   - Single-window deep subagent fan-out uses `unlazy` (`.unlazy/`); `marathon` governs sequential human-in-the-loop context windows (`W1..Wn`).
-- **Deactivation:** Ends when all Acceptance Criteria (`AC-1..N`) across `W1..Wn` are verified and `HANDOFF.md` is marked `[COMPLETE]`, or when the user says `"stop marathon"` (note: `"normal mode"` resets presentation styles like `chisle` first and only exits `marathon` when no presentation style is active or when the user explicitly says `"stop marathon"`), returning execution to standard single-window `harness` discipline.
+- **Deactivation:** Ends when all Acceptance Criteria (`AC-1..N`) across `W1..Wn` are verified and `HANDOFF.md` is marked `[COMPLETE]`, or when the user says `"stop marathon"` (note: `"normal mode"` resets presentation styles like `chisle` first and only exits `marathon` when no presentation style is active or when the user explicitly says `"stop marathon"`), returning execution to standard single-window `harness` discipline. Once `HANDOFF.md` is `[COMPLETE]`, that campaign's `W1..Wn` and `AC-1..N` series is permanently closed: any later unrelated task starts a fresh `Campaign ID` at `W1` (`AC-1`) instead of appending `Wn+1` or `AC-(N+1)`.
 
 ---
 
@@ -17,9 +17,9 @@ Large architectural builds, deep reworks, and multi-round audit-and-remediation 
 
 Never partition a vague goal into windows. Because `marathon` targets medium-to-large work (Tier 2 and Tier 3 `>8 files` architectural builds, reworks, revisions, and audit/remediation cycles), the agent must secure sufficient context before locking the window plan:
 
-1. **Inspect Existing Artifacts First:** Read the repository structure, `PRODUCT.md` (if present, or the embedded `<script type="application/json" id="vibecoder-promotion-spec">` Section 1F metadata inside a `vibecoder` `.html` prototype), `MISTAKES.md`, and `docs/adr/` before asking the user anything the codebase already answers.
+1. **Inspect Existing Artifacts & Enforce Campaign Isolation First:** Read the repository structure, `HANDOFF.md` and `tasks.md` (if present), `PRODUCT.md` (if present, or the embedded `<script type="application/json" id="vibecoder-promotion-spec">` Section 1F metadata inside a `vibecoder` `.html` prototype), `MISTAKES.md`, and `docs/adr/` before asking the user anything the codebase already answers. **Hard Cross-Task Reset Rule:** If `HANDOFF.md` is `Status: [COMPLETE]` or its `Campaign ID` / goal belongs to a different completed or unrelated topic, **never** append `Wn+1` or `AC-(M+1)` onto the prior table; overwrite `tasks.md` from `W1` and `AC-1` under a fresh `Campaign ID` (`YYYY-MM-DD-<topic-slug>`) **before** writing `Status: [IN-PROGRESS]` to the new `HANDOFF.md` when clearing all-clean prior `## Authorized Test Modifications`, and copy the **entire** `## Authorized Test Modifications` block verbatim whenever any listed test path still has uncommitted changes in `git status --porcelain` (partial pruning or resetting while `HANDOFF.md` is `[IN-PROGRESS]` triggers `force_ask` under `GEMINI.md` Rule 9).
 2. **Clarify Missing Boundaries (`skills/deep-grill/SKILL.md`):** If the target outcome, Version 1 (`V1`) scope boundary, technology constraint, or acceptance criteria remain ambiguous, ask pointed questions **one at a time** via `ask_question` with 2–3 concrete options and one `(Recommended)` choice (in exported runtimes lacking `ask_question`, emit at most `3` numbered plain-text questions with `2–3` options and `1` `(Recommended)` default per question, then stop for user input).
-3. **Lock Authoritative Goal & Acceptance Criteria:** Define the authoritative goal in 1–2 sentences and 3–7 measurable `AC-1..N` items (`Scenario`, `Action`, `Expected`, `Must not`, `Verification` per `skills/harness/SKILL.md` §4.E). These criteria remain invariant from `W1` to the final window.
+3. **Lock Campaign ID, Authoritative Goal & Acceptance Criteria:** Assign an explicit `Campaign ID` (`YYYY-MM-DD-<topic-slug>`), define the authoritative goal in 1–2 sentences, and lock 3–7 measurable `AC-1..N` items (`Scenario`, `Action`, `Expected`, `Must not`, `Verification` per `skills/harness/SKILL.md` §4.E). Both `Campaign ID` and `AC-1..N` remain invariant from `W1` to the final window.
 
 ---
 
@@ -27,16 +27,16 @@ Never partition a vague goal into windows. Because `marathon` targets medium-to-
 
 Context windows are expensive to switch; excessively long windows suffer context rot. Partition work using the **Minimum-Window Packing Rule** (`2 <= N <= 4` windows for standard campaigns; `1–3` `AC-1..N` criteria and `<= 8` touched files per implementation window):
 
-1. **Single-Window Refusal:** If the scoped work fits safely within a single context window (Tier 1 or a self-contained Tier 2 vertical slice of 3–5 files with straightforward verification), **do not split it across windows**. State that 1 window is sufficient and execute the task directly in the current window under `harness` discipline.
+1. **Single-Window Refusal & Post-Campaign Reset:** If the scoped work fits safely within a single context window (Tier 1 or a self-contained Tier 2 vertical slice of 3–5 files with straightforward verification), **do not split it across windows** and **never append it as `Wn+1` onto a prior `[COMPLETE]` marathon table**. State that 1 window is sufficient, reset any stale `[COMPLETE]` `tasks.md` under a fresh header if Tier 2 checklist tracking is needed (using `Window 1/1` with a standalone `Campaign ID` only when the user explicitly requests a cold-start `HANDOFF.md`), and execute the task directly in the current window under `harness` discipline.
 2. **Fewest Self-Contained Windows (`W1..Wn`):** Pack related work into the smallest number of windows where each window delivers a **complete, deterministic, and testable vertical slice or cognitive phase**:
-   * **Pattern A — Prototype-to-Production / Architectural Build (2–3 Windows):**
+   * **Pattern A: Prototype-to-Production / Architectural Build (2–3 Windows):**
      * `W1 (Architecture & Foundation Slice):` Target clarification, schema/contract design, and the primary end-to-end vertical slice passing unit/type gates.
      * `W2 (Feature Completion & User Interface / Integration Gate):` Remaining vertical slices, User Interface (`UI`) state handling, and `antislop` / integration verification.
      * `W3 (Adversarial Audit & Remediation Gate):` Mandatory for Tier 3 (`>8 files`) and `vibecoder` prototype-to-production promotions (`skills/harness/SKILL.md` §6); executes independent `audit` verification and remediates confirmed findings.
-   * **Pattern B — Comprehensive Audit & Fix Campaign (2 Windows):**
+   * **Pattern B: Comprehensive Audit & Fix Campaign (2 Windows):**
      * `W1 (Deep Audit & Reproducible Defect Ledger):` Execute `audit` across the target scope, verify findings at `file:line`, and write the prioritized remediation plan into `tasks.md` and `HANDOFF.md`.
      * `W2 (Surgical Remediation & Regression Gate):` Fix confirmed findings under `GEMINI.md` Rule 13 blast caps and prove green across all gates.
-   * **Pattern C — Observable Milestone Rule for In-Window `W1` Execution (`GEMINI.md` Rule 13):** Never guess subjective "context fullness". When Phase 1 clarification required `<= 3` `ask_question` turns and `W1` touches `<= 8` files, execute `W1`'s implementation slice in the **same** window immediately after user plan approval. Use a dedicated planning-and-specification `W1` exclusively on Tier 3 (`>8 files`) overhauls that require `> 3` `deep-grill` rounds and an Architecture Decision Record (`ADR` via `skills/harness/references/adr.md`) sign-off milestone before code edits begin.
+   * **Pattern C: Observable Milestone Rule for In-Window `W1` Execution (`GEMINI.md` Rule 13):** Never guess subjective "context fullness". When Phase 1 clarification required `<= 3` `ask_question` turns and `W1` touches `<= 8` files, execute `W1`'s implementation slice in the **same** window immediately after user plan approval. Use a dedicated planning-and-specification `W1` exclusively on Tier 3 (`>8 files`) overhauls that require `> 3` `deep-grill` rounds and an Architecture Decision Record (`ADR` via `skills/harness/references/adr.md`) sign-off milestone before code edits begin.
 
 ### Swarm (`native_swarm`) vs. Single-Window (`unlazy`) vs. Multi-Window (`marathon`) Decision Matrix
 
@@ -55,17 +55,17 @@ Different windows carry different cognitive loads. During initial planning (and 
 
 | Window Archetype | Cognitive Profile | Recommended Host Model & Effort | Typical Required Skills & References |
 | :--- | :--- | :--- | :--- |
-| **Architecture, Deep-Grill, Complex Rework, or Security/Consistency Audit** | High ambiguity, multi-file invariant reasoning, adversarial falsification | **Top Reasoning Model (`Pro` / `Argon` / `Opus` tier) — High / Max Effort** | `harness` (`references/marathon.md`, `references/adr.md`, `references/mistake-proofing.md`), `deep-grill`, `audit` |
-| **Standard Vertical-Slice Implementation, Refactoring, or Optimization** | Locked contract and clear `AC-1..N`; requires disciplined code generation and seam testing | **Balanced / Coding Model (`Pro` / `Sonnet` / `Flash` tier) — Medium / High Effort** | `harness` (`references/marathon.md`, `references/test-design.md`), `refactoring`, `sweetspot`, `game-engineering`, `antislop` |
-| **Mechanical Polish, Doc/Changelog Sync, or Scoped Lint/Comment Cleanup** | Deterministic transformations with existing test coverage | **Fast Model (`Flash` / `Haiku` tier) — Low / Medium Effort** | `harness` (`references/marathon.md`), `antislop` (`skills/antislop/references/code-comments.md`), `technical-writing` |
+| **Architecture, Deep-Grill, Complex Rework, or Security/Consistency Audit** | High ambiguity, multi-file invariant reasoning, adversarial falsification | **Top Reasoning Model (`Pro` / `Argon` / `Opus` tier): High / Max Effort** | `harness` (`references/marathon.md`, `references/adr.md`, `references/mistake-proofing.md`), `deep-grill`, `audit` |
+| **Standard Vertical-Slice Implementation, Refactoring, or Optimization** | Locked contract and clear `AC-1..N`; requires disciplined code generation and seam testing | **Balanced / Coding Model (`Pro` / `Sonnet` / `Flash` tier): Medium / High Effort** | `harness` (`references/marathon.md`, `references/test-design.md`), `refactoring`, `sweetspot`, `game-engineering`, `antislop` |
+| **Mechanical Polish, Doc/Changelog Sync, or Scoped Lint/Comment Cleanup** | Deterministic transformations with existing test coverage | **Fast Model (`Flash` / `Haiku` tier): Low / Medium Effort** | `harness` (`references/marathon.md`), `antislop` (`skills/antislop/references/code-comments.md`), `technical-writing` |
 
 ### Runtime Role & Rule 17 Calibration (Orchestrator, Flagships, Auditors & Auxiliary)
 
 | Runtime Role | Primary Responsibility | Allowed Skills & Tools | `GEMINI.md` Rules 15f & 17 Boundary |
 | :--- | :--- | :--- | :--- |
 | **1. Orchestrator / Coordinator (`Orchestrator` tier)** | Window planning (`tasks.md`/`HANDOFF.md`), `deep-grill`, swarm board control (`swarm`, `post_message`, `read_board`, `swarm_wait`), branch integration, `harness` §5.E Mutual Falsification | `harness` (`references/marathon.md`, `references/adr.md`), `deep-grill`, `audit`, `upstream-auditor`; `ask_question`, `invoke_subagent`, `run_workflow`, verification commands | Non-coding during active swarms; requires top-catalog / approved `Orchestrator` model at highest effort when routing customization edits (`upstream_state.seed.json`) |
-| **2. Coding Flagships (`Author` workers)** | Vertical-slice production code, complex bug diagnosis, seam tests, and customization/governance edits | `harness` (`references/test-design.md`, `references/mistake-proofing.md`), `diagnosing-bugs`, `refactoring`, `sweetspot`, `game-engineering`, `rustify`, `renew`, `database-migrations`, `antislop`; disjoint `workspace:"share"` / `"branch"` writes | Never downgraded (`flash` / `flash_lite` blocked by `PreToolUse`) when touching `GEMINI.md`, `DESIGN.md`, `hooks.json`, `skills/`, `agents/`, `guard/`, or `porter/` |
-| **3. Auditors & Verifiers (`agents/*.md` + `Verifier` workers)** | Independent Pre-flight Gate (`consistency-auditor`, `specification-gap-auditor`, `security-boundary-verifier`, `silent-failure-hunter`, `test-adequacy-auditor`, `contract-change-auditor`, `meta-auditor`, `research`) and swarm diff/test checks | `audit` (`skills/audit/references/security-review.md`), `harness` (`references/test-design.md`), `antislop`; `agents/*.md` stay strictly `access: read-only` (`harness` §5.B), swarm verifiers use `workspace:"inherit"` and report defects to `@<author>` | Never rubber-stamp; every `CRITICAL`/`HIGH` finding undergoes `harness` §5.E Mutual Falsification in the coordinator session |
+| **2. Coding Flagships (`Author` workers)** | Vertical-slice production code, complex bug diagnosis, seam tests, and customization/governance edits | `harness` (`references/test-design.md`, `references/mistake-proofing.md`), `diagnosing-bugs`, `refactoring`, `sweetspot`, `game-engineering`, `rustify`, `rust-harden`, `renew`, `database-migrations`, `antislop`; disjoint `workspace:"share"` / `"branch"` writes | Never downgraded (`flash` / `flash_lite` blocked by `PreToolUse`) when touching `GEMINI.md`, `DESIGN.md`, `hooks.json`, `skills/`, `agents/`, `guard/`, or `porter/` |
+| **3. Auditors & Verifiers (`agents/*.md` + `Verifier` workers)** | Independent Pre-flight Gate (`consistency-auditor`, `specification-gap-auditor`, `security-boundary-verifier`, `silent-failure-hunter`, `test-adequacy-auditor`, `contract-change-auditor`, `simplicity-auditor`, `meta-auditor`, `research`) and swarm diff/test checks | `audit` (`skills/audit/references/security-review.md`), `harness` (`references/test-design.md`), `antislop`; `agents/*.md` stay strictly `access: read-only` (`harness` §5.B), swarm verifiers use `workspace:"inherit"` and report defects to `@<author>` | Never rubber-stamp; every `CRITICAL`/`HIGH` finding undergoes `harness` §5.E Mutual Falsification in the coordinator session |
 | **4. Fast / Auxiliary (`Flash` / `Haiku` tier)** | Live webview UI flows (`browser`), swarm status narration (`narrator`), stall timer checks (`monitor`), or mechanical non-governance doc/comment polish | Built-in `browser` (`Model: "flash"` default), `swarm_narrator` (`view.json` / `swarm_view/prefs.md` only), `swarm_monitor` (`schedule` + stall-only `post_message`), `antislop` (`skills/antislop/references/code-comments.md`), `technical-writing` | Prohibited from editing customization/governance seams; in active `native_swarm` sessions leave `model` unset for `narrator`/`monitor` unless user-requested or quota-exhausted (`Rule 15f`) |
 
 * **Adaptive Re-Calibration:** If a window discovers unexpected structural complexity (or finishes simpler pieces early), the agent may adjust the recommended Model & Effort tier for the *upcoming* window `Wk+1` when writing `HANDOFF.md`, stating the one-line technical reason.
@@ -77,14 +77,16 @@ Different windows carry different cognitive loads. During initial planning (and 
 All marathon state lives on disk in the target project root (`tasks.md` and `HANDOFF.md`), never in transient chat memory:
 
 ### A. `tasks.md` Window Table & Status States
-At the top of `tasks.md`, maintain the window roadmap alongside the detailed `[ ]` / `[x]` task items using four deterministic status tokens (`[x] DONE`, `[ ] NEXT`, `[~] IN-PROGRESS (PARTIAL)` when a `GEMINI.md` Rule 13 handoff trigger fires mid-window, and `[!] BLOCKED` when a Phase 5 safety/correctness blocker awaits user decision):
+At the top of `tasks.md`, declare `**Campaign ID:** \`YYYY-MM-DD-<topic-slug>\`` and maintain the window roadmap alongside the detailed `[ ]` / `[x]` task items using four deterministic status tokens (`[x] DONE`, `[ ] NEXT`, `[~] IN-PROGRESS (PARTIAL)` when a `GEMINI.md` Rule 13 handoff trigger fires mid-window, and `[!] BLOCKED` when a Phase 5 safety/correctness blocker awaits user decision):
 
 ```markdown
+**Campaign ID:** `2026-11-18-auth-service`
+
 ## Marathon Window Plan (`W1..Wn`)
 | Window | Scope & Deliverable | Exit Gate | Recommended Model & Effort | Required Skills | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `W1` | Schema + Core Auth Slice | `AC-1`, `AC-2` | Top Reasoning — High Effort | `harness` (`references/marathon.md`, `references/mistake-proofing.md`) | `[x] DONE` |
-| `W2` | Interface Flows + Integration & Audit | `AC-3`, `AC-4` | Balanced — High Effort | `harness` (`references/marathon.md`), `antislop`, `audit` | `[ ] NEXT` |
+| `W1` | Schema + Core Auth Slice | `AC-1`, `AC-2` | Top Reasoning: High Effort | `harness` (`references/marathon.md`, `references/mistake-proofing.md`) | `[x] DONE` |
+| `W2` | Interface Flows + Integration & Audit | `AC-3`, `AC-4` | Balanced: High Effort | `harness` (`references/marathon.md`), `antislop`, `audit` | `[ ] NEXT` |
 ```
 
 ### B. End-of-Window `HANDOFF.md` Update & Ready-to-Use Prompt
@@ -92,17 +94,17 @@ When window `Wk` ends (either by completing its scoped tasks and passing `skills
 
 1. **Intermediate Window (`k < N`) or Mid-Window Rule 13 Interruption (`[~] IN-PROGRESS (PARTIAL)` / `[!] BLOCKED`):**
    * Update `tasks.md` checkboxes and window status (`[x] DONE` if `Wk` passed all gates, else `[~] IN-PROGRESS (PARTIAL)` or `[!] BLOCKED`).
-   * Write or update `HANDOFF.md` at the project root using `templates/HANDOFF.template.md` with `Status: [IN-PROGRESS]` and populate `## 4. Cold-Start Directive for the Incoming Agent`:
+   * Write or update `HANDOFF.md` at the project root using `templates/HANDOFF.template.md` with `**Campaign ID:** \`<YYYY-MM-DD-topic-slug>\`` and `Status: [IN-PROGRESS]`, and populate `## 4. Cold-Start Directive for the Incoming Agent`:
      * **Where:** `new window with this HANDOFF.md`
-     * **Window Index:** `Window <k+1>/<N> — <Window Title>` (or `Window <k>/<N> (Resumed) — <Window Title>` on a mid-window Rule 13 handoff)
-     * **Recommended Model & Effort:** `<Model Tier> (<Effort Level>) — <1-line reason>`
+     * **Window Index:** `Window <k+1>/<N>: <Window Title> (Campaign: <id>)` (or `Window <k>/<N> (Resumed): <Window Title> (Campaign: <id>)` on a mid-window Rule 13 handoff)
+     * **Recommended Model & Effort:** `<Model Tier> (<Effort Level>): <1-line reason>`
      * **Required Skills to Load:** `<comma-separated skill names and skills/<name>/SKILL.md (plus skills/<name>/references/<subdoc>.md) paths>`
      * **Immediate Next Action:** Exact file, symbol, or command to run on Turn 1.
-     * **Ready-to-Use Prompt:** A self-contained, copy-ready prompt in the user's language that instructs the next window to read `HANDOFF.md` and `tasks.md`, load the required skills, and execute the window under `marathon` scope lock.
+     * **Ready-to-Use Prompt:** A self-contained, copy-ready prompt in the user's language whose first line is `[Campaign: <id> | Window <k+1>/<N>: <Window Title>]` (or `[Campaign: <id> | Window <k>/<N>: <Window Title>]` for a cold-start `Window 1` or resumed window) and that instructs the next window to read `HANDOFF.md` and `tasks.md`, load the required skills, and execute the window under `marathon` scope lock without merging unrelated tasks.
    * In the user-facing response's **Delivery Block** (`GEMINI.md` Rule 5), output: what was verified and any verification gaps (`GEMINI.md` Rule 8), progress as criteria met (`e.g. 2/5 acceptance criteria met; Window 1/3 complete`), the **Recommended Model & Effort**, and the fenced **Ready-to-Use Prompt**.
 2. **Terminal Window (`k == N` and all `AC-1..N` verified):**
    * Mark `Wn` as `[x] DONE` in `tasks.md`.
-   * Update `HANDOFF.md` with `Status: [COMPLETE]` and `Progress: N/N exit criteria met`. Per `templates/HANDOFF.template.md` (`"When all are met the status is [COMPLETE] and no further handoff is issued"`), omit the next-window `Ready-to-Use Prompt` and deliver the final `GEMINI.md` Rule 5/8 completion block.
+   * Update `HANDOFF.md` with `Status: [COMPLETE]` and `Progress: N/N exit criteria met`. Per `templates/HANDOFF.template.md` (`"When all are met the status is [COMPLETE] and no further handoff is issued"`), omit the next-window `Ready-to-Use Prompt`, seal the `Campaign ID` against any future `Wn+1` appends, and deliver the final `GEMINI.md` Rule 5/8 completion block.
 
 ---
 
@@ -111,7 +113,7 @@ When window `Wk` ends (either by completing its scoped tasks and passing `skills
 While a marathon is in progress (`W1..Wn` prior to `[COMPLETE]`):
 
 1. **Zero Unsolicited Feature or Plan-Change Proposals:** Unless the user explicitly asks for new ideas, scope expansion, or plan revisions, the agent **must not** propose out-of-plan features, bonus improvements (`VALUABLE`), architectural detours, or roadmap alterations in its chat responses or handoff prompts.
-2. **Park Silently in `tasks.md` Only When Relevant:** If a useful non-essential observation arises, either omit it completely or—only if the user asked to track future ideas—park a single line under `## Parked (Out of Active Marathon Scope)` in `tasks.md` without discussing it in chat.
+2. **Park Silently in `tasks.md` Only When Relevant:** If a useful non-essential observation arises, either omit it completely or (only if the user asked to track future ideas) park a single line under `## Parked (Out of Active Marathon Scope)` in `tasks.md` without discussing it in chat.
 3. **Mandatory Safety & Blocker Carve-Out (`GEMINI.md` Rule 8):** Suppressing scope creep never means hiding defects. If the agent discovers a **`NECESSARY FOR SAFETY/CORRECTNESS`** issue (a breaking bug, security boundary violation, data-loss hazard, or a technical constraint that renders an `AC-1..N` criterion unsatisfiable per `skills/harness/SKILL.md` §4.E), mark the window `[!] BLOCKED` in `tasks.md` and surface the exact evidence and required adjustment immediately.
 
 ---
@@ -119,4 +121,4 @@ While a marathon is in progress (`W1..Wn` prior to `[COMPLETE]`):
 ## 6. Triggers and Invocations
 
 * **Slash Command:** `/marathon`.
-* **Natural Language Triggers:** *"maraton başlat"*, *"bunu maraton ile pencerelere böl"*, *"start a marathon plan"*, *"plan this across windows"*.
+* **Natural Language Triggers:** `maraton başlat`, `bunu maraton ile pencerelere böl`, `start a marathon plan`, `plan this across windows`.

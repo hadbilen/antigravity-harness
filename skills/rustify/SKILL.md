@@ -3,11 +3,11 @@ name: rustify
 description: >-
   Architectural migration, porting, and FFI bridging (`cbindgen`, `cxx`, `PyO3`) of C, C++, Go, or Python codebases
   into memory-safe, compiler-verified Rust (`rustc`, `clippy`, `miri`, sanitizers). Invoke with /rustify or on "rust'a
-  çevir", "rust'a taşı", "c/c++'dan rust'a". Not for intra-Rust restructuring (use 'refactoring'), Rust optimization
-  (use 'sweetspot'), Cargo version bumps (use 'harness' dependency-upgrade), or non-Rust legacy revival (use 'renew').
+  çevir", "rust'a taşı", "c/c++'dan rust'a". Not for intra-Rust hardening (use 'rust-harden' or 'refactoring'), Rust
+  tuning (use 'sweetspot'), Cargo bumps (use 'harness' dependency-upgrade), or non-Rust legacy revival (use 'renew').
 ---
 
-# Rustify — Architectural Migration & Memory-Safe Interop Discipline
+# Rustify: Architectural Migration & Memory-Safe Interop Discipline
 
 Translating source files line-by-line from C, C++, Go, or Python into Rust produces "C/Go in Rust syntax": ubiquitous `Arc<Mutex<T>>` wrappers, raw `*mut T` pointer arithmetic, `.unwrap()` panic landmines, silent `as` integer truncations, and broken Application Binary Interface (`ABI`) layouts. `rustify` governs cross-language transformation so ownership, lifetimes, binary layout invariants, and zero-panic guarantees are locked in incrementally with compiler and runtime proof.
 
@@ -15,7 +15,7 @@ Translating source files line-by-line from C, C++, Go, or Python into Rust produ
 
 ## 1. Adjacent-Skill Boundaries & Co-Loading Map
 
-* **vs. `skills/refactoring/SKILL.md` & `skills/sweetspot/SKILL.md`:** Use `refactoring` when restructuring code that is *already* in Rust with zero contract shift, and use `sweetspot` when profiling/optimizing an already-working Rust crate (`--time`, `--memory`, `--disk`, `--net`). Never mix premature Single Instruction, Multiple Data (`SIMD`) or custom-allocator micro-tuning into the initial cross-language migration pass.
+* **vs. `skills/rust-harden/SKILL.md`, `skills/refactoring/SKILL.md` & `skills/sweetspot/SKILL.md`:** `rustify` governs cross-language porting and Foreign Function Interface (`FFI`) bridges from C, C++, Go, or Python into Rust. Once a crate is already in Rust, use `rust-harden` (`--internal` or `--contract`) to eliminate intra-Rust `.clone()` / `Arc<Mutex<T>>` ownership debt, remove production `.unwrap()` / `.expect()` panics, harden `tokio::select!` cancellation or POSIX privilege drop, and narrow `#![no_std]` / kernel `unsafe` blocks; use `refactoring` for language-agnostic structural moves with zero contract shift; and use `sweetspot` when profiling/optimizing an already-working Rust crate (`--time`, `--memory`, `--disk`, `--net`). Never mix premature Single Instruction, Multiple Data (`SIMD`) or custom-allocator micro-tuning into the initial cross-language migration pass.
 * **vs. `skills/harness/references/dependency-upgrade.md`:** Use `dependency-upgrade` when bumping crate versions in `Cargo.toml` / `Cargo.lock` or upgrading the Rust toolchain edition (`2021` -> `2024`) within an existing Rust project.
 * **vs. `skills/renew/SKILL.md` (Handoff vs. Co-Load):**
   * *Active/buildable C, C++, Go, or Python module -> Rust:* Use `rustify` directly.
@@ -30,9 +30,9 @@ Translating source files line-by-line from C, C++, Go, or Python into Rust produ
 
 ---
 
-## 2. Stage 1 — Silent Build, Layout & Dependency Autopsy (Before Asking Questions)
+## 2. Stage 1: Silent Build, Layout & Dependency Autopsy (Before Asking Questions)
 
-Never ask the user technical facts already visible in the repository (`GEMINI.md` Rule 11). First audit `Makefile`, `CMakeLists.txt`, `meson.build`, `compile_commands.json`, `setup.py`, `pyproject.toml`, `go.mod`, `Cargo.toml`, and any `build.rs` via `read_file` before executing `make`, `cmake`, `pytest`, `maturin`, or `cargo check` (because `cargo check` compiles and runs `build.rs` and procedural macros with full user privileges; `GEMINI.md` Rule 12). Map symbol dependencies via `python3 scripts/code_map.py profile <symbol>` / `blast-radius <symbol>`—noting that `code_map.py` performs single-pass `#` directive blanking without macro expansion and linear template masking on C/C++, so always cross-check C/C++ results against `compile_commands.json` / `clangd` or `nm -gC` (`references/c-cpp-abi-and-embedded.md` §5)—to establish:
+Never ask the user technical facts already visible in the repository (`GEMINI.md` Rule 11). First audit `Makefile`, `CMakeLists.txt`, `meson.build`, `compile_commands.json`, `setup.py`, `pyproject.toml`, `go.mod`, `Cargo.toml`, and any `build.rs` via `read_file` before executing `make`, `cmake`, `pytest`, `maturin`, or `cargo check` (because `cargo check` compiles and runs `build.rs` and procedural macros with full user privileges; `GEMINI.md` Rule 12). Map symbol dependencies via `python3 scripts/code_map.py profile <symbol>` / `blast-radius <symbol>` (noting that `code_map.py` performs single-pass `#` directive blanking without macro expansion and linear template masking on C/C++, so always cross-check C/C++ results against `compile_commands.json` / `clangd` or `nm -gC` per `references/c-cpp-abi-and-embedded.md` §5) to establish:
 
 1. **Source Language Dialect & Build Seam:** Compiler flags (`-fno-strict-aliasing`, `-fwrapv`, `-ffast-math` / `-ffp-contract`, C/C++ standard, target triple/endianness), `setjmp`/`longjmp` or C++ exception paths, static vs. shared linkage, and existing test runners (`ctest`, `gtest`, `pytest`, `go test`).
 2. **Binary & Hardware Coupling:** Structs crossing wire, file, shared-memory, or Memory-Mapped Input/Output (`MMIO`) boundaries; interrupt service routines; thread/lock topology; and global mutable state.
@@ -43,7 +43,7 @@ Never ask the user technical facts already visible in the repository (`GEMINI.md
 
 ---
 
-## 3. Stage 2 — The Migration Contract Gate (`ask_question`, Max 3 Decisions)
+## 3. Stage 2: The Migration Contract Gate (`ask_question`, Max 3 Decisions)
 
 Unless the user's prompt already specifies every axis below, ask **at most 3 pointed questions** via `ask_question` (with `(Recommended)` defaults grounded in Stage 1; in exported runtimes lacking `ask_question`, emit at most `3` numbered plain-text questions with `2–3` options and `1` `(Recommended)` default per question, then stop for user input):
 
@@ -56,11 +56,11 @@ Unless the user's prompt already specifies every axis below, ask **at most 3 poi
    * *`incremental-ffi` (Strangler Bridge):* Keep the host application running and replace one module at a time behind a verified `ABI` seam. Split pure C bridges into a 3-crate workspace (`*-sys` raw bindings, `*-core` pure safe Rust, `*-ffi` C ABI exports), or wrap modern C++ classes/templates behind a dedicated `cxx` bridge crate (`#[cxx::bridge]`). Use `bindgen` + `cbindgen` for C headers, `cxx` for C++, `PyO3` + `maturin` for Python, or a C static/shared seam for Go `cgo`.
 3. **Legacy Defect, Overflow & Float Policy:** Confirm whether silent source-language quirks (C unsigned wraparound, sentinel error codes, loose input acceptance, or fused floating-point contraction drift vs. `0` Units in the Last Place (`ULP`) with `-ffp-contract=off`) must be preserved bit-for-bit or tightened into explicit `Authorized Sanitization Transitions`.
 
-Default new or migrated crates to **Rust `2024` Edition** targeting **Rust `1.100.0`+** unless the host workspace pins an older Minimum Supported Rust Version (`MSRV`): note Edition 2024 `#[unsafe(no_mangle)]` / `#[unsafe(export_name)]` / `#[unsafe(link_section)]`, `unsafe extern "C" { pub safe / pub unsafe ... }` blocks, `static_mut_refs` denial (`&raw const`/`&raw mut` or atomics), `unsafe_op_in_unsafe_fn` warnings, plus Rust `1.100.0`'s stabilized `core::mem::DropGuard`, `core::alloc::Allocator` (`Vec::new_in` / `Box::new_in`), and stable `!` never type (beware the `1.100.0` pre-2024 never-type fallback change from `()` to `!` when upgrading older callback/FFI code). Pin every added Cargo crate (`=x.y.z` + `Cargo.lock`, `--locked`, noting `cargo install` defaults to `--locked`), configure registry publish-age cooldowns in `.cargo/config.toml` when pulling public crates (`[registry] global-min-publish-age = 259200` / `[registries.crates-io] min-publish-age = 259200` — a `3`-day default cooldown, with explicit documented per-version exemption only for pinned zero-day security advisories — plus `[resolver] incompatible-publish-age = "deny"`), enable `[lints.cargo] unused_dependencies = "warn"` (`rust-version >= "1.79.0"`), and lock confirmed choices into `AC-1..N` acceptance criteria (`skills/harness/SKILL.md` §4.E) before writing production code.
+Default new or migrated crates to **Rust `2024` Edition** targeting **Rust `1.100.0`+** unless the host workspace pins an older Minimum Supported Rust Version (`MSRV`): note Edition 2024 `#[unsafe(no_mangle)]` / `#[unsafe(export_name)]` / `#[unsafe(link_section)]`, `unsafe extern "C" { pub safe / pub unsafe ... }` blocks, `static_mut_refs` denial (`&raw const`/`&raw mut` or atomics), `unsafe_op_in_unsafe_fn` warnings, plus Rust `1.100.0`'s stabilized `core::mem::DropGuard`, `core::alloc::Allocator` (`Vec::new_in` / `Box::new_in`), and stable `!` never type (beware the `1.100.0` pre-2024 never-type fallback change from `()` to `!` when upgrading older callback/FFI code). Pin every added Cargo crate (`=x.y.z` + `Cargo.lock`, `--locked`, noting `cargo install` defaults to `--locked`), configure registry publish-age cooldowns in `.cargo/config.toml` when pulling public crates (`[registry] global-min-publish-age = 259200` / `[registries.crates-io] min-publish-age = 259200`, a `3`-day default cooldown with explicit documented per-version exemption only for pinned zero-day security advisories, plus `[resolver] incompatible-publish-age = "deny"`), enable `[lints.cargo] unused_dependencies = "warn"` (`rust-version >= "1.79.0"`), and lock confirmed choices into `AC-1..N` acceptance criteria (`skills/harness/SKILL.md` §4.E) before writing production code.
 
 ---
 
-## 4. Stage 3 — Differential Pinning & Leaf-to-Root Redesign
+## 4. Stage 3: Differential Pinning & Leaf-to-Root Redesign
 
 1. **Pin Source Oracle First (`skills/refactoring/SKILL.md` §3 & `skills/harness/references/test-design.md`):**
    * Capture golden edge-case vectors from the untouched source implementation (empty/zero-length buffers, boundary integers `0`, `INT_MIN`, `INT_MAX`, `UINT_MAX`, malformed frames, non-UTF-8 byte sequences) or record a `file:line` **Equivalence Ledger** in `scratch/equivalence_ledger.md` when the source target cannot execute locally.
@@ -69,11 +69,11 @@ Default new or migrated crates to **Rust `2024` Edition** targeting **Rust `1.10
    * Replace nullable pointers and magic sentinels (`NULL`, `-1`, `nil`, `None`) with `Option<T>` (`Option<&T>` / `Option<&mut T>` / `NonNull<T>` inside low-level wrappers).
    * Replace `errno`, out-parameters, and unchecked exceptions with `#[must_use]` `Result<T, DomainError>` enums, using `Vec::try_reserve_exact` plus explicit byte-cap bounds on untrusted wire lengths so corrupt lengths return `Err(...)` instead of aborting on allocation failure.
    * Replace invalid flag combinations and closed `virtual` Object-Oriented Programming (`OOP`) hierarchies with algebraic `enum` variants (`Prevented` at compile time), using `trait` + `dyn Trait` only for genuinely open extension seams. Map templates/`SFINAE` to generics with `where` bounds, Standard Template Library (`STL`) views (`std::string_view`, `std::span`, `std::expected`) to `&str`/`&[T]`/`Result`, non-destructive `std::move` patterns to destructive Rust moves (`core::mem::take`/`replace`), scoped C `goto cleanup` blocks to `core::mem::DropGuard` (`DropGuard::new` / `dismiss`), and custom arenas to `core::alloc::Allocator` (`references/c-cpp-abi-and-embedded.md`).
-3. **Execute Strictly Leaf-to-Root in Narrow Vertical Slices:** Port and verify leaf types and pure kernels first (`<= 3` tightly coupled files, such as header/implementation/bridge, per planned forward migration slice — an explicit `GEMINI.md` Rule 13 forward-slice carve-out, while unverified bug-fix retry loops after a failing gate remain strictly capped at `GEMINI.md` Rule 13's `max(1 file, ~10%)`). Next port intermediate state machines and parsers, and wire root `I/O` loops or external `FFI` glue last so ownership and lifetime shapes stabilize from the inside out.
+3. **Execute Strictly Leaf-to-Root in Narrow Vertical Slices:** Port and verify leaf types and pure kernels first (`<= 3` tightly coupled files, such as header/implementation/bridge, per planned forward migration slice: an explicit `GEMINI.md` Rule 13 forward-slice carve-out, while unverified bug-fix retry loops after a failing gate remain strictly capped at `GEMINI.md` Rule 13's `max(1 file, ~10%)`). Next port intermediate state machines and parsers, and wire root `I/O` loops or external `FFI` glue last so ownership and lifetime shapes stabilize from the inside out.
 
 ---
 
-## 5. Stage 4 — Two-Stage `unsafe` Purification & Six Red Lines
+## 5. Stage 4: Two-Stage `unsafe` Purification & Six Red Lines
 
 When porting pointer-heavy C/C++ or hardware code, never combine behavioral translation and `unsafe` refactoring in one unverified leap:
 
@@ -84,18 +84,18 @@ When porting pointer-heavy C/C++ or hardware code, never combine behavioral tran
 ### Six Strictly Prohibited Anti-Patterns (Red Lines)
 1. **The `Arc<Mutex<T>>` / `Rc<RefCell<T>>` Reflex:** Never wrap every ported struct in shared interior mutability to silence the borrow checker. Assign a single owner, pass `&T` / `&mut T` down the call tree, or transfer ownership over bounded channels.
 2. **Hidden Panics as Error Handling:** Never translate C error codes, Go `err != nil`, or Python exceptions into `.unwrap()`, `.expect()`, or unchecked `buf[idx]`. Use `.get(idx).ok_or(...)?` and explicit error variants.
-3. **Silent Narrowing `as` Casts & Blind Overflow Rules:** Never narrow integers with `val as u16`; use `u16::try_from(val)?`. Distinguish intentional C `unsigned` modular arithmetic (`wrapping_add`, `Wrapping<u32>`) from bug-prone arithmetic (`checked_add`, `saturating_sub`)—blindly converting intentional checksum/crypto wraparound to `checked_add` breaks parity.
+3. **Silent Narrowing `as` Casts & Blind Overflow Rules:** Never narrow integers with `val as u16`; use `u16::try_from(val)?`. Distinguish intentional C `unsigned` modular arithmetic (`wrapping_add`, `Wrapping<u32>`) from bug-prone arithmetic (`checked_add`, `saturating_sub`); blindly converting intentional checksum/crypto wraparound to `checked_add` breaks parity.
 4. **Unannotated Cross-Boundary Struct Layouts:** Never pass a default `repr(Rust)` struct across `FFI`, shared memory, or binary wire/register maps because `rustc` reorders fields freely. Enforce explicit `#[repr(C)]` or `#[repr(transparent)]` plus compile-time size/offset assertions (see [references/c-cpp-abi-and-embedded.md](./references/c-cpp-abi-and-embedded.md)).
-5. **Bidirectional Unwinding Across Foreign Boundaries:** Panicking from Rust across `extern "C"`—or letting C `longjmp` or uncaught C++ exceptions jump across Rust frames holding `Drop` destructors—triggers immediate Undefined Behavior (`UB`). Guard `std` Rust exports with `std::panic::catch_unwind` (`#![no_std]` exports enforce `panic = "abort"` plus static panic-freedom lints, while `PyO3` extension wheels keep `panic = "unwind"`), and trap C `setjmp`/`longjmp` or C++ `try-catch` strictly inside thin C/C++ shims before returning error codes to Rust.
+5. **Bidirectional Unwinding Across Foreign Boundaries:** Panicking from Rust across `extern "C"` (or letting C `longjmp` or uncaught C++ exceptions jump across Rust frames holding `Drop` destructors) triggers immediate Undefined Behavior (`UB`). Guard `std` Rust exports with `std::panic::catch_unwind` (`#![no_std]` exports enforce `panic = "abort"` plus static panic-freedom lints, while `PyO3` extension wheels keep `panic = "unwind"`), and trap C `setjmp`/`longjmp` or C++ `try-catch` strictly inside thin C/C++ shims before returning error codes to Rust.
 6. **Premature Lifetime Proliferation & Blind UTF-8 Assumptions:** Prefer owned fields in domain structs and borrowed slices (`&[u8]`, `&str`) in parameters unless measured zero-copy parsing requires `'a`; never call `.to_str()?` on raw C `CStr` / OS path bytes unless strict UTF-8 validity is part of the proven contract.
 
 ---
 
-## 6. Stage 5 — Three-Tier Verification Ladder & Independent Auditor Gate
+## 6. Stage 5: Three-Tier Verification Ladder & Independent Auditor Gate
 
 Treat deterministic Rust and native toolchains as mandatory co-verifiers (routing `>500`-line or twice-failing borrow-checker/trait traces to the `build-error-resolver` subagent per `skills/harness/SKILL.md` §3.B):
 
-### Tier V1 — Mandatory Universal Compiler, Lint & Differential Parity Gate
+### Tier V1: Mandatory Universal Compiler, Lint & Differential Parity Gate
 Run on every slice and before delivery (for `#![no_std]` hardware crates, scope `--target <embedded-triple>` to `--lib --bins` and run unit tests on the `#![cfg_attr(not(test), no_std)]` domain crate with `--target <host-triple>`):
 ```bash
 cargo check --all-targets
@@ -105,13 +105,13 @@ cargo test
 * Under `safety-critical` profiles, enforce panic/truncation bans on **production targets** (`cargo clippy --lib --bins -- -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::indexing_slicing -D clippy::ptr_as_ptr -D clippy::cast_possible_truncation`) so `assert!` / `assert_eq!` macros inside `#[test]` targets remain valid.
 * Execute all Stage 3 golden-vector and cross-language differential parity suites within the agreed integer/float tolerance to `100%` pass.
 
-### Tier V2 — Mandatory Memory & Boundary Sanitizer Gate (Whenever `unsafe` or Foreign Interop Exists)
+### Tier V2: Mandatory Memory & Boundary Sanitizer Gate (Whenever `unsafe` or Foreign Interop Exists)
 * **Pure-Rust `unsafe` blocks:** Run `cargo +nightly miri test` to catch aliasing (`Stacked` / `Tree Borrows`), uninitialized memory reads, alignment violations, and out-of-bounds pointer arithmetic.
 * **Mixed C/C++ <-> Rust binaries:** Because `miri` cannot execute external C/C++ functions, compile and run the linked integration test binary with `AddressSanitizer` and `UndefinedBehaviorSanitizer` enabled on the C/C++ toolchain alongside `>= 1,000` `proptest` cases or `>= 10,000` `cargo fuzz` runs (`>= 30 s`) over boundary inputs.
 
-### Tier V3 — Safety-Critical Bounded Formal Verification Gate (`cargo kani`)
+### Tier V3: Safety-Critical Bounded Formal Verification Gate (`cargo kani`)
 * For `safety-critical` and `embedded-no-std` kernels/wrappers, check `command -v cargo-kani`: when installed, author `#[kani::proof]` harnesses proving panic-freedom, bounds safety, and invariant preservation across bounded symbolic inputs (`cargo kani`).
-* **Fail-Closed Verification Gap Rule (`GEMINI.md` Rule 8):** When `miri` or sanitizers on newly introduced `unsafe` / interop seams—or `cargo-kani` under a `safety-critical` profile—cannot execute on the host, declare the exact unrun sensor and seam in the `Verification Gap Declaration` and halt delivery in `BLOCKED` status pending user review (never claim formal proof from `cargo test` alone; avoid fragile `Prusti` gates unless already pinned by the repository).
+* **Fail-Closed Verification Gap Rule (`GEMINI.md` Rule 8):** When `miri` or sanitizers on newly introduced `unsafe` / interop seams (or `cargo-kani` under a `safety-critical` profile) cannot execute on the host, declare the exact unrun sensor and seam in the `Verification Gap Declaration` and halt delivery in `BLOCKED` status pending user review (never claim formal proof from `cargo test` alone; avoid fragile `Prusti` gates unless already pinned by the repository).
 
 ### Pre-Delivery Auditor Dispatch & Delivery Block
 Before declaring completion on `FFI`, `unsafe`, public binary or programming interface changes, `safety-critical` profiles, or `>8`-file migrations (`GEMINI.md` §3 Critical Exceptions), dispatch the read-only `security-boundary-verifier`, `silent-failure-hunter`, `contract-change-auditor`, and `test-adequacy-auditor` subagents (plus `consistency-auditor` and `specification-gap-auditor` on `safety-critical` specifications). In the `GEMINI.md` Rule 5/8 Delivery Block, report: the active Target Profile & Interop Strategy, differential parity test counts, remaining `unsafe` block count with `file:line` `// SAFETY:` coordinates, executed verification tiers (`V1` / `V2` / `V3`), and any host-unavailable formal or hardware checks.

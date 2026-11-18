@@ -44,6 +44,7 @@ from .common import (
     _is_git_repo_workspace,
     _is_harness_repo_root,
     _iter_jsonl_tail_entries,
+    _normalize_markdown_newlines,
     _prune_missing_flight_workspaces,
     _read_bounded_markdown_checked,
     _read_ledger_checked,
@@ -168,7 +169,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             rf"(?:{_SLASH_PRE}/rustify{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"rustify\w*(?!\.(?:rs|py|c|cc|cpp|cxx|h|hh|hpp|hxx|go|js|ts|md|json|toml|yaml|yml)\b)|"
             r"(?<!bump\s)(?<!upgrade\s)(?<!update\s)(?:cbindgen|bindgen|cxx\s+bridge|#?\[?cxx::bridge\]?|pyo3)(?!\s+(?:from|to|in)\s+[\dv]|[^\n]{0,30}\bcargo\.toml\b)|"
-            r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
+            r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b|(?!(?:c|cpp|golang|python|go)\b)(?:(?:this|the|our|my|existing|these)\s+){0,2}(?:(?!\b(?:to|into|c|cpp|golang|python|go|cgo|cython)\b)(?:[\w+/.-]+,*|,+)\s+){0,7}\brust\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
             r"(?:(?:c(?:/c\+\+|\+\+)?|cpp|golang|python)\s+(?:[\w+/.-]+\s+){0,4}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b|"
             r"go\s+(?:(?:code(?:base)?|module|service|library|binary|daemon|cli|worker|server|backend|runtime|app|package|crate)\s+)?(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b))|"
             r"(?:rust\s+(?:ffi(?:\s+(?:bindings?|wrappers?|bridges?))?|bindings?|wrappers?)\s+(?:for|to)\s+(?:c/c\+\+|c\+\+|(?:cpp|golang|python|go|c)\b)|(?:ffi|c\s+abi)\s+(?:bridge|wrapper|interop)\s+(?:for|to|with|in)\s+rust\b)|"
@@ -179,6 +180,26 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         "5-stage C/C++/Go/Python -> memory-safe Rust migration, ABI/FFI bridges (bindgen/cbindgen/cxx/PyO3) & Miri/sanitizer/Kani verification",
+    ),
+    (
+        "rust-harden",
+        "skills/rust-harden/SKILL.md",
+        re.compile(
+            rf"(?:{_SLASH_PRE}/rust-harden{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"rust[-_]harden(?![./\w-])|"
+            r"harden(?:ing)?\s+(?:(?:this|the|our|my|existing)\s+)?(?:[\w-]+\s+){0,3}rust\b|"
+            r"rust\s+(?:crate\s+|code(?:base)?\s+|module\s+|service\s+|kernel\s+)?harden(?:ing)?\b|"
+            r"(?:convert(?:ing)?|rewrit(?:e|ing)|refactor(?:ing)?|clean(?:ing)?\s+up|turn(?:ing)?|mak(?:e|ing))\s+(?:(?:this|the|our|my|existing|these)\s+){0,2}(?:[\w<>:.,()/+-]+\s+){0,6}rust\s+(?:crate|module|service|code(?:base)?|daemon|driver|kernel)\s+(?:to|into|more)?\s*(?:idiomatic|zero[- ]panic|panic[- ]free|memory[- ]safe)(?:\s+rust)?\b|"
+            r"idiomatic\s+rust\s+(?:cleanup|hardening|pass|refactor\w*)|"
+            r"(?:remove|eliminate|clean\s+up|replace)\s+(?:(?:unnecessary|reflexive|production)\s+)*(?:rust\s+(?:\.?unwrap(?:\(\))?|\.?expect(?:\(\))?|\.?clone(?:\(\))?|arc<mutex\w*>?|rc<refcell\w*>?|ownership\s+debt|borrow[- ]checker\s+debt)\b|(?:\.?unwrap(?:\(\))?|\.?expect(?:\(\))?|\.?clone(?:\(\))?|arc<mutex\w*>?|rc<refcell\w*>?|ownership\s+debt|borrow[- ]checker\s+debt)\b[^\n.?!]{0,50}\brust\b)|"
+            r"(?:narrow(?:ing)?|purif(?:y|ying)|shrink(?:ing)?|eliminat(?:e|ing))\s+unsafe\s+(?:blocks?|code|wrappers?|fns?|functions?)(?:\s+in\s+(?:this\s+|the\s+|our\s+)?(?:#!\[no_std\]\s+)?rust\b)?|"
+            r"tokio::select!\s+cancellation(?:\s+safety)?|await[_ ]holding[_ ]lock|"
+            r"rust\s+kod\w*\s+sertleştir\w*|idiomatic\s+rust\s+yap\w*|"
+            r"sahiplik\s+borc\w*\s+temizle\w*|unsafe\s+(?:blok\w*\s+|kod\w*\s+)?arındır\w*"
+            rf"){_PATH_WORD_POST})",
+            re.IGNORECASE,
+        ),
+        "intra-Rust ownership/clone debt cleanup, panic removal (`--internal` vs `--contract`), async cancellation & `#![no_std]`/kernel `unsafe` narrowing",
     ),
     (
         "retro",
@@ -637,6 +658,19 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
         "Subagents `consistency-auditor` & `specification-gap-auditor` (`invoke_subagent` per GEMINI.md §3 Critical Exceptions)",
     ),
     (
+        "route:subagent:simplicity-auditor",
+        re.compile(
+            rf"{_PATH_WORD_PRE}(?:"
+            r"simplicity[- ]auditor(?![./\w-])|"
+            r"yagni\s+(?:audit|review|check)|over[- ]engineering\s+(?:audit|review|check)|"
+            r"efficiency\s+ladder\s+(?:audit|review|check)|premature\s+abstraction\s+(?:audit|review|check)|"
+            r"yagni\s+denetim\w*|aşırı\s+mühendislik\s+denetim\w*|gereksiz\s+soyutlama\s+denetim\w*"
+            rf"){_PATH_WORD_POST}",
+            re.IGNORECASE,
+        ),
+        "Subagent `simplicity-auditor` (`invoke_subagent` with `TypeName=\"simplicity-auditor\"` to audit Tier 2/3 diffs for GEMINI.md Rule 4 YAGNI, Rule 18 surgical reuse & 7-Rung Efficiency Ladder compliance)",
+    ),
+    (
         "route:subagent:research",
         re.compile(
             rf"{_PATH_WORD_PRE}(?:"
@@ -811,6 +845,7 @@ _ROUTE_EXPLICIT_SLUGS: Dict[str, Tuple[str, ...]] = {
     "route:subagent:security-silent": ("security-boundary-verifier", "silent-failure-hunter"),
     "route:subagent:contract-test": ("contract-change-auditor", "test-adequacy-auditor"),
     "route:subagent:spec-consistency": ("consistency-auditor", "specification-gap-auditor"),
+    "route:subagent:simplicity-auditor": ("simplicity-auditor",),
     "route:subagent:research": ("research-subagent",),
     "route:subagent:build-error-resolver": ("build-error-resolver",),
     "route:builtin:generative_ui": ("generative_ui", "generative-ui"),
@@ -935,9 +970,25 @@ def _load_conv_hint_state(raw_entry: Any) -> Tuple[Dict[str, int], int, str]:
         return seen, max(turn, 1 if seen else 0), last_sig
     return {}, 0, ""
 
-_HANDOFF_IN_PROGRESS_RE = _LazyRegex(r"(?im)^\s*(?:\*\*Status:\*\*|Status:)\s*\[IN-PROGRESS\]\s*$")
+_HANDOFF_IN_PROGRESS_RE = _LazyRegex(
+    r"(?im)^[^\S\r\n]*(?:[-*•][^\S\r\n]+)?(?:\*\*Status:\*\*|\*\*Status\*\*:|Status:)[^\S\r\n]*`?\[IN-PROGRESS\]`?[^\S\r\n]*$"
+)
 
-_TASKS_PENDING_RE = _LazyRegex(r"(?m)^\s*-\s*\[\s\]\s+\S")
+_HANDOFF_COMPLETE_RE = _LazyRegex(
+    r"(?im)^[^\S\r\n]*(?:[-*•][^\S\r\n]+)?(?:\*\*Status:\*\*|\*\*Status\*\*:|Status:)[^\S\r\n]*`?\[COMPLETE\]`?[^\S\r\n]*$"
+)
+
+_CAMPAIGN_ID_RE = _LazyRegex(
+    r"(?im)^[^\S\r\n]*(?:[-*•][^\S\r\n]+)?(?:\*\*Campaign[^\S\r\n]+ID:\*\*|\*\*Campaign[^\S\r\n]+ID\*\*:|Campaign[^\S\r\n]+ID:)[^\S\r\n]*`?([A-Za-z0-9][A-Za-z0-9._/-]{1,120})`?[^\S\r\n]*$"
+)
+
+_HANDOFF_COMMIT_RE = _LazyRegex(
+    r"(?im)^[^\S\r\n]*(?:[-*•][^\S\r\n]+)?(?:\*\*Git[^\S\r\n]+Branch[^\S\r\n]*/[^\S\r\n]*Commit:\*\*|\*\*Git[^\S\r\n]+Branch[^\S\r\n]*/[^\S\r\n]*Commit\*\*:|Git[^\S\r\n]+Branch[^\S\r\n]*/[^\S\r\n]*Commit:)[^\S\r\n]*[^\s@\r\n][^\r\n@]*@[^\S\r\n]*`?([0-9a-fA-F]{7,64})`?(?:\b|`)"
+)
+
+_TASKS_PENDING_RE = _LazyRegex(r"(?m)^[^\S\r\n]*-[^\S\r\n]*\[\s\][^\S\r\n]+\S")
+
+_TASKS_NEXT_ROW_RE = _LazyRegex(r"(?im)^[^\S\r\n]*\|[^\r\n]*\[\s\][^\S\r\n]*NEXT\b")
 
 _TASKS_PARTIAL_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[~\]|\|[^\n]*\[~\])")
 
@@ -1028,31 +1079,77 @@ def _detect_workspace_recovery_hint(
             inspect_ok = False
 
     handoff_in_progress = False
+    handoff_complete = False
+    handoff_campaign_id = ""
+    tasks_campaign_id = ""
+    campaign_id = ""
+    handoff_commit = ""
     pending_count = 0
     partial_count = 0
     blocked_count = 0
+    next_row_count = 0
 
     if first_turn_in_conv or flight_alert_reason:
         hoff_ok, raw_handoff = _read_bounded_markdown_checked(workspace / "HANDOFF.md")
         if not hoff_ok:
             inspect_ok = False
         if raw_handoff:
-            htext = _FENCE_RE.sub(" ", raw_handoff)
+            htext = _FENCE_RE.sub(" ", _normalize_markdown_newlines(raw_handoff))
             if _HANDOFF_IN_PROGRESS_RE.search(htext):
                 handoff_in_progress = True
+            elif _HANDOFF_COMPLETE_RE.search(htext):
+                handoff_complete = True
+            m_cid = _CAMPAIGN_ID_RE.search(htext)
+            if m_cid:
+                handoff_campaign_id = m_cid.group(1)
+            m_sha = _HANDOFF_COMMIT_RE.search(htext)
+            if m_sha:
+                handoff_commit = m_sha.group(1).lower()
 
         tasks_ok, raw_tasks = _read_bounded_markdown_checked(workspace / "tasks.md")
         if not tasks_ok:
             inspect_ok = False
         if raw_tasks:
-            ttext = _FENCE_RE.sub(" ", raw_tasks)
+            ttext = _FENCE_RE.sub(" ", _normalize_markdown_newlines(raw_tasks))
             pending_count = len(_TASKS_PENDING_RE.findall(ttext))
             partial_count = len(_TASKS_PARTIAL_RE.findall(ttext))
             blocked_count = len(_TASKS_BLOCKED_RE.findall(ttext))
+            next_row_count = len(_TASKS_NEXT_ROW_RE.findall(ttext))
+            m_tcid = _CAMPAIGN_ID_RE.search(ttext)
+            if m_tcid:
+                tasks_campaign_id = m_tcid.group(1)
 
-    has_unfinished_tasks = (pending_count + partial_count + blocked_count) > 0
+    tasks_supersedes_complete_handoff = bool(
+        handoff_complete and tasks_campaign_id and tasks_campaign_id != handoff_campaign_id
+    )
+    campaign_id = tasks_campaign_id if tasks_supersedes_complete_handoff else (handoff_campaign_id or tasks_campaign_id)
+
+    has_unfinished_tasks = (pending_count + partial_count + blocked_count + next_row_count) > 0
     if not flight_alert_reason and not (first_turn_in_conv and (handoff_in_progress or has_unfinished_tasks)):
         return inspect_ok, None
+
+    is_git_ws = _is_git_repo_workspace(workspace)
+    head_advanced = False
+    current_head = ""
+    if handoff_commit and is_git_ws and not tasks_supersedes_complete_handoff:
+        try:
+            head_proc = subprocess.run(
+                ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if head_proc.returncode == 0:
+                cand_head = head_proc.stdout.strip().lower()
+                if len(cand_head) >= 7 and not (
+                    cand_head.startswith(handoff_commit) or handoff_commit.startswith(cand_head)
+                ):
+                    head_advanced = True
+                    current_head = cand_head
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     details: List[str] = []
     last_target = str(flight_entry.get("last_target") or "")
@@ -1092,33 +1189,58 @@ def _detect_workspace_recovery_hint(
     elif base_head and (flight_alert_reason or touched):
         details.append(f"pre-edit git baseline `HEAD`: `{base_head[:8]}`")
 
+    campaign_suffix = f" (Campaign ID: `{campaign_id}`)" if campaign_id else ""
     if handoff_in_progress:
-        details.append("`HANDOFF.md` has `Status: [IN-PROGRESS]`")
+        details.append(f"`HANDOFF.md` has `Status: [IN-PROGRESS]`{campaign_suffix}")
+    elif handoff_complete and not tasks_supersedes_complete_handoff:
+        details.append(f"`HANDOFF.md` has `Status: [COMPLETE]`{campaign_suffix}")
+    elif campaign_id:
+        details.append(f"active Campaign ID: `{campaign_id}`")
+
+    if head_advanced:
+        details.append(
+            f"repository `HEAD` (`{current_head[:8]}`) has advanced past `HANDOFF.md` commit `{handoff_commit[:8]}`"
+        )
+
     if has_unfinished_tasks:
         counts = []
         if pending_count:
             counts.append(f"{pending_count} `[ ]` pending")
+        elif next_row_count:
+            counts.append(f"{next_row_count} `[ ] NEXT` window(s)")
         if partial_count:
-            counts.append(f"{pending_count and '' or ''}{partial_count} `[~]` partial".lstrip())
+            counts.append(f"{partial_count} `[~]` partial")
         if blocked_count:
             counts.append(f"{blocked_count} `[!]` blocked")
         details.append(f"`tasks.md` has unfinished items ({', '.join(counts)})")
 
+    is_stale_ledger = (handoff_complete and not tasks_supersedes_complete_handoff) or head_advanced
     fingerprint_raw = (
         f"{ws_key}|{flight_alert_reason}|{seq_val}|{updated_at}|{last_target}|"
-        f"{handoff_in_progress}|{pending_count}|{partial_count}|{blocked_count}"
+        f"{handoff_in_progress}|{handoff_complete}|{tasks_supersedes_complete_handoff}|{campaign_id}|"
+        f"{handoff_commit[:12]}|{current_head[:12] if head_advanced else ''}|"
+        f"{pending_count}|{next_row_count}|{partial_count}|{blocked_count}"
     )
     fp_hash = hashlib.sha256(fingerprint_raw.encode("utf-8")).hexdigest()[:12]
     dedup_key = f"recovery:{fp_hash}"
     inspect_target = (
         "`git status`/`git diff`, `tasks.md`, and `HANDOFF.md` (if present)"
-        if _is_git_repo_workspace(workspace)
+        if is_git_ws
         else "`tasks.md`, `HANDOFF.md` (if present), and recent workspace files (non-git workspace)"
     )
+    reset_guidance = ""
+    if handoff_in_progress or handoff_complete or has_unfinished_tasks or campaign_id:
+        campaign_ref = f"Campaign `{campaign_id}`" if campaign_id else "the recorded ledger"
+        stale_prefix = "Stale ledger boundary: if " if is_stale_ledger else "If "
+        reset_guidance = (
+            f" {stale_prefix}the user's request starts a new unrelated task rather than continuing "
+            f"{campaign_ref}, reset `tasks.md` and `HANDOFF.md` from `W1` (`AC-1`) under a fresh "
+            "`Campaign ID` (`YYYY-MM-DD-<topic-slug>`) instead of appending `Wn+1`."
+        )
     msg = (
         f"[Harness Recovery & Continuity Gate] Unfinished or interrupted workspace state detected: "
         f"{'; '.join(details)}. Before making new edits, inspect {inspect_target} "
-        "to reconcile any half-finished modifications and resume deterministically."
+        f"to reconcile any half-finished modifications and resume deterministically.{reset_guidance}"
     )
     return inspect_ok, (dedup_key, msg, ack_seq)
 
