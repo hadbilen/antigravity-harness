@@ -11,7 +11,7 @@
 
 Autonomous coding agents suffer from **environment mutation drift**, **sycophancy**, **test weakening
 (Goodhart's Curse)**, **context bloat**, and **ecosystem fragmentation**. Antigravity Harness counters
-them with an engineering constitution (`GEMINI.md`), 20 modular skills, 9 independent auditor
+them with an engineering constitution (`GEMINI.md`), 21 modular skills, 10 independent auditor
 subagents, Porter (a rule importer/exporter for Claude Code, Cursor, Aider and `AGENTS.md` tools),
 and Antigravity Guard, which write-protects the governance files, detects drift, and gates changes
 behind human confirmation.
@@ -72,8 +72,8 @@ governance tree). `agy-guard status` shows which protection kind is active
 ## 1. Antigravity Guard (`agy-guard` CLI & GUI)
 
 ### Governance write shield (`guard/os_adapter.py`, `guard/environment.py`)
-Guard locks the **governance seams** of `~/.gemini/config/` — `GEMINI.md`, `AGENTS.md`, `DESIGN.md`,
-`MISTAKES.md`, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `rules/`, `templates/`, `.harness/` —
+Guard locks the **governance seams** of `~/.gemini/config/` (`GEMINI.md`, `AGENTS.md`, `DESIGN.md`,
+`MISTAKES.md`, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `rules/`, `templates/`, `.harness/`)
 together with the installed Guard runtime (`~/.local/share/antigravity-harness/runtime/`) and user launchers
 (`~/.local/bin/agy-guard`, `agy-porter`, `porter`). Antigravity's
 own runtime state (`config.json`, `projects/`, `sidecars/`, `plugins/`, `cache`) stays writable, and so does
@@ -162,8 +162,8 @@ one is not stopped; the integrity baseline reports it.
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
 * **Event-scoped lifecycle hooks (`hooks.json`, `guard/__init__.py`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/__init__.py` uses PEP 562 lazy `__getattr__` exports and `guard/agy_hooks.py` acts as a thin lazy CLI router and compatibility facade loading only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py` with on-demand `guard/hooks/_workflow_ast.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`, `ADR-0010`):
-  * **`PreInvocation` (`pre_invocation.py`):** bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`) with explicit `/slash` priority, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]`, and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
-  * **`PreToolUse` (`pre_tool_use.py`, `_workflow_ast.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
+  * **`PreInvocation` (`pre_invocation.py`):** bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`, `ADR-0011`) with explicit `/slash` priority, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]` (with `marathon` `Campaign ID` isolation and stale-ledger anti-merge guidance), and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
+  * **`PreToolUse` (`pre_tool_use.py`, `_workflow_ast.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), `GEMINI.md` Rule 9 `tasks.md` `## Authorized Test Modifications` gating (permitting clean `[COMPLETE]` stale-campaign resets once prior authorized tests are committed), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
   * **`Stop` (`stop_gate.py`):** diff, untracked-file, and linked-worktree `TestBoundaryGuard` integrity verification (tautological assertions, operator/matcher relaxation, `C9` test-runner sniffing, unapproved test skips, malformed `.json`/`.toml`/`.svg` syntax, `UI-1`–`UI-5` slop, and broken local Markdown links) guarded by a 3-strike circuit breaker.
 * **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `agy-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `agy-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
 
@@ -193,16 +193,17 @@ in Guard and `scripts/`.
 
 ## 3. Auditor Subagents (`/agents`)
 
-Nine read-only role definitions (`access: read-only`) whose non-mutating behavior is specified in their prompts;
+Ten read-only role definitions (`access: read-only`) whose non-mutating behavior is specified in their prompts;
 the Claude Code export turns `access:` into a `tools:` allow-list, while other hosts apply
 their own tool policies:
 
-* **`silent-failure-hunter`:** swallowed exceptions, missing logs, empty fallbacks, unhandled promises.
-* **`security-boundary-verifier`:** authorization boundaries, IDOR, input validation, SSRF, TOCTOU.
+* **`silent-failure-hunter`:** swallowed exceptions, discarded Rust `Result`/channel outcomes, missing logs, empty fallbacks, unhandled promises.
+* **`security-boundary-verifier`:** authorization boundaries, IDOR, input validation, SSRF, TOCTOU, Rust `unsafe` / `UserSlice` / integer-narrowing boundaries.
 * **`specification-gap-auditor`:** unhandled edge cases, missing error branches, vague adjectives.
 * **`consistency-auditor`:** contradictions, circular dependencies, broken cross-references.
 * **`test-adequacy-auditor`:** `[OK]`/`[GAP]` branch coverage tree, tautological assertions, negative error-path tests.
 * **`contract-change-auditor`:** caller reachability and compatibility audit for changed signatures, schemas, and CLI flags.
+* **`simplicity-auditor`:** `YAGNI` (`Rule 4`), surgical reuse (`Rule 18`), and 7-Rung Efficiency Ladder audit with game-seam and soundness-wrapper carve-outs.
 * **`meta-auditor`:** inspects the pre-computed 7-pass harness self-audit (`scripts/meta_audit.py --strict --json`) and governance files.
 * **`build-error-resolver`:** isolates compiler/type failures and proposes minimal diffs.
 * **`research`:** digests large external documentation in an isolated context.
@@ -211,7 +212,7 @@ their own tool policies:
 
 ## 4. Porter: rule inspection, import and export (`porter.py`, `.harness/manifest.json`)
 
-* **Pre-flight gate:** scores external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`, …) 0–100 before anything is written (`porter/analyzer.py` maps both the 20 top-level skills and the 14 consolidated reference module slugs).
+* **Pre-flight gate:** scores external rules (`.mdc`, `.cursorrules`, `CLAUDE.md`, …) 0–100 before anything is written (`porter/analyzer.py` maps both the 21 top-level skills and the 14 consolidated reference module slugs).
 * **Negation-aware sanitizer (`porter/sanitizer.py`):** classifies every match as prohibited (kept), affirmative
   (neutralised, e.g. "skip the failing tests", "use --no-verify", "ignore previous instructions") or uncertain
   (kept and listed as `NEEDS_REVIEW`, never deleted). Negation is clause-scoped (including binary comma-free shared imperative prohibitions across `or`), so "Skipping tests is never OK" and "Never weaken assertions or delete tests"
@@ -222,7 +223,7 @@ their own tool policies:
 * **SSRF-hardened fetcher (`porter/net.py`):** http/https only, globally routable destinations only
   (CGNAT, link-local, private, 6to4/NAT64, IPv4-mapped/-compatible/-translated loopback are rejected), DNS
   pinning against rebinding, per-redirect validation, proxies ignored, an overall deadline, 10 MB cap.
-* **Canonical manifest:** all 20 skills with every support file, executable bit and in-skill symlink, all 9
+* **Canonical manifest:** all 21 skills with every support file, executable bit and in-skill symlink, all 10
   subagents, the templates, the constitution and the design contract. CI fails if the committed manifest is
   stale (`porter.py manifest --check`).
 * **Verified export:** Claude Code (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/` with `tools:`, verbatim
@@ -239,13 +240,14 @@ their own tool policies:
 
 ## 5. Modular Skill Ecosystem (`/skills`)
 
-20 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `antislop`, `technical-writing`, and `audit` per `ADR-0009`):
+21 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `antislop`, `technical-writing`, and `audit` per `ADR-0009` and `ADR-0011`):
 
-* **`harness`:** engineering harness, verification gates, Tier-3 Pre-Code Plan Gate (`YAGNI` Brake), Swarm vs. `unlazy` vs. `marathon` topology routing (`ADR-0007`), and task lifecycle, plus on-demand reference modules for `marathon` (`/marathon` multi-window goal planning and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
+* **`harness`:** engineering harness, verification gates, Tier-3 Pre-Code Plan Gate (`YAGNI` Brake), Swarm vs. `unlazy` vs. `marathon` topology routing (`ADR-0007`), and task lifecycle (reading `ARCHITECTURE.md` and `SECURITY_POSTURE.md` when present per `ADR-0011`), plus on-demand reference modules for `marathon` (`/marathon` multi-window goal planning, `Campaign ID` isolation, and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
 * **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net` with Controllable vs. Uncontrollable External Path classification) governed by the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
 * **`media-studio`:** high-fidelity audio, video, still-image (`JPG`, `PNG`, `TIFF`, `BMP`), and animated visual (`MP4`, `WebM`, `Animated WebP`, `GIF`, `APNG`, `WAV`, `FLAC`, `Opus`, `AAC`) synthesis, timeline editing, container/header salvage (`salvage`), signal restoration, two-tier fidelity-bounded quality enhancement, two-pass `EBU R128` loudness mastering, and the deterministic `media_qc.py` quality gate (`MEDIA-1..MEDIA-7`, `GAME-1..GAME-3`, `LUFS`, `dBTP`, aspect-locked `compare` `SSIM`/`PSNR`, `ab-sheet`, game SFX peak normalization, Ogg Vorbis/Opus, loop-seam, pixel-art, and sprite-atlas checks).
 * **`renew`:** generational legacy software and classic game modernization, dead-runtime/toolkit porting, and unbuildable codebase revival via a 5-stage contract-first pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover -> Parity Gate`) with `[HARDWARE/ENV SHIM]` record/replay contracts, locale invariants, and a Legacy Game & Interactive Simulation Remaster profile.
 * **`rustify`:** architectural C, C++, Go, and Python -> memory-safe Rust (`2024` Edition, `#[unsafe(no_mangle)]`, `unsafe extern "C"`, Cargo publish-age cooldowns) migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`) via a 5-stage contract-first pipeline (`Silent Build & ABI Autopsy -> Migration Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, and conditional `cargo kani` formal proofs).
+* **`rust-harden`:** intra-Rust ownership and borrow-checker debt cleanup, production `.unwrap()` / `.expect()` elimination, crate-tiered `[lints.rust]` / `[lints.clippy]` enforcement, and `--internal` (signature-preserving default) vs. `--contract` (`Expand -> Migrate -> Contract` `Result`/`newtype`/`typestate`) modes, plus on-demand playbooks for `tokio::select!` cancellation and pre-runtime POSIX privilege drop (`skills/rust-harden/references/async-and-userspace.md`) and `#![no_std]`, Framekernel, IRQ-spinlock, `UserSlice`, DMA `Drop`, and `loom`/`kani` proofs (`skills/rust-harden/references/kernel-and-unsafe.md`).
 * **`game-engineering`:** deterministic fixed-timestep game loops (`Profile A` Web/Canvas `16.67 ms` budget and `Profile B` 3D/Native Engines), zero per-frame allocation, seeded PRNG, save `schemaVersion` quarantine, and clean-room `rea_rea` asset/binary recovery bridges.
 * **`porter`:** ecosystem adapter, suitability analyzer, transpiler.
 * **`vibecoder`:** product-first rapid prototyping with zero-friction single-file rich HTML application, game (`Game Vibe Mode`), and creative studio / interactive sandbox (`Creative & Sandbox Vibe Mode`) delivery.
@@ -255,7 +257,7 @@ their own tool policies:
 * **`procoder`:** sprint scaffolding for repositories that contain `.procoder/`.
 * **`antislop`:** core 40-rule UI/copy filter + structural UI scanner (`check_ui_slop.py`), bundling on-demand reference modules and tools for UI geometry (`/antislop-ui`), code-comment hygiene (`/antislop-code`), prose scanning (`/antislop-copywriting` + `check_synthetic_markers.py` for English and Turkish), WCAG contrast (`/antislop-human` + `contrast-check.py` / `contrast-mcp.py`), mobile layout (`/antislop-layoutmobile`), and kinetic motion (`/silk-design`).
 * **`technical-writing`:** Diataxis documentation, executable example verification, and `/visualizer` diagramming (`skills/technical-writing/references/visualizer.md`; Mermaid or built-in `generative_ui`).
-* **`audit`:** read-only structural, consistency, and security boundary audit engine, bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
+* **`audit`:** read-only structural, consistency, and security boundary audit engine (with automatic `ARCHITECTURE.md` and `SECURITY_POSTURE.md` Phase 0.B control grounding per `ADR-0011`), bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
 * **`upstream-auditor`:** model catalog, built-in Antigravity runtime, and 8-repository upstream drift auditor (supporting both branch commits, consolidated sub-reference targets, and `"track": "release"` tag tracking such as `morluto/rea`).
 * **`refactoring`**, **`retro`**, **`data-analysis`**, **`diagnosing-bugs`**, **`database-migrations`**.
 
@@ -290,7 +292,7 @@ antigravity-harness/
 ├── guard.py / porter.py                   # CLI entry points
 ├── .github/workflows/ci.yml               # 3 OS x Python 3.10-3.14, lint, trusted-boundary, release
 ├── .harness/manifest.json                 # Canonical manifest (checked by CI)
-├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0010)
+├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0011)
 ├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
 ├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
@@ -303,10 +305,10 @@ antigravity-harness/
 │   ├── code_map.py                        # AST caller/dataflow/blast-radius map, runtime tracer & FTS5 search
 │   ├── meta_audit.py                      # 7-pass harness self-audit (Rule 17)
 │   └── verify_invariants.py               # Deterministic invariant scan
-├── agents/                                # 9 auditor subagent definitions
-├── skills/                                # 20 top-level skills + on-demand references/ & scripts/
-├── tests/                                 # Hermetic unittest suite (697 tests)
-└── templates/                             # HANDOFF, MISTAKES and config templates
+├── agents/                                # 10 auditor subagent definitions
+├── skills/                                # 21 top-level skills + on-demand references/ & scripts/
+├── tests/                                 # Hermetic unittest suite (713 tests)
+└── templates/                             # ARCHITECTURE, HANDOFF, MISTAKES, SECURITY_POSTURE & config templates
 ```
 
 Runtime state never lives in the repository: registry, baselines, leases, lock-mode records and the
@@ -339,7 +341,7 @@ the checksum-verified standalone binary), `--no-lock`, `--enable-startup`, `--dr
 ### Linux packages and standalone binaries
 
 Release assets (see [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases)) ship with a
-`.sha256` file each — verify before installing:
+`.sha256` file each; verify before installing:
 
 ```bash
 sha256sum -c antigravity-guard_2.1.2_amd64.deb.sha256
@@ -446,7 +448,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (697 tests)
+# Hermetic unit test suite (713 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings
