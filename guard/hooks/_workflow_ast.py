@@ -28,6 +28,7 @@ from .pre_tool_use import (
     _WORKFLOW_MAX_ARG_DEPTH,
     _WORKFLOW_MAX_BYTES,
     _WORKFLOW_MAX_FOLDED_LEN,
+    _WRITE_TARGET_ARG_KEYS,
     _canonicalize_check_path,
     _check_pep263_cookie,
     _detect_unpinned_package_exec,
@@ -765,13 +766,24 @@ def _extract_workflow_sources_ex(
     `script_paths_meta` records `(resolved_path, st_mode)` for every `ScriptPath` file read so TOCTOU
     risk on external/world-writable `ScriptPath` targets can require confirmation (`I-01`).
     """
-    try:
-        base_dir: Optional[Path] = workspace if workspace is not None else Path.cwd()
-    except OSError:
-        base_dir = workspace
+    def _expand_wf_path_token(raw_tok: str) -> str:
+        s = raw_tok
+        if os.name != "nt" and re.match(r"^(?:~|\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})|%[A-Za-z_][A-Za-z0-9_]*%|[A-Za-z]:)\\", s, re.IGNORECASE):
+            s = s.replace("\\\\", "/").replace("\\", "/")
+        s = re.sub(
+            r"^(?:\$HOME|\$\{HOME\}|%USERPROFILE%|\$USERPROFILE)(?=[/\\]|$)",
+            lambda _m: str(Path.home()),
+            s,
+            flags=re.IGNORECASE,
+        )
+        if os.name != "nt" and re.match(r"^[A-Za-z]:\\", s):
+            s = s.replace("\\\\", "/").replace("\\", "/")
+        return os.path.expanduser(s)
+
+    base_dir: Optional[Path] = workspace
 
     cwd_values: List[str] = []
-    for ck in ("Cwd", "cwd"):
+    for ck in ("Cwd", "cwd", "workingDirectory", "working_directory"):
         if ck not in args:
             continue
         cwd_raw = args.get(ck)
@@ -794,8 +806,11 @@ def _extract_workflow_sources_ex(
     if len(set(cwd_values)) > 1:
         return [], [], base_dir, [], "[Harness Workflow Shield] Conflicting `Cwd`/`cwd` arguments in `run_workflow`."
     if cwd_values:
-        cwd_path = Path(os.path.expanduser(cwd_values[0]))
-        if not cwd_path.is_absolute():
+        exp_cwd_str = _expand_wf_path_token(cwd_values[0])
+        if re.match(r"^(?:\$|\$\{|%[A-Za-z_])", exp_cwd_str):
+            return [], [], base_dir, [], "[Harness Workflow Shield] Unexpanded shell variable in `run_workflow` `Cwd` (failing closed)."
+        cwd_path = Path(exp_cwd_str)
+        if not cwd_path.is_absolute() and not re.match(r"^[A-Za-z]:[/\\]", exp_cwd_str) and not exp_cwd_str.startswith("\\\\"):
             if base_dir is None:
                 return [], [], None, [], "[Harness Workflow Shield] Cannot resolve relative `Cwd` without a working directory."
             base_dir = base_dir / cwd_path
@@ -842,8 +857,11 @@ def _extract_workflow_sources_ex(
             )
         if not sp_raw:
             continue
-        sp = Path(os.path.expanduser(sp_raw))
-        if not sp.is_absolute():
+        exp_sp_str = _expand_wf_path_token(sp_raw)
+        if re.match(r"^(?:\$|\$\{|%[A-Za-z_])", exp_sp_str):
+            return [], [], base_dir, [], f"[Harness Workflow Shield] Unexpanded shell variable in `run_workflow` `{sp_key}` (failing closed)."
+        sp = Path(exp_sp_str)
+        if not sp.is_absolute() and not re.match(r"^[A-Za-z]:[/\\]", exp_sp_str) and not exp_sp_str.startswith("\\\\"):
             if base_dir is None:
                 return [], [], None, [], f"[Harness Workflow Shield] Cannot resolve relative `{sp_key}` without a working directory."
             sp = base_dir / sp
@@ -1025,12 +1043,21 @@ def _inspect_workflow_script(
       - Delegated `agent(...)` model downgrades (`model='flash' | 'flash_lite'`) on customization files (`Rule 17`)
     """
     eff_cwd = workflow_cwd if workflow_cwd is not None else workspace
+    wf_all_workspaces = _workspaces_from_payload(payload) if isinstance(payload, dict) else []
+    wf_rel_bases: List[Path] = []
+    for _wb in (eff_cwd, workspace, *wf_all_workspaces):
+        if _wb is not None and _wb not in wf_rel_bases:
+            wf_rel_bases.append(_wb)
     local_swarm_ops: List[Dict[str, Any]] = []
     if swarm_overlay is None:
         swarm_overlay = {}
 
     def _path_hits_gov(cand: str, resolve_rel: bool = False) -> bool:
-        return _targets_governance_dir(cand, base_dir=(eff_cwd if resolve_rel else None))
+        if _targets_governance_dir(cand):
+            return True
+        if resolve_rel:
+            return any(_targets_governance_dir(cand, base_dir=b) for b in wf_rel_bases)
+        return False
 
     def _path_hits_cust(cand: str, resolve_rel: bool = False) -> bool:
         if not cand or not cand.strip():
@@ -1044,11 +1071,13 @@ def _inspect_workflow_script(
                 return _targets_customization_structure(raw_c, workspace=(workspace if workspace is not None else eff_cwd))
             raw_c = parsed_c
         ws_ctx = workspace if workspace is not None else eff_cwd
-        if resolve_rel and eff_cwd is not None:
+        if resolve_rel and wf_rel_bases:
             exp = Path(os.path.expanduser(raw_c))
             if not exp.is_absolute():
-                return _targets_customization_structure(str(eff_cwd / exp), workspace=ws_ctx)
-        return _targets_customization_structure(raw_c, workspace=ws_ctx)
+                return any(_targets_customization_structure(str(b / exp), workspace=b) for b in wf_rel_bases)
+        return _targets_customization_structure(raw_c, workspace=ws_ctx) or any(
+            _targets_customization_structure(raw_c, workspace=b) for b in wf_rel_bases if b != ws_ctx
+        )
 
     try:
         tree = ast.parse(source)
@@ -1072,6 +1101,7 @@ def _inspect_workflow_script(
     single_rhs: Dict[str, ast.AST] = {}
     multi_rhs: Dict[str, List[ast.AST]] = {}
     local_callable_defs: Dict[str, int] = {}
+    local_func_defs: Dict[str, Any] = {}
     rebound_host_primitive: Optional[str] = None
     forbidden_dunder_def: Optional[str] = None
     for stmt in ast.walk(tree):
@@ -1095,6 +1125,8 @@ def _inspect_workflow_script(
             bind_counts[stmt.name] = bind_counts.get(stmt.name, 0) + 1
             store_counts[stmt.name] = store_counts.get(stmt.name, 0) + 1
             local_callable_defs[stmt.name] = local_callable_defs.get(stmt.name, 0) + 1
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                local_func_defs[stmt.name] = stmt
             if stmt.name in _PROTECTED_HOST_PRIMITIVES:
                 rebound_host_primitive = stmt.name
             if stmt.name in _FORBIDDEN_DUNDER_NAMES:
@@ -1217,6 +1249,72 @@ def _inspect_workflow_script(
         return []
 
     multi_var_values: Dict[str, List[str]] = {k: [v] for k, v in const_vars.items()}
+    closed_multi_vars: Dict[str, List[str]] = {k: [v] for k, v in const_vars.items()}
+
+    def _eval_static_str_seq(expr: Optional[ast.AST]) -> Optional[List[str]]:
+        if expr is None:
+            return None
+        if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
+            items: List[str] = []
+            for elt in expr.elts:
+                val = _eval_workflow_path_expr(elt, const_vars)
+                if val is None:
+                    return None
+                if val not in items:
+                    items.append(val)
+            return items[:24] if items else None
+        if isinstance(expr, ast.Name) and expr.id in seq_var_elements:
+            return list(seq_var_elements[expr.id])
+        return None
+
+    seq_var_elements: Dict[str, List[str]] = {}
+    for vname, rhs in single_rhs.items():
+        if bind_counts.get(vname, 0) != 1:
+            continue
+        seq_vals = _eval_static_str_seq(rhs)
+        if seq_vals:
+            seq_var_elements[vname] = seq_vals
+
+    # Bind static string sequence elements into `for` loops, comprehensions, and `parallel`/`pipeline` lambda params.
+    iter_bound_values: Dict[str, List[str]] = {}
+    iter_bound_unclosed: set[str] = set()
+    for nd in ast.walk(tree):
+        if isinstance(nd, (ast.For, ast.AsyncFor, ast.comprehension)):
+            if isinstance(nd.target, ast.Name):
+                tname = nd.target.id
+                sv = _eval_static_str_seq(nd.iter)
+                if sv:
+                    bucket = iter_bound_values.setdefault(tname, [])
+                    for item in sv:
+                        if item not in bucket and len(bucket) < 24:
+                            bucket.append(item)
+                else:
+                    iter_bound_unclosed.add(tname)
+        elif isinstance(nd, ast.Call) and isinstance(nd.func, ast.Name) and nd.func.id in ("parallel", "pipeline"):
+            if len(nd.args) >= 2:
+                sv = _eval_static_str_seq(nd.args[0])
+                fn_arg = nd.args[1]
+                if isinstance(fn_arg, ast.Lambda):
+                    lam_params = [a.arg for a in fn_arg.args.posonlyargs] + [a.arg for a in fn_arg.args.args]
+                    if lam_params:
+                        p0 = lam_params[0]
+                        if sv:
+                            bucket = iter_bound_values.setdefault(p0, [])
+                            for item in sv:
+                                if item not in bucket and len(bucket) < 24:
+                                    bucket.append(item)
+                        else:
+                            iter_bound_unclosed.add(p0)
+
+    for vname, vals in iter_bound_values.items():
+        if vals:
+            existing = multi_var_values.setdefault(vname, [])
+            for v in vals:
+                if v not in existing and len(existing) < 24:
+                    existing.append(v)
+            if vname not in iter_bound_unclosed and vname not in multi_rhs:
+                closed_multi_vars[vname] = list(vals)
+
     for _ in range(4):
         progressed_m = False
         for vname, rhs_list in multi_rhs.items():
@@ -1227,6 +1325,29 @@ def _inspect_workflow_script(
                         existing.append(cand_s)
                         progressed_m = True
         if not progressed_m:
+            break
+
+    for _ in range(4):
+        progressed_c = False
+        for vname, rhs_list in multi_rhs.items():
+            if vname in closed_multi_vars or vname in iter_bound_unclosed:
+                continue
+            if not rhs_list or len(rhs_list) > 8:
+                continue
+            all_resolved = True
+            collected: List[str] = []
+            for rhs_expr in rhs_list:
+                cands = _eval_multi_candidates(rhs_expr, closed_multi_vars)
+                if not cands:
+                    all_resolved = False
+                    break
+                for cand_s in cands:
+                    if cand_s not in collected and len(collected) < 16:
+                        collected.append(cand_s)
+            if all_resolved and collected:
+                closed_multi_vars[vname] = collected
+                progressed_c = True
+        if not progressed_c:
             break
 
     # Map persistent `var = agent(...)` bindings (across Assign, AnnAssign, NamedExpr, and reassignments)
@@ -1260,8 +1381,278 @@ def _inspect_workflow_script(
                 persistent_agents.setdefault(node.target.id, []).append(ag_val)
                 persistent_agent_turn_nodes.setdefault(node.target.id, [])
 
+    def _expr_is_nonempty_prompt(
+        expr: ast.AST,
+        depth: int = 0,
+        param_names: frozenset[str] = frozenset(),
+    ) -> bool:
+        if depth > 4:
+            return False
+        folded_prompt = _eval_workflow_str_expr(expr, const_vars)
+        if folded_prompt is not None:
+            return bool(folded_prompt.strip())
+        if isinstance(expr, ast.JoinedStr):
+            return True
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+            frag, _ = _extract_partial_text_and_dynamic(expr, const_vars)
+            return bool(frag.strip())
+        if isinstance(expr, ast.Name):
+            if expr.id in param_names:
+                return True
+            if bind_counts.get(expr.id, 0) == 1 and expr.id in single_rhs:
+                return _expr_is_nonempty_prompt(single_rhs[expr.id], depth + 1, param_names=param_names)
+        return False
+
+    def _agent_has_oneshot_prompt(ag_call: ast.Call, param_names: frozenset[str] = frozenset()) -> bool:
+        if any(isinstance(a, ast.Starred) for a in ag_call.args) or any(k.arg is None for k in ag_call.keywords):
+            return False
+        prompt_arg: Optional[ast.AST] = ag_call.args[0] if ag_call.args else None
+        if prompt_arg is None:
+            for k in ag_call.keywords:
+                if k.arg == "prompt":
+                    prompt_arg = k.value
+                    break
+        if prompt_arg is None:
+            return False
+        return _expr_is_nonempty_prompt(prompt_arg, param_names=param_names)
+
+    def _walk_own_func_nodes(fdef: Any) -> List[ast.AST]:
+        """Walks statements/expressions inside `fdef.body` without descending into nested def/class bodies."""
+        visited: List[ast.AST] = []
+        stack: List[ast.AST] = list(fdef.body)
+        while stack:
+            cur = stack.pop()
+            visited.append(cur)
+            if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            stack.extend(ast.iter_child_nodes(cur))
+        return visited
+
+    # Single-definition local helper functions (`def`/`async def`) eligible for `agent()` return/param calibration (`A2`).
+    verified_local_funcs: Dict[str, Any] = {
+        fname: fdef
+        for fname, fdef in local_func_defs.items()
+        if local_callable_defs.get(fname, 0) == 1 and store_counts.get(fname, 0) == 1
+    }
+    call_func_node_ids_pre: set[int] = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+
+    # Pass A: Helper functions returning `agent(...)` (both one-shot helpers and persistent-agent factories).
+    helper_allowed_agent_call_ids: set[int] = set()
+    helper_extra_prompt_nodes: Dict[int, List[ast.AST]] = {}
+    helper_owned_agent_ids: Dict[str, List[int]] = {}
+    persistent_factory_agents: Dict[str, List[ast.Call]] = {}
+    dynamic_turn_agent_ids: set[int] = set()
+    dynamic_turn_persistent_vars: set[str] = set()
+
+    for fname, fdef in verified_local_funcs.items():
+        own_nodes = _walk_own_func_nodes(fdef)
+        f_explicit_params = frozenset(
+            a.arg for a in (list(fdef.args.posonlyargs) + list(fdef.args.args) + list(fdef.args.kwonlyargs))
+        )
+        for nd in own_nodes:
+            if isinstance(nd, ast.Call) and isinstance(nd.func, ast.Name) and nd.func.id == "agent":
+                helper_owned_agent_ids.setdefault(fname, []).append(id(nd))
+            if isinstance(nd, ast.Return) and nd.value is not None:
+                ret_ag = _unwrap_agent_call(nd.value, allow_await=True)
+                if ret_ag is None:
+                    continue
+                if _agent_has_oneshot_prompt(ret_ag, param_names=f_explicit_params):
+                    helper_allowed_agent_call_ids.add(id(ret_ag))
+                elif not isinstance(nd.value, ast.Await):
+                    persistent_factory_agents.setdefault(fname, []).append(ret_ag)
+
+    # Validate persistent-agent factories: every reference to `fname` must be a direct call whose result
+    # is bound to a variable (`var = fname(...)`) or immediately chained (`fname(...)(prompt)`).
+    if persistent_factory_agents:
+        verified_factory_chained_ids: set[int] = set()
+        factory_bound_call_ids: Dict[str, Dict[int, List[str]]] = {}
+        factory_chained_calls: Dict[str, Dict[int, List[ast.AST]]] = {}
+        factory_chained_has_star: Dict[int, bool] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+                fn = node.value.func.id
+                if fn in persistent_factory_agents:
+                    tgts = [t.id for t in node.targets if isinstance(t, ast.Name)]
+                    if tgts and len(tgts) == len(node.targets):
+                        factory_bound_call_ids.setdefault(fn, {})[id(node.value)] = tgts
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in persistent_factory_agents
+            ):
+                factory_bound_call_ids.setdefault(node.value.func.id, {})[id(node.value)] = [node.target.id]
+            elif (
+                isinstance(node, ast.NamedExpr)
+                and isinstance(node.target, ast.Name)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in persistent_factory_agents
+            ):
+                factory_bound_call_ids.setdefault(node.value.func.id, {})[id(node.value)] = [node.target.id]
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Call) and isinstance(node.func.func, ast.Name):
+                fn = node.func.func.id
+                if fn in persistent_factory_agents:
+                    turns_f = factory_chained_calls.setdefault(fn, {}).setdefault(id(node.func), [])
+                    for a_arg in node.args:
+                        if isinstance(a_arg, ast.Starred):
+                            turns_f.append(a_arg.value)
+                            factory_chained_has_star[id(node.func)] = True
+                    if node.args and not isinstance(node.args[0], ast.Starred):
+                        turns_f.append(node.args[0])
+                    for kw in node.keywords:
+                        if kw.arg is None:
+                            turns_f.append(kw.value)
+                            factory_chained_has_star[id(node.func)] = True
+                        elif kw.arg == "prompt":
+                            turns_f.append(kw.value)
+
+        for fname, ag_list in persistent_factory_agents.items():
+            # Reject factory if `fname` is passed as a bare value anywhere or called without binding/chaining
+            factory_safe = True
+            for nd in ast.walk(tree):
+                if isinstance(nd, ast.Name) and isinstance(nd.ctx, ast.Load) and nd.id == fname:
+                    if id(nd) not in call_func_node_ids_pre:
+                        factory_safe = False
+                        break
+                elif isinstance(nd, ast.Call) and isinstance(nd.func, ast.Name) and nd.func.id == fname:
+                    if (
+                        id(nd) not in factory_bound_call_ids.get(fname, {})
+                        and id(nd) not in factory_chained_calls.get(fname, {})
+                    ):
+                        factory_safe = False
+                        break
+            if not factory_safe:
+                continue
+            for ag_c in ag_list:
+                helper_allowed_agent_call_ids.add(id(ag_c))
+                for _call_id, tgt_vars in factory_bound_call_ids.get(fname, {}).items():
+                    for tv in tgt_vars:
+                        persistent_agents.setdefault(tv, []).append(ag_c)
+                        persistent_agent_turn_nodes.setdefault(tv, [])
+                for _call_id, ch_turns in factory_chained_calls.get(fname, {}).items():
+                    verified_factory_chained_ids.add(_call_id)
+                    chained_agent_turns.setdefault(id(ag_c), []).extend(ch_turns)
+                    if factory_chained_has_star.get(_call_id):
+                        dynamic_turn_agent_ids.add(id(ag_c))
+    else:
+        verified_factory_chained_ids = set()
+
+    # Propagate call-site args and `parallel(items, fn)` / `pipeline(items, fn)` inputs onto helper-owned `agent()` calls.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        fn = node.func.id
+        if fn in helper_owned_agent_ids:
+            site_args: List[ast.AST] = list(node.args) + [kw.value for kw in node.keywords]
+            if site_args:
+                for ag_id in helper_owned_agent_ids[fn]:
+                    helper_extra_prompt_nodes.setdefault(ag_id, []).extend(site_args)
+        elif fn in ("parallel", "pipeline"):
+            fn_refs = [
+                a.id
+                for a in node.args
+                if isinstance(a, ast.Name) and a.id in helper_owned_agent_ids
+            ]
+            if fn_refs:
+                other_args = [a for a in node.args if not (isinstance(a, ast.Name) and a.id in fn_refs)] + [
+                    kw.value for kw in node.keywords
+                ]
+                for ref_name in fn_refs:
+                    for ag_id in helper_owned_agent_ids[ref_name]:
+                        helper_extra_prompt_nodes.setdefault(ag_id, []).extend(other_args)
+
+    # Pass B: Passing a persistent agent handle into a verified local helper function (`check_file(reviewer, path)`).
+    allowed_persistent_agent_load_ids: set[int] = set()
+    verified_agent_param_call_ids: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        fn = node.func.id
+        if fn not in verified_local_funcs:
+            continue
+        if any(isinstance(a, ast.Starred) for a in node.args) or any(kw.arg is None for kw in node.keywords):
+            continue
+        fdef = verified_local_funcs[fn]
+        if fdef.args.vararg is not None or fdef.args.kwarg is not None:
+            continue
+        pos_params = [a.arg for a in fdef.args.posonlyargs] + [a.arg for a in fdef.args.args]
+        kw_params = {a.arg for a in fdef.args.args} | {a.arg for a in fdef.args.kwonlyargs}
+
+        bound_pairs: List[Tuple[str, ast.AST]] = []
+        for idx_a, a_node in enumerate(node.args):
+            if idx_a < len(pos_params):
+                bound_pairs.append((pos_params[idx_a], a_node))
+        for kw in node.keywords:
+            if kw.arg and kw.arg in kw_params:
+                bound_pairs.append((kw.arg, kw.value))
+
+        other_site_args: List[ast.AST] = []
+        agent_bindings: List[Tuple[str, ast.Name, List[ast.Call]]] = []
+        for pname, aval in bound_pairs:
+            if (
+                isinstance(aval, ast.Name)
+                and aval.id in persistent_agents
+                and len(persistent_agents[aval.id]) == store_counts.get(aval.id, 0)
+            ):
+                agent_bindings.append((pname, aval, persistent_agents[aval.id]))
+            else:
+                other_site_args.append(aval)
+
+        if not agent_bindings:
+            continue
+
+        own_body_nodes = _walk_own_func_nodes(fdef)
+        # Check for nested defs/lambdas referencing the agent parameter ambiguously
+        all_body_nodes = [nd for stmt in fdef.body for nd in ast.walk(stmt)]
+        for pname, aval, ag_calls in agent_bindings:
+            param_safe = True
+            param_turn_calls: List[ast.Call] = []
+            for nd in all_body_nodes:
+                if isinstance(nd, ast.Name) and nd.id == pname:
+                    if isinstance(nd.ctx, (ast.Store, ast.Del)):
+                        param_safe = False
+                        break
+                    if isinstance(nd.ctx, ast.Load) and id(nd) not in call_func_node_ids_pre:
+                        param_safe = False
+                        break
+                elif isinstance(nd, ast.arg) and nd.arg == pname:
+                    param_safe = False
+                    break
+            if not param_safe:
+                continue
+            for nd in own_body_nodes:
+                if isinstance(nd, ast.Call) and isinstance(nd.func, ast.Name) and nd.func.id == pname:
+                    param_turn_calls.append(nd)
+            allowed_persistent_agent_load_ids.add(id(aval))
+            for tc in param_turn_calls:
+                verified_agent_param_call_ids.add(id(tc))
+                turn_exprs: List[ast.AST] = []
+                tc_has_star = False
+                for a_arg in tc.args:
+                    if isinstance(a_arg, ast.Starred):
+                        turn_exprs.append(a_arg.value)
+                        tc_has_star = True
+                if tc.args and not isinstance(tc.args[0], ast.Starred):
+                    turn_exprs.append(tc.args[0])
+                for tkw in tc.keywords:
+                    if tkw.arg is None:
+                        turn_exprs.append(tkw.value)
+                        tc_has_star = True
+                    elif tkw.arg == "prompt":
+                        turn_exprs.append(tkw.value)
+                for ag_c in ag_calls:
+                    helper_extra_prompt_nodes.setdefault(id(ag_c), []).extend(turn_exprs)
+                    helper_extra_prompt_nodes.setdefault(id(ag_c), []).extend(other_site_args)
+                    if tc_has_star:
+                        dynamic_turn_agent_ids.add(id(ag_c))
+            if not param_turn_calls and other_site_args:
+                for ag_c in ag_calls:
+                    helper_extra_prompt_nodes.setdefault(id(ag_c), []).extend(other_site_args)
+
     # Track non-executing UI/prompt string node ids so prose in `log(...)`, `phase(...)`, `agent(...)`,
-    # persistent `var(prompt, ...)`, or chained `agent(...)(prompt, ...)` does not trigger shell regex false positives.
+    # persistent `var(prompt, ...)`, helper agent-param turns, or chained `agent(...)(prompt, ...)` does not trigger shell regex false positives.
     benign_prose_node_ids: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -1278,7 +1669,7 @@ def _inspect_workflow_script(
                     if kw.arg in ("prompt", "role", "schema"):
                         for sub in ast.walk(kw.value):
                             benign_prose_node_ids.add(id(sub))
-            elif node.func.id in persistent_agents:
+            elif node.func.id in persistent_agents or id(node) in verified_agent_param_call_ids:
                 for arg_node in node.args[:2]:
                     for sub in ast.walk(arg_node):
                         benign_prose_node_ids.add(id(sub))
@@ -1290,13 +1681,20 @@ def _inspect_workflow_script(
             chained_ag = _unwrap_agent_call(node.func, allow_await=True)
             if chained_ag is not None:
                 turns = chained_agent_turns.setdefault(id(chained_ag), [])
-                if node.args:
+                for a_arg in node.args:
+                    if isinstance(a_arg, ast.Starred):
+                        turns.append(a_arg.value)
+                        dynamic_turn_agent_ids.add(id(chained_ag))
+                if node.args and not isinstance(node.args[0], ast.Starred):
                     turns.append(node.args[0])
                 for arg_node in node.args[:2]:
                     for sub in ast.walk(arg_node):
                         benign_prose_node_ids.add(id(sub))
                 for kw in node.keywords:
-                    if kw.arg == "prompt":
+                    if kw.arg is None:
+                        turns.append(kw.value)
+                        dynamic_turn_agent_ids.add(id(chained_ag))
+                    elif kw.arg == "prompt":
                         turns.append(kw.value)
                     if kw.arg in ("prompt", "schema"):
                         for sub in ast.walk(kw.value):
@@ -1663,10 +2061,13 @@ def _inspect_workflow_script(
                 )
             if isinstance(node.ctx, ast.Load):
                 if (
-                    node.id in _NON_ALIASABLE_WORKFLOW_NAMES
-                    or node.id in guarded_imported_funcs
-                    or node.id in persistent_agents
-                ) and (id(node) not in call_func_node_ids):
+                    (node.id in _NON_ALIASABLE_WORKFLOW_NAMES or node.id in guarded_imported_funcs)
+                    and (id(node) not in call_func_node_ids)
+                ) or (
+                    node.id in persistent_agents
+                    and id(node) not in call_func_node_ids
+                    and id(node) not in allowed_persistent_agent_load_ids
+                ):
                     return _gov_deny_or(
                         f"[Harness Workflow Shield] Aliasing or passing primitive `{node.id}` as a "
                         "first-class value inside `run_workflow` is prohibited (GEMINI.md Rule 15e)."
@@ -1742,7 +2143,11 @@ def _inspect_workflow_script(
         if not isinstance(node, ast.Call):
             continue
 
-        if not isinstance(node.func, (ast.Name, ast.Attribute)) and _unwrap_agent_call(node.func, allow_await=True) is None:
+        if (
+            not isinstance(node.func, (ast.Name, ast.Attribute))
+            and _unwrap_agent_call(node.func, allow_await=True) is None
+            and id(node.func) not in verified_factory_chained_ids
+        ):
             for arg_node in node.args[:2]:
                 p = _eval_workflow_path_expr(arg_node, const_vars)
                 if p:
@@ -1805,7 +2210,7 @@ def _inspect_workflow_script(
                             "decision": "deny",
                             "reason": (
                                 "[Harness Workflow Shield] `call_tool()` inside `run_workflow` requires "
-                                "exactly one positional tool-name string and static keyword arguments."
+                                "exactly one positional tool-name string and explicit keyword arguments."
                             ),
                         },
                         [],
@@ -1835,43 +2240,135 @@ def _inspect_workflow_script(
                         [],
                     )
                 static_kwargs: Dict[str, Any] = {}
-                has_dynamic_kw = False
+                dynamic_kw_nodes: Dict[str, ast.AST] = {}
+                has_double_star_kw = False
                 for kw in node.keywords:
                     if kw.arg is None:
-                        has_dynamic_kw = True
+                        has_double_star_kw = True
                         continue
                     const_val, const_ok = _eval_workflow_const_value(kw.value, const_vars)
                     if const_ok:
                         static_kwargs[kw.arg] = const_val
                     else:
-                        has_dynamic_kw = True
+                        dynamic_kw_nodes[kw.arg] = kw.value
+
+                if has_double_star_kw:
+                    return (
+                        {
+                            "decision": "deny",
+                            "reason": (
+                                f"[Harness Workflow Shield] `call_tool('{inner_name}', **kwargs)` unpacking inside "
+                                "`run_workflow` is prohibited; pass explicit keyword arguments."
+                            ),
+                        },
+                        [],
+                    )
+
+                has_dynamic_kw = bool(dynamic_kw_nodes)
+                all_kw_names = set(static_kwargs.keys()) | set(dynamic_kw_nodes.keys())
+
+                def _collect_kw_expr_fragments(expr: ast.AST) -> List[str]:
+                    frags: List[str] = []
+                    folded_p = _eval_workflow_path_expr(expr, const_vars)
+                    if folded_p:
+                        frags.append(folded_p)
+                    part_txt, _ = _extract_partial_text_and_dynamic(expr, const_vars)
+                    if part_txt and part_txt not in frags:
+                        frags.append(part_txt)
+                    for mc in _eval_multi_candidates(expr, multi_var_values):
+                        if mc and mc not in frags:
+                            frags.append(mc)
+                    refs_args = False
+                    for sub in ast.walk(expr):
+                        if isinstance(sub, ast.Constant) and isinstance(sub.value, str) and sub.value:
+                            if sub.value not in frags:
+                                frags.append(sub.value)
+                        elif isinstance(sub, ast.Name):
+                            if sub.id == "args":
+                                refs_args = True
+                            for mv in multi_var_values.get(sub.id, ()):
+                                if mv and mv not in frags:
+                                    frags.append(mv)
+                    if refs_args:
+                        for astr in arg_strings:
+                            if astr and astr not in frags:
+                                frags.append(astr)
+                    return frags[:24]
+
+                def _synth_value_for_dyn_kw(expr: ast.AST) -> Tuple[Any, bool]:
+                    if isinstance(expr, ast.Dict):
+                        synth_d: Dict[str, Any] = {}
+                        all_ok = True
+                        for k_nd, v_nd in zip(expr.keys, expr.values):
+                            if k_nd is None:
+                                all_ok = False
+                                continue
+                            k_s = _eval_workflow_str_expr(k_nd, const_vars)
+                            if not k_s:
+                                all_ok = False
+                                continue
+                            v_c, v_ok = _eval_workflow_const_value(v_nd, const_vars)
+                            if v_ok:
+                                synth_d[k_s] = v_c
+                            else:
+                                sv, sv_ok = _synth_value_for_dyn_kw(v_nd)
+                                synth_d[k_s] = sv
+                                if not sv_ok:
+                                    all_ok = False
+                        return synth_d, all_ok
+                    if isinstance(expr, (ast.List, ast.Tuple)):
+                        items: List[Any] = []
+                        all_ok = True
+                        for elt in expr.elts:
+                            e_c, e_ok = _eval_workflow_const_value(elt, const_vars)
+                            if e_ok:
+                                items.append(e_c)
+                            else:
+                                sv, sv_ok = _synth_value_for_dyn_kw(elt)
+                                items.append(sv)
+                                if not sv_ok:
+                                    all_ok = False
+                        return items, all_ok
+                    closed_cands = _eval_multi_candidates(expr, closed_multi_vars)
+                    if closed_cands:
+                        return " ".join(closed_cands), True
+                    frags = _collect_kw_expr_fragments(expr)
+                    return (" ".join(frags) if frags else "<dynamic>"), False
 
                 if inner_tool in WRITE_TOOL_NAMES:
                     targets = _extract_write_targets(static_kwargs)
-                    if not targets or has_dynamic_kw:
-                        for cand in [*targets, *arg_strings, *all_literals]:
-                            if _path_hits_gov(cand, resolve_rel=(cand in targets)):
-                                return (
-                                    {
-                                        "decision": "deny",
-                                        "reason": (
-                                            "[Harness Governance Shield] Direct write to the protected governance tree "
-                                            f"(`{cand}`) inside `run_workflow` is prohibited (GEMINI.md Rule 12 & Rule 15a)."
-                                        ),
-                                    },
-                                    [],
-                                )
+                    dyn_target_keys = [k for k in dynamic_kw_nodes if k in _WRITE_TARGET_ARG_KEYS]
+                    if not targets and not dyn_target_keys:
                         return (
                             {
                                 "decision": "deny",
                                 "reason": (
                                     f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside `run_workflow` "
-                                    "must pass static arguments (including `Path`) so Governance Shield and Flight Recorder can verify the write."
+                                    "must specify a write target keyword argument (e.g. `Path` or `TargetFile`)."
                                 ),
                             },
                             [],
                         )
-                    for target in targets:
+                    dyn_target_cands: List[str] = []
+                    for dk in dyn_target_keys:
+                        closed_t = _eval_multi_candidates(dynamic_kw_nodes[dk], closed_multi_vars)
+                        if not closed_t:
+                            return (
+                                {
+                                    "decision": "deny",
+                                    "reason": (
+                                        f"[Harness Workflow Shield] Dynamic write target `{dk}` in "
+                                        f"`call_tool('{inner_name}', ...)` cannot be statically resolved to a "
+                                        "finite constant set (failing closed; GEMINI.md Rule 12 & Rule 15e)."
+                                    ),
+                                },
+                                [],
+                            )
+                        for ct in closed_t:
+                            if ct not in dyn_target_cands:
+                                dyn_target_cands.append(ct)
+                    all_write_cands = [*targets, *dyn_target_cands]
+                    for target in all_write_cands:
                         if "\x00" in target or (target.strip().lower().startswith("file:") and "%00" in target.lower()):
                             return (
                                 {
@@ -1891,7 +2388,7 @@ def _inspect_workflow_script(
                                 },
                                 [],
                             )
-                    if any(_path_hits_cust(target, resolve_rel=True) for target in targets):
+                    if any(_path_hits_cust(target, resolve_rel=True) for target in all_write_cands):
                         mod_eval = _evaluate_customization_model_and_effort(payload)
                         if mod_eval is not None:
                             if mod_eval[0] == "deny":
@@ -1923,33 +2420,50 @@ def _inspect_workflow_script(
                                 )
                         if Path(canon_wf_t).name.lower() == "tasks.md":
                             tasks_md_write_count += 1
-                        if _write_mutates_authorized_test_section(target, static_kwargs, eff_cwd):
-                            force_ask_reasons.append(
-                                "[Harness Test Boundary] Modifying `## Authorized Test Modifications` in `tasks.md` "
-                                "requires explicit human confirmation (GEMINI.md Rule 9)."
-                            )
-                        elif _write_mutates_authorized_test_section(
-                            target, static_kwargs, eff_cwd, allow_stale_reset=False
-                        ):
-                            tasks_md_rely_on_stale_reset = True
+                            if has_dynamic_kw:
+                                force_ask_reasons.append(
+                                    "[Harness Test Boundary] Writing dynamic content to `tasks.md` inside `run_workflow` "
+                                    "could alter `## Authorized Test Modifications` and requires explicit human confirmation (GEMINI.md Rule 9)."
+                                )
+                        if not has_dynamic_kw:
+                            if _write_mutates_authorized_test_section(target, static_kwargs, eff_cwd):
+                                force_ask_reasons.append(
+                                    "[Harness Test Boundary] Modifying `## Authorized Test Modifications` in `tasks.md` "
+                                    "requires explicit human confirmation (GEMINI.md Rule 9)."
+                                )
+                            elif _write_mutates_authorized_test_section(
+                                target, static_kwargs, eff_cwd, allow_stale_reset=False
+                            ):
+                                tasks_md_rely_on_stale_reset = True
                         flight_writes.append((inner_tool, rec_t))
+                    if dyn_target_keys:
+                        for dt in dyn_target_cands:
+                            canon_dt = _canonicalize_check_path(dt)
+                            if re.search(r"(?:^|/)(?:\.agents?|_agents?)/hooks\.json$", canon_dt, re.IGNORECASE):
+                                force_ask_reasons.append(
+                                    "[Harness Governance Shield] Modifying workspace `.agents/hooks.json` inside "
+                                    "`run_workflow` requires explicit human confirmation (GEMINI.md Rule 12 & Rule 15a)."
+                                )
+                            if Path(canon_dt).name.lower() == "tasks.md":
+                                tasks_md_write_count += 1
+                                force_ask_reasons.append(
+                                    "[Harness Test Boundary] Writing dynamically to `tasks.md` inside `run_workflow` "
+                                    "requires explicit human confirmation (GEMINI.md Rule 9)."
+                                )
+                        flight_writes.append((inner_tool, f"<workflow:{inner_tool}>"))
                 elif inner_tool in COMMAND_TOOL_NAMES:
                     has_command_or_mcp_mutation = True
-                    if has_dynamic_kw:
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside `run_workflow` "
-                                    "must pass static command arguments or delegate to `agent(...)`."
-                                ),
-                            },
-                            [],
-                        )
                     if inner_tool == "manage_task":
+                        has_act_key = bool(all_kw_names & {"Action", "action"})
                         mt_act = str(static_kwargs.get("Action") or static_kwargs.get("action") or "").strip().lower()
+                        has_inp_key = bool(all_kw_names & {"Input", "input"})
                         mt_inp = str(static_kwargs.get("Input") or static_kwargs.get("input") or "").strip()
-                        if mt_act not in ("list", "status", "kill") and not mt_inp:
+                        if not has_act_key or (
+                            "Action" not in dynamic_kw_nodes
+                            and "action" not in dynamic_kw_nodes
+                            and mt_act not in ("list", "status", "kill")
+                            and (not has_inp_key or (not mt_inp and not ({"Input", "input"} & set(dynamic_kw_nodes))))
+                        ):
                             return (
                                 {
                                     "decision": "deny",
@@ -1961,6 +2475,9 @@ def _inspect_workflow_script(
                                 [],
                             )
                     elif inner_tool == "send_command_input":
+                        inp_keys = ("Input", "input", "CommandLine", "command")
+                        has_any_inp = any(k in all_kw_names for k in inp_keys)
+                        has_dyn_inp = any(k in dynamic_kw_nodes for k in inp_keys)
                         sci_inp = str(
                             static_kwargs.get("Input")
                             or static_kwargs.get("input")
@@ -1968,120 +2485,249 @@ def _inspect_workflow_script(
                             or static_kwargs.get("command")
                             or ""
                         ).strip()
-                        if not sci_inp:
+                        if not has_any_inp or (not has_dyn_inp and not sci_inp):
                             return (
                                 {
                                     "decision": "deny",
                                     "reason": (
                                         "[Harness Workflow Shield] `call_tool('send_command_input', ...)` inside "
-                                        "`run_workflow` requires a non-empty static `Input` string."
+                                        "`run_workflow` requires a non-empty `Input` string."
                                     ),
                                 },
                                 [],
                             )
                     else:
+                        has_cmd_key = bool(all_kw_names & {"CommandLine", "command"})
+                        has_dyn_cmd = bool(set(dynamic_kw_nodes) & {"CommandLine", "command"})
                         rc_cmd = str(static_kwargs.get("CommandLine") or static_kwargs.get("command") or "").strip()
-                        if not rc_cmd:
+                        if not has_cmd_key or (not has_dyn_cmd and not rc_cmd):
                             return (
                                 {
                                     "decision": "deny",
                                     "reason": (
                                         f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside "
-                                        "`run_workflow` requires a non-empty static `CommandLine` string."
+                                        "`run_workflow` requires a non-empty `CommandLine` string."
                                     ),
                                 },
                                 [],
                             )
-                    inner_payload = {
-                        **payload,
-                        "_workflowDryCheck": True,
-                        **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
-                        "toolCall": {"name": inner_tool, "args": static_kwargs},
-                    }
-                    inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(inner_payload)
-                    if inner_res.get("decision") == "deny":
-                        return inner_res, []
-                    if inner_res.get("decision") == "force_ask":
-                        force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                elif inner_tool in ("invoke_subagent", "swarm", "post_message", "send_message", "define_subagent", "schedule"):
-                    if has_dynamic_kw:
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside "
-                                    "`run_workflow` must pass static arguments."
-                                ),
-                            },
-                            [],
-                        )
-                    inner_payload: Dict[str, Any] = {
-                        **payload,
-                        "_workflowDryCheck": True,
-                        **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
-                        "toolCall": {"name": inner_tool, "args": static_kwargs},
-                    }
-                    if inner_tool in ("swarm", "post_message", "send_message", "define_subagent", "invoke_subagent"):
-                        inner_payload["_swarmOverlay"] = swarm_overlay
-                        inner_payload["_pendingSwarmOps"] = local_swarm_ops
-                    inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(inner_payload)
-                    if inner_res.get("decision") == "deny":
-                        return inner_res, []
-                    if inner_res.get("decision") == "force_ask":
-                        force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                elif inner_tool == "call_mcp_tool" or inner_tool.startswith("mcp_"):
-                    if has_dynamic_kw:
-                        return (
-                            {
-                                "decision": "deny",
-                                "reason": (
-                                    f"[Harness Workflow Shield] `call_tool('{inner_name}', ...)` inside "
-                                    "`run_workflow` must pass static arguments so MCP safety gates can inspect it."
-                                ),
-                            },
-                            [],
-                        )
-                    inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(
-                        {
+                    check_arg_dicts: List[Dict[str, Any]] = []
+                    if not has_dynamic_kw:
+                        check_arg_dicts.append(static_kwargs)
+                    else:
+                        crit_cmd_keys = ("CommandLine", "command", "Input", "input", "Action", "action", "Cwd", "cwd")
+                        resolved_crit: Dict[str, List[str]] = {}
+                        for ck in crit_cmd_keys:
+                            if ck in dynamic_kw_nodes:
+                                cands_c = _eval_multi_candidates(dynamic_kw_nodes[ck], closed_multi_vars)
+                                if not cands_c:
+                                    return (
+                                        {
+                                            "decision": "deny",
+                                            "reason": (
+                                                f"[Harness Workflow Shield] Dynamic command argument `{ck}` in "
+                                                f"`call_tool('{inner_name}', ...)` cannot be statically resolved "
+                                                "to a finite constant set (failing closed; GEMINI.md Rule 12 & Rule 15e)."
+                                            ),
+                                        },
+                                        [],
+                                    )
+                                resolved_crit[ck] = cands_c
+                        synth_cmd_kw = dict(static_kwargs)
+                        for dk, dnode in dynamic_kw_nodes.items():
+                            if dk in resolved_crit:
+                                synth_cmd_kw[dk] = resolved_crit[dk][0]
+                            else:
+                                synth_cmd_kw[dk], _ = _synth_value_for_dyn_kw(dnode)
+                        check_arg_dicts.append(synth_cmd_kw)
+                        for ck, cands_c in resolved_crit.items():
+                            for mc in cands_c[1:]:
+                                cand_d = dict(synth_cmd_kw)
+                                cand_d[ck] = mc
+                                check_arg_dicts.append(cand_d)
+                    for cand_kwargs in check_arg_dicts:
+                        inner_payload = {
                             **payload,
                             "_workflowDryCheck": True,
                             **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
-                            "toolCall": {"name": inner_tool, "args": static_kwargs},
+                            "toolCall": {"name": inner_tool, "args": cand_kwargs},
                         }
-                    )
-                    if inner_res.get("decision") == "deny":
-                        return inner_res, []
-                    if inner_res.get("decision") == "force_ask":
-                        force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
-                    mcp_nested = (
-                        static_kwargs.get("Arguments")
-                        if isinstance(static_kwargs.get("Arguments"), dict)
-                        else (
-                            static_kwargs.get("arguments")
-                            if isinstance(static_kwargs.get("arguments"), dict)
-                            else static_kwargs
+                        inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(inner_payload)
+                        if inner_res.get("decision") == "deny":
+                            return inner_res, []
+                        if inner_res.get("decision") == "force_ask":
+                            force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
+                    flight_writes.append((inner_tool, f"<workflow:{inner_tool}>"))
+                elif inner_tool in ("invoke_subagent", "swarm", "post_message", "send_message", "define_subagent", "schedule"):
+                    eff_kwargs = dict(static_kwargs)
+                    check_orch_dicts: List[Dict[str, Any]] = []
+                    if has_dynamic_kw:
+                        ctrl_keys = (
+                            "action", "op", "subaction", "channel_action", "operation",
+                            "model", "Model", "TypeName", "type_name", "Recipient", "recipient",
+                            "channel", "name", "members", "workers", "member", "worker",
                         )
-                    )
-                    for mcp_t in _extract_mcp_target_paths(mcp_nested):
-                        norm_mcp_t = urllib.parse.unquote(mcp_t.strip()).replace("\\", "/")
-                        if Path(norm_mcp_t).name.lower() == "tasks.md":
-                            tasks_md_write_count += 1
-                            if _write_mutates_authorized_test_section(
-                                mcp_t, mcp_nested, eff_cwd, allow_stale_reset=False
-                            ):
-                                tasks_md_rely_on_stale_reset = True
-                        exp_mt = Path(os.path.expanduser(mcp_t.strip()))
-                        rec_mt = str(eff_cwd / exp_mt) if (not exp_mt.is_absolute() and eff_cwd is not None) else mcp_t
-                        flight_writes.append((inner_tool, rec_mt))
+                        resolved_ctrl: Dict[str, List[str]] = {}
+                        for ck in ctrl_keys:
+                            if ck in dynamic_kw_nodes:
+                                cands_o = _eval_multi_candidates(dynamic_kw_nodes[ck], closed_multi_vars)
+                                if not cands_o:
+                                    return (
+                                        {
+                                            "decision": "deny",
+                                            "reason": (
+                                                f"[Harness Workflow Shield] Dynamic orchestration control argument `{ck}` "
+                                                f"in `call_tool('{inner_name}', ...)` cannot be statically resolved "
+                                                "(failing closed; GEMINI.md Rule 15e & Rule 17)."
+                                            ),
+                                        },
+                                        [],
+                                    )
+                                resolved_ctrl[ck] = cands_o
+                        for dk, dnode in dynamic_kw_nodes.items():
+                            if dk in resolved_ctrl:
+                                eff_kwargs[dk] = resolved_ctrl[dk][0]
+                            else:
+                                sv, sv_ok = _synth_value_for_dyn_kw(dnode)
+                                if not sv_ok and isinstance(sv, str) and (all_literals or arg_strings):
+                                    extra_ctx = " ".join([*all_literals[:24], *arg_strings[:16]])
+                                    sv = f"{sv} {extra_ctx}".strip()
+                                eff_kwargs[dk] = sv
+                        check_orch_dicts.append(eff_kwargs)
+                        for ck, cands_o in resolved_ctrl.items():
+                            for mc in cands_o[1:]:
+                                cand_o = dict(eff_kwargs)
+                                cand_o[ck] = mc
+                                check_orch_dicts.append(cand_o)
+                    else:
+                        check_orch_dicts.append(eff_kwargs)
+                    for cand_orch in check_orch_dicts:
+                        inner_payload = {
+                            **payload,
+                            "_workflowDryCheck": True,
+                            **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
+                            "toolCall": {"name": inner_tool, "args": cand_orch},
+                        }
+                        if inner_tool in ("swarm", "post_message", "send_message", "define_subagent", "invoke_subagent"):
+                            inner_payload["_swarmOverlay"] = swarm_overlay
+                            inner_payload["_pendingSwarmOps"] = local_swarm_ops
+                        inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(inner_payload)
+                        if inner_res.get("decision") == "deny":
+                            return inner_res, []
+                        if inner_res.get("decision") == "force_ask":
+                            force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
+                elif inner_tool == "call_mcp_tool" or inner_tool.startswith("mcp_"):
+                    eff_mcp_kwargs = dict(static_kwargs)
+                    check_mcp_dicts: List[Dict[str, Any]] = []
+                    unresolved_mcp_args = False
+                    if has_dynamic_kw:
+                        mcp_id_keys = ("ToolName", "tool_name", "toolName", "ServerName", "server_name", "serverName")
+                        resolved_mcp_ids: Dict[str, List[str]] = {}
+                        for mk in mcp_id_keys:
+                            if mk in dynamic_kw_nodes:
+                                cands_m = _eval_multi_candidates(dynamic_kw_nodes[mk], closed_multi_vars)
+                                if not cands_m:
+                                    return (
+                                        {
+                                            "decision": "deny",
+                                            "reason": (
+                                                f"[Harness Workflow Shield] Dynamic MCP identifier `{mk}` in "
+                                                f"`call_tool('{inner_name}', ...)` cannot be statically resolved "
+                                                "(failing closed; GEMINI.md Rule 12 & Rule 15e)."
+                                            ),
+                                        },
+                                        [],
+                                    )
+                                resolved_mcp_ids[mk] = cands_m
+                        for dk, dnode in dynamic_kw_nodes.items():
+                            if dk in resolved_mcp_ids:
+                                eff_mcp_kwargs[dk] = resolved_mcp_ids[dk][0]
+                            else:
+                                sv, sv_ok = _synth_value_for_dyn_kw(dnode)
+                                eff_mcp_kwargs[dk] = sv
+                                if not sv_ok:
+                                    unresolved_mcp_args = True
+                        check_mcp_dicts.append(eff_mcp_kwargs)
+                        for mk, cands_m in resolved_mcp_ids.items():
+                            for mc in cands_m[1:]:
+                                cand_m = dict(eff_mcp_kwargs)
+                                cand_m[mk] = mc
+                                check_mcp_dicts.append(cand_m)
+                    else:
+                        check_mcp_dicts.append(eff_mcp_kwargs)
+                    if unresolved_mcp_args:
+                        from ._mcp_guard import _READONLY_MCP_ALLOWLIST
+
+                        for cand_m in check_mcp_dicts:
+                            raw_tn = (
+                                str(cand_m.get("ToolName") or cand_m.get("tool_name") or cand_m.get("toolName") or "")
+                                if inner_tool == "call_mcp_tool"
+                                else inner_tool
+                            ).strip().lower()
+                            norm_tn = raw_tn.rsplit(":", 1)[-1]
+                            if norm_tn not in _READONLY_MCP_ALLOWLIST:
+                                return (
+                                    {
+                                        "decision": "deny",
+                                        "reason": (
+                                            f"[Harness Workflow Shield] Unresolvable dynamic arguments for non-readonly "
+                                            f"MCP tool `{raw_tn or inner_name}` inside `run_workflow` are prohibited "
+                                            "(failing closed; GEMINI.md Rule 12 & Rule 15e)."
+                                        ),
+                                    },
+                                    [],
+                                )
+                    for cand_m in check_mcp_dicts:
+                        inner_res = _facade_attr("handle_pre_tool_use", handle_pre_tool_use)(
+                            {
+                                **payload,
+                                "_workflowDryCheck": True,
+                                **({"cwd": str(eff_cwd)} if eff_cwd is not None else {}),
+                                "toolCall": {"name": inner_tool, "args": cand_m},
+                            }
+                        )
+                        if inner_res.get("decision") == "deny":
+                            return inner_res, []
+                        if inner_res.get("decision") == "force_ask":
+                            force_ask_reasons.append(str(inner_res.get("reason") or "Confirmation required."))
+                        mcp_nested = (
+                            cand_m.get("Arguments")
+                            if isinstance(cand_m.get("Arguments"), dict)
+                            else (
+                                cand_m.get("arguments")
+                                if isinstance(cand_m.get("arguments"), dict)
+                                else cand_m
+                            )
+                        )
+                        for mcp_t in _extract_mcp_target_paths(mcp_nested):
+                            norm_mcp_t = urllib.parse.unquote(mcp_t.strip()).replace("\\", "/")
+                            if Path(norm_mcp_t).name.lower() == "tasks.md":
+                                tasks_md_write_count += 1
+                                if has_dynamic_kw or _write_mutates_authorized_test_section(
+                                    mcp_t, mcp_nested, eff_cwd, allow_stale_reset=False
+                                ):
+                                    tasks_md_rely_on_stale_reset = True
+                            exp_mt = Path(os.path.expanduser(mcp_t.strip()))
+                            rec_mt = str(eff_cwd / exp_mt) if (not exp_mt.is_absolute() and eff_cwd is not None) else mcp_t
+                            flight_writes.append((inner_tool, rec_mt))
                 continue
             if fn == "agent":
                 raw_agent_call_nodes.append(node)
                 continue
+            if id(node) in verified_agent_param_call_ids:
+                continue
             if fn in persistent_agents and len(persistent_agents[fn]) == store_counts.get(fn, 0):
-                if node.args:
+                for a_arg in node.args:
+                    if isinstance(a_arg, ast.Starred):
+                        persistent_agent_turn_nodes[fn].append(a_arg.value)
+                        dynamic_turn_persistent_vars.add(fn)
+                if node.args and not isinstance(node.args[0], ast.Starred):
                     persistent_agent_turn_nodes[fn].append(node.args[0])
                 for kw in node.keywords:
-                    if kw.arg == "prompt":
+                    if kw.arg is None:
+                        persistent_agent_turn_nodes[fn].append(kw.value)
+                        dynamic_turn_persistent_vars.add(fn)
+                    elif kw.arg == "prompt":
                         persistent_agent_turn_nodes[fn].append(kw.value)
                 continue
 
@@ -2383,28 +3029,7 @@ def _inspect_workflow_script(
             "requires explicit human confirmation (GEMINI.md Rule 12)."
         )
 
-    # 4. Enforce Customization Model Gate on one-shot, persistent (`var = agent(...)`), and chained `agent(...)(...)` calls
-    def _agent_has_oneshot_prompt(ag_call: ast.Call) -> bool:
-        if any(isinstance(a, ast.Starred) for a in ag_call.args) or any(k.arg is None for k in ag_call.keywords):
-            return False
-        prompt_arg: Optional[ast.AST] = ag_call.args[0] if ag_call.args else None
-        if prompt_arg is None:
-            for k in ag_call.keywords:
-                if k.arg == "prompt":
-                    prompt_arg = k.value
-                    break
-        if prompt_arg is None:
-            return False
-        folded_prompt = _eval_workflow_str_expr(prompt_arg, const_vars)
-        if folded_prompt is not None:
-            return bool(folded_prompt.strip())
-        if isinstance(prompt_arg, ast.JoinedStr):
-            return True
-        if isinstance(prompt_arg, ast.BinOp) and isinstance(prompt_arg.op, ast.Add):
-            frag, _ = _extract_partial_text_and_dynamic(prompt_arg, const_vars)
-            return bool(frag.strip())
-        return False
-
+    # 4. Enforce Customization Model Gate on one-shot, persistent (`var = agent(...)`), helper-returned, and chained `agent(...)(...)` calls
     def _direct_parallel_agent_calls(par_call: ast.Call) -> List[ast.Call]:
         found: List[ast.Call] = []
         for par_arg in par_call.args:
@@ -2435,7 +3060,7 @@ def _inspect_workflow_script(
         return found
 
     call_to_vars: Dict[int, List[str]] = {}
-    allowed_agent_call_ids: set[int] = set(chained_agent_turns.keys())
+    allowed_agent_call_ids: set[int] = set(chained_agent_turns.keys()) | set(helper_allowed_agent_call_ids)
     for var_name, ag_list in persistent_agents.items():
         for ag_c in ag_list:
             call_to_vars.setdefault(id(ag_c), []).append(var_name)
@@ -2464,6 +3089,7 @@ def _inspect_workflow_script(
                 [],
             )
         extra_prompt_nodes: List[ast.AST] = list(chained_agent_turns.get(id(ag_node), []))
+        extra_prompt_nodes.extend(helper_extra_prompt_nodes.get(id(ag_node), []))
         for var_name in call_to_vars.get(id(ag_node), ()):
             extra_prompt_nodes.extend(persistent_agent_turn_nodes.get(var_name, []))
 
@@ -2506,8 +3132,15 @@ def _inspect_workflow_script(
             agent_type = "__dynamic__"
 
         prompt_fragments: List[str] = []
-        prompt_has_dynamic = False
-        for p_node in prompt_nodes:
+        prompt_has_dynamic = (
+            id(ag_node) in dynamic_turn_agent_ids
+            or any(vn in dynamic_turn_persistent_vars for vn in call_to_vars.get(id(ag_node), ()))
+        )
+        expanded_prompt_nodes: List[ast.AST] = list(prompt_nodes)
+        for pn in list(prompt_nodes):
+            if isinstance(pn, ast.Name) and bind_counts.get(pn.id, 0) == 1 and pn.id in single_rhs:
+                expanded_prompt_nodes.append(single_rhs[pn.id])
+        for p_node in expanded_prompt_nodes:
             frag, is_dyn = _extract_partial_text_and_dynamic(p_node, const_vars)
             if frag:
                 prompt_fragments.append(frag)

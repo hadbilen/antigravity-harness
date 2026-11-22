@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # check_skills.sh — Upstream Auditor 72h Lightweight CLI Tracker
-# Checks GitHub HEAD commits and release tags for 8 tracked community skills without LLM overhead.
+# Checks GitHub HEAD commits and release tags for 9 tracked community skills without LLM overhead.
 #
 
 set -e
@@ -128,6 +128,10 @@ def seed_digest(seed: dict) -> str:
         "recorded_builtin_skills": seed.get("recorded_builtin_skills"),
         "tracked_repositories": seed.get("tracked_repositories"),
     }
+    if "approved_customization_models" in seed:
+        canonical["approved_customization_models"] = seed.get("approved_customization_models")
+    if "known_placeholder_models" in seed:
+        canonical["known_placeholder_models"] = seed.get("known_placeholder_models")
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 

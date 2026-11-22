@@ -10,19 +10,15 @@ own bookkeeping and so that working-directory changes never select a different s
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import platform
-import shutil
 import stat
-import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, List, Optional
 
 APP_NAME = "antigravity-harness"
-IS_WINDOWS = platform.system().lower() == "windows"
+IS_WINDOWS = os.name == "nt"
 
 
 def _env_path(name: str) -> Optional[Path]:
@@ -85,6 +81,8 @@ def runtime_dir() -> Path:
     if xdg and xdg.is_dir():
         target = xdg / APP_NAME
     else:
+        import tempfile
+
         suffix = str(os.getuid()) if hasattr(os, "getuid") else os.environ.get("USERNAME", "user")
         target = Path(tempfile.gettempdir()) / f"{APP_NAME}-{suffix}"
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -101,6 +99,8 @@ def runtime_dir() -> Path:
 
 def path_key(*parts: Any) -> str:
     """Stable short key for a path (or path set) used to name per-target state files."""
+    import hashlib
+
     raw = "\0".join(str(p) for p in parts)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -116,6 +116,8 @@ def is_within(path: Path, root: Path) -> bool:
 
 def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> Path:
     """Writes text via a same-directory temp file + fsync + os.replace."""
+    import tempfile
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
@@ -167,6 +169,8 @@ def copy_entry(src: Path, dst: Path, ignore: Optional[Callable[[str, List[str]],
     the platform refuses to create them. Copies never inherit lock state: no macOS immutable
     flags and no read-only bits, so they can be moved, pruned and re-locked like any file.
     """
+    import shutil
+
     src, dst = Path(src), Path(dst)
     if os.path.islink(src):
         try:

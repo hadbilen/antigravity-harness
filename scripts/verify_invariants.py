@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -487,7 +487,7 @@ def scan_directory(base_path: Path) -> List[Tuple[str, str, str]]:
     return violations
 
 
-def main() -> int:
+def main(argv: Optional[Sequence[str]] = None) -> int:
     # Windows consoles default to cp1252: never let a status glyph crash the grader.
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -496,7 +496,8 @@ def main() -> int:
             pass
     parser = argparse.ArgumentParser(
         prog="verify_invariants",
-        description="Deterministic Verification Guard for Constitutional Invariants"
+        description="Deterministic Verification Guard for Constitutional Invariants",
+        allow_abbrev=False,
     )
     parser.add_argument("--diff", action="store_true", help="Inspect git diff")
     parser.add_argument("--all", action="store_true", help="Inspect entire repository tree")
@@ -505,7 +506,7 @@ def main() -> int:
     parser.add_argument("--path", "--root", dest="path", type=str, default=".", help="Base path to inspect")
     parser.add_argument("--base-ref", default="", help="Git ref for the diff and the test boundary (e.g. origin/main)")
     parser.add_argument("--authorize", action="append", default=[], help="Relative test path authorized for contract modification (repeatable)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     base_path = Path(args.path).resolve()
     print("=" * 64)

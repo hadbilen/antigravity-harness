@@ -1,6 +1,6 @@
 {
   "upstream-watchdog": {
-    "PreInvocation": [
+    "SessionStart": [
       {
         "type": "command",
         "command": "python3 \"skills/upstream-auditor/scripts/upstream_watcher.py\"",

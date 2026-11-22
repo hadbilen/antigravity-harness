@@ -477,9 +477,11 @@ Run this loop before delivering copy:
 When you can run code, measure before and after rewriting with the bundled scanner (Python standard library only):
 
 ```bash
-python3 skills/antislop/scripts/check_synthetic_markers.py draft.md              # repo-local (or ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py)
-python3 skills/antislop/scripts/check_synthetic_markers.py draft.md --summary    # counts and density per 1,000 words
-python3 skills/antislop/scripts/check_synthetic_markers.py - --json < draft.md   # machine-readable, reads stdin
+agy-guard synthetic-markers draft.md              # portable CLI (cwd-independent)
+agy-guard synthetic-markers draft.md --summary    # counts and density per 1,000 words
+agy-guard synthetic-markers - --json < draft.md   # machine-readable, reads stdin
+# Canonical installed fallback (when agy-guard is not on PATH):
+python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py draft.md
 ```
 
 * `--source agent` (default) applies R-02/R-16 strictly: every unapproved em dash in copy you wrote is a finding. Use `--source human` for text the user supplied; em dashes are then flagged only in clusters, and per R-37 you surface them instead of rewriting them silently.

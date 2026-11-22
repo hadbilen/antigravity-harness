@@ -439,11 +439,11 @@ A one-line verbal excuse (`R-31`) never excuses a generic layout topology. Enfor
 Self-graded uniqueness checkboxes are insufficient on their own. Whenever generating or modifying HTML, JSX, TSX, Vue, Svelte, or CSS files, run the bundled zero-dependency structural scanner before declaring completion:
 
 ```bash
-python3 skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode auto
-# Installed global path (when outside repository checkout):
-python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode auto
+agy-guard ui-slop <file_or_dir> --mode auto
 # Explicit domain mode (utility | editorial | game):
-python3 skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode game --summary
+agy-guard ui-slop <file_or_dir> --mode game --summary
+# Canonical installed fallback (when agy-guard is not on PATH):
+python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py <file_or_dir> --mode auto
 ```
 
 The scanner deterministically flags cloned 3+ sibling card grids (`UI-1`), nested card-in-card boxification (`UI-2`), unearned AI gradient/blur/bounce tells (`UI-3`), raw programmer-art RGB primaries in game canvases (`UI-4`), and dead anchors or no-op button stubs (`UI-5`).
@@ -455,12 +455,12 @@ The scanner deterministically flags cloned 3+ sibling card grids (`UI-1`), neste
 Before delivering any UI work, evaluate against the 4 delivery blocks. Every item must pass:
 
 ### Block 1: Hard Gate (Absolute)
-- [ ] No marketing buzzwords or generic hype (R-02; verified via `skills/antislop/scripts/check_synthetic_markers.py` or `~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py` on prose/copy)
+- [ ] No marketing buzzwords or generic hype (R-02; verified via `agy-guard synthetic-markers` or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py` on prose/copy)
 - [ ] Mobile responsive without horizontal overflow (R-03)
 - [ ] No invented numbers or fake statistics (R-17)
 - [ ] No fake testimonials or customer logos (R-18)
 - [ ] All navigation links point to real routes (R-24; zero `UI-5` dead anchors)
-- [ ] Text meets WCAG AA contrast (R-25; verified via `skills/antislop/scripts/contrast-check.py` or `~/.gemini/config/skills/antislop/scripts/contrast-check.py`)
+- [ ] Text meets WCAG AA contrast (R-25; verified via `python3 ~/.gemini/config/skills/antislop/scripts/contrast-check.py`)
 - [ ] Complete hover/focus/active states for all interactive elements (R-26)
 - [ ] Handles all 5 UI states: default, loading, empty, error, success (R-27)
 - [ ] Full keyboard accessibility with visible focus rings (R-32)
@@ -469,7 +469,7 @@ Before delivering any UI work, evaluate against the 4 delivery blocks. Every ite
 - [ ] Performance mechanisms satisfied: explicit media dimensions, eager `fetchpriority="high"` hero image, pinned non-blocking scripts (`Rule 12` / `Rule 15c`), and zero unmeasured Web Vitals claims (R-40, R-36)
 
 ### Block 2: Purpose-Gate & Positive Geometric Locks
-- [ ] Deterministic UI slop scanner (`python3 skills/antislop/scripts/check_ui_slop.py` or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) exits with `0` findings (`UI-1` through `UI-5`)
+- [ ] Deterministic UI slop scanner (`agy-guard ui-slop` or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) exits with `0` findings (`UI-1` through `UI-5`)
 - [ ] Anti-Boxification respected: at most 1 primary bordered card group per viewport, zero nested `card-in-card` containers (`UI-2`)
 - [ ] Sibling Symmetry Cap respected: at most 2 identical-width sibling cards side by side; 3+ items use `55%–65%` focal + `35%–45%` support topology (`R-14`, `UI-1`)
 - [ ] No decorative icons filling space without meaning (R-04) and no unearned glowing borders or glassmorphism overload (R-10, R-13, `UI-3`)

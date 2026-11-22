@@ -822,7 +822,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
         merged_hooks = dict(existing_hooks)
         merged_hooks["upstream-watchdog"] = {
-            "PreInvocation": [{"type": "command", "command": _fmt_cmd(str(watcher_script)), "timeout": 15}]
+            "SessionStart": [{"type": "command", "command": _fmt_cmd(str(watcher_script)), "timeout": 15}]
         }
         merged_hooks["harness-gate"] = {
             "PreInvocation": [
@@ -1577,6 +1577,169 @@ def cmd_self_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_portable_script(rel_path: str) -> Optional[Path]:
+    """Locates a canonical harness tool script independently of the caller's cwd."""
+    cli_root = Path(__file__).resolve().parent.parent
+    candidates: List[Path] = [
+        cli_root / rel_path,
+        configured_config_dir() / rel_path,
+        config_dir() / rel_path,
+        data_dir() / "runtime" / rel_path,
+    ]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / rel_path)
+    candidates.extend([
+        cli_root.parent.parent / "share" / "antigravity-harness" / rel_path,
+        Path("/usr/share/antigravity-harness") / rel_path,
+        Path("/usr/lib/antigravity-guard") / rel_path,
+    ])
+    seen: set[str] = set()
+    for cand in candidates:
+        key = str(cand)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if cand.is_file():
+                return cand
+        except OSError:
+            continue
+    return None
+
+
+_PORTABLE_TOOLS: Dict[str, Tuple[str, Optional[str], str]] = {
+    "code-map": (
+        "scripts/code_map.py",
+        "scripts.code_map",
+        "Run cwd-independent AST caller/dataflow/blast-radius/syntax/FTS5 mapper (code_map.py)",
+    ),
+    "ui-slop": (
+        "skills/antislop/scripts/check_ui_slop.py",
+        None,
+        "Run cwd-independent structural UI/CSS/HTML slop scanner (check_ui_slop.py)",
+    ),
+    "synthetic-markers": (
+        "skills/antislop/scripts/check_synthetic_markers.py",
+        None,
+        "Run cwd-independent English/Turkish synthetic-prose scanner (check_synthetic_markers.py)",
+    ),
+    "verify-invariants": (
+        "scripts/verify_invariants.py",
+        "scripts.verify_invariants",
+        "Run cwd-independent constitutional & test-boundary invariant check (verify_invariants.py)",
+    ),
+}
+
+
+def _run_portable_script(
+    tool_name: str,
+    rel_path: str,
+    tool_args: List[str],
+    *,
+    module_name: Optional[str] = None,
+) -> int:
+    """Executes a bundled/installed harness script in-process without depending on cwd."""
+    import importlib
+    import importlib.util
+
+    entry_main = None
+    is_frozen = bool(getattr(sys, "frozen", False))
+    if not is_frozen:
+        script_path = _resolve_portable_script(rel_path)
+        if script_path is not None and not script_path.is_symlink():
+            lib_root = str(Path(__file__).resolve().parent.parent)
+            if lib_root not in sys.path:
+                sys.path.insert(0, lib_root)
+            mod_key = f"_agy_portable_{tool_name.replace('-', '_')}"
+            spec = importlib.util.spec_from_file_location(mod_key, script_path)
+            if spec is None or spec.loader is None:
+                print(f"Error: could not load portable tool '{tool_name}' from {script_path}.", file=sys.stderr)
+                return 2
+            mod = importlib.util.module_from_spec(spec)
+            prev_mod = sys.modules.get(mod_key)
+            sys.modules[mod_key] = mod
+            try:
+                spec.loader.exec_module(mod)
+            except Exception as exc:
+                if prev_mod is None:
+                    sys.modules.pop(mod_key, None)
+                else:
+                    sys.modules[mod_key] = prev_mod
+                print(f"Error: failed to initialize '{tool_name}' ({script_path}): {exc}", file=sys.stderr)
+                return 2
+            cand_main = getattr(mod, "main", None)
+            if not callable(cand_main):
+                print(f"Error: portable tool '{tool_name}' ({script_path}) has no main() entry point.", file=sys.stderr)
+                return 2
+            entry_main = cand_main
+
+    if entry_main is None and is_frozen and module_name:
+        try:
+            mod = importlib.import_module(module_name)
+            cand_main = getattr(mod, "main", None)
+            if callable(cand_main):
+                entry_main = cand_main
+        except ImportError:
+            entry_main = None
+
+    if entry_main is None:
+        script_path = _resolve_portable_script(rel_path)
+        if script_path is None or script_path.is_symlink():
+            print(
+                f"Error: portable tool '{tool_name}' ({rel_path}) was not found in runtime, "
+                f"{configured_config_dir()}, or system harness assets.",
+                file=sys.stderr,
+            )
+            return 2
+        mod_key = f"_agy_portable_{tool_name.replace('-', '_')}"
+        spec = importlib.util.spec_from_file_location(mod_key, script_path)
+        if spec is None or spec.loader is None:
+            print(f"Error: could not load portable tool '{tool_name}' from {script_path}.", file=sys.stderr)
+            return 2
+        mod = importlib.util.module_from_spec(spec)
+        prev_mod = sys.modules.get(mod_key)
+        sys.modules[mod_key] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as exc:
+            if prev_mod is None:
+                sys.modules.pop(mod_key, None)
+            else:
+                sys.modules[mod_key] = prev_mod
+            print(f"Error: failed to initialize '{tool_name}' ({script_path}): {exc}", file=sys.stderr)
+            return 2
+        entry_main = getattr(mod, "main", None)
+        if not callable(entry_main):
+            print(f"Error: portable tool '{tool_name}' ({script_path}) has no main() entry point.", file=sys.stderr)
+            return 2
+
+    try:
+        rc = entry_main(list(tool_args))
+    except SystemExit as exc:
+        if exc.code is None:
+            return 0
+        if isinstance(exc.code, int):
+            return exc.code
+        print(str(exc.code), file=sys.stderr)
+        return 1
+    return 0 if rc is None else int(rc)
+
+
+def _cmd_portable_tool(
+    tool_name: str,
+    rel_path: str,
+    module_name: Optional[str],
+    args: argparse.Namespace,
+) -> int:
+    return _run_portable_script(
+        tool_name,
+        rel_path,
+        list(getattr(args, "tool_args", []) or []),
+        module_name=module_name,
+    )
+
+
 def cmd_notify(args: argparse.Namespace) -> int:
     settings = load_settings()
     action = args.action
@@ -1623,14 +1786,35 @@ def cmd_gui(args: argparse.Namespace) -> int:
 # ----------------------------------------------------------------------
 # Parser
 # ----------------------------------------------------------------------
+class _GuardSubparser(argparse.ArgumentParser):
+    """Supports passthrough tool subcommands that forward arbitrary leading flags intact."""
+
+    def __init__(self, *args, passthrough: bool = False, **kwargs):
+        self._passthrough = passthrough
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+    def parse_known_args(self, args=None, namespace=None):
+        if self._passthrough:
+            if namespace is None:
+                namespace = argparse.Namespace()
+            for key, val in self._defaults.items():
+                if not hasattr(namespace, key):
+                    setattr(namespace, key, val)
+            setattr(namespace, "tool_args", list(args or []))
+            return namespace, []
+        return super().parse_known_args(args, namespace)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agy-guard",
         description=f"Antigravity Guard v{__version__} - governance write protection, integrity monitoring and staging",
+        allow_abbrev=False,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--registry", help=argparse.SUPPRESS)
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands", parser_class=_GuardSubparser)
 
     def env_opts(p, with_all: bool = False):
         p.add_argument("--env", "-e", help="Environment id (default: antigravity)")
@@ -1773,6 +1957,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--key", help="send: de-duplication key (cooldown bucket)")
     p.set_defaults(func=cmd_notify)
 
+    import functools
+
+    for tool_name, (rel_path, mod_name, help_text) in _PORTABLE_TOOLS.items():
+        p = subparsers.add_parser(
+            tool_name,
+            passthrough=True,
+            add_help=False,
+            help=help_text,
+        )
+        p.set_defaults(func=functools.partial(_cmd_portable_tool, tool_name, rel_path, mod_name))
+
     return parser
 
 
@@ -1798,7 +1993,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     try:
-        if args.command not in ("lease-tick", "gui", "notify"):
+        if args.command not in ("lease-tick", "gui", "notify", *_PORTABLE_TOOLS):
             try:
                 LeaseManager(registry=_registry(args)).check_and_expire_leases()
             except Exception as e:  # never let lease housekeeping block the requested command

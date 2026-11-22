@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Upstream Watchdog — PreInvocation Lifecycle Hook & 72h External Skills Monitor
+Upstream Watchdog — SessionStart Lifecycle Hook & 72h External Skills Monitor
 Monitors changes to the active LLM model, the Antigravity builtin environment and,
 every 72 hours (3 days), the tracked community skill repositories.
 
 Hook mode (no arguments): reads the hook payload (JSON) on stdin and writes a JSON
-response on stdout. It only inspects invocationNum == 1. A change set is surfaced as ONE
-short operator notice: once per conversation when the payload carries a conversation or
-session id, otherwise at most once per cooldown window. The notice is addressed to the
-human operator and never asks the agent to do anything.
+response on stdout. Triggered once per session on `SessionStart` (and backward-compatible
+with legacy `PreInvocation` payloads, where only `invocationNum == 1` is inspected). A
+change set is surfaced as ONE short operator notice: once per conversation when the
+payload carries a conversation or session id, otherwise at most once per cooldown window.
+The notice is addressed to the human operator and never asks the agent to do anything.
 
 Operator commands:
   upstream_watcher.py --status              print the current findings (writes nothing)
@@ -109,6 +110,23 @@ HEX_SHA_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 SUBPATH_RE = re.compile(r"[A-Za-z0-9_./-]+")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
 MAX_API_RESPONSE_BYTES = 262_144
+KNOWN_BUILTIN_SKILLS = (
+    "agy-customizations",
+    "antigravity_guide",
+    "automation",
+    "generative_ui",
+    "mcp-app-development",
+    "migrate-agent-settings",
+    "migrate-workflows",
+    "native_swarm",
+    "permissioned-github",
+    "plugin",
+    "run-workflow",
+    "swarm_monitor",
+    "swarm_narrator",
+    "swarm_pane",
+    "ui-plugin-navigation",
+)
 
 
 # ----------------------------------------------------------------------
@@ -166,7 +184,7 @@ def compute_builtin_hash():
 
 
 def is_placeholder_model(name) -> bool:
-    """Returns True for Antigravity opaque IDE model placeholders such as MODEL_PLACEHOLDER_M417."""
+    """Returns True for Antigravity opaque IDE model placeholders such as MODEL_PLACEHOLDER_M535."""
     return isinstance(name, str) and name.strip().upper().startswith("MODEL_PLACEHOLDER")
 
 
@@ -466,7 +484,21 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
     seed_tracked = seed.get("tracked_repositories")
     if not isinstance(seed_tracked, dict):
         seed_tracked = {}
-    if isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
+    if seed_changed or not has_prev_digest:
+        if isinstance(seed.get("approved_customization_models"), list):
+            clean_acm = [m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()]
+            if state.get("approved_customization_models") != clean_acm:
+                state["approved_customization_models"] = clean_acm
+                changed = True
+        if isinstance(seed.get("known_placeholder_models"), dict) and (
+            state.get("known_placeholder_models") is None
+            or isinstance(state.get("known_placeholder_models"), dict)
+        ):
+            clean_kpm = _clean_known_placeholder_map(seed["known_placeholder_models"])
+            if state.get("known_placeholder_models") != clean_kpm:
+                state["known_placeholder_models"] = clean_kpm
+                changed = True
+    elif isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
         state["known_placeholder_models"] = _clean_known_placeholder_map(seed["known_placeholder_models"])
         changed = True
     if not seed_tracked and not seed_newer and not seed_changed:
@@ -550,16 +582,6 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
                     state[env_key] = val
                     if env_key == "last_audited_model" and state.get("last_seen_model") and state.get("last_seen_model") != val:
                         state["last_seen_model"] = val
-                    changed = True
-            if isinstance(seed.get("approved_customization_models"), list):
-                clean_acm = [m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()]
-                if state.get("approved_customization_models") != clean_acm:
-                    state["approved_customization_models"] = clean_acm
-                    changed = True
-            if isinstance(seed.get("known_placeholder_models"), dict):
-                clean_kpm = _clean_known_placeholder_map(seed["known_placeholder_models"])
-                if state.get("known_placeholder_models") != clean_kpm:
-                    state["known_placeholder_models"] = clean_kpm
                     changed = True
 
     if tracked_changed:
@@ -699,9 +721,12 @@ def fetch_remote_head(info: dict):
                 return sha
             return None
     except urllib.error.HTTPError as exc:
+        code = getattr(exc, "code", "unknown")
         exc.close()
+        print(f"[WARN] upstream_watcher fetch failed for {repo} (HTTP {code})", file=sys.stderr)
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] upstream_watcher fetch failed for {repo} ({type(exc).__name__})", file=sys.stderr)
         return None
     return None
 
@@ -851,7 +876,11 @@ def collect_reasons(
     if recorded_hash and current_builtin_hash and current_builtin_hash != recorded_hash:
         current_builtins = get_builtin_skills_list()
         raw_rb = state.get("recorded_builtin_skills")
-        recorded_builtins = [s for s in raw_rb if isinstance(s, str)] if isinstance(raw_rb, list) else []
+        recorded_builtins = (
+            [s for s in raw_rb if isinstance(s, str)]
+            if isinstance(raw_rb, list)
+            else list(KNOWN_BUILTIN_SKILLS)
+        )
         added = [_sanitize_notice_fragment(s) for s in sorted(set(current_builtins) - set(recorded_builtins))]
         removed = [_sanitize_notice_fragment(s) for s in sorted(set(recorded_builtins) - set(current_builtins))]
         details = []
@@ -1069,8 +1098,11 @@ def spawn_desktop_notification(reasons) -> None:
 # Entry points
 # ----------------------------------------------------------------------
 def _raw_payload_model(payload: dict) -> str:
-    value = payload.get("modelName", "")
-    return value.strip() if isinstance(value, str) else ""
+    for key in ("modelName", "model_name"):
+        value = payload.get(key, "")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def _payload_model(payload: dict) -> str:
@@ -1078,18 +1110,20 @@ def _payload_model(payload: dict) -> str:
 
 
 def run_hook(payload: dict) -> dict:
-    """PreInvocation hook: returns the JSON response for the host."""
+    """SessionStart hook (backward-compatible with PreInvocation invocationNum == 1): returns JSON for the host."""
     if not isinstance(payload, dict):
         payload = {}
-    raw_inv = payload.get("invocationNum")
-    if raw_inv is None:
-        raw_inv = payload.get("invocation_num", 1)
-    try:
-        invocation_num = int(raw_inv)
-    except (TypeError, ValueError):
-        invocation_num = 1
-    if invocation_num > 1:
-        return {}
+    event_name = str(payload.get("hookEventName") or payload.get("hook_event_name") or "").strip().lower()
+    if event_name not in ("sessionstart", "session_start", "session-start"):
+        raw_inv = payload.get("invocationNum")
+        if raw_inv is None:
+            raw_inv = payload.get("invocation_num", 1)
+        try:
+            invocation_num = int(raw_inv)
+        except (TypeError, ValueError):
+            invocation_num = 1
+        if invocation_num > 1:
+            return {}
 
     with _state_file_lock():
         state, state_msg = load_state(write=True)
@@ -1256,7 +1290,7 @@ def cmd_ack(model: str = "") -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="upstream_watcher.py",
-        description="Upstream watchdog. Without arguments it runs as the PreInvocation hook (JSON on stdin/stdout).",
+        description="Upstream watchdog. Without arguments it runs as the SessionStart hook (JSON on stdin/stdout).",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--ack", action="store_true",
@@ -1281,9 +1315,21 @@ def main(argv=None) -> int:
         return cmd_ack(args.model.strip())
     try:
         raw_input = sys.stdin.read().strip()
-        payload = json.loads(raw_input) if raw_input else {}
-    except Exception:
-        payload = {}
+        if raw_input:
+            parsed = json.loads(raw_input)
+            if not isinstance(parsed, dict):
+                print("[WARN] upstream_watcher received non-object JSON stdin payload; skipping.", file=sys.stderr)
+                sys.stdout.write("{}\n")
+                sys.stdout.flush()
+                return 0
+            payload = parsed
+        else:
+            payload = {}
+    except Exception as exc:
+        print(f"[WARN] upstream_watcher malformed stdin JSON ({type(exc).__name__}); skipping.", file=sys.stderr)
+        sys.stdout.write("{}\n")
+        sys.stdout.flush()
+        return 0
     try:
         response = run_hook(payload)
     except Exception as exc:

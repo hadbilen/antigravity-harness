@@ -14,6 +14,7 @@ import re
 import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -30,20 +31,26 @@ from .common import (
     _FENCE_RE,
     _HEX_OID_RE,
     _INLINE_CODE_RE,
+    _STALE_IN_FLIGHT_SECONDS,
     _UNRECOVERED_FLIGHT_STATES,
     _LazyRegex,
     _conversation_id,
     _extract_latest_user_prompt,
     _extract_normalized_auth_section,
     _extract_user_request_prose,
+    _extract_user_request_with_inline,
+    _extract_ws_flight_conversations,
     _facade,
     _facade_attr,
     _flight_recorder_file,
+    _is_auxiliary_readonly_context,
     _is_git_repo_workspace,
     _iter_jsonl_tail_entries,
+    _parse_iso_utc,
     _prune_missing_flight_workspaces,
     _read_ledger_checked,
     _read_ledger_safe,
+    _rebuild_ws_flight_entry,
     _repo_root,
     _resolve_transcript_path,
     _safe_int,
@@ -149,36 +156,42 @@ def _record_flight_stop(
     create_if_missing: bool = False,
 ) -> None:
     """
-    Reconciles the workspace flight record when a turn reaches `handle_stop` normally,
-    transitioning `status` from `"in_flight"` to `"turn_complete"` (`0` findings) or
-    `"in_progress_blocked"` (`>0` findings), without allowing a read-only turn in a new
-    conversation to erase an unrecovered crash/blocked state on a still-dirty workspace.
+    Reconciles the per-conversation workspace flight record when a turn reaches `handle_stop`
+    normally, transitioning `conv_id`'s status from `"in_flight"` to `"turn_complete"` (`0` findings)
+    or `"in_progress_blocked"` (`>0` findings), without allowing a read-only or sibling conversation
+    to overwrite another worker's live `"in_flight"` record or erase unrecovered crash/blocked state
+    on a still-dirty workspace.
     """
     flight_file = _flight_recorder_file()
     if workspace is None or not workspace.is_dir():
         if workspace is not None and flight_file.is_file():
             try:
                 with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
-                    ledger = _read_ledger_safe(flight_file)
-                    if _prune_missing_flight_workspaces(ledger):
+                    ok_prune, ledger = _read_ledger_checked(flight_file, quarantine=False)
+                    if ok_prune and _prune_missing_flight_workspaces(ledger):
                         atomic_write_json(flight_file, ledger)
-            except (OSError, RuntimeError, TimeoutError):
-                pass
+            except (OSError, RuntimeError, TimeoutError) as exc:
+                sys.stderr.write(
+                    f"[Harness Stop Gate] Failed pruning `{flight_file}` ({type(exc).__name__}): {exc}\n"
+                )
         return
     if not flight_file.is_file() and not (create_if_missing and findings_count > 0):
         return
     try:
         ws_key = str(workspace.resolve())
         with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
-            ledger = _read_ledger_safe(flight_file)
+            ok_read, ledger = _read_ledger_checked(flight_file, quarantine=False)
+            if not ok_read:
+                sys.stderr.write(f"[Harness Stop Gate] Refusing to clobber unreadable `{flight_file}`.\n")
+                return
             pruned_dead = _prune_missing_flight_workspaces(ledger)
-            entry = ledger.get(ws_key)
-            if not isinstance(entry, dict):
+            convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+            if not convs:
                 if not (create_if_missing and findings_count > 0):
                     if pruned_dead:
                         atomic_write_json(flight_file, ledger)
                     return
-                ledger[ws_key] = {
+                new_rec = {
                     "workspace": ws_key,
                     "conversation_id": conv_id,
                     "status": "in_progress_blocked",
@@ -191,42 +204,109 @@ def _record_flight_stop(
                     "touched_files": [],
                     "last_stop_findings_count": _safe_int(findings_count, default=0),
                 }
+                ledger[ws_key] = _rebuild_ws_flight_entry(ws_key, {conv_id: new_rec}, primary_conv=conv_id)
                 while len(ledger) > 50:
                     oldest = next(iter(ledger))
                     del ledger[oldest]
                 atomic_write_json(flight_file, ledger)
                 return
-            prev_conv = str(entry.get("conversation_id") or "")
-            prev_status = str(entry.get("status") or "")
+
+            self_entry = convs.get(conv_id)
+            sibling_entries = {cid: rec for cid, rec in convs.items() if cid != conv_id}
+            active_in_flight_sibling = next(
+                (cid for cid, rec in reversed(list(sibling_entries.items())) if str(rec.get("status") or "") == "in_flight"),
+                "",
+            )
 
             if deferred_question:
-                if prev_conv != conv_id or prev_status != "in_flight":
+                if not isinstance(self_entry, dict) or str(self_entry.get("status") or "") != "in_flight":
+                    if pruned_dead:
+                        atomic_write_json(flight_file, ledger)
                     return
-                prior_findings = _safe_int(entry.get("last_stop_findings_count"), default=0)
-                updated = dict(entry)
-                updated["status"] = "in_progress_blocked" if prior_findings > 0 else "turn_complete"
-                updated["updated_at"] = _utc_now_iso()
-                ledger[ws_key] = updated
+                prior_findings = _safe_int(self_entry.get("last_stop_findings_count"), default=0)
+                updated_self = dict(self_entry)
+                updated_self["status"] = "in_progress_blocked" if prior_findings > 0 else "turn_complete"
+                updated_self["updated_at"] = _utc_now_iso()
+                convs[conv_id] = updated_self
+                primary = active_in_flight_sibling if (prior_findings == 0 and active_in_flight_sibling) else conv_id
+                ledger[ws_key] = _rebuild_ws_flight_entry(ws_key, convs, primary_conv=primary)
                 atomic_write_json(flight_file, ledger)
                 return
 
-            if (
-                findings_count == 0
-                and prev_conv != conv_id
-                and not workspace_clean
-                and prev_status in _UNRECOVERED_FLIGHT_STATES
-            ):
+            if not isinstance(self_entry, dict):
+                if findings_count == 0:
+                    if active_in_flight_sibling:
+                        if pruned_dead:
+                            atomic_write_json(flight_file, ledger)
+                        return
+                    has_unrecovered_sibling = any(
+                        str(rec.get("status") or "") in _UNRECOVERED_FLIGHT_STATES
+                        for rec in sibling_entries.values()
+                    )
+                    if not workspace_clean and has_unrecovered_sibling:
+                        if pruned_dead:
+                            atomic_write_json(flight_file, ledger)
+                        return
+                    if workspace_clean:
+                        now_iso = _utc_now_iso()
+                        for s_cid, s_rec in list(convs.items()):
+                            if str(s_rec.get("status") or "") in ("interrupted_notified", "in_progress_blocked"):
+                                s_upd = dict(s_rec)
+                                s_upd["status"] = "turn_complete"
+                                s_upd["last_stop_findings_count"] = 0
+                                s_upd["updated_at"] = now_iso
+                                convs[s_cid] = s_upd
+                        max_seq = max((_safe_int(rec.get("seq"), default=0) for rec in convs.values()), default=0)
+                        convs[conv_id] = {
+                            "workspace": ws_key,
+                            "conversation_id": conv_id,
+                            "status": "turn_complete",
+                            "seq": max_seq + 1,
+                            "updated_at": now_iso,
+                            "base_head": "",
+                            "pre_edit_stash": "",
+                            "last_tool": "stop",
+                            "last_target": "",
+                            "touched_files": [],
+                            "last_stop_findings_count": 0,
+                        }
+                        ledger[ws_key] = _rebuild_ws_flight_entry(ws_key, convs, primary_conv=conv_id)
+                        atomic_write_json(flight_file, ledger)
+                    elif pruned_dead:
+                        atomic_write_json(flight_file, ledger)
+                    return
+
+                max_seq = max((_safe_int(rec.get("seq"), default=0) for rec in convs.values()), default=0)
+                convs[conv_id] = {
+                    "workspace": ws_key,
+                    "conversation_id": conv_id,
+                    "status": "in_progress_blocked",
+                    "seq": max_seq + 1,
+                    "updated_at": _utc_now_iso(),
+                    "base_head": "",
+                    "pre_edit_stash": "",
+                    "last_tool": "stop",
+                    "last_target": "(workspace diff)",
+                    "touched_files": [],
+                    "last_stop_findings_count": _safe_int(findings_count, default=0),
+                }
+                ledger[ws_key] = _rebuild_ws_flight_entry(ws_key, convs, primary_conv=conv_id)
+                atomic_write_json(flight_file, ledger)
                 return
 
-            updated = dict(entry)
+            updated = dict(self_entry)
             updated["conversation_id"] = conv_id
             updated["status"] = "turn_complete" if findings_count == 0 else "in_progress_blocked"
             updated["last_stop_findings_count"] = _safe_int(findings_count, default=0)
             updated["updated_at"] = _utc_now_iso()
-            ledger[ws_key] = updated
+            convs[conv_id] = updated
+            primary = active_in_flight_sibling if (findings_count == 0 and active_in_flight_sibling) else conv_id
+            ledger[ws_key] = _rebuild_ws_flight_entry(ws_key, convs, primary_conv=primary)
             atomic_write_json(flight_file, ledger)
-    except (OSError, RuntimeError, TimeoutError):
-        pass
+    except (OSError, RuntimeError, TimeoutError) as exc:
+        sys.stderr.write(
+            f"[Harness Stop Gate] Failed recording stop state in `{flight_file}` ({type(exc).__name__}): {exc}\n"
+        )
 
 # ----------------------------------------------------------------------
 # 3. Stop: Completion & Diff Integrity Gate (with 3-Strike Circuit Breaker)
@@ -1101,8 +1181,9 @@ def _resolve_session_flight_base_head(workspace: Path, conv_id: str) -> Tuple[st
             ok, ledger = _read_ledger_checked(flight_file, quarantine=False)
         if not ok:
             return "", True
-        entry = ledger.get(ws_key)
-        if not isinstance(entry, dict) or str(entry.get("conversation_id") or "") != conv_id:
+        convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+        entry = convs.get(conv_id)
+        if not isinstance(entry, dict):
             return "", False
         base_head = str(entry.get("base_head") or "").strip()
         if not _HEX_OID_RE.match(base_head):
@@ -1275,6 +1356,121 @@ def _finding_structural_key(finding: str) -> str:
     """Strips the volatile (`line snippet`) portion so A/B edit flipping on a line shares one strike key."""
     return re.sub(r"\s*\(`[^`]*`\)", "", finding)
 
+_STRICT_READONLY_TOOL_NAMES = frozenset({
+    "read_file",
+    "view_file",
+    "list_dir",
+    "grep_search",
+    "find_by_name",
+    "search_web",
+    "read_url_content",
+    "read_board",
+    "swarm_wait",
+    "post_message",
+    "read_resource",
+    "list_resources",
+    "list_plugin_accounts",
+    "search_marketplace",
+    "ask_question",
+    "schedule",
+})
+
+def _conversation_write_provenance(workspace: Path, conv_id: str) -> Dict[str, Any]:
+    """
+    Inspects per-conversation write provenance in `flight_recorder.json` for `(workspace, conv_id)`.
+    Fails closed (`ok=False`) on corrupt JSON or lock failure so unverified workspaces cannot bypass Rule 9.
+    """
+    default_prov: Dict[str, Any] = {
+        "ok": True,
+        "conv_has_writes": False,
+        "conv_touched": set(),
+        "conv_has_shell_write": False,
+        "conv_touched_overflow": False,
+        "conv_pre_edit_stash": "",
+        "sibling_in_flight": False,
+        "sibling_touched": set(),
+        "sibling_has_shell_write": False,
+    }
+    if not conv_id or conv_id == "default":
+        return default_prov
+    flight_file = _flight_recorder_file()
+    if not flight_file.exists() and not flight_file.is_symlink():
+        return default_prov
+    try:
+        ws_key = str(workspace.resolve())
+        with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
+            ok, ledger = _read_ledger_checked(flight_file, quarantine=False)
+    except (OSError, RuntimeError, TimeoutError):
+        return {**default_prov, "ok": False, "conv_has_writes": True}
+    if not ok:
+        return {**default_prov, "ok": False, "conv_has_writes": True}
+
+    convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+    if not convs:
+        return default_prov
+
+    conv_touched: set[str] = set()
+    conv_has_shell_write = False
+    conv_touched_overflow = False
+    conv_has_writes = False
+    conv_pre_edit_stash = ""
+    sibling_in_flight = False
+    sibling_touched: set[str] = set()
+    sibling_has_shell_write = False
+    ref_now = datetime.now(timezone.utc)
+
+    def _norm_rel(raw_p: str) -> str:
+        return raw_p.strip().replace("\\", "/").lstrip("./")
+
+    for cid, rec in convs.items():
+        status = str(rec.get("status") or "")
+        raw_touched = [str(x).strip() for x in (rec.get("touched_files") or []) if isinstance(x, str) and x.strip()]
+        if cid == conv_id:
+            if status == "in_flight" or bool(raw_touched) or bool(rec.get("has_shell_write")):
+                conv_has_writes = True
+            if bool(rec.get("has_shell_write")):
+                conv_has_shell_write = True
+            if bool(rec.get("touched_overflow")):
+                conv_touched_overflow = True
+            stash_val = str(rec.get("pre_edit_stash") or "").strip()
+            if _HEX_OID_RE.match(stash_val):
+                conv_pre_edit_stash = stash_val
+            for item in raw_touched:
+                if item.startswith("<"):
+                    conv_has_shell_write = True
+                else:
+                    norm_i = _norm_rel(item)
+                    if norm_i:
+                        conv_touched.add(norm_i)
+        else:
+            if status != "in_flight":
+                continue
+            ts = _parse_iso_utc(str(rec.get("updated_at") or ""))
+            if ts is None or (ref_now - ts).total_seconds() >= _STALE_IN_FLIGHT_SECONDS:
+                continue
+            sibling_in_flight = True
+            if bool(rec.get("has_shell_write")):
+                sibling_has_shell_write = True
+            for item in raw_touched:
+                if item.startswith("<"):
+                    sibling_has_shell_write = True
+                else:
+                    norm_i = _norm_rel(item)
+                    if norm_i:
+                        sibling_touched.add(norm_i)
+
+    return {
+        "ok": True,
+        "conv_has_writes": conv_has_writes,
+        "conv_touched": conv_touched,
+        "conv_has_shell_write": conv_has_shell_write,
+        "conv_touched_overflow": conv_touched_overflow,
+        "conv_pre_edit_stash": conv_pre_edit_stash,
+        "sibling_in_flight": sibling_in_flight,
+        "sibling_touched": sibling_touched,
+        "sibling_has_shell_write": sibling_has_shell_write,
+    }
+
 def _conversation_has_recorded_writes(workspaces: Sequence[Path], conv_id: str) -> bool:
     flight_file = _flight_recorder_file()
     if not flight_file.exists() and not flight_file.is_symlink():
@@ -1291,15 +1487,230 @@ def _conversation_has_recorded_writes(workspaces: Sequence[Path], conv_id: str) 
             ws_key = str(ws.resolve())
         except (OSError, RuntimeError):
             continue
-        entry = ledger.get(ws_key)
+        convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+        entry = convs.get(conv_id) if conv_id else None
         if isinstance(entry, dict):
-            if str(entry.get("status") or "") == "in_flight":
-                return True
-            if conv_id and str(entry.get("conversation_id") or "") == conv_id and entry.get("touched_files"):
+            if str(entry.get("status") or "") == "in_flight" or bool(entry.get("touched_files")):
                 return True
     return False
 
-def _verify_workspace_test_boundary(workspace: Path) -> List[str]:
+def _transcript_proves_readonly_turn(payload: Dict[str, Any]) -> bool:
+    """
+    Returns True only when a regular transcript exists for the current turn, reaches the latest
+    `USER_INPUT`/`USER_EXPLICIT` turn boundary without read error, and every recorded tool call
+    since that boundary is strictly read-only (zero writes, shell commands, workflows, or mutating MCP calls).
+    """
+    tx_path = _resolve_transcript_path(payload)
+    if tx_path is None:
+        return False
+    saw_planner = False
+    saw_user_input = False
+    try:
+        for entry in _iter_jsonl_tail_entries(tx_path, max_scan_bytes=131072, raise_on_error=True):
+            step_type = str(entry.get("type", "")).upper()
+            source = str(entry.get("source", "")).upper()
+            if step_type == "USER_INPUT" or source == "USER_EXPLICIT":
+                saw_user_input = True
+                break
+            if step_type != "PLANNER_RESPONSE":
+                continue
+            saw_planner = True
+            tcs = entry.get("tool_calls") if "tool_calls" in entry else entry.get("toolCalls")
+            if tcs is None:
+                continue
+            if not isinstance(tcs, list):
+                return False
+            for tc in tcs:
+                if not isinstance(tc, dict):
+                    return False
+                tc_name = str(tc.get("name") or tc.get("tool_name") or tc.get("tool") or "").strip().lower().rsplit(":", 1)[-1]
+                if not tc_name:
+                    return False
+                if tc_name in _STRICT_READONLY_TOOL_NAMES:
+                    continue
+                if tc_name == "swarm":
+                    t_args = tc.get("args") or tc.get("arguments") or {}
+                    if isinstance(t_args, dict) and str(t_args.get("action") or "").strip().lower() in ("status", "models", "title"):
+                        continue
+                if tc_name == "manage_task":
+                    t_args = tc.get("args") or tc.get("arguments") or {}
+                    if isinstance(t_args, dict) and str(t_args.get("Action") or t_args.get("action") or "").strip().lower() in ("list", "status"):
+                        continue
+                return False
+    except (OSError, TypeError, ValueError):
+        return False
+    return saw_planner and saw_user_input
+
+def _filter_diff_excluding_paths(diff_text: str, excluded_paths: set[str]) -> str:
+    """Removes unified-diff file sections whose normalized workspace-relative path is in `excluded_paths`."""
+    if not diff_text or not excluded_paths:
+        return diff_text
+    sections: List[List[str]] = []
+    cur: List[str] = []
+    for ln in diff_text.splitlines():
+        if ln.startswith("diff --git ") or (
+            ln.startswith("--- ") and cur and not any(x.startswith("diff --git ") for x in cur)
+        ):
+            if cur:
+                sections.append(cur)
+            cur = [ln]
+        else:
+            cur.append(ln)
+    if cur:
+        sections.append(cur)
+
+    kept: List[str] = []
+    for sec in sections:
+        old_p = ""
+        new_p = ""
+        for ln in sec:
+            if ln.startswith("--- "):
+                old_p = _unquote_git_diff_path(ln, prefix="a/")
+            elif ln.startswith("+++ "):
+                new_p = _unquote_git_diff_path(ln, prefix="b/")
+                break
+        sec_path = new_p or old_p
+        if sec_path and sec_path in excluded_paths:
+            continue
+        kept.append("\n".join(sec))
+    return "\n".join(kept) + ("\n" if kept else "")
+
+def _pre_existing_dirty_test_paths(
+    workspace: Path,
+    pre_edit_stash: str,
+    candidate_test_paths: Sequence[str],
+) -> set[str]:
+    """
+    Returns tracked test paths that were ALREADY dirty in `pre_edit_stash` (before this conversation's
+    first write) AND have zero modifications since `pre_edit_stash`. Fails closed (`set()`) on any git error.
+    """
+    if not pre_edit_stash or not _HEX_OID_RE.match(pre_edit_stash) or not candidate_test_paths:
+        return set()
+    if not _is_git_repo_workspace(workspace):
+        return set()
+    clean_cands = [p for p in dict.fromkeys(candidate_test_paths) if p and not p.startswith(("-", ":"))]
+    if not clean_cands:
+        return set()
+    git_base = ["git", "-c", "core.quotePath=false", "-C", str(workspace)]
+    try:
+        in_stash = subprocess.run(
+            [*git_base, "diff", "--name-only", "HEAD", pre_edit_stash, "--", *clean_cands],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        if in_stash.returncode != 0:
+            return set()
+        dirty_before = {ln.strip().replace("\\", "/").lstrip("./") for ln in in_stash.stdout.splitlines() if ln.strip()}
+        if not dirty_before:
+            return set()
+        since_stash = subprocess.run(
+            [*git_base, "diff", "--name-only", pre_edit_stash, "--", *sorted(dirty_before)],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        if since_stash.returncode != 0:
+            return set()
+        modified_after = {ln.strip().replace("\\", "/").lstrip("./") for ln in since_stash.stdout.splitlines() if ln.strip()}
+        return dirty_before - modified_after
+    except (OSError, subprocess.SubprocessError):
+        return set()
+
+def _extract_diff_paths(diff_text: str) -> List[str]:
+    paths: List[str] = []
+    seen: set[str] = set()
+    for ln in (diff_text or "").splitlines():
+        cand = ""
+        if ln.startswith("+++ "):
+            cand = _unquote_git_diff_path(ln, prefix="b/")
+        elif ln.startswith("--- "):
+            cand = _unquote_git_diff_path(ln, prefix="a/")
+        if cand and cand != "/dev/null" and cand not in seen:
+            seen.add(cand)
+            paths.append(cand)
+    return paths
+
+def _committed_untouched_test_paths(
+    workspace: Path,
+    candidate_test_paths: Sequence[str],
+) -> set[str]:
+    """
+    Returns tracked test paths that are completely clean vs `HEAD` (i.e. appeared in a `base_head`
+    session diff solely due to a commit between `base_head` and `HEAD`, not working-tree edits).
+    Fails closed (`set()`) on any git error.
+    """
+    if not candidate_test_paths or not _is_git_repo_workspace(workspace):
+        return set()
+    clean_cands = [p for p in dict.fromkeys(candidate_test_paths) if p and not p.startswith(("-", ":"))]
+    if not clean_cands:
+        return set()
+    git_base = ["git", "-c", "core.quotePath=false", "-C", str(workspace)]
+    try:
+        st = subprocess.run(
+            [*git_base, "status", "--porcelain", "--untracked-files=all", "--", *clean_cands],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        if st.returncode != 0:
+            return set()
+        dirty_now: set[str] = set()
+        for ln in st.stdout.splitlines():
+            if len(ln) >= 4:
+                raw_p = ln[3:].strip()
+                if " -> " in raw_p:
+                    raw_p = raw_p.split(" -> ", 1)[1].strip()
+                norm_p = raw_p.strip('"').replace("\\", "/").lstrip("./")
+                if norm_p:
+                    dirty_now.add(norm_p)
+        return set(clean_cands) - dirty_now
+    except (OSError, subprocess.SubprocessError):
+        return set()
+
+def _compute_workspace_excluded_test_paths(
+    workspace: Path,
+    prov: Dict[str, Any],
+    ws_diff: str,
+) -> Tuple[set[str], set[str]]:
+    """
+    Returns `(diff_excluded_test_paths, boundary_excluded_test_paths)`:
+      - Sibling-owned or proven pre-existing (`pre_edit_stash`) dirty test paths are excluded from both
+        diff inspection and `TestBoundaryGuard` (unless this conversation touched them or ran a shell write).
+      - Tracked test paths clean vs `HEAD` (only present because another commit advanced `HEAD` past
+        `base_head`) that this conversation never touched are excluded from diff inspection only,
+        leaving `TestBoundaryGuard` snapshot enforcement intact.
+    """
+    if not prov.get("ok") or prov.get("conv_has_shell_write") or prov.get("conv_touched_overflow"):
+        return set(), set()
+    conv_touched: set[str] = prov.get("conv_touched") or set()
+    boundary_excluded: set[str] = set()
+    for sp in prov.get("sibling_touched") or set():
+        if _is_test_path(sp) and sp not in conv_touched:
+            boundary_excluded.add(sp)
+    diff_paths = _extract_diff_paths(ws_diff) if ws_diff.strip() else []
+    untouched_tests = [
+        p
+        for p in diff_paths
+        if _is_test_path(p) and p not in conv_touched and p not in boundary_excluded
+    ]
+    pre_stash = str(prov.get("conv_pre_edit_stash") or "")
+    if prov.get("conv_has_writes") and pre_stash and untouched_tests:
+        boundary_excluded |= _pre_existing_dirty_test_paths(workspace, pre_stash, untouched_tests)
+    diff_excluded = set(boundary_excluded)
+    rem_untouched = [p for p in untouched_tests if p not in diff_excluded]
+    if prov.get("conv_has_writes") and rem_untouched:
+        diff_excluded |= _committed_untouched_test_paths(workspace, rem_untouched)
+    return diff_excluded, boundary_excluded
+
+def _verify_workspace_test_boundary(
+    workspace: Path,
+    *,
+    excluded_paths: Sequence[str] = (),
+) -> List[str]:
     out: List[str] = []
     try:
         from guard.test_boundary import TestBoundaryGuard
@@ -1311,6 +1722,10 @@ def _verify_workspace_test_boundary(workspace: Path) -> List[str]:
             main_root = TestBoundaryGuard.resolve_linked_worktree_root(workspace)
             if main_root is not None and snap_src != tbg.state_file and snap_src != tbg.legacy_state_file:
                 authorized |= set(TestBoundaryGuard.load_authorized_from_tasks_md(main_root))
+            for ex_p in excluded_paths:
+                norm_ex = str(ex_p).strip().replace("\\", "/").lstrip("./")
+                if norm_ex:
+                    authorized.add(norm_ex)
             tb_report = tbg.verify(
                 mode="tdd",
                 authorized_modifications=authorized,
@@ -1406,102 +1821,45 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     workspace = workspaces[0] if workspaces else None
     conv_id = _conversation_id(payload)
     has_session_writes = _conversation_has_recorded_writes(workspaces, conv_id)
+    explicit_diff = payload.get("diffText")
 
     if bool(payload.get("readOnly") or payload.get("read_only")) and not has_session_writes:
         return {}
     raw_prompt, _ = _extract_latest_user_prompt(payload)
     cleaned_prompt = _extract_user_request_prose(raw_prompt) if raw_prompt else ""
-    if (
-        cleaned_prompt
-        and re.match(r"^\s*/(?:audit|retro)\b", cleaned_prompt, re.IGNORECASE)
-        and not workspaces
-        and not has_session_writes
-    ):
-        return {}
+    prompt_with_inline = _extract_user_request_with_inline(raw_prompt) if raw_prompt else ""
+    if not has_session_writes:
+        if cleaned_prompt and re.match(r"^\s*/(?:audit|retro)\b", cleaned_prompt, re.IGNORECASE):
+            return {}
+        if (
+            not isinstance(explicit_diff, str)
+            and conv_id
+            and conv_id != "default"
+            and (
+                _is_auxiliary_readonly_context(payload, prompt_with_inline)
+                or _transcript_proves_readonly_turn(payload)
+            )
+        ):
+            return {}
 
     assistant_msg = _extract_latest_assistant_message(payload)
     is_question = _is_deferrable_question(assistant_msg)
 
     findings: List[str] = []
-    explicit_diff = payload.get("diffText")
-    if isinstance(explicit_diff, str):
-        if not explicit_diff.strip():
-            if not workspaces:
-                if is_question:
-                    _record_flight_stop(workspace, conv_id, 0, deferred_question=True)
-                    return {}
-                _record_flight_stop(workspace, conv_id, 0, workspace_clean=True)
-                _clear_stop_strikes(state_dir() / "hook_strikes.json", conv_id)
-                return {}
-            for ws in workspaces:
-                ws_diff, ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
-                ws_findings: List[str] = []
-                if ws_git_error:
-                    ws_findings.append(
-                        f"Git diff inspection failed in `{ws}` (corrupt `.git/HEAD`, locked/corrupt git index, "
-                        "or git subprocess error) — workspace diff integrity could not be verified "
-                        "(failing closed; GEMINI.md Rule 8 & Rule 9)."
-                    )
-                if ws_diff.strip() and _session_flight_base_head(ws, conv_id):
-                    ws_findings.extend(inspect_git_diff(ws_diff, workspace=ws))
-                ws_findings.extend(_verify_workspace_test_boundary(ws))
-                if not ws_findings:
-                    if is_question:
-                        _record_flight_stop(ws, conv_id, 0, deferred_question=True)
-                    else:
-                        _record_flight_stop(ws, conv_id, 0, workspace_clean=bool(ws_clean))
-                else:
-                    _record_flight_stop(
-                        ws,
-                        conv_id,
-                        len(ws_findings),
-                        workspace_clean=False,
-                        create_if_missing=ws_git_error,
-                    )
-                    for item in ws_findings:
-                        if item not in findings:
-                            findings.append(item)
-            if not findings:
-                if is_question:
-                    return {}
-                _clear_stop_strikes(state_dir() / "hook_strikes.json", conv_id)
-                return {}
-        else:
-            findings.extend(inspect_git_diff(explicit_diff, workspace=workspace))
-            if workspaces:
-                for ws in workspaces:
-                    ws_bh, ws_bh_err = _resolve_session_flight_base_head(ws, conv_id)
-                    if ws_bh or ws_bh_err or (len(workspaces) > 1 and ws != workspace):
-                        ws_diff, _ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
-                        if ws_git_error:
-                            err_msg = (
-                                f"Git diff inspection failed in `{ws}` (corrupt `.git/HEAD`, locked/corrupt git index, "
-                                "or git subprocess error) — workspace diff integrity could not be verified "
-                                "(failing closed; GEMINI.md Rule 8 & Rule 9)."
-                            )
-                            if err_msg not in findings:
-                                findings.append(err_msg)
-                        if ws_diff.strip():
-                            for item in inspect_git_diff(ws_diff, workspace=ws):
-                                if item not in findings:
-                                    findings.append(item)
-                for item in _verify_all_workspaces_test_boundary(workspaces):
-                    if item not in findings:
-                        findings.append(item)
-            target_workspaces = list(workspaces) if workspaces else ([workspace] if workspace is not None else [None])
-            if not findings and is_question:
-                for ws in target_workspaces:
-                    _record_flight_stop(ws, conv_id, 0, deferred_question=True)
-                return {}
-            for ws in target_workspaces:
-                _record_flight_stop(ws, conv_id, len(findings), workspace_clean=False)
-    else:
-        if not workspaces:
-            if is_question:
-                _record_flight_stop(None, conv_id, 0, deferred_question=True)
-            return {}
+
+    def _inspect_workspaces(require_base_head: bool) -> None:
         for ws in workspaces:
             ws_diff, ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
+            prov = _conversation_write_provenance(ws, conv_id)
+            if (
+                not ws_git_error
+                and conv_id
+                and conv_id != "default"
+                and prov.get("ok")
+                and not prov.get("conv_has_writes")
+                and (prov.get("sibling_in_flight") or prov.get("sibling_has_shell_write"))
+            ):
+                continue
             ws_findings: List[str] = []
             if ws_git_error:
                 ws_findings.append(
@@ -1509,10 +1867,11 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "or git subprocess error) — workspace diff integrity could not be verified "
                     "(failing closed; GEMINI.md Rule 8 & Rule 9)."
                 )
-            if ws_diff.strip():
-                ws_findings.extend(inspect_git_diff(ws_diff, workspace=ws))
-            ws_findings.extend(_verify_workspace_test_boundary(ws))
-
+            diff_excl, boundary_excl = _compute_workspace_excluded_test_paths(ws, prov, ws_diff)
+            scoped_diff = _filter_diff_excluding_paths(ws_diff, diff_excl) if diff_excl else ws_diff
+            if scoped_diff.strip() and (not require_base_head or _session_flight_base_head(ws, conv_id)):
+                ws_findings.extend(inspect_git_diff(scoped_diff, workspace=ws))
+            ws_findings.extend(_verify_workspace_test_boundary(ws, excluded_paths=sorted(boundary_excl)))
             if not ws_findings:
                 if is_question:
                     _record_flight_stop(ws, conv_id, 0, deferred_question=True)
@@ -1530,6 +1889,60 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
                     if item not in findings:
                         findings.append(item)
 
+    if isinstance(explicit_diff, str):
+        if not explicit_diff.strip():
+            if not workspaces:
+                if is_question:
+                    _record_flight_stop(workspace, conv_id, 0, deferred_question=True)
+                    return {}
+                _record_flight_stop(workspace, conv_id, 0, workspace_clean=True)
+                _clear_stop_strikes(state_dir() / "hook_strikes.json", conv_id)
+                return {}
+            _inspect_workspaces(require_base_head=True)
+            if not findings:
+                if is_question:
+                    return {}
+                _clear_stop_strikes(state_dir() / "hook_strikes.json", conv_id)
+                return {}
+        else:
+            findings.extend(inspect_git_diff(explicit_diff, workspace=workspace))
+            if workspaces:
+                for ws in workspaces:
+                    prov = _conversation_write_provenance(ws, conv_id)
+                    ws_bh, ws_bh_err = _resolve_session_flight_base_head(ws, conv_id)
+                    ws_diff = ""
+                    if ws_bh or ws_bh_err or (len(workspaces) > 1 and ws != workspace):
+                        ws_diff, _ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
+                        if ws_git_error:
+                            err_msg = (
+                                f"Git diff inspection failed in `{ws}` (corrupt `.git/HEAD`, locked/corrupt git index, "
+                                "or git subprocess error) — workspace diff integrity could not be verified "
+                                "(failing closed; GEMINI.md Rule 8 & Rule 9)."
+                            )
+                            if err_msg not in findings:
+                                findings.append(err_msg)
+                    diff_excl, boundary_excl = _compute_workspace_excluded_test_paths(ws, prov, ws_diff)
+                    scoped_ws_diff = _filter_diff_excluding_paths(ws_diff, diff_excl) if diff_excl else ws_diff
+                    if scoped_ws_diff.strip():
+                        for item in inspect_git_diff(scoped_ws_diff, workspace=ws):
+                            if item not in findings:
+                                findings.append(item)
+                    for item in _verify_workspace_test_boundary(ws, excluded_paths=sorted(boundary_excl)):
+                        if item not in findings:
+                            findings.append(item)
+            target_workspaces = list(workspaces) if workspaces else ([workspace] if workspace is not None else [None])
+            if not findings and is_question:
+                for ws in target_workspaces:
+                    _record_flight_stop(ws, conv_id, 0, deferred_question=True)
+                return {}
+            for ws in target_workspaces:
+                _record_flight_stop(ws, conv_id, len(findings), workspace_clean=False)
+    else:
+        if not workspaces:
+            if is_question:
+                _record_flight_stop(None, conv_id, 0, deferred_question=True)
+            return {}
+        _inspect_workspaces(require_base_head=False)
         if not findings and is_question:
             return {}
 
@@ -1546,6 +1959,7 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     stable_keys = sorted({_finding_structural_key(f) for f in findings})
     fingerprint = hashlib.sha256("\n".join(stable_keys).encode("utf-8")).hexdigest()[:16]
     strike_state_error = False
+    tripped = False
     try:
         with file_lock(strikes_file, timeout=HOOK_LOCK_TIMEOUT):
             strikes_ok, ledger = _read_ledger_checked(strikes_file)
@@ -1554,13 +1968,26 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
 
             record = ledger.get(conv_id) if isinstance(ledger.get(conv_id), dict) else {}
             prev_fp = record.get("fingerprint", "")
-            prev_total = _safe_int(record.get("total_strikes"), default=_safe_int(record.get("count"), default=0))
-            count = (_safe_int(record.get("count"), default=0) + 1) if prev_fp == fingerprint else 1
+            prev_count = _safe_int(record.get("count"), default=0)
+            prev_total = _safe_int(record.get("total_strikes"), default=prev_count)
+            already_tripped = strikes_ok and (
+                prev_total >= (MAX_STRIKES + 2)
+                or (prev_fp == fingerprint and (bool(record.get("tripped")) or prev_count >= MAX_STRIKES))
+            )
+            if already_tripped:
+                # Freeze strike counter, disk writes, and audit log emission once tripped until workspace is clean
+                return {}
+
+            count = (prev_count + 1) if prev_fp == fingerprint else 1
             total_strikes = prev_total + 1
+            tripped = bool(count >= MAX_STRIKES or total_strikes >= (MAX_STRIKES + 2))
 
             if conv_id in ledger:
                 del ledger[conv_id]
-            ledger[conv_id] = {"fingerprint": fingerprint, "count": count, "total_strikes": total_strikes}
+            entry: Dict[str, Any] = {"fingerprint": fingerprint, "count": count, "total_strikes": total_strikes}
+            if tripped:
+                entry["tripped"] = True
+            ledger[conv_id] = entry
             while len(ledger) > 50:
                 oldest = next(iter(ledger))
                 del ledger[oldest]
@@ -1577,8 +2004,8 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             count = 1
         total_strikes = count
+        tripped = bool(count >= MAX_STRIKES or total_strikes >= (MAX_STRIKES + 2))
 
-    tripped = bool(count >= MAX_STRIKES or total_strikes >= (MAX_STRIKES + 2))
     _audit_stop_strike(
         "stop.circuit_breaker_tripped" if tripped else "stop.strike_recorded",
         is_warn=True,

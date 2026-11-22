@@ -25,6 +25,23 @@ from typing import Any, Dict, List, Optional, Tuple
 REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 HEX_SHA_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 SUBPATH_RE = re.compile(r"[A-Za-z0-9_./-]+")
+KNOWN_BUILTIN_SKILLS: Tuple[str, ...] = (
+    "agy-customizations",
+    "antigravity_guide",
+    "automation",
+    "generative_ui",
+    "mcp-app-development",
+    "migrate-agent-settings",
+    "migrate-workflows",
+    "native_swarm",
+    "permissioned-github",
+    "plugin",
+    "run-workflow",
+    "swarm_monitor",
+    "swarm_narrator",
+    "swarm_pane",
+    "ui-plugin-navigation",
+)
 
 
 def short_ref(ref: Any) -> str:
@@ -159,10 +176,10 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
     if seed_changed or (not has_prev_digest and (seed_newer_than_ack or seed_newer_than_audit)):
         seed_model = _clean_model_name(seed.get("last_audited_model"))
         if seed_model and state.get("last_audited_model") != seed_model:
-            old_audited = state.get("last_audited_model")
             state["last_audited_model"] = seed_model
             state["current_model"] = seed_model
-            if state.get("last_seen_model") == old_audited:
+            seen_model = _clean_model_name(state.get("last_seen_model"))
+            if seen_model and seen_model != seed_model:
                 state.pop("last_seen_model", None)
             changed = True
         seed_slug = seed.get("last_model_slug")
@@ -180,19 +197,6 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
             is_seed_ph = seed_pbtxt.upper().startswith("MODEL_PLACEHOLDER")
             if (not is_seed_ph or not _clean_model_name(state.get("last_pbtxt_model"))) and state.get("last_pbtxt_model") != seed_pbtxt:
                 state["last_pbtxt_model"] = seed_pbtxt
-                changed = True
-        if isinstance(seed.get("approved_customization_models"), list):
-            clean_acm = [m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()]
-            if state.get("approved_customization_models") != clean_acm:
-                state["approved_customization_models"] = clean_acm
-                changed = True
-        if isinstance(seed.get("known_placeholder_models"), dict) and (
-            state.get("known_placeholder_models") is None
-            or isinstance(state.get("known_placeholder_models"), dict)
-        ):
-            clean_kpm = _clean_known_placeholder_map(seed["known_placeholder_models"])
-            if state.get("known_placeholder_models") != clean_kpm:
-                state["known_placeholder_models"] = clean_kpm
                 changed = True
         if "environment_Target" in seed and state.get("environment_Target") != seed.get("environment_Target"):
             state["environment_Target"] = seed["environment_Target"]
@@ -222,6 +226,21 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
     elif isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
         state["known_placeholder_models"] = _clean_known_placeholder_map(seed["known_placeholder_models"])
         changed = True
+
+    if seed_changed or not has_prev_digest:
+        if isinstance(seed.get("approved_customization_models"), list):
+            clean_acm = [m for m in seed["approved_customization_models"] if isinstance(m, str) and m.strip()]
+            if state.get("approved_customization_models") != clean_acm:
+                state["approved_customization_models"] = clean_acm
+                changed = True
+        if isinstance(seed.get("known_placeholder_models"), dict) and (
+            state.get("known_placeholder_models") is None
+            or isinstance(state.get("known_placeholder_models"), dict)
+        ):
+            clean_kpm = _clean_known_placeholder_map(seed["known_placeholder_models"])
+            if state.get("known_placeholder_models") != clean_kpm:
+                state["known_placeholder_models"] = clean_kpm
+                changed = True
 
     if seed_ts is not None and (state_ts is None or seed_ts > state_ts):
         if seed.get("last_audit_timestamp") and state.get("last_audit_timestamp") != seed.get("last_audit_timestamp"):
@@ -292,7 +311,7 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
 
 class UpstreamAuditorBridge:
     """
-    Proactively checks the 8 tracked community repositories and active model status
+    Proactively checks the 9 tracked community repositories and active model status
     without requiring LLM token expenditure.
     """
 
@@ -374,21 +393,14 @@ class UpstreamAuditorBridge:
             "last_skills_audit_timestamp": None,
             "skills_audit_interval_hours": 72,
             "approved_customization_models": [
-                "claude-opus-5.5-high",
-                "gemini-4-hydrogen-xhigh",
+                "gemini-4-neon-xhigh",
                 "gemini-4-carbon-high",
-                "gemini-4-carbon-xhigh",
-                "gemini-4-argon-high",
-                "orchestrator-carbon-high",
-                "orchestrator-carbon-xhigh",
-                "orchestrator-argon-high",
-                "orchestrator-argon-xhigh",
             ],
             "known_placeholder_models": {
-                "MODEL_PLACEHOLDER_M417": "Gemini 4 Argon (High)",
+                "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
                 "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
-                "MODEL_PLACEHOLDER_M528": "Gemini 4 Hydrogen (XHigh)",
             },
+            "recorded_builtin_skills": list(KNOWN_BUILTIN_SKILLS),
             "tracked_repositories": {
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
@@ -443,6 +455,13 @@ class UpstreamAuditorBridge:
                     "track": "release",
                     "last_synced_commit": "rea-agents-6.9.0",
                     "target_skills": ["reverse-engineer-anything"],
+                },
+                "rust-anything": {
+                    "repo": "erkamyaman/rust-anything",
+                    "branch": "main",
+                    "track": "release",
+                    "last_synced_commit": "v2.1.0",
+                    "target_skills": ["rustify", "rust-harden"],
                 },
             },
         }

@@ -10,7 +10,6 @@ import json as _stdlib_json
 import os
 import re
 import stat
-import subprocess as _stdlib_subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,17 +79,22 @@ def _repo_root() -> Path:
 class _FacadeModuleProxy:
     """Forwards attribute lookups (`json.loads`, `subprocess.run`) through `_facade()`."""
 
-    def __init__(self, attr_name: str, fallback: Any) -> None:
+    def __init__(self, attr_name: str, fallback: Any = None, fallback_module: Optional[str] = None) -> None:
         self._attr_name = attr_name
         self._fallback = fallback
+        self._fallback_module = fallback_module
 
     def __getattr__(self, name: str) -> Any:
-        target = _facade_attr(self._attr_name, self._fallback)
+        target = _facade_attr(self._attr_name, None)
+        if target is None:
+            if self._fallback is None and self._fallback_module:
+                self._fallback = __import__(self._fallback_module)
+            target = self._fallback
         return getattr(target, name)
 
 
 json: Any = _FacadeModuleProxy("json", _stdlib_json)
-subprocess: Any = _FacadeModuleProxy("subprocess", _stdlib_subprocess)
+subprocess: Any = _FacadeModuleProxy("subprocess", None, "subprocess")
 
 
 def atomic_write_json(*args: Any, **kwargs: Any) -> Any:
@@ -437,11 +441,159 @@ _HEX_OID_RE = _LazyRegex(r"^[0-9a-fA-F]{40,64}$")
 
 _UNRECOVERED_FLIGHT_STATES = frozenset({"in_flight", "interrupted_notified", "in_progress_blocked"})
 
+_STALE_IN_FLIGHT_SECONDS = 1800
+
+_AUXILIARY_READONLY_ROLE_NAMES = frozenset({
+    "monitor",
+    "swarm_monitor",
+    "swarm-monitor",
+    "narrator",
+    "swarm_narrator",
+    "swarm-narrator",
+    "verifier",
+    "research",
+    "meta-auditor",
+    "consistency-auditor",
+    "specification-gap-auditor",
+    "security-boundary-verifier",
+    "silent-failure-hunter",
+    "contract-change-auditor",
+    "test-adequacy-auditor",
+    "simplicity-auditor",
+    "build-error-resolver",
+})
+
+_AUXILIARY_PROMPT_ROLE_RE = _LazyRegex(
+    r"(?im)(?:^|\n)\s*(?:"
+    r"you\s+are\s+(?:this\s+swarm'?s\s+|the\s+(?:swarm\s+)?)?(?:stall\s+)?(?:monitor|narrator|verifier)\b|"
+    r"(?:swarm\s+)?role\s*:\s*(?:swarm[_-]?)?(?:monitor|narrator|verifier)\b|"
+    r"(?:first\s+)?load\s+(?:the\s+)?`?swarm_(?:monitor|narrator)`?\s+skill\b|"
+    r"access\s*:\s*read[- ]only\b"
+    r")"
+)
+
 def _flight_recorder_file() -> Path:
     return state_dir() / "flight_recorder.json"
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def _parse_iso_utc(ts: str) -> Optional[datetime]:
+    """Parses an ISO-8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ` or with offset) into an aware UTC datetime."""
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    raw = ts.strip()
+    try:
+        if raw.endswith(("Z", "z")):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+def _extract_ws_flight_conversations(ws_entry: Any) -> Dict[str, Dict[str, Any]]:
+    """
+    Normalizes a workspace `flight_recorder.json` record into `{conv_id: record}`, migrating
+    legacy single-entry workspace dicts cleanly without dropping fields.
+    """
+    if not isinstance(ws_entry, dict):
+        return {}
+    raw_convs = ws_entry.get("conversations")
+    if isinstance(raw_convs, dict):
+        out: Dict[str, Dict[str, Any]] = {}
+        for cid, rec in raw_convs.items():
+            if isinstance(cid, str) and cid.strip() and isinstance(rec, dict):
+                clean = {k: v for k, v in rec.items() if k != "conversations"}
+                clean.setdefault("conversation_id", cid)
+                out[cid] = clean
+        top_conv = str(ws_entry.get("conversation_id") or "").strip()
+        top_status = str(ws_entry.get("status") or "").strip()
+        top_updated = str(ws_entry.get("updated_at") or "").strip()
+        if top_conv and top_conv in out and top_status:
+            cur_rec = out[top_conv]
+            cur_upd = str(cur_rec.get("updated_at") or "").strip()
+            if cur_rec.get("status") != top_status and (not top_updated or not cur_upd or top_updated >= cur_upd):
+                cur_rec["status"] = top_status
+                if top_updated:
+                    cur_rec["updated_at"] = top_updated
+                if "last_stop_findings_count" in ws_entry:
+                    cur_rec["last_stop_findings_count"] = ws_entry["last_stop_findings_count"]
+        elif top_status == "turn_complete" and top_conv and top_conv not in out:
+            top_ts = _parse_iso_utc(top_updated) if top_updated else None
+            for rec in out.values():
+                if str(rec.get("status") or "") in _UNRECOVERED_FLIGHT_STATES:
+                    rec_ts = _parse_iso_utc(str(rec.get("updated_at") or ""))
+                    if top_ts is None or rec_ts is None or rec_ts <= top_ts:
+                        rec["status"] = "turn_complete"
+                        rec["last_stop_findings_count"] = 0
+                        if top_updated:
+                            rec["updated_at"] = top_updated
+        return out
+    rec_conv = str(ws_entry.get("conversation_id") or "").strip() or "default"
+    clean_legacy = {k: v for k, v in ws_entry.items() if k != "conversations"}
+    if not clean_legacy:
+        return {}
+    clean_legacy.setdefault("conversation_id", rec_conv)
+    return {rec_conv: clean_legacy}
+
+def _rebuild_ws_flight_entry(
+    ws_key: str,
+    convs: Dict[str, Dict[str, Any]],
+    primary_conv: str = "",
+) -> Dict[str, Any]:
+    """Builds a dual-view workspace flight entry (top-level summary + per-conversation `conversations` map)."""
+    ordered: Dict[str, Dict[str, Any]] = {}
+    for cid, rec in convs.items():
+        if isinstance(cid, str) and cid.strip() and isinstance(rec, dict) and cid != primary_conv:
+            ordered[cid] = {k: v for k, v in rec.items() if k != "conversations"}
+    if primary_conv and isinstance(convs.get(primary_conv), dict):
+        ordered[primary_conv] = {k: v for k, v in convs[primary_conv].items() if k != "conversations"}
+    while len(ordered) > 32:
+        oldest = next(iter(ordered))
+        del ordered[oldest]
+    if not ordered:
+        return {}
+    summary_cid = primary_conv if primary_conv in ordered else next(reversed(ordered))
+    summary = dict(ordered[summary_cid])
+    summary.setdefault("workspace", ws_key)
+    summary["conversation_id"] = summary_cid
+    summary["conversations"] = ordered
+    return summary
+
+def _is_auxiliary_readonly_context(payload: Dict[str, Any], cleaned_prompt: str = "") -> bool:
+    """True for explicit read-only sessions or auxiliary swarm/subagent roles (`monitor`, `narrator`, `verifier`, auditors)."""
+    if bool(payload.get("readOnly") or payload.get("read_only")):
+        return True
+    for key in (
+        "role",
+        "agentRole",
+        "agent_role",
+        "workerRole",
+        "worker_role",
+        "swarmRole",
+        "swarm_role",
+        "workerName",
+        "worker_name",
+        "rosterName",
+        "roster_name",
+        "subagentType",
+        "subagent_type",
+        "typeName",
+        "type_name",
+    ):
+        val = payload.get(key)
+        if not isinstance(val, str) or not val.strip():
+            continue
+        low = val.strip().lower()
+        if low in _AUXILIARY_READONLY_ROLE_NAMES or low.startswith(
+            ("monitor-", "narrator-", "verifier-", "swarm-monitor-", "swarm-narrator-", "swarm_monitor-", "swarm_narrator-")
+        ):
+            return True
+    if cleaned_prompt and _AUXILIARY_PROMPT_ROLE_RE.search(cleaned_prompt[:4096]):
+        return True
+    return False
 
 def _read_ledger_checked(path: Path, *, quarantine: bool = True) -> Tuple[bool, Dict[str, Any]]:
     """Reads a JSON dict ledger, optionally quarantining corrupt state, and reports whether inspection succeeded."""
@@ -529,7 +681,17 @@ def _workspaces_from_payload(payload: Dict[str, Any]) -> List[Path]:
     def _add_ws(raw: Any) -> None:
         if not isinstance(raw, str) or not raw.strip():
             return
-        candidate = Path(raw.strip()).expanduser()
+        raw_s = raw.strip()
+        if os.name != "nt" and re.match(r"^(?:~|[A-Za-z]:)\\", raw_s):
+            raw_s = raw_s.replace("\\\\", "/").replace("\\", "/")
+        candidate = Path(raw_s).expanduser()
+        cand_s = str(candidate)
+        if not (
+            candidate.is_absolute()
+            or bool(re.match(r"^[A-Za-z]:[/\\]", cand_s))
+            or cand_s.startswith("\\\\")
+        ):
+            return
         try:
             if not candidate.is_dir():
                 return
@@ -557,6 +719,7 @@ def _iter_jsonl_tail_entries(
     *,
     max_scan_bytes: int = 2 * 1024 * 1024,
     max_line_bytes: int = 2 * 1024 * 1024,
+    raise_on_error: bool = False,
 ) -> Iterator[Dict[str, Any]]:
     """Yields valid JSON object lines from the tail of a regular non-symlink JSONL file, newest first."""
     try:
@@ -566,6 +729,8 @@ def _iter_jsonl_tail_entries(
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         fd = os.open(path_str, flags)
     except (OSError, TypeError, ValueError):
+        if raise_on_error:
+            raise
         return
     try:
         st = os.fstat(fd)
@@ -578,6 +743,8 @@ def _iter_jsonl_tail_entries(
             os.close(fd)
         except OSError:
             pass
+        if raise_on_error:
+            raise
         return
     try:
         with fh:
@@ -616,6 +783,8 @@ def _iter_jsonl_tail_entries(
                     if isinstance(entry, dict):
                         yield entry
     except OSError:
+        if raise_on_error:
+            raise
         return
 
 def _is_harness_repo_root(root: Path) -> bool:

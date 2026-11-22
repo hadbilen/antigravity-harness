@@ -26,6 +26,10 @@ Usage:
   python3 guard.py boot-check                 # Headless boot verification and lock
   python3 guard.py doctor [--fix|--recover]   # Health check (permissions, legacy state, grants)
   python3 guard.py notify status|enable|disable|quiet|normal|send # Desktop notifications
+  python3 guard.py code-map <args...>         # Portable AST/syntax/FTS5 code mapper
+  python3 guard.py ui-slop <args...>          # Portable structural UI slop scanner
+  python3 guard.py synthetic-markers <args...> # Portable synthetic-prose scanner
+  python3 guard.py verify-invariants <args...> # Portable invariant & test-boundary verifier
   python3 guard.py gui                        # Launch desktop GUI
 """
 

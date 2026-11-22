@@ -15,21 +15,21 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import List, Tuple
+
+PORTABLE_SKILL_SCRIPTS = (
+    "skills/antislop/scripts/check_ui_slop.py",
+    "skills/antislop/scripts/check_synthetic_markers.py",
+)
 
 
-def main() -> int:
-    repo_root = Path(__file__).resolve().parent.parent
-    dist_dir = repo_root / "dist"
-
-    system = platform.system()
-    raw_machine = platform.machine().lower()
-    if raw_machine in ("amd64", "x86_64"):
-        machine = "x86_64"
-    elif raw_machine in ("arm64", "aarch64"):
-        machine = "arm64"
-    else:
-        machine = raw_machine
-
+def build_pyinstaller_command(
+    repo_root: Path,
+    system: str,
+    machine: str,
+    pyinstaller: str,
+) -> Tuple[str, List[str]]:
+    """Constructs the PyInstaller build command with portable script assets and Linux GTK+Tk isolation."""
     if system == "Linux":
         binary_name = f"agy-guard-linux-{machine}"
     elif system == "Darwin":
@@ -39,19 +39,11 @@ def main() -> int:
     else:
         binary_name = f"agy-guard-{system.lower()}-{machine}"
 
-    print(f"Building standalone binary for {system} ({machine}) -> {binary_name}...")
-
-    # Check for pyinstaller
-    pyinstaller = shutil.which("pyinstaller")
-    if not pyinstaller:
-        print("[ERROR] PyInstaller is not installed or not in PATH.", file=sys.stderr)
-        print("Please install PyInstaller: pip install pyinstaller pystray pillow", file=sys.stderr)
-        return 1
-
     entry_point = repo_root / "guard.py"
     exe_name = binary_name[:-4] if binary_name.endswith(".exe") else binary_name
+    data_sep = ";" if system == "Windows" else ":"
 
-    cmd = [
+    cmd: List[str] = [
         pyinstaller,
         "--noconfirm",
         "--clean",
@@ -69,8 +61,50 @@ def main() -> int:
         "--hidden-import", "PIL",
         "--hidden-import", "PIL.Image",
         "--hidden-import", "PIL.ImageDraw",
-        str(entry_point),
     ]
+
+    for rel_script in PORTABLE_SKILL_SCRIPTS:
+        src_script = repo_root / rel_script
+        if not src_script.is_file():
+            raise FileNotFoundError(f"Declared portable skill script missing for binary build: {src_script}")
+        dest_dir = str(Path(rel_script).parent.as_posix())
+        cmd.extend(["--add-data", f"{src_script}{data_sep}{dest_dir}"])
+
+    if system == "Linux":
+        # Prevent PyInstaller from bundling colliding system GTK3/PyGObject libraries alongside Tcl/Tk.
+        cmd.extend(["--exclude-module", "gi"])
+
+    cmd.append(str(entry_point))
+    return binary_name, cmd
+
+
+def main() -> int:
+    repo_root = Path(__file__).resolve().parent.parent
+    dist_dir = repo_root / "dist"
+
+    system = platform.system()
+    raw_machine = platform.machine().lower()
+    if raw_machine in ("amd64", "x86_64"):
+        machine = "x86_64"
+    elif raw_machine in ("arm64", "aarch64"):
+        machine = "arm64"
+    else:
+        machine = raw_machine
+
+    # Check for pyinstaller
+    pyinstaller = shutil.which("pyinstaller")
+    if not pyinstaller:
+        print("[ERROR] PyInstaller is not installed or not in PATH.", file=sys.stderr)
+        print("Please install PyInstaller: pip install pyinstaller pystray pillow", file=sys.stderr)
+        return 1
+
+    binary_name, cmd = build_pyinstaller_command(repo_root, system, machine, pyinstaller)
+    print(f"Building standalone binary for {system} ({machine}) -> {binary_name}...")
+    if system == "Linux":
+        print(
+            "[INFO] Linux GTK+Tk/Wayland tray isolation: excluding `gi` from onefile bundle "
+            "(runtime falls back cleanly to standard taskbar mode when Wayland lacks an isolated tray)."
+        )
 
     print("Running command:", " ".join(cmd))
     res = subprocess.run(cmd, cwd=repo_root)

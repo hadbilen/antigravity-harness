@@ -143,7 +143,7 @@ Conclude every report with a mandatory **Verification Gap & Falsification Declar
 
 When dispatching this subagent, the parent agent must provide these 3 fields:
 1. **Task Goal:** Single-sentence summary of the build or type resolution needed.
-2. **Scope & Diff:** The modified file coordinates, unified diff, and pre-computed `git grep -n` / `scripts/code_map.py` caller coordinates.
+2. **Scope & Diff:** The modified file coordinates, unified diff, and pre-computed `git grep -n` / `agy-guard code-map` caller coordinates.
 3. **Inspection Focus:** The full pre-computed compiler/linter error trace collected by the parent session.
 
 As a `read-only` subagent without shell execution, inspect target files using bounded `view_file` or `read_file` (`Read` in exported environments) slices (`StartLine`/`EndLine`), returning structured surgical diffs and a Verification Gap & Falsification Declaration for the parent agent to apply and verify via `run_command`.

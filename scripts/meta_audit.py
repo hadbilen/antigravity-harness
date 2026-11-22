@@ -47,7 +47,7 @@ KNOWN_EXTERNAL_MD = {
     "AGENTS.md", "CLAUDE.md", "CODEX.md", "CONVENTIONS.md", "RULES.md", "GATES.md", "HANDOFF.md",
     "tasks.md", "plan.md", "PLAN.md", "implementation_plan.md", "walkthrough.md", "SKILL.md",
     "MISTAKES.md", "GEMINI.md", "DESIGN.md", "README.md", "CHANGELOG.md", "SECURITY.md",
-    "ARCHITECTURE.md", "SECURITY_POSTURE.md",
+    "ARCHITECTURE.md", "SECURITY_POSTURE.md", "REPOSTATE.md",
     "CONTRIBUTING.md", "task.md", "spec.md", "todo.md", "backlog.md", "sprint.md", "ADR.md",
     "RELEASE.md", "template.md", "GLOSSARY.md", "PRODUCT.md",  # files the skills create inside the user's project
 }
@@ -713,13 +713,21 @@ class MetaAuditEngine:
                     )
                 else:
                     uw_block = hj_data.get("upstream-watchdog")
-                    if not isinstance(uw_block, dict) or not isinstance(uw_block.get("PreInvocation"), list) or not uw_block.get("PreInvocation"):
+                    if not isinstance(uw_block, dict) or not isinstance(uw_block.get("SessionStart"), list) or not uw_block.get("SessionStart"):
                         self._add(
                             "CRITICAL",
                             name,
                             "hooks.json",
-                            "hooks.json is missing upstream-watchdog.PreInvocation registration",
-                            "Register PreInvocation under upstream-watchdog in hooks.json.",
+                            "hooks.json is missing upstream-watchdog.SessionStart registration",
+                            "Register SessionStart under upstream-watchdog in hooks.json.",
+                        )
+                    elif uw_block.get("PreInvocation"):
+                        self._add(
+                            "WARNING",
+                            name,
+                            "hooks.json",
+                            "hooks.json still defines legacy upstream-watchdog.PreInvocation alongside SessionStart",
+                            "Remove PreInvocation under upstream-watchdog so the watchdog runs once on SessionStart.",
                         )
 
                     gate_block = hj_data.get("harness-gate")
@@ -779,7 +787,7 @@ class MetaAuditEngine:
                                     )
 
                     for grp_name, grp_events in (
-                        ("upstream-watchdog", ("PreInvocation",)),
+                        ("upstream-watchdog", ("SessionStart",)),
                         ("harness-gate", ("PreInvocation", "PreToolUse", "Stop")),
                     ):
                         grp_obj = hj_data.get(grp_name)
@@ -897,6 +905,18 @@ class MetaAuditEngine:
                 if is_split_layout and managed_skills_p2 is not None and sk_md.parent.name not in managed_skills_p2:
                     continue
                 sk_text = self._read_text(sk_md)
+                try:
+                    sk_bytes = sk_md.stat().st_size
+                except OSError:
+                    sk_bytes = len(sk_text.encode("utf-8"))
+                if sk_bytes > 40960:
+                    self._add(
+                        "WARNING",
+                        name,
+                        self._rel(sk_md),
+                        f"Skill file {self._rel(sk_md)} exceeds 40 KB progressive-disclosure ceiling ({sk_bytes} bytes > 40,960 bytes)",
+                        "Extract detailed reference sections into skills/<name>/references/ so SKILL.md stays readable in one bounded read.",
+                    )
                 m_fm = re.match(r"\A---\r?\n.*?\r?\n---", sk_text, re.DOTALL)
                 if m_fm:
                     fm_total_bytes += len(m_fm.group(0).encode("utf-8"))

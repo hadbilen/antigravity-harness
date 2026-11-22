@@ -16,6 +16,12 @@
   - [ ] Criterion 2
 - **Progress:** {{N}}/{{M}} exit criteria met. When all are met the status is `[COMPLETE]` and no further handoff is issued; any subsequent unrelated task starts a fresh `Campaign ID` at `W1` (`AC-1`) rather than appending `Wn+1` or `AC-(M+1)`.
 
+## Completed Windows Log
+<!-- For multi-window marathon campaigns (`skills/harness/references/marathon.md`); omit on single-handoff tasks. Append one row per finished or partial window; clear only on a fresh Campaign ID. -->
+| Window | Date | Status | Delivered Artifacts & Verified Gates | Exit Criteria Progress |
+| :--- | :--- | :--- | :--- | :--- |
+| `W1` | `{{YYYY-MM-DD}}` | `[x] DONE` | {{Key deliverables and verified exit-0 gates}} | `{{N}}/{{M}}` (`AC-1`) |
+
 ## 1. Executive Summary & Active Constraints
 - **Completed Milestone:** What the preceding session delivered.
 - **Active Constraints:** Invariants, decisions (ADR references) and user instructions that still apply.

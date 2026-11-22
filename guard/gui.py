@@ -1037,8 +1037,11 @@ class AntigravityGuardApp:
         self.root.focus_force()
 
     def quit_app(self):
-        if hasattr(self, "tray_adapter") and self.tray_adapter.is_available:
-            self.tray_adapter.stop()
+        if hasattr(self, "tray_adapter") and self.tray_adapter is not None:
+            try:
+                self.tray_adapter.stop()
+            except Exception:
+                pass
         self.root.destroy()
 
 

@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -32,23 +33,29 @@ from .common import (
     _PATH_WORD_PRE,
     _SLASH_POST,
     _SLASH_PRE,
+    _STALE_IN_FLIGHT_SECONDS,
     _USER_REQUEST_TAG_RE,
     _VIABLE_HINT_TOKEN_RE,
     _conversation_id,
     _extract_latest_user_prompt,
     _extract_user_request_prose,
+    _extract_user_request_with_inline,
+    _extract_ws_flight_conversations,
     _facade,
     _facade_attr,
     _flight_recorder_file,
     _inspect_transcript_turn_state,
+    _is_auxiliary_readonly_context,
     _is_git_repo_workspace,
     _is_harness_repo_root,
     _iter_jsonl_tail_entries,
     _normalize_markdown_newlines,
+    _parse_iso_utc,
     _prune_missing_flight_workspaces,
     _read_bounded_markdown_checked,
     _read_ledger_checked,
     _read_ledger_safe,
+    _rebuild_ws_flight_entry,
     _repo_root,
     _resolve_transcript_path,
     _safe_int,
@@ -168,18 +175,18 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"(?:{_SLASH_PRE}/rustify{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"rustify\w*(?!\.(?:rs|py|c|cc|cpp|cxx|h|hh|hpp|hxx|go|js|ts|md|json|toml|yaml|yml)\b)|"
-            r"(?<!bump\s)(?<!upgrade\s)(?<!update\s)(?:cbindgen|bindgen|cxx\s+bridge|#?\[?cxx::bridge\]?|pyo3)(?!\s+(?:from|to|in)\s+[\dv]|[^\n]{0,30}\bcargo\.toml\b)|"
-            r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b|(?!(?:c|cpp|golang|python|go)\b)(?:(?:this|the|our|my|existing|these)\s+){0,2}(?:(?!\b(?:to|into|c|cpp|golang|python|go|cgo|cython)\b)(?:[\w+/.-]+,*|,+)\s+){0,7}\brust\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
-            r"(?:(?:c(?:/c\+\+|\+\+)?|cpp|golang|python)\s+(?:[\w+/.-]+\s+){0,4}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b|"
+            r"(?<!bump\s)(?<!upgrade\s)(?<!update\s)(?:cbindgen|bindgen|cxx\s+bridge|#?\[?cxx::bridge\]?|pyo3|napi[-_]rs|wasm[-_]bindgen)(?!\s+(?:from|to|in)\s+[\dv]|[^\n]{0,30}\bcargo\.toml\b)|"
+            r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b|(?!(?:c|cpp|golang|python|go|typescript|ts|javascript|js|ruby|java|kotlin)\b)(?:(?:this|the|our|my|existing|these)\s+){0,2}(?:(?!\b(?:to|into|c|cpp|golang|python|go|cgo|cython|typescript|ts|javascript|js|ruby|java|kotlin|napi|magnus|jni)\b)(?:[\w+/.-]+,*|,+)\s+){0,7}\brust\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
+            r"(?:(?:c(?:/c\+\+|\+\+)?|cpp|golang|python|typescript|javascript|ts/js|js/ts|ruby|java(?:/kotlin)?|kotlin)\s+(?:[\w+/.-]+\s+){0,4}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b|"
             r"go\s+(?:(?:code(?:base)?|module|service|library|binary|daemon|cli|worker|server|backend|runtime|app|package|crate)\s+)?(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b))|"
-            r"(?:rust\s+(?:ffi(?:\s+(?:bindings?|wrappers?|bridges?))?|bindings?|wrappers?)\s+(?:for|to)\s+(?:c/c\+\+|c\+\+|(?:cpp|golang|python|go|c)\b)|(?:ffi|c\s+abi)\s+(?:bridge|wrapper|interop)\s+(?:for|to|with|in)\s+rust\b)|"
-            r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python)'?(?:dan|den|tan|ten)\s+rust'?(?:a|ya)\b|"
-            r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}rust\s+ile\s+(?:yeniden\s+yaz\w*|değiştir\w*)|"
+            r"(?:rust\s+(?:ffi(?:\s+(?:bindings?|wrappers?|bridges?))?|bindings?|wrappers?)\s+(?:for|to)\s+(?:c/c\+\+|c\+\+|(?:cpp|golang|python|go|c|typescript|javascript|ts/js|js/ts|node(?:\.?js)?|ruby|java(?:/kotlin)?|kotlin)\b)|(?:ffi|c\s+abi)\s+(?:bridge|wrapper|interop)\s+(?:for|to|with|in)\s+rust\b)|"
+            r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python|typescript|javascript|ts/js|js/ts|ruby|java(?:/kotlin)?|kotlin)'?(?:dan|den|tan|ten)\s+rust'?(?:a|ya)\b|"
+            r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python|typescript|javascript|ruby|java|kotlin)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}rust\s+ile\s+(?:yeniden\s+yaz\w*|değiştir\w*)|"
             r"rust'?(?:a|ya)\s*(?:çevir\w*|cevir\w*|taşı\w*|tasi\w*|dönüştür\w*|donustur\w*|geçir\w*|gecir\w*|aktar\w*|port\s+et\w*)"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
-        "5-stage C/C++/Go/Python -> memory-safe Rust migration, ABI/FFI bridges (bindgen/cbindgen/cxx/PyO3) & Miri/sanitizer/Kani verification",
+        "5-stage C/C++/Go/Python/TS/JS/Ruby/Java -> memory-safe Rust migration, ABI/FFI bridges (bindgen/cbindgen/cxx/PyO3/napi-rs/JNI) & Miri/sanitizer/Kani verification",
     ),
     (
         "rust-harden",
@@ -772,7 +779,7 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
-        "Subagent `meta-auditor` (`invoke_subagent` with `TypeName=\"meta-auditor\"` + `python3 scripts/meta_audit.py --strict` for harness, skill, hook & Porter meta-consistency verification per GEMINI.md Rule 17)",
+        "Subagent `meta-auditor` (`invoke_subagent` with `TypeName=\"meta-auditor\"` + `agy-guard self-audit --strict` (or `python3 scripts/meta_audit.py --strict` in repo checkouts) for harness, skill, hook & Porter meta-consistency verification per GEMINI.md Rule 17)",
     ),
     (
         "route:subagent:image-generator",
@@ -994,27 +1001,41 @@ _TASKS_PARTIAL_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[~\]|\|[^\n]*\[~\])")
 
 _TASKS_BLOCKED_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[!\]|\|[^\n]*\[!\])")
 
-def _acknowledge_interrupted_flight(workspace: Path, expected_seq: int) -> None:
-    """Marks an `"in_flight"` crash record as `"interrupted_notified"` once its recovery hint is committed."""
+def _acknowledge_interrupted_flight(workspace: Path, expected_seq: int, conv_id: str = "") -> None:
+    """Marks the matching `"in_flight"` crash record as `"interrupted_notified"` without touching sibling records."""
     flight_file = _flight_recorder_file()
     if not flight_file.is_file():
         return
     try:
         ws_key = str(workspace.resolve())
         with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
-            ledger = _read_ledger_safe(flight_file)
-            entry = ledger.get(ws_key)
-            if (
-                isinstance(entry, dict)
-                and entry.get("status") == "in_flight"
-                and _safe_int(entry.get("seq"), default=0) == expected_seq
-            ):
-                updated_entry = dict(entry)
-                updated_entry["status"] = "interrupted_notified"
-                ledger[ws_key] = updated_entry
-                atomic_write_json(flight_file, ledger)
-    except (OSError, RuntimeError, TimeoutError):
-        pass
+            ledger_ok, ledger = _read_ledger_checked(flight_file, quarantine=False)
+            if not ledger_ok:
+                return
+            convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+            if not convs:
+                return
+            target_cid = ""
+            if conv_id and isinstance(convs.get(conv_id), dict):
+                cand = convs[conv_id]
+                if cand.get("status") == "in_flight" and _safe_int(cand.get("seq"), default=0) == expected_seq:
+                    target_cid = conv_id
+            if not target_cid:
+                for cid, rec in reversed(list(convs.items())):
+                    if rec.get("status") == "in_flight" and _safe_int(rec.get("seq"), default=0) == expected_seq:
+                        target_cid = cid
+                        break
+            if not target_cid:
+                return
+            updated_entry = dict(convs[target_cid])
+            updated_entry["status"] = "interrupted_notified"
+            convs[target_cid] = updated_entry
+            ledger[ws_key] = _rebuild_ws_flight_entry(ws_key, convs, primary_conv=target_cid)
+            atomic_write_json(flight_file, ledger)
+    except (OSError, RuntimeError, TimeoutError) as exc:
+        sys.stderr.write(
+            f"[Harness Flight Recorder] Failed acknowledging interrupted flight ({type(exc).__name__}): {exc}\n"
+        )
 
 def _detect_workspace_recovery_hint(
     workspace: Optional[Path],
@@ -1022,12 +1043,14 @@ def _detect_workspace_recovery_hint(
     first_turn_in_conv: bool,
     *,
     is_mid_turn: bool = False,
+    now: Optional[datetime] = None,
 ) -> Tuple[bool, Optional[Tuple[str, str, Optional[int]]]]:
     """
     Inspects `state_dir() / "flight_recorder.json"`, `HANDOFF.md`, and `tasks.md` to detect:
-      1. Mid-turn interruptions (`status == "in_flight"`, where a write tool ran and `Stop`
-         never executed due to quota exhaustion, network disconnect, or power loss; suppressed
-         during active mid-turn tool continuations in the same conversation),
+      1. Same-conversation mid-turn interruptions (`status == "in_flight"` for `conv_id`,
+         suppressed during active mid-turn tool continuations), or stale cross-conversation
+         `"in_flight"` crashes whose `updated_at` exceeds `_STALE_IN_FLIGHT_SECONDS` (fresh
+         sibling `"in_flight"` workers are ignored so concurrent swarms never collide),
       2. Cross-session blocked or interrupted turns (`status in ("in_progress_blocked", "interrupted_notified")`
          from a prior session),
       3. Active `HANDOFF.md` (`Status: [IN-PROGRESS]`) or unfinished `tasks.md` (`[ ]`, `[~]`, `[!]`)
@@ -1051,6 +1074,12 @@ def _detect_workspace_recovery_hint(
     except (OSError, RuntimeError):
         return False, None
 
+    ref_now = now if isinstance(now, datetime) else datetime.now(timezone.utc)
+    if ref_now.tzinfo is None:
+        ref_now = ref_now.replace(tzinfo=timezone.utc)
+    else:
+        ref_now = ref_now.astimezone(timezone.utc)
+
     flight_entry: Dict[str, Any] = {}
     flight_alert_reason = ""
     ack_seq: Optional[int] = None
@@ -1063,18 +1092,45 @@ def _detect_workspace_recovery_hint(
                     inspect_ok = False
                 elif _prune_missing_flight_workspaces(ledger):
                     atomic_write_json(flight_file, ledger)
-                if isinstance(ledger.get(ws_key), dict):
-                    flight_entry = dict(ledger[ws_key])
-                    status = str(flight_entry.get("status") or "")
-                    rec_conv = str(flight_entry.get("conversation_id") or "")
-                    if status == "in_flight" and not (is_mid_turn and rec_conv == conv_id):
-                        flight_alert_reason = "in_flight"
-                        ack_seq = _safe_int(flight_entry.get("seq"), default=0)
-                    elif first_turn_in_conv and rec_conv != conv_id and status in (
-                        "in_progress_blocked",
-                        "interrupted_notified",
+                convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+                if convs:
+                    self_entry = convs.get(conv_id) if conv_id else None
+                    if (
+                        isinstance(self_entry, dict)
+                        and str(self_entry.get("status") or "") == "in_flight"
+                        and not is_mid_turn
                     ):
-                        flight_alert_reason = status
+                        flight_entry = dict(self_entry)
+                        flight_alert_reason = "in_flight"
+                        ack_seq = _safe_int(self_entry.get("seq"), default=0)
+                    elif first_turn_in_conv:
+                        other_items = [
+                            (cid, rec) for cid, rec in reversed(list(convs.items())) if cid != conv_id
+                        ]
+                        for _cid, rec in other_items:
+                            st = str(rec.get("status") or "")
+                            if st in ("in_progress_blocked", "interrupted_notified"):
+                                flight_entry = dict(rec)
+                                flight_alert_reason = st
+                                break
+                        if not flight_alert_reason:
+                            for _cid, rec in other_items:
+                                if str(rec.get("status") or "") != "in_flight":
+                                    continue
+                                ts = _parse_iso_utc(str(rec.get("updated_at") or ""))
+                                if ts is None or (ref_now - ts).total_seconds() >= _STALE_IN_FLIGHT_SECONDS:
+                                    flight_entry = dict(rec)
+                                    flight_alert_reason = "in_flight"
+                                    ack_seq = _safe_int(rec.get("seq"), default=0)
+                                    break
+                        if not flight_alert_reason:
+                            if isinstance(self_entry, dict):
+                                flight_entry = dict(self_entry)
+                            else:
+                                for _cid, rec in other_items:
+                                    if str(rec.get("status") or "") != "in_flight":
+                                        flight_entry = dict(rec)
+                                        break
         except (OSError, TimeoutError):
             inspect_ok = False
 
@@ -1315,7 +1371,10 @@ _GAME_PKG_RE = _LazyRegex(
     re.IGNORECASE,
 )
 
-_RUST_BRIDGE_RE = _LazyRegex(r"\b(?:pyo3|cxx|cbindgen|bindgen|maturin)\b", re.IGNORECASE)
+_RUST_BRIDGE_RE = _LazyRegex(
+    r"\b(?:pyo3|cxx|cbindgen|bindgen|maturin|napi|napi-derive|napi-build|wasm-bindgen|magnus|jni)\b",
+    re.IGNORECASE,
+)
 
 _CANVAS_RE = _LazyRegex(r"(?:<canvas\b|getContext\s*\(\s*[\"'](?:2d|webgl2?)[\"'])", re.IGNORECASE)
 
@@ -2020,6 +2079,8 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
     cleaned = _extract_user_request_prose(raw_prompt).strip() if raw_prompt else ""
+    prompt_with_inline = _extract_user_request_with_inline(raw_prompt).strip() if raw_prompt else ""
+    is_aux_readonly = _is_auxiliary_readonly_context(payload, prompt_with_inline)
     scan_text = cleaned[:16384]
     inline_cmd_surface = _extract_explicit_inline_command_tokens(raw_prompt) if raw_prompt else ""
     explicit_text = f"{scan_text} {inline_cmd_surface}".strip() if inline_cmd_surface else scan_text
@@ -2113,7 +2174,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             active_turn = max(turn_num, 1)
             new_keys: set[str] = set()
 
-            if workspaces:
+            if workspaces and not is_aux_readonly:
                 all_inspect_ok = True
                 for ws in workspaces:
                     inspect_ok, recovery = _facade_attr(
@@ -2181,7 +2242,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
 
             if pending_acks and hints_persisted:
                 for ack_ws, ack_seq_val in pending_acks:
-                    _acknowledge_interrupted_flight(ack_ws, ack_seq_val)
+                    _acknowledge_interrupted_flight(ack_ws, ack_seq_val, conv_id=conv_id)
     except (OSError, TimeoutError) as exc:
         sys.stderr.write(f"[Harness PreInvocation] Failed to lock `{hints_file}` ({type(exc).__name__}): {exc}\n")
         if is_mid_turn:
@@ -2194,12 +2255,13 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             if not matched_routes:
                 return {}
         else:
-            for ws in workspaces:
-                _inspect_ok, recovery = _facade_attr(
-                    "_detect_workspace_recovery_hint", _detect_workspace_recovery_hint
-                )(ws, conv_id, first_turn_in_conv=False, is_mid_turn=False)
-                if recovery is not None:
-                    recovery_msgs.append(recovery[1])
+            if not is_aux_readonly:
+                for ws in workspaces:
+                    _inspect_ok, recovery = _facade_attr(
+                        "_detect_workspace_recovery_hint", _detect_workspace_recovery_hint
+                    )(ws, conv_id, first_turn_in_conv=False, is_mid_turn=False)
+                    if recovery is not None:
+                        recovery_msgs.append(recovery[1])
             matched, matched_routes = _collect_invocation_skill_hints(
                 scan_text,
                 workspaces,

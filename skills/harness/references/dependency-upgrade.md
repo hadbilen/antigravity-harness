@@ -14,7 +14,7 @@ An upgrade changes the versions underneath the code while preserving observable 
 The delta catalog lists only the upstream changes between the old and new versions **that this codebase actually touches**:
 
 1. **What changed upstream between the two versions:** Read the release notes, changelog, and migration guide for every intermediate version from installed package docs or via the `research` subagent (`skills/harness/SKILL.md` §2 — never from training memory). Remember that minor or patch releases can also introduce behavioral shifts.
-2. **What this codebase uses:** Search the repository (`run_command` via `git grep -n`, `ripgrep`, or `scripts/code_map.py`) for all imports, function calls, configuration keys, and command-line flags from the package.
+2. **What this codebase uses:** Search the repository (`run_command` via `git grep -n`, `ripgrep`, or `agy-guard code-map`) for all imports, function calls, configuration keys, and command-line flags from the package.
 
 For every intersection entry, record:
 - **Location:** `file:line` and total call-site count;

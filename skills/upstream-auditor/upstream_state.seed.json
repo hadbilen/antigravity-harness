@@ -1,24 +1,16 @@
 {
-  "last_audited_model": "Gemini 4 Hydrogen (XHigh)",
-  "last_model_slug": "gemini-4-hydrogen-xhigh",
+  "last_audited_model": "Gemini 4 Neon (XHigh)",
+  "last_model_slug": "gemini-4-neon-xhigh",
   "approved_customization_models": [
-    "claude-opus-5.5-high",
-    "gemini-4-hydrogen-xhigh",
-    "gemini-4-carbon-high",
-    "gemini-4-carbon-xhigh",
-    "gemini-4-argon-high",
-    "orchestrator-carbon-high",
-    "orchestrator-carbon-xhigh",
-    "orchestrator-argon-high",
-    "orchestrator-argon-xhigh"
+    "gemini-4-neon-xhigh",
+    "gemini-4-carbon-high"
   ],
-  "last_pbtxt_model": "MODEL_PLACEHOLDER_M528",
+  "last_pbtxt_model": "MODEL_PLACEHOLDER_M535",
   "known_placeholder_models": {
-    "MODEL_PLACEHOLDER_M417": "Gemini 4 Argon (High)",
-    "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
-    "MODEL_PLACEHOLDER_M528": "Gemini 4 Hydrogen (XHigh)"
+    "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
+    "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)"
   },
-  "builtin_skills_hash": "34565a8e728e5ba5124bfafb638ef621bb162b70b0391c8534536720192360b9",
+  "builtin_skills_hash": "01e53d8dd784ca029fc8e3d052e32697afb90eec805343d4bc202212a343eeb3",
   "recorded_builtin_skills": [
     "agy-customizations",
     "antigravity_guide",
@@ -33,10 +25,11 @@
     "run-workflow",
     "swarm_monitor",
     "swarm_narrator",
+    "swarm_pane",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-11-16T10:00:00+03:00",
-  "last_skills_audit_timestamp": "2026-11-15T19:05:00+03:00",
+  "last_audit_timestamp": "2026-11-22T00:10:00+03:00",
+  "last_skills_audit_timestamp": "2026-11-22T00:10:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
@@ -109,6 +102,16 @@
       "last_synced_commit": "rea-agents-6.9.0",
       "target_skills": [
         "reverse-engineer-anything"
+      ]
+    },
+    "rust-anything": {
+      "repo": "erkamyaman/rust-anything",
+      "branch": "main",
+      "track": "release",
+      "last_synced_commit": "v2.1.0",
+      "target_skills": [
+        "rustify",
+        "rust-harden"
       ]
     }
   }

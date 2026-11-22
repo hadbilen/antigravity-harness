@@ -199,8 +199,42 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
         if not isinstance(hooks_data, dict):
             warnings.append(f"Lifecycle hooks configuration {hooks_file} is not a valid JSON object.")
         else:
+            uw_entry = hooks_data.get("upstream-watchdog")
+            uw_schema_invalid = False
             if "upstream-watchdog" not in hooks_data:
-                warnings.append(f"Lifecycle hooks configuration {hooks_file} is missing 'upstream-watchdog'.")
+                warnings.append(f"Lifecycle hooks configuration {hooks_file} is missing 'upstream-watchdog' (SessionStart).")
+                uw_schema_invalid = True
+            else:
+                if not isinstance(uw_entry, dict):
+                    warnings.append(
+                        f"Lifecycle hooks configuration {hooks_file} has invalid 'upstream-watchdog' entry (expected JSON object)."
+                    )
+                    uw_schema_invalid = True
+                else:
+                    if "SessionStart" not in uw_entry:
+                        repair_hint = _repair_command_hint()
+                        if "PreInvocation" in uw_entry:
+                            warnings.append(
+                                f"Lifecycle hooks configuration {hooks_file} registers 'upstream-watchdog' under legacy 'PreInvocation' "
+                                f"instead of 'SessionStart' (run {repair_hint})."
+                            )
+                        else:
+                            warnings.append(
+                                f"Lifecycle hooks configuration {hooks_file} is missing 'SessionStart' under 'upstream-watchdog' "
+                                f"(run {repair_hint})."
+                            )
+                            uw_schema_invalid = True
+                    elif not isinstance(uw_entry.get("SessionStart"), list) or not uw_entry.get("SessionStart"):
+                        warnings.append(
+                            f"Lifecycle hooks configuration {hooks_file} has invalid or empty 'upstream-watchdog.SessionStart' entry (expected non-empty list)."
+                        )
+                        uw_schema_invalid = True
+                    elif uw_entry.get("PreInvocation"):
+                        repair_hint = _repair_command_hint()
+                        warnings.append(
+                            f"Lifecycle hooks configuration {hooks_file} still registers legacy 'PreInvocation' alongside 'SessionStart' "
+                            f"under 'upstream-watchdog' (run {repair_hint})."
+                        )
             if "harness-gate" not in hooks_data:
                 warnings.append(
                     f"Lifecycle hooks configuration {hooks_file} is missing 'harness-gate' (PreInvocation/PreToolUse/Stop)."
@@ -220,7 +254,7 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
                             warnings.append(
                                 f"Lifecycle hook script referenced in {hooks_file.name} does not exist: {cleaned}"
                             )
-            if "upstream-watchdog" in hooks_data and "harness-gate" in hooks_data and not seen_missing:
+            if "upstream-watchdog" in hooks_data and "harness-gate" in hooks_data and not seen_missing and not uw_schema_invalid:
                 infos.append("Native lifecycle hooks ('upstream-watchdog' & 'harness-gate') are registered in hooks.json.")
     elif root.is_dir():
         repair_hint = _repair_command_hint()
@@ -250,7 +284,11 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
                     malformed_strikes = True
                     continue
                 try:
-                    if int(v.get("count", 0) or 0) >= 3:
+                    if (
+                        bool(v.get("tripped"))
+                        or int(v.get("count", 0) or 0) >= 3
+                        or int(v.get("total_strikes", 0) or 0) >= 5
+                    ):
                         tripped.append(str(k))
                 except (TypeError, ValueError):
                     malformed_strikes = True

@@ -25,8 +25,26 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
 TargetInput = Optional[Union[Path, str, Sequence[Union[Path, str]]]]
 
 WRITE_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
-# icacls rights that grant any form of write/delete; a DENY entry carrying one of them blocks writes.
-_WRITE_DENY_RIGHTS = {"F", "M", "W", "WD", "AD", "DE", "DC", "WA", "WEA", "GW", "GA"}
+# icacls rights that block directory file/subdirectory creation when placed in a non-IO DENY ACE.
+_WRITE_DENY_RIGHTS = {"F", "M", "W", "WD", "AD", "GW", "GA"}
+# Recognized standard Windows icacls rights & inheritance flags (used to avoid write probes on normal unlocked dirs).
+_STANDARD_ICACLS_TOKENS = frozenset({
+    "F", "M", "RX", "R", "W", "D", "N", "DENY",
+    "WD", "AD", "DE", "DC", "WA", "WEA", "GW", "GA", "GR", "GE", "RD", "EA", "RA", "REA", "X", "S", "RC", "WDAC", "WO",
+    "OI", "CI", "IO", "NP", "I",
+})
+# Known English & localized icacls deny/no-access tokens and Everyone principal spellings (including SID S-1-1-0).
+_ICACLS_DENY_TOKENS = frozenset({
+    "DENY", "N",
+    "VERWEIGERN", "REDDET", "REFUSER", "DENEGAR", "NEGAR", "NEGA",
+    "ODMOWA", "ODMAWIAJ", "WEIGEREN", "NEKA", "AVSLÅ", "ESTÄ", "ZAKÁZAT",
+    "ЗАПРЕТИТЬ", "拒否", "拒绝", "拒絕", "거부",
+})
+_ICACLS_EVERYONE_TOKENS = frozenset({
+    "everyone", "s-1-1-0", "*s-1-1-0",
+    "jeder", "herkes", "tout le monde", "todos", "wszyscy", "iedereen",
+    "alla", "alle", "kaikki", "všichni", "все",
+})
 _UF_IMMUTABLE = 0x00000002
 _SF_IMMUTABLE = 0x00020000
 
@@ -164,30 +182,90 @@ class OSProtectionAdapter:
             return bool(st.st_mode & stat.S_IWRITE)
         return bool(st.st_mode & WRITE_BITS)
 
+    @staticmethod
+    def _windows_principal() -> str:
+        """Formats the current Windows account principal (`USERDOMAIN\\USERNAME`, or `*S-1-1-0` fallback)."""
+        raw_user = os.environ.get("USERNAME", "").strip()
+        clean_user = re.sub(r"[\x00-\x1f\x7f:]", "", raw_user).strip("\\")
+        if not clean_user:
+            return "*S-1-1-0"
+        if "\\" in clean_user or "@" in clean_user or clean_user.upper().startswith("*S-"):
+            return clean_user
+        raw_domain = os.environ.get("USERDOMAIN", "").strip()
+        clean_domain = re.sub(r"[\x00-\x1f\x7f:\\]", "", raw_domain)
+        if clean_domain:
+            return f"{clean_domain}\\{clean_user}"
+        return clean_user
+
     def _windows_dir_denied(self, path: Path) -> bool:
-        """Checks the NTFS DACL for an explicit write/delete deny entry (read-only query)."""
-        user = os.environ.get("USERNAME", "").lower()
+        """Checks the NTFS DACL for an explicit write/delete deny entry (English, localized, SID, or write probe)."""
+        raw_user = re.sub(r"[\x00-\x1f\x7f:]", "", os.environ.get("USERNAME", "").strip()).strip("\\").lower()
+        full_principal = self._windows_principal().lower() if raw_user else ""
+        path_prefix = str(path).lower()
+
+        def _matches_principal(principal_part: str) -> bool:
+            if not raw_user:
+                return True
+            tail = principal_part[len(path_prefix):].strip() if principal_part.startswith(path_prefix) else principal_part.strip()
+            for cand in (full_principal, raw_user):
+                if cand and re.search(rf"(?:^|\s|\\){re.escape(cand)}$", tail):
+                    return True
+            for ev in _ICACLS_EVERYONE_TOKENS:
+                if re.search(rf"(?:^|\s|\\){re.escape(ev)}$", tail):
+                    return True
+            return False
+
+        known_tokens = _STANDARD_ICACLS_TOKENS | _ICACLS_DENY_TOKENS
         try:
             res = subprocess.run(["icacls", str(path)], capture_output=True, text=True, timeout=10)
             if res.returncode == 0:
+                parsed_aces: List[Tuple[str, set[str]]] = []
+                saw_unknown_token = False
                 for line in res.stdout.splitlines():
-                    low = line.lower()
-                    if "(deny)" in low and (not user or user in low or "everyone" in low):
-                        # Compare whole right tokens: substring tests matched "de" inside "(deny)".
-                        rights = {tok.strip().upper() for grp in re.findall(r"\(([^()]*)\)", line) for tok in grp.split(",")}
-                        if rights & _WRITE_DENY_RIGHTS:
+                    ace_sep = line.rfind(":(")
+                    if ace_sep == -1:
+                        continue
+                    principal_part = line[:ace_sep].lower()
+                    ace_part = line[ace_sep + 1:]
+                    tokens = {
+                        tok.strip().upper()
+                        for grp in re.findall(r"\(([^()]*)\)", ace_part)
+                        for tok in grp.split(",")
+                        if tok.strip()
+                    }
+                    if not tokens:
+                        continue
+                    parsed_aces.append((principal_part, tokens))
+                    if not tokens.issubset(known_tokens):
+                        saw_unknown_token = True
+                for principal_part, tokens in parsed_aces:
+                    if "IO" in tokens:
+                        continue
+                    if (tokens & _ICACLS_DENY_TOKENS) and _matches_principal(principal_part):
+                        if "N" in tokens or (tokens & _WRITE_DENY_RIGHTS):
                             return True
-                return False
+                if parsed_aces and not saw_unknown_token:
+                    return False
         except (OSError, subprocess.SubprocessError):
             pass
-        # Fallback: explicit side-effecting probe with a unique, self-cleaning name.
+        # Fallback strictly for unknown locales, empty/unparseable ACL output, or icacls errors: self-cleaning write probe.
+        probe = ""
         try:
             fd, probe = tempfile.mkstemp(prefix=".agy-probe-", dir=str(path))
             os.close(fd)
-            os.unlink(probe)
-            return False
+        except PermissionError:
+            return True
         except OSError:
             return True
+        finally:
+            if probe:
+                try:
+                    os.unlink(probe)
+                except OSError as exc:
+                    import sys as _sys
+
+                    _sys.stderr.write(f"[WARN] Could not remove temporary ACL probe `{probe}`: {exc}\n")
+        return False
 
     # ------------------------------------------------------------------
     # Status
@@ -334,9 +412,9 @@ class OSProtectionAdapter:
             if not ok:
                 failures.append(f"chflags uchg failed: {err}")
         elif self.system == "windows":
-            username = os.environ.get("USERNAME", "Everyone")
+            principal = self._windows_principal()
             rights = "(OI)(CI)(WD,AD,DE,DC)" if is_dir and recursive else "(WD,AD,DE,DC)"
-            ok, err = self._run(["icacls", str(lock_path), "/deny", f"{username}:{rights}", "/L"])
+            ok, err = self._run(["icacls", str(lock_path), "/deny", f"{principal}:{rights}", "/L"])
             if not ok:
                 failures.append(f"icacls deny failed: {err}")
             attrib = ["attrib", "+R", str(lock_path)] + (["/S", "/D"] if is_dir and recursive else [])
@@ -344,7 +422,7 @@ class OSProtectionAdapter:
             if not ok2:
                 failures.append(f"attrib +R failed: {err2}")
             if ok and ok2:
-                details.append(f"applied NTFS deny ACL and +R for {username}")
+                details.append(f"applied NTFS deny ACL and +R for {principal}")
         elif self.system == "linux" and hasattr(os, "geteuid") and os.geteuid() == 0:
             cmd = ["chattr"] + (["-R"] if is_dir and recursive else []) + ["+i", str(lock_path)]
             ok, err = self._run(cmd)
@@ -395,8 +473,8 @@ class OSProtectionAdapter:
             if not ok:
                 failures.append(f"chflags nouchg failed: {err}")
         elif self.system == "windows":
-            username = os.environ.get("USERNAME", "Everyone")
-            cmd = ["icacls", str(unlock_path), "/remove:d", username] + (
+            principal = self._windows_principal()
+            cmd = ["icacls", str(unlock_path), "/remove:d", principal] + (
                 ["/t", "/c", "/L", "/q"] if is_dir and recursive else ["/L", "/q"]
             )
             ok, err = self._run(cmd)

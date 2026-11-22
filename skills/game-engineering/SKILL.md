@@ -90,7 +90,7 @@ Before declaring any game or interactive simulation task complete, run all four 
 2. **State Machine Transition Coverage:** Verify every legal transition and confirm illegal transitions (for example, moving or attacking while in `"dead"` or `"gameover"` state) are rejected.
 3. **Structural UI Slop Gate (`check_ui_slop.py` — Profile A / Web Overlays Only):** For HTML/JSX/TSX/CSS game builds and DOM overlays, run the deterministic UI slop scanner in game mode (native C#/GDScript/C++/Rust engine projects without web markup skip this step):
    ```bash
-   python3 skills/antislop/scripts/check_ui_slop.py <paths> --mode game
+   agy-guard ui-slop <paths> --mode game
    # Or from installed global config:
    python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py <paths> --mode game
    ```

@@ -42,7 +42,7 @@ Code blocks and shell commands in documentation are executable contracts, not de
 - **Lead with the Prerequisite and Outcome:** Open every guide with what must already be installed or configured and what state the reader will reach at the end.
 - **One Concept Per Step:** Each numbered step performs one logical action and states how to verify it before moving on.
 - **Terminology Clarity:** Spell out unfamiliar domain terms or protocols in full before introducing an acronym on first use so newcomer tutorials and guides never rely on unexplained shorthand.
-- **Anti-Slop Technical Profile:** Run `skills/antislop/scripts/check_synthetic_markers.py --profile technical` (or `~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical`, with `--lang tr` or `--lang auto` for Turkish documentation) on drafted Markdown files to strip signposting announcements (*"In this section we will explore"*, *"İşte bilmeniz gerekenler"*), chatbot leftovers, and brochure inflation while preserving normal engineering tables and lists (`skills/antislop/references/copywriting.md`).
+- **Anti-Slop Technical Profile:** Run `agy-guard synthetic-markers --profile technical` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical`, with `--lang tr` or `--lang auto` for Turkish documentation) on drafted Markdown files to strip signposting announcements (*"In this section we will explore"*, *"İşte bilmeniz gerekenler"*), chatbot leftovers, and brochure inflation while preserving normal engineering tables and lists (`skills/antislop/references/copywriting.md`).
 
 ## 4. Changelog & Release Note Discipline (`CHANGELOG.md`)
 
@@ -62,5 +62,5 @@ Before delivering technical documentation, verify:
 - [ ] Each section follows a single Diataxis mode (Tutorial, How-To, Reference, or Explanation) without mode mixing.
 - [ ] Every documented CLI flag, configuration key, and function signature was verified against the codebase source of truth.
 - [ ] Code snippets and structured configuration blocks were executed or syntax-parsed, or declared under `Not verified` (`GEMINI.md` Rule 8).
-- [ ] Relative links and repository paths resolve cleanly (`scripts/meta_audit.py` Pass 2).
-- [ ] `python3 skills/antislop/scripts/check_synthetic_markers.py --profile technical <file>` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical <file>`) exits `0`.
+- [ ] Relative links and repository paths resolve cleanly (`agy-guard self-audit` / `scripts/meta_audit.py` Pass 2).
+- [ ] `agy-guard synthetic-markers --profile technical <file>` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical <file>`) exits `0`.

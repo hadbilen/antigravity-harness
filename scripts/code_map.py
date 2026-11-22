@@ -2162,35 +2162,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="code_map",
         description="Deterministic Structural Code Graph, Runtime Tracer & FTS5 Search Engine",
+        allow_abbrev=False,
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
-    p_prof = sub.add_parser("profile", help="Inspect symbol definitions, callers, callees, and inheritance")
+    p_prof = sub.add_parser("profile", help="Inspect symbol definitions, callers, callees, and inheritance", allow_abbrev=False)
     p_prof.add_argument("symbol", help="Symbol name (e.g. build_manifest or ClassName.method)")
     p_prof.add_argument("paths", nargs="*", default=["."], help="Files or directories to index")
     p_prof.add_argument("--json", action="store_true", help="Output structured JSON")
 
-    p_call = sub.add_parser("callers", help="List AST-verified call sites for a symbol")
+    p_call = sub.add_parser("callers", help="List AST-verified call sites for a symbol", allow_abbrev=False)
     p_call.add_argument("symbol", help="Symbol name to find callers for")
     p_call.add_argument("paths", nargs="*", default=["."], help="Files or directories to index")
     p_call.add_argument("--json", action="store_true", help="Output structured JSON")
 
-    p_flow = sub.add_parser("flow", help="Trace backward argument origins and forward return consumers")
+    p_flow = sub.add_parser("flow", help="Trace backward argument origins and forward return consumers", allow_abbrev=False)
     p_flow.add_argument("symbol", help="Symbol name to trace dataflow for")
     p_flow.add_argument("paths", nargs="*", default=["."], help="Files or directories to index")
     p_flow.add_argument("--json", action="store_true", help="Output structured JSON")
 
-    p_blast = sub.add_parser("blast-radius", help="Compute transitive callers, affected files, and Tier 1/2/3 scope")
+    p_blast = sub.add_parser("blast-radius", help="Compute transitive callers, affected files, and Tier 1/2/3 scope", allow_abbrev=False)
     p_blast.add_argument("symbol", help="Symbol name to compute blast radius for")
     p_blast.add_argument("paths", nargs="*", default=["."], help="Files or directories to index")
     p_blast.add_argument("--max-depth", type=int, default=4, help="Maximum transitive caller hops")
     p_blast.add_argument("--json", action="store_true", help="Output structured JSON")
 
-    p_gate = sub.add_parser("gate-syntax", help="Deterministically parse-check .py, .json, .toml, .svg, and .xml files")
+    p_gate = sub.add_parser("gate-syntax", help="Deterministically parse-check .py, .json, .toml, .svg, and .xml files", allow_abbrev=False)
     p_gate.add_argument("paths", nargs="+", help="Files or directories to check")
     p_gate.add_argument("--json", action="store_true", help="Output structured JSON")
 
-    p_trace = sub.add_parser("trace", help="Run a Python script under the runtime call and argument tracer")
+    p_trace = sub.add_parser("trace", help="Run a Python script under the runtime call and argument tracer", allow_abbrev=False)
     p_trace.add_argument("script", help="Path to Python script to execute")
     p_trace.add_argument("script_args", nargs="*", help="Arguments passed to the script")
     p_trace.add_argument("--root", help="Scope directory for traced files (default: script parent)")
@@ -2198,7 +2199,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_trace.add_argument("--timeout", type=float, default=DEFAULT_TRACE_TIMEOUT_SEC, help="Maximum runtime seconds (default: 30)")
     p_trace.add_argument("--json", action="store_true", help="Output structured JSON")
 
-    p_fts = sub.add_parser("fts-search", help="BM25-ranked SQLite FTS5 search across large logs and docs")
+    p_fts = sub.add_parser("fts-search", help="BM25-ranked SQLite FTS5 search across large logs and docs", allow_abbrev=False)
     p_fts.add_argument("query", help="Search terms")
     p_fts.add_argument("paths", nargs="*", default=["."], help="Files or directories to index")
     p_fts.add_argument("--top", type=int, default=5, help="Maximum ranked snippets to return")

@@ -19,6 +19,8 @@ from __future__ import annotations
 import errno
 import math
 import os
+import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -200,24 +202,110 @@ def watcher_log_path() -> Path:
     return state_dir() / "logs" / "lease-watcher.log"
 
 
+def _read_process_cmdline(pid: int) -> Optional[str]:
+    """Returns the command line for `pid` across Linux, macOS, and Windows (None if unavailable)."""
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return None
+    if sys.platform.startswith("win"):
+        sys_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\Windows"
+        sys_ps = Path(sys_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        ps_bin = str(sys_ps) if sys_ps.is_file() else (
+            shutil.which("powershell.exe") or shutil.which("powershell") or shutil.which("pwsh")
+        )
+        if ps_bin:
+            try:
+                res = subprocess.run(
+                    [
+                        ps_bin,
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                pass
+        sys_wmic = Path(sys_root) / "System32" / "wbem" / "WMIC.exe"
+        wmic_bin = str(sys_wmic) if sys_wmic.is_file() else shutil.which("wmic")
+        if wmic_bin:
+            try:
+                res = subprocess.run(
+                    [wmic_bin, "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/VALUE"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    for line in res.stdout.splitlines():
+                        if line.strip().lower().startswith("commandline="):
+                            val = line.split("=", 1)[1].strip()
+                            if val:
+                                return val
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return None
+
+    if sys.platform.startswith("linux") or (sys.platform != "darwin" and Path("/proc").is_dir()):
+        proc_cmdline = Path(f"/proc/{pid}/cmdline")
+        try:
+            raw = proc_cmdline.read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="ignore").strip()
+            if raw:
+                return raw
+        except OSError:
+            pass
+
+    try:
+        res = subprocess.run(
+            ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 def _terminate_watcher_pid(pid: int) -> None:
-    """Terminates a detached `lease-tick` watcher process if still alive (never signals self)."""
+    """Terminates a verified detached `lease-tick` watcher process (refuses unverified/reused PIDs)."""
     import signal
 
     if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0 or pid == os.getpid():
         return
-    if sys.platform.startswith("linux") or Path("/proc").is_dir():
-        proc_cmdline = Path(f"/proc/{pid}/cmdline")
-        try:
-            raw = proc_cmdline.read_bytes().decode("utf-8", errors="ignore")
-        except OSError:
-            return
-        if "lease-tick" not in raw and "guard" not in raw:
-            return
+    cmdline = _read_process_cmdline(pid)
+    if not cmdline:
+        return
+    low = cmdline.lower()
+    if not re.search(r"\blease-tick\b", low):
+        return
+    argv0 = Path(low.split()[0]).name if low.split() else ""
+    is_guard_proc = any(tok in low for tok in ("agy-guard", "guard.cli", "guard.py", "--lease-file"))
+    is_non_test_python = argv0.startswith("python") and not re.search(
+        r"(?:^|\s)(?:-m\s+)?(?:pytest|unittest)\b", low
+    )
+    if not (is_guard_proc or is_non_test_python):
+        return
     try:
         os.kill(pid, signal.SIGTERM)
-    except OSError:
+    except ProcessLookupError:
         pass
+    except OSError as exc:
+        try:
+            from guard.audit_log import warn
+
+            warn("lease.watcher_terminate_failed", pid=pid, error=f"{type(exc).__name__}: {exc}")
+        except Exception:
+            pass
 
 
 def _spawn_tick(manager: "LeaseManager", wait: int, lease: Optional[UnlockLease] = None) -> Tuple[bool, str]:
@@ -238,8 +326,14 @@ def _spawn_tick(manager: "LeaseManager", wait: int, lease: Optional[UnlockLease]
         log_path = watcher_log_path()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "a", encoding="utf-8")
-    except OSError:
+    except OSError as exc:
         log_file = None
+        try:
+            from guard.audit_log import warn
+
+            warn("lease.watcher_log_unavailable", error=f"{type(exc).__name__}: {exc}")
+        except Exception:
+            pass
     kwargs: Dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": log_file or subprocess.DEVNULL,

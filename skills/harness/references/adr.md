@@ -68,20 +68,20 @@ What becomes easier or more difficult to do because of this change?
 
 When a decision moment is detected:
 
-1. **Initialize (first time only)** — if `docs/adr/` does not exist, ask the user for confirmation before creating the directory, a `README.md` seeded with the index table header (see ADR Index Format below), and a blank `template.md` for manual use. Do not create files without explicit consent.
-2. **Identify the decision** — extract the core architectural choice being made
-3. **Gather context** — what problem prompted this? What constraints exist?
-4. **Document alternatives with weighted criteria** — what other options were considered and why were they rejected? Do not treat criteria as equally weighted: name the decision-driving constraint and whether a single critical failure mode outweighed several minor advantages.
-5. **State consequences** — what are the trade-offs? What becomes easier/harder?
-6. **Assign a number** — scan existing ADRs in `docs/adr/` and increment
-7. **Confirm and write** — present the draft ADR to the user for review. Only write to `docs/adr/NNNN-decision-title.md` after explicit approval. If the user declines, discard the draft without writing any files.
-8. **Update the index** — append to `docs/adr/README.md`
+1. **Initialize (first time only):** If `docs/adr/` does not exist and an ADR is already required (Tier 3 planning) or explicitly requested (`/adr`), create `docs/adr/`, a `README.md` seeded with the index table header (see ADR Index Format below), and a blank `template.md` for manual use directly under the Reversible-First default (`skills/harness/SKILL.md` §1) without pausing for a low-stakes confirmation. Ask before initializing `docs/adr/` only when proposing an unsolicited ADR from implicit conversation signals.
+2. **Identify the decision:** Extract the core architectural choice being made.
+3. **Gather context:** State the problem that prompted this decision and the active constraints.
+4. **Document alternatives with weighted criteria:** Record the other options considered and why each was rejected. Do not treat criteria as equally weighted: name the decision-driving constraint and whether a single critical failure mode outweighed several minor advantages.
+5. **State consequences:** List the concrete trade-offs and what becomes easier or harder.
+6. **Assign a number:** Scan existing ADRs in `docs/adr/` and increment.
+7. **Write and review:** When an ADR was explicitly requested (`/adr`) or already scoped as a Tier 3 / `tasks.md` deliverable, write `docs/adr/NNNN-decision-title.md` directly and summarize the recorded decision in the response so the user can adjust or revert it. Require explicit upfront draft approval only when proposing an unsolicited ADR from implicit conversation signals; if the user declines, discard the draft without writing any files.
+8. **Update the index:** Append the new row to `docs/adr/README.md`.
 
 ### Reading Existing ADRs
 
 When a user asks "why did we choose X?":
 
-1. Check if `docs/adr/` exists — if not, respond: "No ADRs found in this project. Would you like to start recording architectural decisions?"
+1. Check if `docs/adr/` exists; if not, respond: "No ADRs found in this project. Would you like to start recording architectural decisions?"
 2. If it exists, scan `docs/adr/README.md` index for relevant entries
 3. Read matching ADR files and present the Context and Decision sections
 4. If no match is found, respond: "No ADR found for that decision. Would you like to record one now?"
@@ -120,7 +120,7 @@ Watch for these patterns in conversation that indicate an architectural decision
 - "The trade-off is worth it because..."
 - "Record this as an ADR"
 
-**Implicit signals** (suggest recording an ADR — do not auto-create without user confirmation)
+**Implicit signals** (suggest recording an ADR; do not auto-create without user confirmation)
 - Comparing two frameworks or libraries and reaching a conclusion
 - Making a database schema design choice with stated rationale
 - Choosing between architectural patterns (monolith vs microservices, REST vs GraphQL)
@@ -130,19 +130,19 @@ Watch for these patterns in conversation that indicate an architectural decision
 ## What Makes a Good ADR
 
 ### Do
-- **Be specific** — "Use Prisma ORM" not "use an ORM"
-- **Record the why** — the rationale matters more than the what
-- **Include rejected alternatives** — future developers need to know what was considered
-- **State consequences honestly** — every decision has trade-offs
-- **Keep it short** — an ADR should be readable in 2 minutes
-- **Use present tense** — "We use X" not "We will use X"
+- **Be specific:** "Use Prisma ORM" instead of "use an ORM"
+- **Record the why:** the rationale matters more than the what
+- **Include rejected alternatives:** future developers need to know what was considered
+- **State consequences honestly:** every decision has trade-offs
+- **Keep it short:** an ADR should be readable in 2 minutes
+- **Use present tense:** "We use X" instead of "We will use X"
 
 ### Don't
-- Record trivial decisions — variable naming or formatting choices don't need ADRs
-- Write essays — if the context section exceeds 10 lines, it's too long
-- Omit alternatives — "we just picked it" is not a valid rationale
-- Backfill without marking it — if recording a past decision, note the original date
-- Let ADRs go stale — superseded decisions should reference their replacement
+- Record trivial decisions: variable naming or formatting choices do not need ADRs
+- Write essays: if the context section exceeds 10 lines, shorten it
+- Omit alternatives: "we just picked it" is not a valid rationale
+- Backfill without marking it: if recording a past decision, note the original date
+- Let ADRs go stale: superseded decisions should reference their replacement
 
 ## ADR Lifecycle
 
@@ -171,4 +171,4 @@ proposed → accepted → [deprecated | superseded by ADR-NNNN]
 ## Integration with Other Skills and Subagents
 
 - **`harness` & `deep-grill` (Tier 3 Planning)**: when a Tier 3 architectural change (`>8 files`, schema, authentication, or cross-system protocol shift) is planned, record the decision in `docs/adr/` alongside `implementation_plan.md`.
-- **`consistency-auditor` & `specification-gap-auditor`**: verify that newly proposed specifications and architectural changes align with accepted ADRs or explicitly supersede them.
+- **`consistency-auditor` & `specification-gap-auditor`**: verify that newly proposed specifications and architectural changes conform to accepted ADRs or explicitly supersede them.

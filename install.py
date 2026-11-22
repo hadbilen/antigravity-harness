@@ -58,6 +58,10 @@ IS_WINDOWS = platform.system().lower() == "windows"
 SYSTEM = platform.system()
 GOVERNANCE_FILES = ["GEMINI.md", "DESIGN.md", "MISTAKES.md"]
 RUNTIME_ENTRIES = ["guard", "porter", "scripts", "guard.py", "porter.py"]
+RUNTIME_PORTABLE_SKILL_SCRIPTS = (
+    "skills/antislop/scripts/check_ui_slop.py",
+    "skills/antislop/scripts/check_synthetic_markers.py",
+)
 LAUNCHER_MARKER = "antigravity-harness launcher"
 RELEASE_BASE = "https://github.com/hadbilen/antigravity-harness/releases/download"
 BACKUP_RETENTION_KEEP = 10
@@ -408,7 +412,7 @@ class Installer:
 
         command = _cmd(str(watcher))
         merged = dict(existing)
-        merged["upstream-watchdog"] = {"PreInvocation": [{"type": "command", "command": command, "timeout": 15}]}
+        merged["upstream-watchdog"] = {"SessionStart": [{"type": "command", "command": command, "timeout": 15}]}
         merged["harness-gate"] = {
             "PreInvocation": [
                 {"type": "command", "command": _cmd(str(hooks_script), "pre-invocation"), "timeout": 5}
@@ -554,6 +558,24 @@ class Installer:
                 shutil.copytree(src, staging / name, ignore=_ignore)
             elif src.is_file():
                 shutil.copy2(src, staging / name)
+        for rel_script in RUNTIME_PORTABLE_SKILL_SCRIPTS:
+            src_script = SCRIPT_DIR / rel_script
+            if src_script.is_file():
+                dst_script = staging / rel_script
+                dst_script.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_script, dst_script)
+            else:
+                print(f"[WARN] Missing declared portable skill script during runtime install: {src_script}", file=sys.stderr)
+        if not IS_WINDOWS:
+            for sc in (
+                list((staging / "scripts").glob("*.py"))
+                + [staging / rel for rel in RUNTIME_PORTABLE_SKILL_SCRIPTS]
+            ):
+                if sc.is_file() and not os.path.islink(sc):
+                    try:
+                        sc.chmod(sc.stat().st_mode | 0o755)
+                    except OSError as exc:
+                        print(f"[WARN] Could not set executable permissions on {sc}: {exc}", file=sys.stderr)
         previous = runtime.with_name("runtime.prev")
         if previous.exists():
             self._release_legacy_tree(previous)

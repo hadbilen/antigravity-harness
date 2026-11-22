@@ -45,6 +45,7 @@ IS_WINDOWS = platform.system().lower() == "windows"
 SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 SYSTEMD_SERVICE_NAME = "agy-guard-boot.service"
 LAUNCH_AGENT_DIR = Path.home() / "Library" / "LaunchAgents"
+LAUNCH_AGENT_LABEL = "com.antigravity.guard"
 LAUNCH_AGENT_PLIST = "com.antigravity.guard.plist"
 WINDOWS_TASK_NAME = "AntigravityGuardBootSentinel"
 BOOT_DRIFT_KEEP = 3
@@ -227,6 +228,27 @@ WantedBy=default.target
     # -------------------------------------------------------------------------
     # macOS launchd implementation
     # -------------------------------------------------------------------------
+    @staticmethod
+    def _macos_launchd_domain() -> Optional[str]:
+        if hasattr(os, "getuid"):
+            return f"gui/{os.getuid()}"
+        return None
+
+    @staticmethod
+    def _run_launchctl(args: List[str]) -> Tuple[Optional[int], str]:
+        try:
+            res = subprocess.run(
+                ["launchctl", *args],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            detail = (res.stderr or res.stdout or f"exit {res.returncode}").strip()
+            return res.returncode, detail
+        except (OSError, subprocess.SubprocessError) as e:
+            return None, str(e)
+
     def _enable_macos(self) -> Tuple[bool, str]:
         (Path.home() / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
         plist_content = self.render_launchd_plist()
@@ -235,35 +257,82 @@ WantedBy=default.target
         plist_file.write_text(plist_content, encoding="utf-8")
 
         if not shutil.which("launchctl"):
-            return False, f"Wrote {plist_file}, but launchctl is not available, so the sentinel is NOT loaded."
-        try:
-            res = subprocess.run(["launchctl", "load", str(plist_file)], check=False, capture_output=True, text=True, timeout=15)
-        except (OSError, subprocess.SubprocessError) as e:
-            return False, f"Wrote {plist_file}, but launchctl load failed: {e}"
-        if res.returncode != 0:
-            return False, f"Wrote {plist_file}, but launchctl load failed: {(res.stderr or res.stdout).strip()}"
-        return True, f"Configured and loaded macOS LaunchAgent: {plist_file}"
+            plist_file.unlink(missing_ok=True)
+            return False, f"Removed {plist_file} because launchctl is not available, so the sentinel is NOT loaded."
+
+        domain = self._macos_launchd_domain()
+        bootstrap_err = ""
+        if domain:
+            rc_bs, err_bs = self._run_launchctl(["bootstrap", domain, str(plist_file)])
+            if rc_bs == 0:
+                return True, f"Configured and loaded macOS LaunchAgent via launchctl bootstrap: {plist_file}"
+            bootstrap_err = err_bs
+            # If already loaded in this GUI domain, bootout once and retry bootstrap cleanly.
+            rc_bo, _ = self._run_launchctl(["bootout", f"{domain}/{LAUNCH_AGENT_LABEL}"])
+            if rc_bo == 0:
+                rc_retry, err_retry = self._run_launchctl(["bootstrap", domain, str(plist_file)])
+                if rc_retry == 0:
+                    return True, f"Configured and reloaded macOS LaunchAgent via launchctl bootstrap: {plist_file}"
+                bootstrap_err = err_retry
+
+        # Graceful legacy fallback for older macOS releases or non-GUI launchd sessions.
+        rc_load, load_err = self._run_launchctl(["load", str(plist_file)])
+        if rc_load != 0:
+            plist_file.unlink(missing_ok=True)
+            prefix = f"launchctl bootstrap ({bootstrap_err}) and " if bootstrap_err else ""
+            return False, f"Failed loading macOS LaunchAgent ({prefix}launchctl load failed: {load_err}); removed {plist_file}."
+        return True, f"Configured and loaded macOS LaunchAgent (legacy load fallback): {plist_file}"
 
     def _disable_macos(self) -> Tuple[bool, str]:
         plist_file = LAUNCH_AGENT_DIR / LAUNCH_AGENT_PLIST
-        if shutil.which("launchctl") and plist_file.exists():
-            try:
-                subprocess.run(["launchctl", "unload", str(plist_file)], check=False, capture_output=True, timeout=15)
-            except (OSError, subprocess.SubprocessError):
-                pass
+        had_plist = plist_file.exists()
+        unloaded = False
+        unload_err = ""
+        if shutil.which("launchctl"):
+            domain = self._macos_launchd_domain()
+            if domain:
+                cmds = (
+                    [["bootout", domain, str(plist_file)], ["bootout", f"{domain}/{LAUNCH_AGENT_LABEL}"]]
+                    if had_plist
+                    else [["bootout", f"{domain}/{LAUNCH_AGENT_LABEL}"]]
+                )
+                for cmd in cmds:
+                    rc, detail = self._run_launchctl(cmd)
+                    if rc == 0:
+                        unloaded = True
+                        break
+                    unload_err = detail
+            if had_plist and not unloaded:
+                rc_un, detail_un = self._run_launchctl(["unload", str(plist_file)])
+                if rc_un == 0:
+                    unloaded = True
+                else:
+                    unload_err = detail_un
 
-        if plist_file.exists():
+        if had_plist:
             plist_file.unlink(missing_ok=True)
+            if not unloaded and shutil.which("launchctl") and unload_err:
+                return True, f"Removed macOS LaunchAgent: {plist_file} (launchctl unload note: {unload_err})"
             return True, f"Removed macOS LaunchAgent: {plist_file}"
+        if unloaded:
+            return True, f"Unloaded orphaned macOS LaunchAgent service ({LAUNCH_AGENT_LABEL})."
         return True, "Early startup LaunchAgent was not enabled."
 
     def _status_macos(self) -> Dict[str, Any]:
         plist_file = LAUNCH_AGENT_DIR / LAUNCH_AGENT_PLIST
+        installed = plist_file.is_file()
+        active = installed
+        if installed and shutil.which("launchctl"):
+            domain = self._macos_launchd_domain()
+            if domain:
+                rc_pr, _ = self._run_launchctl(["print", f"{domain}/{LAUNCH_AGENT_LABEL}"])
+                if rc_pr is not None:
+                    active = rc_pr == 0
         return {
             "platform": "macOS",
             "mechanism": "launchd LaunchAgent (RunAtLoad)",
-            "installed": plist_file.is_file(),
-            "active": plist_file.is_file(),
+            "installed": installed,
+            "active": active,
             "target_path": str(plist_file),
         }
 
@@ -444,9 +513,13 @@ WantedBy=default.target
         if self.registry is None or self.environment.id.startswith("boot-target"):
             paths = list(self.environment.get_governance_paths(existing_only=True))
             if self.environment.is_global and self.environment.id == "antigravity":
-                paths.extend(antigravity_external_governance_paths(existing_only=True))
+                seen_paths = {str(p) for p in paths}
+                for ext in antigravity_external_governance_paths(existing_only=True):
+                    if str(ext) not in seen_paths:
+                        paths.append(ext)
+                        seen_paths.add(str(ext))
             lock_ok, lock_msg = self.os_adapter.lock(paths) if paths else (True, "")
-            if self.target_dir.exists():
+            if self.environment.protect_root and self.target_dir.exists():
                 root_ok, root_msg = self.os_adapter.lock(self.target_dir, recursive=False)
             else:
                 root_ok, root_msg = True, ""

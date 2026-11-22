@@ -78,7 +78,7 @@ Stop at first rung that holds:
 
 Ladder runs *after* understanding problem, not instead. Read fully, then be lazy.
 
-**Bug fix = root cause, not symptom.** Check every caller (`python3 scripts/code_map.py callers <symbol>` or `grep`) before editing (`skills/harness/SKILL.md` §3.B). One guard in shared function beats guard in every caller.
+**Bug fix = root cause, not symptom.** Check every caller (`agy-guard code-map callers <symbol>` or `grep`) before editing (`skills/harness/SKILL.md` §3.B). One guard in shared function beats guard in every caller.
 
 ## Code Rules
 
