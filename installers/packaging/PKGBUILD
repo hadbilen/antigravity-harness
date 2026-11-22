@@ -1,6 +1,6 @@
 # Maintainer: Had Bilen <https://github.com/hadbilen>
 pkgname=antigravity-guard
-pkgver=2.2.0
+pkgver=2.3.0
 pkgrel=1
 pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
 arch=('x86_64' 'aarch64')
