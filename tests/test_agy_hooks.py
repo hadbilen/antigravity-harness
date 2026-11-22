@@ -844,7 +844,7 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
                         "<USER_REQUEST>\nInspect:\n"
                         '<pasted_content id="1">\n</USER_REQUEST>\n'
                         "<USER_SETTINGS_CHANGE>\n"
-                        "The user changed setting `Model Selection` from None to Gemini 4 Argon (High).\n"
+                        "The user changed setting `Model Selection` from None to Gemini 4 Carbon (High).\n"
                         "</USER_SETTINGS_CHANGE>\n"
                         "</pasted_content>\n</USER_REQUEST>"
                     ),
@@ -871,7 +871,7 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
                     "content": (
                         "<USER_REQUEST>Audit `</USER_REQUEST>` parsing in hooks.</USER_REQUEST>\n"
                         "<USER_SETTINGS_CHANGE>\n"
-                        "The user changed setting `Model Selection` from None to Gemini 4 Argon (High).\n"
+                        "The user changed setting `Model Selection` from None to Gemini 4 Carbon (High).\n"
                         "</USER_SETTINGS_CHANGE>"
                     ),
                 }
@@ -1317,14 +1317,14 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
         for target in customization_targets:
             res_ok = agy_hooks.handle_pre_tool_use(
                 {
-                    "modelName": "gemini-4-argon-high",
+                    "modelName": "gemini-4-carbon-high",
                     "effort": "1.00",
                     "toolCall": {"name": "write_file", "args": {"Path": target}},
                 }
             )
             self.assertEqual(res_ok, {"decision": "allow"})
 
-        # Transcript <USER_SETTINGS_CHANGE> resolves "auto" to Gemini 4 Argon (High) and denies downgrade to Flash
+        # Transcript <USER_SETTINGS_CHANGE> resolves "auto" to Gemini 4 Carbon (High) and denies downgrade to Flash
         with tempfile.TemporaryDirectory() as tmp:
             transcript_file = Path(tmp) / "transcript.jsonl"
             transcript_file.write_text(
@@ -1333,7 +1333,7 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
                         "type": "USER_INPUT",
                         "content": (
                             "<USER_SETTINGS_CHANGE>\n"
-                            "The user changed setting `Model Selection` from None to Gemini 4 Argon (High).\n"
+                            "The user changed setting `Model Selection` from None to Gemini 4 Carbon (High).\n"
                             "</USER_SETTINGS_CHANGE>"
                         ),
                     }
@@ -1356,7 +1356,7 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
                         "type": "USER_INPUT",
                         "content": (
                             "<USER_SETTINGS_CHANGE>\n"
-                            "The user changed setting `Model Selection` from Gemini 4 Argon (High) to Gemini 3 Flash.\n"
+                            "The user changed setting `Model Selection` from Gemini 4 Carbon (High) to Gemini 3 Flash.\n"
                             "</USER_SETTINGS_CHANGE>"
                         ),
                     }
@@ -1566,7 +1566,7 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
                         "type": "USER_INPUT",
                         "content": (
                             "<USER_SETTINGS_CHANGE>\n"
-                            "The user changed setting `Model Selection` from None to Gemini 4 Argon (High).\n"
+                            "The user changed setting `Model Selection` from None to Gemini 4 Carbon (High).\n"
                             "</USER_SETTINGS_CHANGE>"
                         ),
                     }
@@ -1608,7 +1608,7 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
             tmp_path = Path(tmp)
             transcript_file = tmp_path / "transcript_large.jsonl"
             sel_key = "Model " + "Selection"
-            argon_line = f"The user changed setting `{sel_key}` from None to Gemini 4 Argon (High)."
+            argon_line = f"The user changed setting `{sel_key}` from None to Gemini 4 Carbon (High)."
             downgrade_line = f"The user changed setting `{sel_key}` from None " + "to Gemini 3 Flash."
 
             lines = [
@@ -2762,7 +2762,7 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
             ),
             (
                 "top_model_inherit_gemini_edit",
-                "Gemini 4 Argon (High)",
+                "Gemini 4 Carbon (High)",
                 "await agent('Update GEMINI.md', {'type': 'string'}, model='inherit')",
             ),
             (
@@ -3989,6 +3989,435 @@ class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
             [],
         )
         self.assertTrue(validate_ui_slop_content("src/Hero.tsx", slop_sample))
+
+
+class TestW1MultiAgentIsolationAndShellRedir(HooksTempCase):
+    """AC-1 hermetic regression tests: multi-agent stop_gate/pre_invocation isolation & FD/null redirections."""
+
+    def _init_git_repo_with_test(self, name: str = "ws_w1") -> Path:
+        ws = self.tmp / name
+        ws.mkdir(parents=True, exist_ok=True)
+        git_env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        }
+        subprocess.run(["git", "init", "-q"], cwd=ws, env=git_env, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=ws, env=git_env, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=ws, env=git_env, check=True, capture_output=True)
+        (ws / "src").mkdir(exist_ok=True)
+        (ws / "src" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (ws / "tests").mkdir(exist_ok=True)
+        (ws / "tests" / "test_app.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertEqual(1 + 1, 2)\n",
+            encoding="utf-8",
+        )
+        (ws / "tests" / "test_second.py").write_text(
+            "import unittest\n\nclass T2(unittest.TestCase):\n    def test_two(self):\n        self.assertEqual(2 + 2, 4)\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "."], cwd=ws, env=git_env, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=ws, env=git_env, check=True, capture_output=True)
+        return ws
+
+    def test_stop_gate_multi_agent_write_scoping_and_post_trip_freeze(self) -> None:
+        from guard import audit_log
+        from guard.test_boundary import TestBoundaryGuard
+
+        ws = self._init_git_repo_with_test("ws_stop_multi")
+        tbg = TestBoundaryGuard(workspace_dir=ws)
+        tbg.snapshot()
+
+        # Worker A starts editing tests/test_app.py (records in_flight + touched_files) and leaves weakening diff
+        self.assertEqual(
+            agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-worker-a",
+                    "workspace": str(ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(ws / "tests" / "test_app.py")}},
+                }
+            ),
+            {"decision": "allow"},
+        )
+        (ws / "tests" / "test_app.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n",
+            encoding="utf-8",
+        )
+
+        # 1. Sibling read-only conversation (NO readOnly flag!) gets 0 strikes and leaves Worker A in_flight intact
+        res_sib = agy_hooks.handle_stop(
+            {
+                "conversationId": "conv-sibling-ro",
+                "workspacePaths": [str(ws)],
+                "prompt": "Check status of module",
+                "response": "Status checked.",
+            }
+        )
+        self.assertEqual(res_sib, {}, res_sib)
+        flight_after_sib = json.loads(agy_hooks._flight_recorder_file().read_text(encoding="utf-8"))
+        ws_key = str(ws.resolve())
+        self.assertEqual(flight_after_sib[ws_key]["conversations"]["conv-worker-a"]["status"], "in_flight")
+        self.assertFalse((self.state_dir / "hook_strikes.json").exists())
+
+        # 2. Auxiliary swarm role (monitor/narrator/verifier) gets 0 strikes
+        for aux_payload in (
+            {"conversationId": "conv-mon", "role": "monitor", "workspacePaths": [str(ws)], "prompt": "Monitor swarm"},
+            {"conversationId": "conv-ver", "workerName": "verifier-1", "workspacePaths": [str(ws)], "prompt": "Verify"},
+            {
+                "conversationId": "conv-nar",
+                "workspacePaths": [str(ws)],
+                "prompt": "You are this swarm's narrator. Summarize progress.",
+            },
+        ):
+            self.assertEqual(agy_hooks.handle_stop(aux_payload), {}, aux_payload)
+
+        # 3. Worker B edits src/app.py while Worker A's dirty tests/test_app.py is pre-existing -> 0 strikes for Worker B
+        self.assertEqual(
+            agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-worker-b",
+                    "workspace": str(ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(ws / "src" / "app.py")}},
+                }
+            ),
+            {"decision": "allow"},
+        )
+        (ws / "src" / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+        res_wb = agy_hooks.handle_stop(
+            {
+                "conversationId": "conv-worker-b",
+                "workspacePaths": [str(ws)],
+                "prompt": "Update VALUE",
+                "response": "Updated.",
+            }
+        )
+        self.assertEqual(res_wb, {}, res_wb)
+
+        # 3b. Pre-existing dirty test file captured in pre_edit_stash (no sibling in flight_recorder) ->
+        #     Worker editing src/app.py gets 0 strikes, but mutating another test post-stash FAILS CLOSED!
+        ws_stash = self._init_git_repo_with_test("ws_stop_prestash")
+        TestBoundaryGuard(workspace_dir=ws_stash).snapshot()
+        (ws_stash / "tests" / "test_app.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-prestash-w",
+                    "workspace": str(ws_stash),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(ws_stash / "src" / "app.py")}},
+                }
+            ),
+            {"decision": "allow"},
+        )
+        (ws_stash / "src" / "app.py").write_text("VALUE = 3\n", encoding="utf-8")
+        self.assertEqual(
+            agy_hooks.handle_stop(
+                {
+                    "conversationId": "conv-prestash-w",
+                    "workspacePaths": [str(ws_stash)],
+                    "prompt": "Update VALUE",
+                    "response": "Done.",
+                }
+            ),
+            {},
+        )
+        # Negative control: modifying test_second.py AFTER pre_edit_stash MUST be caught!
+        (ws_stash / "tests" / "test_second.py").write_text(
+            "import unittest\n\nclass T2(unittest.TestCase):\n    def test_two(self):\n        pass\n",
+            encoding="utf-8",
+        )
+        res_post_stash = agy_hooks.handle_stop(
+            {
+                "conversationId": "conv-prestash-w",
+                "workspacePaths": [str(ws_stash)],
+                "prompt": "Update VALUE again",
+                "response": "Done.",
+            }
+        )
+        self.assertEqual(res_post_stash.get("decision"), "continue", res_post_stash)
+
+        # 4. Read-only transcript proves zero writes -> 0 strikes even with dirty test file in a separate repo
+        ws_tx = self._init_git_repo_with_test("ws_stop_tx_ro")
+        (ws_tx / "tests" / "test_app.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n",
+            encoding="utf-8",
+        )
+        ro_tx = self.tmp / "ro_turn.jsonl"
+        ro_tx.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "USER_INPUT", "source": "USER_EXPLICIT", "content": "Inspect app.py"}),
+                    json.dumps(
+                        {
+                            "type": "PLANNER_RESPONSE",
+                            "tool_calls": [
+                                {"name": "read_file", "args": {"Path": str(ws_tx / "src" / "app.py")}},
+                                {"name": "grep_search", "args": {"Query": "VALUE"}},
+                            ],
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agy_hooks.handle_stop(
+                {
+                    "conversationId": "conv-tx-ro",
+                    "workspacePaths": [str(ws_tx)],
+                    "transcriptPath": str(ro_tx),
+                    "prompt": "Inspect app.py",
+                }
+            ),
+            {},
+        )
+
+        # 5. Negative control (Rule 9): single-session unlogged test weakening with no sibling/read-only proof FAILS CLOSED
+        ws_unlogged = self._init_git_repo_with_test("ws_stop_unlogged")
+        TestBoundaryGuard(workspace_dir=ws_unlogged).snapshot()
+        (ws_unlogged / "tests" / "test_app.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n",
+            encoding="utf-8",
+        )
+        res_unlogged = agy_hooks.handle_stop(
+            {
+                "conversationId": "conv-single-unlogged",
+                "workspacePaths": [str(ws_unlogged)],
+                "prompt": "Finish task",
+                "response": "Done.",
+            }
+        )
+        self.assertEqual(res_unlogged.get("decision"), "continue", res_unlogged)
+
+        # 6. Post-trip circuit breaker freeze: after tripped == True, strikes/file/audit stop incrementing
+        import logging
+
+        logger = logging.getLogger(audit_log.LOGGER_NAME)
+        for h in list(logger.handlers):
+            try:
+                h.close()
+            except Exception:
+                pass
+            logger.removeHandler(h)
+        bad_diff = (
+            "diff --git a/tests/test_freeze.py b/tests/test_freeze.py\n"
+            "--- a/tests/test_freeze.py\n"
+            "+++ b/tests/test_freeze.py\n"
+            "@@ -1,2 +1,2 @@\n"
+            "-    self.assertEqual(1, 1)\n"
+            "+    pass\n"
+        )
+        freeze_payload = {
+            "terminationReason": "NO_TOOL_CALL",
+            "conversationId": "conv-freeze-check",
+            "diffText": bad_diff,
+        }
+        self.assertEqual(agy_hooks.handle_stop(freeze_payload).get("decision"), "continue")
+        self.assertEqual(agy_hooks.handle_stop(freeze_payload).get("decision"), "continue")
+        self.assertEqual(agy_hooks.handle_stop(freeze_payload), {})
+        strikes_path = self.state_dir / "hook_strikes.json"
+        rec_tripped = json.loads(strikes_path.read_text(encoding="utf-8"))["conv-freeze-check"]
+        self.assertTrue(rec_tripped.get("tripped"))
+        self.assertEqual(rec_tripped.get("count"), agy_hooks.MAX_STRIKES)
+        self.assertEqual(rec_tripped.get("total_strikes"), agy_hooks.MAX_STRIKES)
+        events_at_trip = [
+            json.loads(ln)
+            for ln in audit_log.log_path().read_text(encoding="utf-8").splitlines()
+            if ln.strip() and json.loads(ln).get("conv_id") == "conv-freeze-check"
+        ]
+        self.assertEqual(len(events_at_trip), 3)
+
+        # Subsequent turns after tripped == True must NOT write disk, increment counts, or flood audit logs
+        with mock.patch.object(agy_hooks, "atomic_write_json", wraps=agy_hooks.atomic_write_json) as spy_write:
+            self.assertEqual(agy_hooks.handle_stop(freeze_payload), {})
+            self.assertEqual(agy_hooks.handle_stop(freeze_payload), {})
+            self.assertEqual(spy_write.call_count, 0)
+        rec_after = json.loads(strikes_path.read_text(encoding="utf-8"))["conv-freeze-check"]
+        self.assertEqual(rec_after.get("count"), agy_hooks.MAX_STRIKES)
+        self.assertEqual(rec_after.get("total_strikes"), agy_hooks.MAX_STRIKES)
+        events_after = [
+            json.loads(ln)
+            for ln in audit_log.log_path().read_text(encoding="utf-8").splitlines()
+            if ln.strip() and json.loads(ln).get("conv_id") == "conv-freeze-check"
+        ]
+        self.assertEqual(len(events_after), 3)
+
+    def test_pre_invocation_per_conversation_flight_recorder_stale_age_and_aux_silence(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        ws = self._init_git_repo_with_test("ws_pi_multi")
+        ws_key = str(ws.resolve())
+
+        # Worker A writes src/app.py -> in_flight under (ws_key, conv-worker-a)
+        self.assertEqual(
+            agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-worker-a",
+                    "workspace": str(ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(ws / "src" / "app.py")}},
+                }
+            ),
+            {"decision": "allow"},
+        )
+
+        # Fresh sibling conv-worker-b does NOT trigger Recovery Gate and does NOT overwrite conv-worker-a
+        res_sib = agy_hooks.handle_pre_invocation(
+            {
+                "conversationId": "conv-worker-b",
+                "workspace": str(ws),
+                "prompt": "Inspect src/app.py",
+            }
+        )
+        self.assertEqual(res_sib, {}, res_sib)
+        fl = json.loads(agy_hooks._flight_recorder_file().read_text(encoding="utf-8"))
+        self.assertEqual(fl[ws_key]["conversations"]["conv-worker-a"]["status"], "in_flight")
+
+        # Worker B writes a file and finishes cleanly -> Worker A remains in_flight!
+        self.assertEqual(
+            agy_hooks.handle_pre_tool_use(
+                {
+                    "conversationId": "conv-worker-b",
+                    "workspace": str(ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(ws / "src" / "app.py")}},
+                }
+            ),
+            {"decision": "allow"},
+        )
+        agy_hooks._record_flight_stop(ws, "conv-worker-b", 0, workspace_clean=True)
+        fl2 = json.loads(agy_hooks._flight_recorder_file().read_text(encoding="utf-8"))
+        self.assertIn("conv-worker-a", fl2[ws_key]["conversations"])
+        self.assertEqual(fl2[ws_key]["conversations"]["conv-worker-a"]["status"], "in_flight")
+        self.assertEqual(fl2[ws_key]["conversations"]["conv-worker-b"]["status"], "turn_complete")
+        self.assertEqual(fl2[ws_key]["status"], "in_flight")
+
+        # Legacy single-entry migration + deterministic stale-age detection (injected clock `now`)
+        ref_base = datetime(2026, 11, 21, 12, 0, 0, tzinfo=timezone.utc)
+        legacy_ts = ref_base.strftime("%Y-%m-%dT%H:%M:%SZ")
+        agy_hooks._flight_recorder_file().write_text(
+            json.dumps(
+                {
+                    ws_key: {
+                        "workspace": ws_key,
+                        "conversation_id": "conv-legacy-a",
+                        "status": "in_flight",
+                        "seq": 7,
+                        "updated_at": legacy_ts,
+                        "last_tool": "write_file",
+                        "last_target": "src/app.py",
+                        "touched_files": ["src/app.py"],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        # Fresh (+5 min): sibling conv-other gets None; same conv-legacy-a gets recovery alert!
+        ok_fresh, rec_fresh = agy_hooks._detect_workspace_recovery_hint(
+            ws, "conv-other", first_turn_in_conv=True, is_mid_turn=False, now=ref_base + timedelta(minutes=5)
+        )
+        self.assertTrue(ok_fresh)
+        self.assertIsNone(rec_fresh)
+
+        ok_same, rec_same = agy_hooks._detect_workspace_recovery_hint(
+            ws, "conv-legacy-a", first_turn_in_conv=False, is_mid_turn=False, now=ref_base + timedelta(minutes=5)
+        )
+        self.assertTrue(ok_same)
+        self.assertIsNotNone(rec_same)
+        self.assertIn("[Harness Recovery & Continuity Gate]", rec_same[1])
+        self.assertEqual(rec_same[2], 7)
+
+        # Stale (+35 min >= 30 min threshold): sibling conv-other DOES detect stale crash and acks only seq 7
+        ok_stale, rec_stale = agy_hooks._detect_workspace_recovery_hint(
+            ws, "conv-other", first_turn_in_conv=True, is_mid_turn=False, now=ref_base + timedelta(minutes=35)
+        )
+        self.assertTrue(ok_stale)
+        self.assertIsNotNone(rec_stale)
+        self.assertIn("[Harness Recovery & Continuity Gate]", rec_stale[1])
+        self.assertEqual(rec_stale[2], 7)
+        agy_hooks._acknowledge_interrupted_flight(ws, 7)
+        fl_ack = json.loads(agy_hooks._flight_recorder_file().read_text(encoding="utf-8"))
+        self.assertEqual(fl_ack[ws_key]["conversations"]["conv-legacy-a"]["status"], "interrupted_notified")
+
+        # Auxiliary roles (monitor, narrator, verifier, readOnly) stay silent even with HANDOFF.md [IN-PROGRESS]
+        (ws / "HANDOFF.md").write_text("# Handoff\n**Status:** [IN-PROGRESS]\n", encoding="utf-8")
+        (ws / "tasks.md").write_text("# Tasks\n- [ ] Pending work\n", encoding="utf-8")
+        for aux in (
+            {"conversationId": "conv-aux-mon", "role": "monitor", "workspace": str(ws), "prompt": "Check stall"},
+            {"conversationId": "conv-aux-nar", "workerName": "narrator", "workspace": str(ws), "prompt": "Post update"},
+            {"conversationId": "conv-aux-ver", "subagentType": "verifier", "workspace": str(ws), "prompt": "Verify tests"},
+            {"conversationId": "conv-aux-ro", "readOnly": True, "workspace": str(ws), "prompt": "Read files"},
+            {
+                "conversationId": "conv-aux-prompt",
+                "workspace": str(ws),
+                "prompt": "First load the `swarm_monitor` skill and watch the board.",
+            },
+        ):
+            res_aux = agy_hooks.handle_pre_invocation(aux)
+            self.assertEqual(res_aux, {}, (aux, res_aux))
+
+    def test_pre_tool_use_benign_fd_null_redirections_vs_real_redirections(self) -> None:
+        ws = self._init_git_repo_with_test("ws_fd_redir")
+        (ws / "tasks.md").write_text("# Tasks\n- [ ] `AC-1`: item\n", encoding="utf-8")
+        (ws / "src" / "app.py").write_text("VALUE = 99\n", encoding="utf-8")
+
+        # Positive controls: harmless FD/null redirections -> allow with ZERO flight_recorder or git stash side effects
+        benign_cmds = [
+            f"ls {self.cfg_dir} 2>/dev/null",
+            "grep -n AC-1 tasks.md 2>/dev/null",
+            "pytest 2>&1",
+            "cat src/app.py >/dev/null",
+            "cat src/app.py 1>/dev/null",
+            "cat src/app.py &>/dev/null",
+            "git status 1>&2",
+            "echo ok >&2",
+            "cat src/app.py <&0",
+            f"cd {self.cfg_dir} && ls 2>/dev/null",
+            "python3 -c 'print(1)' 2>/dev/null",
+        ]
+        for idx, cmd in enumerate(benign_cmds):
+            with self.subTest(benign_cmd=cmd):
+                res = agy_hooks.handle_pre_tool_use(
+                    {
+                        "conversationId": f"conv-redir-ok-{idx}",
+                        "workspace": str(ws),
+                        "toolCall": {"name": "run_command", "args": {"CommandLine": cmd}},
+                    }
+                )
+                self.assertEqual(res, {"decision": "allow"}, (cmd, res))
+
+        self.assertFalse(agy_hooks._flight_recorder_file().exists())
+        ref_check = subprocess.run(
+            ["git", "-C", str(ws), "show-ref", "--verify", "refs/harness/pre-edit"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(ref_check.returncode, 0)
+
+        # Negative controls: real file redirections and mixed /dev/null + mutation commands MUST stay blocked
+        blocked_cases = [
+            (f"echo x > {self.cfg_dir / 'pwn'} 2>/dev/null", "deny"),
+            (f"cat src/app.py 2> {self.cfg_dir / 'err.log'}", "deny"),
+            (f"echo x >| {self.cfg_dir / 'clobber'}", "deny"),
+            (f"cd {self.cfg_dir} && echo x > pwn 2>/dev/null", "deny"),
+            ("echo x >> tasks.md 2>/dev/null", "force_ask"),
+            ("echo x > /dev/null/../tmp/pwn", None),  # Must still register as a shell mutation
+        ]
+        for cmd, expected_decision in blocked_cases:
+            with self.subTest(blocked_cmd=cmd):
+                self.assertTrue(agy_hooks._shell_has_unquoted_mutation(cmd), cmd)
+                if expected_decision is not None:
+                    res = agy_hooks.handle_pre_tool_use(
+                        {
+                            "conversationId": "conv-redir-neg",
+                            "workspace": str(ws),
+                            "toolCall": {"name": "run_command", "args": {"CommandLine": cmd}},
+                        }
+                    )
+                    self.assertEqual(res.get("decision"), expected_decision, (cmd, res))
 
 
 if __name__ == "__main__":

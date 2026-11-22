@@ -81,6 +81,93 @@ class TestMetaAuditEngine(unittest.TestCase):
             self.assertGreaterEqual(len(col), 1)
             self.assertIn("mutual exclusion", col[0].message.lower())
 
+    def test_pass2_flags_oversized_skill_md_above_40kb(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ok_skill = root / "skills" / "ok-skill"
+            big_skill = root / "skills" / "big-skill"
+            ok_skill.mkdir(parents=True)
+            big_skill.mkdir(parents=True)
+            (ok_skill / "SKILL.md").write_text(
+                "---\nname: ok-skill\ndescription: Small skill.\n---\n" + ("a" * 1024),
+                encoding="utf-8",
+            )
+            (big_skill / "SKILL.md").write_text(
+                "---\nname: big-skill\ndescription: Oversized skill.\n---\n" + ("b" * 41500),
+                encoding="utf-8",
+            )
+
+            engine = MetaAuditEngine(repo_root=root)
+            engine.pass2_cross_references()
+
+            size_warns = [
+                f for f in engine.findings
+                if f.severity == "WARNING" and "40 KB" in f.message
+            ]
+            self.assertEqual(len(size_warns), 1, engine.findings)
+            self.assertIn("big-skill/SKILL.md", size_warns[0].target)
+
+        # Live skills/harness/SKILL.md stays within the W2 28 KB progressive-disclosure target
+        self.assertLessEqual((REPO_ROOT / "skills" / "harness" / "SKILL.md").stat().st_size, 28672)
+
+    def test_pass2_validates_upstream_watchdog_session_start_registration(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            # Missing SessionStart under upstream-watchdog -> CRITICAL
+            (root / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "upstream-watchdog": {
+                            "PreInvocation": [{"type": "command", "command": "python3 w.py"}]
+                        },
+                        "harness-gate": {
+                            "PreInvocation": [{"type": "command", "command": "python3 h.py"}],
+                            "PreToolUse": [{"type": "command", "command": "python3 h.py", "matcher": "run_command"}],
+                            "Stop": [{"type": "command", "command": "python3 h.py"}],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            eng_missing = MetaAuditEngine(repo_root=root)
+            eng_missing.pass2_cross_references()
+            self.assertTrue(
+                any(
+                    f.severity == "CRITICAL" and "upstream-watchdog.SessionStart" in f.message
+                    for f in eng_missing.findings
+                ),
+                eng_missing.findings,
+            )
+
+            # Both SessionStart and legacy PreInvocation -> WARNING
+            (root / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "upstream-watchdog": {
+                            "SessionStart": [{"type": "command", "command": "python3 w.py"}],
+                            "PreInvocation": [{"type": "command", "command": "python3 w.py"}],
+                        },
+                        "harness-gate": {
+                            "PreInvocation": [{"type": "command", "command": "python3 h.py"}],
+                            "PreToolUse": [{"type": "command", "command": "python3 h.py", "matcher": "run_command"}],
+                            "Stop": [{"type": "command", "command": "python3 h.py"}],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            eng_dup = MetaAuditEngine(repo_root=root)
+            eng_dup.pass2_cross_references()
+            self.assertTrue(
+                any(
+                    f.severity == "WARNING" and "legacy upstream-watchdog.PreInvocation" in f.message
+                    for f in eng_dup.findings
+                ),
+                eng_dup.findings,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -519,7 +519,7 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         res_flash = agy_hooks.handle_pre_tool_use(
             {
                 "workspacePath": str(REPO_ROOT),
-                "modelName": "Gemini 4 Argon (High)",
+                "modelName": "Gemini 4 Carbon (High)",
                 "effort": "high",
                 "toolCall": {
                     "name": "invoke_subagent",
@@ -575,7 +575,7 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         res_top_ok = agy_hooks.handle_pre_tool_use(
             {
                 "workspacePath": str(REPO_ROOT),
-                "modelName": "Gemini 4 Argon (High)",
+                "modelName": "Gemini 4 Carbon (High)",
                 "effort": "high",
                 "toolCall": {
                     "name": "invoke_subagent",

@@ -32,9 +32,65 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_v232_flagships_and_orchestrator_highest_effort_pass(self) -> None:
-        passing_cases = [
+        from unittest import mock
+
+        # Live restricted seed allows strictly Gemini 4 Neon (XHigh) and Gemini 4 Carbon (High)
+        live_passing_cases = [
+            {"modelName": "Gemini 4 Neon (XHigh)", "effort": "xhigh"},
+            {"modelName": "Gemini 4 Neon", "effort": "xhigh"},
+            {"modelName": "Gemini 4 Neon", "effort": "extra"},
             {"modelName": "Gemini 4 Carbon (High)", "effort": "high"},
+            {"modelName": "Gemini 4 Carbon (High)", "effort": "xhigh"},
             {"modelName": "Gemini 4 Carbon", "effort": "high"},
+        ]
+        for payload in live_passing_cases:
+            with self.subTest(live_allow=payload):
+                self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort(payload))
+                res = agy_hooks.handle_pre_tool_use(
+                    {
+                        **payload,
+                        "toolCall": {"name": "edit_file", "args": {"Path": "GEMINI.md"}},
+                    }
+                )
+                self.assertEqual(res.get("decision"), "allow", (payload, res))
+
+        # Removed/unlisted flagships fail closed with force_ask; non-allowlisted orchestrators deny
+        for payload in (
+            {"modelName": "Gemini 4 Hydrogen (XHigh)", "effort": "xhigh"},
+            {"modelName": "Gemini 4 Argon (High)", "effort": "high"},
+            {"modelName": "Claude Opus 5.5 (High)", "effort": "high"},
+        ):
+            with self.subTest(live_unlisted=payload):
+                verdict = agy_hooks._evaluate_customization_model_and_effort(payload)
+                self.assertIsNotNone(verdict)
+                self.assertEqual(verdict[0], "force_ask", (payload, verdict))
+
+        # Preserve full Orchestrator/peer-flagship parser coverage using an isolated temporary seed
+        fake_repo = self.tmp / "orchestrator_seed_repo"
+        seed_dir = fake_repo / "skills" / "upstream-auditor"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        (seed_dir / "upstream_state.seed.json").write_text(
+            json.dumps(
+                {
+                    "last_audited_model": "Gemini 4 Neon (XHigh)",
+                    "last_model_slug": "gemini-4-neon-xhigh",
+                    "approved_customization_models": [
+                        "gemini-4-neon-xhigh",
+                        "gemini-4-carbon-high",
+                        "gemini-4-carbon-xhigh",
+                        "gemini-4-hydrogen-xhigh",
+                        "gemini-4-argon-high",
+                        "claude-opus-5.5-high",
+                        "orchestrator-carbon-high",
+                        "orchestrator-carbon-xhigh",
+                        "orchestrator-argon-high",
+                        "orchestrator-argon-xhigh",
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        isolated_passing_cases = [
             {"modelName": "Gemini 4 Carbon (XHigh)", "effort": "xhigh"},
             {"modelName": "Gemini 4 Hydrogen (XHigh)", "effort": "xhigh"},
             {"modelName": "Gemini 4 Hydrogen", "effort": "extra"},
@@ -48,22 +104,24 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
             {"modelName": "Orchestrator (Carbon, High)"},
             {"modelName": "Orchestrator (Argon, XHigh)"},
         ]
-        for payload in passing_cases:
-            with self.subTest(payload=payload):
-                self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort(payload))
-                res = agy_hooks.handle_pre_tool_use(
-                    {
-                        **payload,
-                        "toolCall": {"name": "edit_file", "args": {"Path": "GEMINI.md"}},
-                    }
-                )
-                self.assertEqual(res.get("decision"), "allow", (payload, res))
+        with mock.patch.object(agy_hooks, "REPO_ROOT", fake_repo):
+            for payload in isolated_passing_cases:
+                with self.subTest(isolated_allow=payload):
+                    self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort(payload))
+                    res = agy_hooks.handle_pre_tool_use(
+                        {
+                            **payload,
+                            "toolCall": {"name": "edit_file", "args": {"Path": "GEMINI.md"}},
+                        }
+                    )
+                    self.assertEqual(res.get("decision"), "allow", (payload, res))
 
     def test_v232_downgrades_and_unverified_orchestrator_deny(self) -> None:
         deny_cases = [
             {"modelName": "Gemini 4 Carbon", "effort": "low"},
             {"modelName": "Gemini 4 Carbon", "effort": "medium"},
             {"modelName": "Gemini 4 Carbon (Low)", "effort": "low"},
+            {"modelName": "Gemini 4 Neon (Low)", "effort": "low"},
             {"modelName": "Gemini 4 Hydrogen (Low)", "effort": "low"},
             {"modelName": "Orchestrator (Carbon)"},
             {"modelName": "Orchestrator (Carbon)", "effort": "low"},
@@ -88,6 +146,8 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
                 self.assertEqual(res.get("decision"), "deny", (payload, res))
 
     def test_orchestrator_carbon_transcript_embedded_and_separate_effort(self) -> None:
+        from unittest import mock
+
         tx_comma = self.tmp / "tx_comma.jsonl"
         tx_comma.write_text(
             json.dumps(
@@ -109,7 +169,26 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
             agy_hooks._extract_transcript_model_and_effort({"transcriptPath": str(tx_comma)}),
             ("Orchestrator (Carbon, High)", "high"),
         )
-        self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(tx_comma)}))
+        # Restricted live seed denies Orchestrator (Carbon, High)
+        live_verdict = agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(tx_comma)})
+        self.assertIsNotNone(live_verdict)
+        self.assertEqual(live_verdict[0], "deny", live_verdict)
+        # Isolated seed approving orchestrator-carbon-high still allows the comma-embedded syntax
+        fake_repo = self.tmp / "orch_tx_repo"
+        seed_dir = fake_repo / "skills" / "upstream-auditor"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        (seed_dir / "upstream_state.seed.json").write_text(
+            json.dumps(
+                {
+                    "last_audited_model": "Gemini 4 Neon (XHigh)",
+                    "last_model_slug": "gemini-4-neon-xhigh",
+                    "approved_customization_models": ["gemini-4-neon-xhigh", "orchestrator-carbon-high"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with mock.patch.object(agy_hooks, "REPO_ROOT", fake_repo):
+            self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(tx_comma)}))
 
         tx_low = self.tmp / "tx_low.jsonl"
         tx_low.write_text(
@@ -149,15 +228,7 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
                 slug.endswith(agy_hooks._HIGHEST_EFFORT_SLUG_SUFFIXES),
                 f"Unsuffixed or non-highest-effort peer slug forbidden by Rule 17: {slug}",
             )
-        for required_slug in (
-            "claude-opus-5.5-high",
-            "gemini-4-argon-high",
-            "gemini-4-carbon-high",
-            "gemini-4-hydrogen-xhigh",
-            "orchestrator-carbon-high",
-            "orchestrator-argon-high",
-        ):
-            self.assertIn(required_slug, approved)
+        self.assertEqual(approved, ["gemini-4-neon-xhigh", "gemini-4-carbon-high"])
 
         expected_builtins = sorted(
             [
@@ -174,16 +245,69 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
                 "run-workflow",
                 "swarm_monitor",
                 "swarm_narrator",
+                "swarm_pane",
                 "ui-plugin-navigation",
             ]
         )
         self.assertEqual(seed.get("recorded_builtin_skills"), expected_builtins)
-        self.assertEqual(len(seed.get("recorded_builtin_skills", [])), 14)
+        self.assertEqual(len(seed.get("recorded_builtin_skills", [])), 15)
         self.assertRegex(str(seed.get("builtin_skills_hash", "")), r"^[0-9a-f]{64}$")
         self.assertNotEqual(
             seed.get("builtin_skills_hash"),
             "de9b7f32b1ca0f839bf78c59c6f479362ed7d3edce0da0a02579cc003df4798f",
         )
+
+        # Guard fallback and upstream_watcher constants must stay aligned with the 15-skill seed
+        from guard import upstream as guard_upstream
+        import importlib.util
+
+        self.assertEqual(list(guard_upstream.KNOWN_BUILTIN_SKILLS), expected_builtins)
+        watcher_path = REPO_ROOT / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
+        wspec = importlib.util.spec_from_file_location("_v232_watcher_seed", watcher_path)
+        assert wspec and wspec.loader
+        wmod = importlib.util.module_from_spec(wspec)
+        wspec.loader.exec_module(wmod)
+        self.assertEqual(list(wmod.KNOWN_BUILTIN_SKILLS), expected_builtins)
+
+    def test_w2_swarm_ecosystem_alignment_session_start_and_progressive_disclosure(self) -> None:
+        # 1. hooks.json registers upstream-watchdog under SessionStart, never PreInvocation
+        hooks_data = json.loads((REPO_ROOT / "hooks.json").read_text(encoding="utf-8"))
+        uw = hooks_data.get("upstream-watchdog", {})
+        self.assertIn("SessionStart", uw)
+        self.assertTrue(isinstance(uw["SessionStart"], list) and uw["SessionStart"])
+        self.assertNotIn("PreInvocation", uw)
+
+        # 2. model-calibration-matrix.md reflects A1 (Pro-class Orchestrator force_ask, Flash deny)
+        matrix_txt = (
+            REPO_ROOT / "skills" / "upstream-auditor" / "references" / "model-calibration-matrix.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("force_ask", matrix_txt)
+        self.assertIn("gemini-4-neon-xhigh", matrix_txt)
+        self.assertIn("gemini-4-carbon-high", matrix_txt)
+        self.assertIn("swarm_pane", matrix_txt)
+
+        # 3. harness/SKILL.md progressive disclosure (<= 28 KB) & AC-3 Swarm alignment across docs
+        harness_skill = REPO_ROOT / "skills" / "harness" / "SKILL.md"
+        harness_bytes = harness_skill.stat().st_size
+        self.assertLessEqual(harness_bytes, 28672, f"skills/harness/SKILL.md is {harness_bytes} bytes (> 28 KB)")
+        harness_txt = harness_skill.read_text(encoding="utf-8")
+        self.assertIn("references/context-and-artifacts.md", harness_txt)
+        self.assertIn("references/multi-agent-orchestration.md", harness_txt)
+        self.assertTrue((REPO_ROOT / "skills" / "harness" / "references" / "context-and-artifacts.md").is_file())
+        self.assertTrue((REPO_ROOT / "skills" / "harness" / "references" / "multi-agent-orchestration.md").is_file())
+
+        for rel_doc in (
+            "skills/harness/SKILL.md",
+            "skills/harness/references/multi-agent-orchestration.md",
+            "skills/harness/references/marathon.md",
+            "skills/harness/references/unlazy/references/dispatch.md",
+        ):
+            doc_txt = (REPO_ROOT / rel_doc).read_text(encoding="utf-8")
+            with self.subTest(doc=rel_doc):
+                self.assertIn("swarm_pane", doc_txt)
+                self.assertIn(".system_generated/swarm/plan.json", doc_txt)
+                self.assertIn("*/3 * * * *", doc_txt)
+                self.assertIn("IsDaemon: true", doc_txt)
 
 
 class TestAntigravityV232HookModernization(unittest.TestCase):
@@ -333,7 +457,7 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
                 "add_flash_customization",
                 {
                     "conversationId": "sw-deny-1",
-                    "modelName": "Gemini 4 Hydrogen (XHigh)",
+                    "modelName": "Gemini 4 Neon (XHigh)",
                     "effort": "xhigh",
                     "workspacePath": str(REPO_ROOT),
                     "toolCall": {
@@ -386,7 +510,7 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
                 "action_model_flash_in_harness_repo",
                 {
                     "conversationId": "sw-deny-4",
-                    "modelName": "Gemini 4 Hydrogen (XHigh)",
+                    "modelName": "Gemini 4 Neon (XHigh)",
                     "effort": "xhigh",
                     "workspacePath": str(REPO_ROOT),
                     "toolCall": {
@@ -406,7 +530,7 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
         add_ok = agy_hooks.handle_pre_tool_use(
             {
                 "conversationId": conv,
-                "modelName": "Gemini 4 Hydrogen (XHigh)",
+                "modelName": "Gemini 4 Neon (XHigh)",
                 "effort": "xhigh",
                 "workspacePath": str(self.tmp),
                 "toolCall": {
@@ -423,7 +547,7 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
         switch_deny = agy_hooks.handle_pre_tool_use(
             {
                 "conversationId": conv,
-                "modelName": "Gemini 4 Hydrogen (XHigh)",
+                "modelName": "Gemini 4 Neon (XHigh)",
                 "effort": "xhigh",
                 "workspacePath": str(self.tmp),
                 "toolCall": {
@@ -637,10 +761,10 @@ class TestSlice6SecurityAndRegressionHardening(unittest.TestCase):
         return mock.patch.dict(os.environ, {"AGY_GUARD_STATE_DIR": str(self._state_tmp)}, clear=False)
 
     def test_model_and_effort_hydrogen_paired_and_extra_low_transcript(self) -> None:
-        # Hydrogen requires XHigh/extra-high; `high` must fail closed even alone or overriding `(XHigh)`.
+        # Neon requires XHigh/extra-high; `high` must fail closed even alone or overriding `(XHigh)`.
         for payload in (
-            {"modelName": "Gemini 4 Hydrogen", "effort": "high"},
-            {"modelName": "Gemini 4 Hydrogen (XHigh)", "effort": "high"},
+            {"modelName": "Gemini 4 Neon", "effort": "high"},
+            {"modelName": "Gemini 4 Neon (XHigh)", "effort": "high"},
         ):
             with self.subTest(payload=payload):
                 verdict = agy_hooks._evaluate_customization_model_and_effort(payload)
@@ -671,7 +795,7 @@ class TestSlice6SecurityAndRegressionHardening(unittest.TestCase):
                     "step_index": 0,
                     "type": "USER_INPUT",
                     "source": "USER_EXPLICIT",
-                    "content": '<USER_SETTINGS_CHANGE>\n"Model Selection": "Gemini 4 Carbon",\n"Effort Level": "Extra High"\n</USER_SETTINGS_CHANGE>',
+                    "content": '<USER_SETTINGS_CHANGE>\n"Model Selection": "Gemini 4 Neon",\n"Effort Level": "Extra High"\n</USER_SETTINGS_CHANGE>',
                 }
             )
             + "\n",

@@ -1311,6 +1311,47 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
             self.assertIn("does not match active Guard version", joined)
             self.assertIn("Last upstream repository audit failed", joined)
 
+            # 8. Legacy upstream-watchdog.PreInvocation triggers doctor warning; SessionStart clears it
+            valid_script = cfg / "valid_watchdog.py"
+            valid_script.write_text("# stub\n", encoding="utf-8")
+            (cfg / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "upstream-watchdog": {
+                            "PreInvocation": [{"type": "command", "command": f"python3 {valid_script}"}]
+                        },
+                        "harness-gate": {
+                            "PreToolUse": [{"type": "command", "command": f"python3 {valid_script}"}]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            r_legacy = diagnose(env, reg, sentinel_active=True)
+            self.assertTrue(
+                any("legacy 'PreInvocation'" in w for w in r_legacy.warnings),
+                r_legacy.warnings,
+            )
+            (cfg / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "upstream-watchdog": {
+                            "SessionStart": [{"type": "command", "command": f"python3 {valid_script}"}]
+                        },
+                        "harness-gate": {
+                            "PreToolUse": [{"type": "command", "command": f"python3 {valid_script}"}]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            r_session = diagnose(env, reg, sentinel_active=True)
+            self.assertFalse(
+                any("upstream-watchdog" in w for w in r_session.warnings),
+                r_session.warnings,
+            )
+            valid_script.unlink()
+
             # cmd_doctor --fix when lock fails and rebaseline is refused must NOT strip unhealed warnings
             (cfg / "hooks.json").write_text(
                 json.dumps({"upstream-watchdog": {}, "harness-gate": {}}),

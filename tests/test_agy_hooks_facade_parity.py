@@ -667,8 +667,13 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
         internal_shims = {
             "_DEFAULT_REPO_ROOT",
             "_FacadeModuleProxy",
+            "_LAZY_SUBMODULE_EXPORTS",
+            "_LAZY_SYMBOL_TO_SUBMODULE",
             "_facade",
+            "_lazy_write_mutates_authorized_test_section",
             "_repo_root",
+            "__dir__",
+            "__getattr__",
         }
         facade_native = {
             "atomic_write_json",
@@ -681,7 +686,16 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
             "subprocess",
         }
         dir_entries = set(dir(agy_hooks))
-        for submod in ("common", "pre_invocation", "pre_tool_use", "stop_gate"):
+        for submod in (
+            "common",
+            "pre_invocation",
+            "pre_tool_use",
+            "_shell_guard",
+            "_swarm_guard",
+            "_mcp_guard",
+            "_write_guard",
+            "stop_gate",
+        ):
             mod_path = REPO_ROOT / "guard" / "hooks" / f"{submod}.py"
             tree = ast.parse(mod_path.read_text(encoding="utf-8"), filename=str(mod_path))
             for node in tree.body:
@@ -1205,6 +1219,112 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
             any(f.severity == "CRITICAL" and "broken lazy export" in f.message for f in eng_p7.findings),
             eng_p7.findings,
         )
+
+    def test_w2_lazy_submodule_isolation_and_inv_gt_1_fast_path(self) -> None:
+        env = dict(os.environ)
+
+        def _probe(code: str) -> dict:
+            cp = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=str(REPO_ROOT),
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            return json.loads(cp.stdout.strip())
+
+        # 1. PreInvocation inv=2 without error traces takes fast-path noop with 0 guard.hooks.* imports
+        tx_clean = self.tmp / "tx_clean.jsonl"
+        tx_clean.write_text(
+            json.dumps({"type": "USER_INPUT", "content": "continue refactoring"}) + "\n"
+            + json.dumps({"type": "TOOL_RESULT", "content": "Ran 10 tests\nOK"}) + "\n",
+            encoding="utf-8",
+        )
+        d_fast = _probe(
+            "import json, sys, guard.agy_hooks as h\n"
+            f"res = h.dispatch_hook('pre-invocation', {{'invocationNum': 2, 'conversationId': 'fast-1', 'transcriptPath': {str(tx_clean)!r}, 'cwd': {str(self.ws_dir)!r}}})\n"
+            "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
+            "print(json.dumps({'res': res, 'mods': mods}))\n"
+        )
+        self.assertEqual(d_fast["res"], {})
+        self.assertEqual(d_fast["mods"], [])
+
+        # 2. Negative control: inv=2 with repeated compiler/test error traces bypasses fast-path and loads pre_invocation
+        tx_err = self.tmp / "tx_err.jsonl"
+        err_entry = {
+            "type": "TOOL_RESULT",
+            "toolName": "run_command",
+            "args": {"CommandLine": "pytest tests/test_app.py"},
+            "content": "Command exited with code 1\nTraceback (most recent call last):\n  File 'app.py', line 1\nAssertionError: boom",
+        }
+        tx_err.write_text(
+            json.dumps({"type": "USER_INPUT", "content": "fix tests"}) + "\n"
+            + (json.dumps(err_entry) + "\n") * 3,
+            encoding="utf-8",
+        )
+        d_err = _probe(
+            "import json, sys, guard.agy_hooks as h\n"
+            f"res = h.dispatch_hook('pre-invocation', {{'invocationNum': 2, 'conversationId': 'fast-err', 'transcriptPath': {str(tx_err)!r}, 'cwd': {str(self.ws_dir)!r}}})\n"
+            "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
+            "print(json.dumps({'res': res, 'mods': mods}))\n"
+        )
+        self.assertIn("guard.hooks.pre_invocation", d_err["mods"])
+        self.assertIn("build-error-resolver", _extract_injected_text(d_err["res"]))
+
+        # 3. PreToolUse edit_file on ordinary source file loads ONLY common + pre_tool_use
+        d_edit = _probe(
+            "import json, sys, guard.agy_hooks as h\n"
+            f"res = h.dispatch_hook('pre-tool-use', {{'workspace': {str(self.ws_dir)!r}, 'toolCall': {{'name': 'edit_file', 'args': {{'Path': 'src/app.py', 'Target': 'a', 'Replacement': 'b'}}}}}})\n"
+            "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
+            "print(json.dumps({'res': res, 'mods': mods}))\n"
+        )
+        self.assertEqual(d_edit["res"], {"decision": "allow"})
+        self.assertEqual(d_edit["mods"], ["guard.hooks.common", "guard.hooks.pre_tool_use"])
+
+        # 4. PreToolUse edit_file on tasks.md lazily loads ONLY _write_guard (not shell/swarm/mcp/workflow)
+        d_tasks = _probe(
+            "import json, sys, guard.agy_hooks as h\n"
+            f"res = h.dispatch_hook('pre-tool-use', {{'workspace': {str(self.ws_dir)!r}, 'toolCall': {{'name': 'edit_file', 'args': {{'Path': 'tasks.md', 'Target': '- [ ] a', 'Replacement': '- [x] a'}}}}}})\n"
+            "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
+            "print(json.dumps({'res': res, 'mods': mods}))\n"
+        )
+        self.assertEqual(d_tasks["res"], {"decision": "allow"})
+        self.assertEqual(d_tasks["mods"], ["guard.hooks._write_guard", "guard.hooks.common", "guard.hooks.pre_tool_use"])
+
+        # 5. PreToolUse swarm lazily loads ONLY _swarm_guard
+        d_swarm = _probe(
+            "import json, sys, guard.agy_hooks as h\n"
+            f"res = h.dispatch_hook('pre-tool-use', {{'workspace': {str(self.ws_dir)!r}, 'toolCall': {{'name': 'swarm', 'args': {{'action': 'status'}}}}}})\n"
+            "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
+            "print(json.dumps({'res': res, 'mods': mods}))\n"
+        )
+        self.assertEqual(d_swarm["res"], {"decision": "allow"})
+        self.assertEqual(d_swarm["mods"], ["guard.hooks._swarm_guard", "guard.hooks.common", "guard.hooks.pre_tool_use"])
+
+        # 6. PreToolUse call_mcp_tool lazily loads ONLY _mcp_guard
+        d_mcp = _probe(
+            "import json, sys, guard.agy_hooks as h\n"
+            f"res = h.dispatch_hook('pre-tool-use', {{'workspace': {str(self.ws_dir)!r}, 'toolCall': {{'name': 'call_mcp_tool', 'args': {{'ServerName': 'antislop-contrast', 'ToolName': 'check_contrast', 'Arguments': {{}}}}}}}})\n"
+            "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
+            "print(json.dumps({'res': res, 'mods': mods}))\n"
+        )
+        self.assertEqual(d_mcp["res"], {"decision": "allow"})
+        self.assertEqual(d_mcp["mods"], ["guard.hooks._mcp_guard", "guard.hooks.common", "guard.hooks.pre_tool_use"])
+
+        # 7. pre_tool_use PEP 562 __getattr__ resolves lazy submodule attributes and fails closed on unknown names
+        from guard.hooks import pre_tool_use
+
+        for sym in (
+            "_command_mutates_governance",
+            "_swarm_workers_file",
+            "_inspect_mcp_tool_call",
+            "_write_mutates_authorized_test_section",
+        ):
+            self.assertTrue(callable(getattr(pre_tool_use, sym)), sym)
+            self.assertIn(sym, dir(pre_tool_use))
+        with self.assertRaises(AttributeError):
+            _ = pre_tool_use._NON_EXISTENT_PTU_ATTR  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

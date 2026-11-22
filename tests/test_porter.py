@@ -551,7 +551,9 @@ class TestExportParityExtended(unittest.TestCase):
                 "ARCHITECTURE.template.md",
                 "HANDOFF.template.md",
                 "MISTAKES.template.md",
+                "REPOSTATE.template.md",
                 "SECURITY_POSTURE.template.md",
+                "vulkan.SKILL.template.md",
             ],
         )
         for target, emitter in EMITTERS.items():
@@ -562,7 +564,9 @@ class TestExportParityExtended(unittest.TestCase):
                     "ARCHITECTURE.template.md",
                     "HANDOFF.template.md",
                     "MISTAKES.template.md",
+                    "REPOSTATE.template.md",
                     "SECURITY_POSTURE.template.md",
+                    "vulkan.SKILL.template.md",
                 ):
                     self.assertEqual((out / "templates" / name).read_bytes(), (REPO_ROOT / "templates" / name).read_bytes())
                 self.assertEqual(list(out.rglob("config.example.json")), [])

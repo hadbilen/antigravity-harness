@@ -208,7 +208,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         for target in ("~/.gemini/GEMINI.md", "~/.gemini/AGENTS.md"):
             res_w = agy_hooks.handle_pre_tool_use(
                 {
-                    "modelName": "gemini-4-argon-high",
+                    "modelName": "gemini-4-carbon-high",
                     "effort": "high",
                     "toolCall": {"name": "write_file", "args": {"Path": target, "Content": "# hijacked\n"}},
                 }
@@ -223,7 +223,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         ):
             res_c = agy_hooks.handle_pre_tool_use(
                 {
-                    "modelName": "gemini-4-argon-high",
+                    "modelName": "gemini-4-carbon-high",
                     "effort": "high",
                     "toolCall": {"name": "run_command", "args": {"CommandLine": cmd}},
                 }
@@ -234,7 +234,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         ws = self._init_git_ws("ws_hooks_col")
         res_hooks = agy_hooks.handle_pre_tool_use(
             {
-                "modelName": "gemini-4-argon-high",
+                "modelName": "gemini-4-carbon-high",
                 "effort": "high",
                 "workspacePaths": [str(ws)],
                 "toolCall": {
@@ -631,7 +631,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         for win_cmd, expected_reason_sub in expected_force_ask:
             res_win = agy_hooks.handle_pre_tool_use(
                 {
-                    "modelName": "gemini-4-argon-high",
+                    "modelName": "gemini-4-carbon-high",
                     "effort": "high",
                     "workspacePaths": [str(ws)],
                     "toolCall": {"name": "run_command", "args": {"CommandLine": win_cmd, "Cwd": str(ws)}},

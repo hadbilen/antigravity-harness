@@ -159,6 +159,8 @@ class TestInstaller(TempCase):
         hooks = json.loads((cfg / "hooks.json").read_text(encoding="utf-8"))
         self.assertIn("my-hook", hooks, "existing hooks must be preserved")
         self.assertIn("upstream-watchdog", hooks)
+        self.assertIn("SessionStart", hooks["upstream-watchdog"])
+        self.assertNotIn("PreInvocation", hooks["upstream-watchdog"])
         self.assertEqual(list(cfg.glob("backup_*")), [], "backups must live outside the config tree")
         backups = list((self.tmp / "state" / "antigravity-harness" / "backups").glob("install_*/GEMINI.md"))
         self.assertEqual(len(backups), 1)

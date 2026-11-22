@@ -2213,20 +2213,28 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
 
     def test_rule17_operator_approved_peer_flagship_passes_only_at_highest_effort(self) -> None:
         top_name, allowed = agy_hooks._catalog_top_model_spec()
-        self.assertIn("gemini-4-argon-high", allowed)
-        self.assertIn("claude-opus-5.5-high", allowed)
-        self.assertIn("gemini-4-hydrogen-extra", allowed)
-        self.assertIn("gemini-4-hydrogen-xhigh", allowed)
+        self.assertIn("gemini-4-carbon-high", allowed)
+        self.assertIn("gemini-4-neon-extra", allowed)
+        self.assertIn("gemini-4-neon-xhigh", allowed)
+        self.assertNotIn("gemini-4-argon-high", allowed)
+        self.assertNotIn("claude-opus-5.5-high", allowed)
+        self.assertNotIn("gemini-4-hydrogen-xhigh", allowed)
 
         evaluate = agy_hooks._evaluate_customization_model_and_effort
-        self.assertIsNone(evaluate({"modelName": "Gemini 4 Argon", "effort": "high"}))
-        self.assertIsNone(evaluate({"modelName": "Claude Opus 5.5 (High)", "effort": "high"}))
-        self.assertIsNone(evaluate({"modelName": "Gemini 4 Hydrogen (XHigh)", "effort": "xhigh"}))
-        self.assertIsNone(evaluate({"modelName": "Gemini 4 Hydrogen", "effort": "extra"}))
+        self.assertIsNone(evaluate({"modelName": "Gemini 4 Carbon", "effort": "high"}))
+        self.assertIsNone(evaluate({"modelName": "Gemini 4 Carbon (High)", "effort": "high"}))
+        self.assertIsNone(evaluate({"modelName": "Gemini 4 Neon (XHigh)", "effort": "xhigh"}))
+        self.assertIsNone(evaluate({"modelName": "Gemini 4 Neon", "effort": "extra"}))
 
+        unlisted_flagship = evaluate({"modelName": "Gemini 4 Argon (High)", "effort": "high"})
+        self.assertIsNotNone(unlisted_flagship)
+        self.assertEqual(unlisted_flagship[0], "force_ask")
         low_effort = evaluate({"modelName": "Claude Opus 5.5", "effort": "low"})
         self.assertIsNotNone(low_effort)
         self.assertEqual(low_effort[0], "deny")
+        neon_low = evaluate({"modelName": "Gemini 4 Neon (Low)", "effort": "low"})
+        self.assertIsNotNone(neon_low)
+        self.assertEqual(neon_low[0], "deny")
         hydrogen_low = evaluate({"modelName": "Gemini 4 Hydrogen (Low)", "effort": "low"})
         self.assertIsNotNone(hydrogen_low)
         self.assertEqual(hydrogen_low[0], "deny")
@@ -2240,8 +2248,8 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
         seed_dir.mkdir(parents=True)
         (seed_dir / "upstream_state.seed.json").write_text(
             json.dumps({
-                "last_audited_model": "Gemini 4 Argon (High)",
-                "last_model_slug": "gemini-4-argon-high",
+                "last_audited_model": "Gemini 4 Neon (XHigh)",
+                "last_model_slug": "gemini-4-neon-xhigh",
                 "approved_customization_models": ["claude-opus-5", "claude-opus-5-low", 42, "peer-flagship-max"],
             }),
             encoding="utf-8",
@@ -2264,23 +2272,40 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
             return path
 
         dotted = _transcript_with(
-            "The user changed setting `Model Selection` from Gemini 4 Argon (High) to Claude Opus 5.5 (High). "
+            "The user changed setting `Model Selection` from Gemini 4 Carbon (High) to Claude Opus 5.5 (High). "
             "No need to comment on this change if the user doesn't ask about it."
         )
         payload = {"transcriptPath": str(dotted)}
         self.assertEqual(agy_hooks._extract_transcript_model_and_effort(payload), ("Claude Opus 5.5 (High)", "high"))
-        self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort(payload))
+        live_dotted = agy_hooks._evaluate_customization_model_and_effort(payload)
+        self.assertIsNotNone(live_dotted)
+        self.assertEqual(live_dotted[0], "force_ask")
+        # Isolated seed approving dotted peer slug verifies end-to-end allow for dotted versions
+        dotted_repo = self.tmp / "dotted_peer_repo"
+        dotted_seed = dotted_repo / "skills" / "upstream-auditor"
+        dotted_seed.mkdir(parents=True)
+        (dotted_seed / "upstream_state.seed.json").write_text(
+            json.dumps({
+                "last_audited_model": "Gemini 4 Neon (XHigh)",
+                "last_model_slug": "gemini-4-neon-xhigh",
+                "approved_customization_models": ["gemini-4-neon-xhigh", "claude-opus-5.5-high"],
+            }),
+            encoding="utf-8",
+        )
+        with mock.patch.object(agy_hooks, "REPO_ROOT", dotted_repo):
+            self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort(payload))
 
-        plain = _transcript_with("The user changed setting `Model Selection` from Claude Opus 5.5 (High) to Gemini 4 Argon (High).")
+        plain = _transcript_with("The user changed setting `Model Selection` from Claude Opus 5.5 (High) to Gemini 4 Carbon (High).")
         self.assertEqual(
             agy_hooks._extract_transcript_model_and_effort({"transcriptPath": str(plain)}),
-            ("Gemini 4 Argon (High)", "high"),
+            ("Gemini 4 Carbon (High)", "high"),
         )
+        self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(plain)}))
 
-        xhigh = _transcript_with("The user changed setting `Model Selection` from Gemini 4 Argon (High) to Gemini 4 Hydrogen (XHigh).")
+        xhigh = _transcript_with("The user changed setting `Model Selection` from Gemini 4 Carbon (High) to Gemini 4 Neon (XHigh).")
         self.assertEqual(
             agy_hooks._extract_transcript_model_and_effort({"transcriptPath": str(xhigh)}),
-            ("Gemini 4 Hydrogen (XHigh)", "xhigh"),
+            ("Gemini 4 Neon (XHigh)", "xhigh"),
         )
         self.assertIsNone(agy_hooks._evaluate_customization_model_and_effort({"transcriptPath": str(xhigh)}))
 
@@ -2548,6 +2573,501 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
                     {"modelName": "Claude Opus 5 (Maximum)", "effort": "maximum"}
                 )
             )
+
+
+class TestW1OrchestratorSwarmAndWorkflowCalibration(unittest.TestCase):
+    """AC-2 hermetic regression tests: Rule 17 A1 Orchestrator policy, Swarm seams, and A2 workflow AST/ScriptPath."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="agy_w1_ac2_"))
+        self.home_dir = self.tmp / "home"
+        self.home_dir.mkdir(parents=True)
+        self.cfg_dir = self.home_dir / ".gemini" / "config"
+        self.cfg_dir.mkdir(parents=True)
+        self.state_dir = self.tmp / "state"
+        self.state_dir.mkdir(parents=True)
+        self.ws = self.tmp / "repo"
+        _init_git_repo(self.ws)
+        (self.ws / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
+        (self.ws / "skills" / "harness").mkdir(parents=True)
+        (self.ws / "skills" / "harness" / "SKILL.md").write_text("---\nname: harness\n---\n", encoding="utf-8")
+        (self.ws / "src").mkdir(parents=True)
+        (self.ws / "src" / "app.py").write_text("X = 1\n", encoding="utf-8")
+        git_env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        }
+        subprocess.run(["git", "add", "."], cwd=self.ws, env=git_env, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.ws, env=git_env, check=True, capture_output=True)
+        self._env_patch = mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.home_dir),
+                "USERPROFILE": str(self.home_dir),
+                "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
+                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+            },
+        )
+        self._env_patch.start()
+
+    def tearDown(self) -> None:
+        self._env_patch.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a1_orchestrator_rule17_calibration(self) -> None:
+        # 1. Approved customization models -> allow
+        for approved in (
+            {"modelName": "gemini-4-neon-xhigh"},
+            {"modelName": "Gemini 4 Neon (XHigh)", "effort": "xhigh"},
+            {"modelName": "gemini-4-carbon-high"},
+            {"modelName": "Gemini 4 Carbon (High)", "effort": "high"},
+        ):
+            res = handle_pre_tool_use(
+                {
+                    **approved,
+                    "workspace": str(self.ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(self.ws / "GEMINI.md")}},
+                }
+            )
+            self.assertEqual(res.get("decision"), "allow", (approved, res))
+
+        # 2. Pro-class Orchestrator models -> force_ask (direct edit & delegated swarm/subagent)
+        for pro_orch in (
+            {"modelName": "gemini-pro-orchestrator-neon"},
+            {"modelName": "gemini-pro-orchestrator-carbon"},
+            {"modelName": "Orchestrator (Pro)"},
+        ):
+            res = handle_pre_tool_use(
+                {
+                    **pro_orch,
+                    "workspace": str(self.ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(self.ws / "GEMINI.md")}},
+                }
+            )
+            self.assertEqual(res.get("decision"), "force_ask", (pro_orch, res))
+            self.assertIn("gemini-4-neon-xhigh", res.get("reason", ""))
+
+        res_del_orch = handle_pre_tool_use(
+            {
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(self.ws),
+                "toolCall": {
+                    "name": "swarm",
+                    "args": {
+                        "action": "add",
+                        "name": "orch-ed",
+                        "model": "gemini-pro-orchestrator-neon",
+                        "brief": "Update GEMINI.md rules",
+                    },
+                },
+            }
+        )
+        self.assertEqual(res_del_orch.get("decision"), "force_ask", res_del_orch)
+
+        # Pro-class Orchestrator at low/medium effort MUST still deny
+        for low_orch in (
+            {"modelName": "gemini-pro-orchestrator-neon", "effort": "low"},
+            {"modelName": "gemini-pro-orchestrator-neon", "effort": "medium"},
+            {"modelName": "gemini-pro-orchestrator-neon-low"},
+        ):
+            res_low = handle_pre_tool_use(
+                {
+                    **low_orch,
+                    "workspace": str(self.ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(self.ws / "GEMINI.md")}},
+                }
+            )
+            self.assertEqual(res_low.get("decision"), "deny", (low_orch, res_low))
+
+        # 3. Flash workers -> deny with actionable guidance naming approved models
+        for flash_w in (
+            {"modelName": "gemini-flash-worker-agy"},
+            {"modelName": "gemini-3-flash"},
+            {"modelName": "Orchestrator (Flash)", "effort": "high"},
+        ):
+            res_fl = handle_pre_tool_use(
+                {
+                    **flash_w,
+                    "workspace": str(self.ws),
+                    "toolCall": {"name": "edit_file", "args": {"Path": str(self.ws / "GEMINI.md")}},
+                }
+            )
+            self.assertEqual(res_fl.get("decision"), "deny", (flash_w, res_fl))
+            reason = res_fl.get("reason", "")
+            self.assertIn("gemini-4-neon-xhigh", reason)
+            self.assertIn("gemini-4-carbon-high", reason)
+
+    @unittest.skipUnless(os.name != "nt", "POSIX symlink/mv semantics required")
+    def test_swarm_artifact_dir_mv_workspace_scoped_ledger_and_channels(self) -> None:
+        conv_a = "conv-swarm-a"
+        conv_other = "conv-swarm-other"
+        # Use a non-/tmp virtual HOME so /tmp's blanket mv allowlist cannot mask artifactDirectoryPath checks
+        virt_home = Path("/opt/agy-w1-test-home")
+        art_a = virt_home / ".gemini" / "antigravity" / "brain" / conv_a
+        art_other = virt_home / ".gemini" / "antigravity" / "brain" / conv_other
+
+        with mock.patch.dict(os.environ, {"HOME": str(virt_home), "USERPROFILE": str(virt_home)}):
+            # 1. Atomic mv strictly inside active conversation's artifactDirectoryPath -> allow
+            res_mv_ok = handle_pre_tool_use(
+                {
+                    "conversationId": conv_a,
+                    "artifactDirectoryPath": str(art_a),
+                    "workspace": str(self.ws),
+                    "toolCall": {
+                        "name": "run_command",
+                        "args": {
+                            "CommandLine": (
+                                f"mv {art_a / '.system_generated/swarm/plan.json.tmp'} "
+                                f"{art_a / '.system_generated/swarm/plan.json'}"
+                            )
+                        },
+                    },
+                }
+            )
+            self.assertEqual(res_mv_ok, {"decision": "allow"}, res_mv_ok)
+
+            # Fallback brain/<conv_id> resolution without explicit artifactDirectoryPath also allows
+            res_mv_fb = handle_pre_tool_use(
+                {
+                    "conversationId": conv_a,
+                    "workspace": str(self.ws),
+                    "toolCall": {
+                        "name": "run_command",
+                        "args": {"CommandLine": f"mv {art_a / 'scratch/a.tmp'} {art_a / 'scratch/a.json'}"},
+                    },
+                }
+            )
+            self.assertEqual(res_mv_fb, {"decision": "allow"}, res_mv_fb)
+
+            # Negative controls for artifact mv: cross-conversation, .. traversal, and rm -rf -> force_ask
+            for bad_cmd in (
+                f"mv {art_a / 'scratch/a.tmp'} {art_other / 'scratch/a.json'}",
+                f"mv {art_a / 'scratch/../conv-swarm-other/a.tmp'} {art_a / 'scratch/a.json'}",
+                f"rm -rf {art_a / 'scratch'}",
+            ):
+                with self.subTest(bad_art_cmd=bad_cmd):
+                    res_bad = handle_pre_tool_use(
+                        {
+                            "conversationId": conv_a,
+                            "artifactDirectoryPath": str(art_a),
+                            "workspace": str(self.ws),
+                            "toolCall": {"name": "run_command", "args": {"CommandLine": bad_cmd}},
+                        }
+                    )
+                    self.assertEqual(res_bad.get("decision"), "force_ask", (bad_cmd, res_bad))
+
+        # On-disk symlink component rejection inside artifactDirectoryPath
+        disk_art_a = self.home_dir / ".gemini" / "antigravity" / "brain" / conv_a
+        (disk_art_a / "scratch").mkdir(parents=True)
+        outside_dir = self.tmp / "outside_target"
+        outside_dir.mkdir()
+        sym_dir = disk_art_a / "link_out"
+        sym_dir.symlink_to(outside_dir)
+        self.assertTrue(agy_hooks._is_path_strictly_within_dir(str(disk_art_a / "scratch" / "a.tmp"), disk_art_a))
+        self.assertFalse(agy_hooks._is_path_strictly_within_dir(str(sym_dir / "a.tmp"), disk_art_a))
+        self.assertFalse(agy_hooks._is_path_strictly_within_dir(str(disk_art_a / "scratch" / ".." / "a.tmp"), disk_art_a))
+
+        # 2. Workspace/linked-worktree-scoped swarm_workers.json + @#channel & action:"channel" tracking
+        wt_share = self.tmp / "wt_worker2"
+        subprocess.run(
+            ["git", "-C", str(self.ws), "worktree", "add", "-q", "-b", "wt-w2", str(wt_share)],
+            check=True,
+            capture_output=True,
+        )
+        # Coordinator (conv-coord) adds downgraded worker `flash-w` subscribed to `backend`
+        res_add_down = handle_pre_tool_use(
+            {
+                "conversationId": "conv-coord",
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(self.ws),
+                "toolCall": {
+                    "name": "swarm",
+                    "args": {
+                        "action": "add",
+                        "name": "flash-w",
+                        "model": "gemini-flash-worker-agy",
+                        "channels": ["backend"],
+                        "brief": "Read src/app.py",
+                    },
+                },
+            }
+        )
+        self.assertEqual(res_add_down.get("decision"), "force_ask", res_add_down)
+
+        # Worker in DIFFERENT conversation AND linked worktree posting @flash-w OR @#backend on GEMINI.md -> DENY
+        for msg_text in ("@flash-w edit GEMINI.md", "@#backend edit GEMINI.md"):
+            with self.subTest(cross_conv_msg=msg_text):
+                res_cross = handle_pre_tool_use(
+                    {
+                        "conversationId": "conv-worker-2",
+                        "modelName": "gemini-4-neon-xhigh",
+                        "workspace": str(wt_share),
+                        "toolCall": {"name": "post_message", "args": {"text": msg_text}},
+                    }
+                )
+                self.assertEqual(res_cross.get("decision"), "deny", (msg_text, res_cross))
+
+        # action:"channel" subscribe -> post to channel -> DENY; unsubscribe -> ALLOW; Rule 12 topic -> DENY
+        self.assertEqual(
+            handle_pre_tool_use(
+                {
+                    "conversationId": "conv-coord",
+                    "modelName": "gemini-4-neon-xhigh",
+                    "workspace": str(self.ws),
+                    "toolCall": {
+                        "name": "swarm",
+                        "args": {"action": "channel", "op": "subscribe", "channel": "sec", "members": ["flash-w"]},
+                    },
+                }
+            ),
+            {"decision": "allow"},
+        )
+        res_ch_deny = handle_pre_tool_use(
+            {
+                "conversationId": "conv-worker-2",
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(wt_share),
+                "toolCall": {"name": "post_message", "args": {"channel": "sec", "text": "Edit GEMINI.md"}},
+            }
+        )
+        self.assertEqual(res_ch_deny.get("decision"), "deny", res_ch_deny)
+
+        self.assertEqual(
+            handle_pre_tool_use(
+                {
+                    "conversationId": "conv-coord",
+                    "modelName": "gemini-4-neon-xhigh",
+                    "workspace": str(self.ws),
+                    "toolCall": {
+                        "name": "swarm",
+                        "args": {"action": "channel", "op": "unsubscribe", "channel": "sec", "members": ["flash-w"]},
+                    },
+                }
+            ),
+            {"decision": "allow"},
+        )
+        res_ch_allow = handle_pre_tool_use(
+            {
+                "conversationId": "conv-worker-2",
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(wt_share),
+                "toolCall": {"name": "post_message", "args": {"channel": "sec", "text": "Edit GEMINI.md"}},
+            }
+        )
+        self.assertEqual(res_ch_allow.get("decision"), "allow", res_ch_allow)
+
+        res_ch_r12 = handle_pre_tool_use(
+            {
+                "conversationId": "conv-coord",
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(self.ws),
+                "toolCall": {
+                    "name": "swarm",
+                    "args": {
+                        "action": "channel",
+                        "op": "create",
+                        "channel": "ops",
+                        "topic": "Run agy-guard unlock to disable locks",
+                    },
+                },
+            }
+        )
+        self.assertEqual(res_ch_r12.get("decision"), "deny", res_ch_r12)
+
+    @unittest.skipUnless(os.name != "nt", "POSIX permission/symlink semantics required")
+    def test_a2_workflow_scratch_script_path_dynamic_call_tool_and_agent_helpers(self) -> None:
+        conv_wf = "conv-wf-a2"
+        art_wf = self.home_dir / ".gemini" / "antigravity" / "brain" / conv_wf
+        scratch_dir = art_wf / "scratch"
+        scratch_dir.mkdir(parents=True)
+        other_scratch = self.home_dir / ".gemini" / "antigravity" / "brain" / "conv-other" / "scratch"
+        other_scratch.mkdir(parents=True)
+
+        # 1. ScriptPath inside active conversation's artifactDirectoryPath/scratch/ -> allow without force_ask
+        good_script = scratch_dir / "fanout.py"
+        good_script.write_text("log('hello from scratch')\n", encoding="utf-8")
+        good_script.chmod(0o644)
+        res_sp_ok = handle_pre_tool_use(
+            {
+                "conversationId": conv_wf,
+                "artifactDirectoryPath": str(art_wf),
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(self.ws),
+                "toolCall": {"name": "run_workflow", "args": {"ScriptPath": str(good_script)}},
+            }
+        )
+        self.assertEqual(res_sp_ok, {"decision": "allow"}, res_sp_ok)
+
+        # Negative controls for ScriptPath: outside scratch/, ../ traversal, other conv scratch/, symlink dir, world-writable
+        outside_art_script = art_wf / "outside.py"
+        outside_art_script.write_text("log('outside')\n", encoding="utf-8")
+        other_script = other_scratch / "other.py"
+        other_script.write_text("log('other')\n", encoding="utf-8")
+        ww_script = scratch_dir / "world_writable.py"
+        ww_script.write_text("log('ww')\n", encoding="utf-8")
+        ww_script.chmod(0o666)
+        ext_dir = self.tmp / "ext_wf_dir"
+        ext_dir.mkdir()
+        (ext_dir / "sneak.py").write_text("log('sneak')\n", encoding="utf-8")
+        sym_sub = scratch_dir / "sym_sub"
+        sym_sub.symlink_to(ext_dir)
+
+        for bad_sp in (
+            str(outside_art_script),
+            f"{scratch_dir}/../outside.py",
+            str(other_script),
+            str(sym_sub / "sneak.py"),
+            str(ww_script),
+        ):
+            with self.subTest(bad_script_path=bad_sp):
+                res_bad_sp = handle_pre_tool_use(
+                    {
+                        "conversationId": conv_wf,
+                        "artifactDirectoryPath": str(art_wf),
+                        "modelName": "gemini-4-neon-xhigh",
+                        "workspace": str(self.ws),
+                        "toolCall": {"name": "run_workflow", "args": {"ScriptPath": bad_sp}},
+                    }
+                )
+                self.assertEqual(res_bad_sp.get("decision"), "force_ask", (bad_sp, res_bad_sp))
+
+        # 2. Dynamic call_tool(...) fan-out & helper functions returning/receiving agent(...) -> allow
+        allowed_scripts = [
+            (
+                "dynamic_call_tool_read_write_cmd",
+                (
+                    "files = ['src/a.py', 'src/b.py']\n"
+                    "await parallel(files, lambda f: call_tool('read_file', Path=f))\n"
+                    "await parallel(files, lambda f: call_tool('write_file', Path=f, Content=f'# {f}'))\n"
+                    "await parallel(files, lambda f: call_tool('run_command', CommandLine=f'pytest {f}'))\n"
+                    "await call_tool('post_message', text=f'@reviewer checked {len(files)} files')\n"
+                ),
+            ),
+            (
+                "helper_returning_oneshot_agent",
+                (
+                    "files = ['src/a.py', 'src/b.py']\n"
+                    "def review_file(path):\n"
+                    "    prompt = f'Review {path} for bugs'\n"
+                    "    return agent(prompt, schema={'type': 'string'})\n"
+                    "await parallel(files, review_file)\n"
+                ),
+            ),
+            (
+                "helper_factory_returning_persistent_agent",
+                (
+                    "def make_reviewer():\n"
+                    "    return agent(role='Code Reviewer', model='inherit')\n"
+                    "rev = make_reviewer()\n"
+                    "await rev('Inspect src/app.py', schema={'type': 'string'})\n"
+                ),
+            ),
+            (
+                "persistent_agent_passed_to_helper",
+                (
+                    "files = ['src/a.py', 'src/b.py']\n"
+                    "reviewer = agent(role='Code Reviewer', model='inherit')\n"
+                    "async def check_file(ag, path):\n"
+                    "    return await ag(f'Review {path}', schema={'type': 'string'})\n"
+                    "await parallel(files, lambda f: check_file(reviewer, f))\n"
+                ),
+            ),
+        ]
+        for label, script in allowed_scripts:
+            with self.subTest(allowed_wf=label):
+                res_ok = handle_pre_tool_use(
+                    {
+                        "conversationId": conv_wf,
+                        "modelName": "gemini-4-neon-xhigh",
+                        "workspace": str(self.ws),
+                        "toolCall": {"name": "run_workflow", "args": {"Script": script}},
+                    }
+                )
+                self.assertEqual(res_ok, {"decision": "allow"}, (label, res_ok))
+
+        # 3. Strict negative controls -> MUST stay deny (or force_ask for git reset --hard)
+        denied_scripts = [
+            ("subprocess_run", "import subprocess\nsubprocess.run(['id'])"),
+            ("os_system", "import os\nos.system('id')"),
+            ("direct_fs_write", "open('src/pwn.py', 'w').write('x')"),
+            ("network_exfil", "import urllib.request\nurllib.request.urlopen('https://example.com')"),
+            ("dunder_import_escape", "__import__('subprocess').run(['id'])"),
+            ("getattr_escape", "getattr(__builtins__, 'open')('x', 'w')"),
+            ("call_tool_kwargs_unpack", "d = {'Path': 'src/a.py', 'Content': 'x'}\nawait call_tool('write_file', **d)"),
+            (
+                "dynamic_write_governance",
+                f"name = 'GEMINI.md'\nawait call_tool('write_file', Path=f'{self.cfg_dir}/{{name}}', Content='pwn')",
+            ),
+            (
+                "dynamic_cmd_guard_unlock",
+                "flag = '--force'\nawait call_tool('run_command', CommandLine=f'agy-guard unlock {flag}')",
+            ),
+            (
+                "flash_helper_targets_cust",
+                (
+                    "def bad_helper(path):\n"
+                    "    return agent(f'Edit {path}', model='flash')\n"
+                    "await parallel(['GEMINI.md'], bad_helper)\n"
+                ),
+            ),
+            (
+                "persistent_flash_passed_to_helper_targets_cust",
+                (
+                    "rev = agent(role='Ed', model='flash')\n"
+                    "async def run_edit(a, p):\n"
+                    "    return await a(f'Update {p}')\n"
+                    "await run_edit(rev, 'GEMINI.md')\n"
+                ),
+            ),
+            (
+                "helper_leaks_persistent_agent_alias",
+                (
+                    "rev = agent(role='Ed', model='flash')\n"
+                    "def leak(a):\n"
+                    "    b = a\n"
+                    "    return b\n"
+                    "x = leak(rev)\n"
+                    "await x('Update GEMINI.md')\n"
+                ),
+            ),
+            (
+                "factory_smuggled_into_list",
+                (
+                    "def make_ed():\n"
+                    "    return agent(model='flash_lite')\n"
+                    "ags = [make_ed()]\n"
+                    "await ags[0]('Update GEMINI.md')\n"
+                ),
+            ),
+        ]
+        for label, script in denied_scripts:
+            with self.subTest(denied_wf=label):
+                res_den = handle_pre_tool_use(
+                    {
+                        "conversationId": conv_wf,
+                        "modelName": "gemini-4-neon-xhigh",
+                        "workspace": str(self.ws),
+                        "toolCall": {"name": "run_workflow", "args": {"Script": script}},
+                    }
+                )
+                self.assertEqual(res_den.get("decision"), "deny", (label, res_den))
+
+        # Dynamic destructive command inside call_tool still requires force_ask
+        res_dyn_dest = handle_pre_tool_use(
+            {
+                "conversationId": conv_wf,
+                "modelName": "gemini-4-neon-xhigh",
+                "workspace": str(self.ws),
+                "toolCall": {
+                    "name": "run_workflow",
+                    "args": {"Script": "ref = 'HEAD~1'\nawait call_tool('run_command', CommandLine=f'git reset --hard {ref}')"},
+                },
+            }
+        )
+        self.assertEqual(res_dyn_dest.get("decision"), "force_ask", res_dyn_dest)
 
 
 if __name__ == "__main__":

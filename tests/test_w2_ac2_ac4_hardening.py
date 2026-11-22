@@ -35,7 +35,7 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WATCHER_SCRIPT = REPO_ROOT / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
-TOP_MODEL = "Gemini 4 Hydrogen (XHigh)"
+TOP_MODEL = "Gemini 4 Neon (XHigh)"
 DOWNGRADED_MODEL = "Gemini 3.8 Flash (High)"
 
 
@@ -1170,7 +1170,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
                 {
                     "type": "USER_INPUT",
                     "source": "USER_EXPLICIT",
-                    "content": "<USER_SETTINGS_CHANGE>Model Selection: Gemini 4 Hydrogen</USER_SETTINGS_CHANGE>",
+                    "content": "<USER_SETTINGS_CHANGE>Model Selection: Gemini 4 Neon</USER_SETTINGS_CHANGE>",
                 }
             )
             + "\n",
@@ -1179,7 +1179,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         bleed_edit = agy_hooks.handle_pre_tool_use(
             {
                 "conversationId": "conv-tx-bleed",
-                "modelName": "Gemini 4 Hydrogen",
+                "modelName": "Gemini 4 Neon",
                 "effort": "low",
                 "transcriptPath": str(tx_bleed),
                 "workspace": str(ws_repo),
@@ -1192,7 +1192,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         ph_edit = agy_hooks.handle_pre_tool_use(
             {
                 "conversationId": "conv-ph-eff",
-                "modelName": "MODEL_PLACEHOLDER_M417",
+                "modelName": "MODEL_PLACEHOLDER_M535",
                 "effort": "xhigh",
                 "workspace": str(ws_repo),
                 "toolCall": {"name": "edit_file", "args": {"Path": str(ws_repo / "GEMINI.md")}},

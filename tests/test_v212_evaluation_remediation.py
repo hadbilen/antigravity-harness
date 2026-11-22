@@ -165,7 +165,17 @@ class TestAC1LazyGuardInitAndHookColdStart(HermeticHookCase):
         )
         data = json.loads(cp.stdout.strip())
         self.assertEqual(data["res"], {"decision": "allow"})
-        self.assertEqual(data["mods"], ["guard.hooks.common", "guard.hooks.pre_tool_use"])
+        self.assertEqual(
+            data["mods"],
+            ["guard.hooks._shell_guard", "guard.hooks.common", "guard.hooks.pre_tool_use"],
+        )
+        for deferred_mod in (
+            "guard.hooks._workflow_ast",
+            "guard.hooks._swarm_guard",
+            "guard.hooks._mcp_guard",
+            "guard.hooks._write_guard",
+        ):
+            self.assertNotIn(deferred_mod, data["mods"])
         self.assertTrue(data["uf"])
         self.assertTrue(data["us"])
 
@@ -733,9 +743,8 @@ class TestAC4StandaloneHermeticSubprocessIsolation(HermeticHookCase):
 
 class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
     EXPECTED_PLACEHOLDERS = {
-        "MODEL_PLACEHOLDER_M417": "Gemini 4 Argon (High)",
         "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
-        "MODEL_PLACEHOLDER_M528": "Gemini 4 Hydrogen (XHigh)",
+        "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
     }
 
     def _load_watcher_isolated(self, env_overrides: dict[str, str]):
@@ -748,12 +757,12 @@ class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
         return mod
 
     def test_seed_known_placeholder_models_watcher_bridge_and_pre_tool_use_wiring(self) -> None:
-        """Catches false 'unmapped placeholder' alerts on M417/M427/M528 or auto-allow leaks on unknown M999."""
+        """Catches false 'unmapped placeholder' alerts on M427/M535 or auto-allow leaks on unknown M999."""
         import guard.upstream as guard_upstream
 
         seed_path = REPO_ROOT / "skills" / "upstream-auditor" / "upstream_state.seed.json"
         shipped_seed = json.loads(seed_path.read_text(encoding="utf-8"))
-        self.assertEqual(shipped_seed.get("last_pbtxt_model"), "MODEL_PLACEHOLDER_M528")
+        self.assertEqual(shipped_seed.get("last_pbtxt_model"), "MODEL_PLACEHOLDER_M535")
         self.assertEqual(shipped_seed.get("known_placeholder_models"), self.EXPECTED_PLACEHOLDERS)
 
         # 1. Seed digest parity and sensitivity to known_placeholder_models updates
@@ -774,7 +783,7 @@ class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
             uw_base._compute_seed_digest(mutated_seed),
         )
 
-        # 2. Seed reconciliation propagates known_placeholder_models and M528 into stale per-user ledgers
+        # 2. Seed reconciliation propagates known_placeholder_models and M535 into stale per-user ledgers
         stale_state = {
             "_reconciled_seed_digest": "pre-v212-digest",
             "last_audited_model": "Gemini 4 Hydrogen (XHigh)",
@@ -784,13 +793,13 @@ class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
         }
         rec_guard, changed_guard = guard_upstream.reconcile_state_with_seed(dict(stale_state), shipped_seed)
         self.assertTrue(changed_guard)
-        self.assertEqual(rec_guard.get("last_pbtxt_model"), "MODEL_PLACEHOLDER_M528")
+        self.assertEqual(rec_guard.get("last_pbtxt_model"), "MODEL_PLACEHOLDER_M535")
         self.assertEqual(rec_guard.get("known_placeholder_models"), self.EXPECTED_PLACEHOLDERS)
 
         rec_uw = dict(stale_state)
         changed_uw = uw_base._reconcile_with_seed(rec_uw, shipped_seed)
         self.assertTrue(changed_uw)
-        self.assertEqual(rec_uw.get("last_pbtxt_model"), "MODEL_PLACEHOLDER_M528")
+        self.assertEqual(rec_uw.get("last_pbtxt_model"), "MODEL_PLACEHOLDER_M535")
         self.assertEqual(rec_uw.get("known_placeholder_models"), self.EXPECTED_PLACEHOLDERS)
 
         # 3. upstream_watcher switching across M417 / M427 / M528 emits 0 drift alerts; M999 warns
