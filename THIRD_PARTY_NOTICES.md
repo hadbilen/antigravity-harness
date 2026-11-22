@@ -24,6 +24,7 @@ licenses require. Adapted files may have been modified for this harness.
 | [rainmanjam/poka-yoke](https://github.com/rainmanjam/poka-yoke) / [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `harness` (`skills/harness/references/mistake-proofing.md`, `skills/harness/references/mistake-proofing-hazards.md`, `skills/harness/references/mistake-proofing-languages.md`) |
 | [garrytan/gstack](https://github.com/garrytan/gstack) | MIT | `test-adequacy-auditor` (negative assertion check & branch tree), `harness` (helper reuse threshold) |
 | [karpathy/autoresearch](https://github.com/karpathy/autoresearch) & [karpathy/llm-council](https://github.com/karpathy/llm-council) | MIT | `diagnosing-bugs` (Simplicity Criterion & experiment ledger), `harness` (anonymized auditor evaluation) |
+| [erkamyaman/rust-anything](https://github.com/erkamyaman/rust-anything) | MIT | `rustify` (multi-language porting patterns, `--batch`/`FnIndex`, semantic traps, noise taxonomy, `known-diffs.jsonl`, strangler cutover), `rust-harden` (`#[expect(..., reason = "...")]`, `// INFALLIBLE:`) |
 
 ## miqdadbadjuber/anti-slop (MIT)
 
@@ -567,6 +568,32 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+```
+
+## erkamyaman/rust-anything (MIT)
+
+```text
+MIT License
+
+Copyright (c) 2026 Erkam Yaman (erkamyaman)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 

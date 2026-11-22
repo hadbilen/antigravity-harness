@@ -156,16 +156,16 @@ one is not stopped; the integrity baseline reports it.
   inside the config tree, world-writable sources, symlink installs, dangling or external symlinks under `plugins/`
   and `.agents/skills/`, `hooks.json` / workspace `.agents/hooks.json` state, `install_receipt.json` version alignment,
   relock-watcher errors and risky Antigravity permission grants (counts only).
-* **Full CLI Workflow (21 subcommands):** `init`, `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `upstream`, `startup`, `boot-check`, `gui`, `doctor`, `test-boundary`, `provenance`, `env`, `request-unlock`, `lock-complete`, `drift`, `self-audit`, `notify` (plus the internal `lease-tick` used by the lease watcher).
+* **Full CLI Workflow (25 subcommands):** `init`, `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `upstream`, `startup`, `boot-check`, `gui`, `doctor`, `test-boundary`, `provenance`, `env`, `request-unlock`, `lock-complete`, `drift`, `self-audit`, `notify`, `code-map`, `ui-slop`, `synthetic-markers`, `verify-invariants` (plus the internal `lease-tick` used by the lease watcher).
 * **Desktop GUI (`guard/gui.py`):** Tkinter/ttk, `DESIGN.md` dark palette; long operations (verify,
   rebaseline, restore, drift analysis) run off the UI thread, tray callbacks are marshalled onto the Tk loop,
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
-* **Event-scoped lifecycle hooks (`hooks.json`, `guard/__init__.py`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/__init__.py` uses PEP 562 lazy `__getattr__` exports and `guard/agy_hooks.py` acts as a thin lazy CLI router and compatibility facade loading only the active lifecycle submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py` with on-demand `guard/hooks/_workflow_ast.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`, `ADR-0010`):
+* **Event-scoped lifecycle hooks (`hooks.json`, `guard/__init__.py`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/__init__.py` uses PEP 562 lazy `__getattr__` exports and `guard/agy_hooks.py` acts as a thin lazy CLI router and compatibility facade (with a lightweight `invocationNum > 1` fast path) loading only the active lifecycle and tool-scoped submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py` with on-demand `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, and `_workflow_ast.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`, `ADR-0010`, `ADR-0013`):
   * **`PreInvocation` (`pre_invocation.py`):** bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`, `ADR-0011`) with explicit `/slash` priority, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]` (with `marathon` `Campaign ID` isolation and stale-ledger anti-merge guidance), and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
-  * **`PreToolUse` (`pre_tool_use.py`, `_workflow_ast.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), `GEMINI.md` Rule 9 `tasks.md` `## Authorized Test Modifications` gating (permitting clean `[COMPLETE]` stale-campaign resets once prior authorized tests are committed), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
+  * **`PreToolUse` (`pre_tool_use.py`, `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, `_workflow_ast.py`):** Governance Shield (`~/.gemini/config` & `~/.gemini/{GEMINI,AGENTS}.md`, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010`), Top-Catalog Model & Highest-Effort Customization Gate (`GEMINI.md` Rule 17, including `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), `GEMINI.md` Rule 9 `tasks.md` `## Authorized Test Modifications` gating (permitting clean `[COMPLETE]` stale-campaign resets once prior authorized tests are committed), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
   * **`Stop` (`stop_gate.py`):** diff, untracked-file, and linked-worktree `TestBoundaryGuard` integrity verification (tautological assertions, operator/matcher relaxation, `C9` test-runner sniffing, unapproved test skips, malformed `.json`/`.toml`/`.svg` syntax, `UI-1`–`UI-5` slop, and broken local Markdown links) guarded by a 3-strike circuit breaker.
-* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the PreInvocation hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `agy-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `agy-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
+* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the `SessionStart` hook sends an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `agy-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `agy-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
 
 ---
 
@@ -242,12 +242,12 @@ their own tool policies:
 
 21 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `antislop`, `technical-writing`, and `audit` per `ADR-0009` and `ADR-0011`):
 
-* **`harness`:** engineering harness, verification gates, Tier-3 Pre-Code Plan Gate (`YAGNI` Brake), Swarm vs. `unlazy` vs. `marathon` topology routing (`ADR-0007`), and task lifecycle (reading `ARCHITECTURE.md` and `SECURITY_POSTURE.md` when present per `ADR-0011`), plus on-demand reference modules for `marathon` (`/marathon` multi-window goal planning, `Campaign ID` isolation, and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
+* **`harness`:** engineering harness, verification gates, Low-Friction Turbo UX (`Reversible-First` defaults and 3-Class Hard Ask Gate preserving `guard/` Layer A safety), Tier-3 Pre-Code Plan Gate (`YAGNI` Brake), Swarm vs. `unlazy` vs. `marathon` topology routing (`ADR-0007`, `ADR-0012`, `ADR-0013`), and task lifecycle (reading opt-in `REPOSTATE.md`, `ARCHITECTURE.md`, and `SECURITY_POSTURE.md` when present, plus opt-in `templates/vulkan.SKILL.template.md`), with on-demand reference modules for `context-and-artifacts`, `multi-agent-orchestration`, `marathon` (`/marathon` multi-window goal planning, `Campaign ID` isolation, append-only `## Completed Windows Log`, and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr`), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
 * **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net` with Controllable vs. Uncontrollable External Path classification) governed by the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
 * **`media-studio`:** high-fidelity audio, video, still-image (`JPG`, `PNG`, `TIFF`, `BMP`), and animated visual (`MP4`, `WebM`, `Animated WebP`, `GIF`, `APNG`, `WAV`, `FLAC`, `Opus`, `AAC`) synthesis, timeline editing, container/header salvage (`salvage`), signal restoration, two-tier fidelity-bounded quality enhancement, two-pass `EBU R128` loudness mastering, and the deterministic `media_qc.py` quality gate (`MEDIA-1..MEDIA-7`, `GAME-1..GAME-3`, `LUFS`, `dBTP`, aspect-locked `compare` `SSIM`/`PSNR`, `ab-sheet`, game SFX peak normalization, Ogg Vorbis/Opus, loop-seam, pixel-art, and sprite-atlas checks).
 * **`renew`:** generational legacy software and classic game modernization, dead-runtime/toolkit porting, and unbuildable codebase revival via a 5-stage contract-first pipeline (`Silent Autopsy -> Renewal Contract -> Golden Master or Equivalence Ledger -> Layered Strangler Cutover -> Parity Gate`) with `[HARDWARE/ENV SHIM]` record/replay contracts, locale invariants, and a Legacy Game & Interactive Simulation Remaster profile.
-* **`rustify`:** architectural C, C++, Go, and Python -> memory-safe Rust (`2024` Edition, `#[unsafe(no_mangle)]`, `unsafe extern "C"`, Cargo publish-age cooldowns) migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`) via a 5-stage contract-first pipeline (`Silent Build & ABI Autopsy -> Migration Contract -> Behavior Pinning & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, and conditional `cargo kani` formal proofs).
-* **`rust-harden`:** intra-Rust ownership and borrow-checker debt cleanup, production `.unwrap()` / `.expect()` elimination, crate-tiered `[lints.rust]` / `[lints.clippy]` enforcement, and `--internal` (signature-preserving default) vs. `--contract` (`Expand -> Migrate -> Contract` `Result`/`newtype`/`typestate`) modes, plus on-demand playbooks for `tokio::select!` cancellation and pre-runtime POSIX privilege drop (`skills/rust-harden/references/async-and-userspace.md`) and `#![no_std]`, Framekernel, IRQ-spinlock, `UserSlice`, DMA `Drop`, and `loom`/`kani` proofs (`skills/rust-harden/references/kernel-and-unsafe.md`).
+* **`rustify`:** architectural C, C++, Go, Python, TypeScript/JavaScript, Ruby, and Java/Kotlin -> memory-safe Rust (`2024` Edition, `#[unsafe(no_mangle)]`, `unsafe extern "C"`, Cargo publish-age cooldowns) migration and Foreign Function Interface (`FFI`) bridging (`bindgen`/`cbindgen`, `cxx`, `PyO3`, `napi-rs`/`wasm`, Magnus, JNI) via a 5-stage contract-first pipeline (`Silent Build, ABI & Bridge-Overhead Autopsy -> Migration Contract & Strangler Cutover -> Differential Pinning, Noise Taxonomy & Leaf-to-Root Decomposition -> Two-Stage Unsafe Purification -> 3-Tier Verification Ladder` with `rustc`, `clippy`, `miri`, C/Rust sanitizers, conditional `cargo kani` formal proofs, `--batch`/`FnIndex` hot-loop batching, `known-diffs.jsonl`, and optional pinned `rust-anything` `=2.1.0 --locked` CLI/MCP acceleration with full manual fallback per `ADR-0012`).
+* **`rust-harden`:** intra-Rust ownership and borrow-checker debt cleanup, production `.unwrap()` / `.expect()` elimination (`// INFALLIBLE: <why>` and `#[expect(lint, reason = "...")]`), crate-tiered `[lints.rust]` / `[lints.clippy]` enforcement, and `--internal` (signature-preserving default) vs. `--contract` (`Expand -> Migrate -> Contract` `Result`/`newtype`/`typestate`) modes, plus three on-demand playbooks: `tokio::select!` cancellation and pre-runtime POSIX privilege drop (`skills/rust-harden/references/async-and-userspace.md`), `#![no_std]`, Framekernel, IRQ-spinlock, `UserSlice`, DMA `Drop`, and `loom`/`kani` proofs (`skills/rust-harden/references/kernel-and-unsafe.md`), and real-time game loops, Vulkan/GPU `Drop` & swapchain resilience, lock-free `SPSC` audio threads, and bounded binary saves (`skills/rust-harden/references/game-and-realtime.md`).
 * **`game-engineering`:** deterministic fixed-timestep game loops (`Profile A` Web/Canvas `16.67 ms` budget and `Profile B` 3D/Native Engines), zero per-frame allocation, seeded PRNG, save `schemaVersion` quarantine, and clean-room `rea_rea` asset/binary recovery bridges.
 * **`porter`:** ecosystem adapter, suitability analyzer, transpiler.
 * **`vibecoder`:** product-first rapid prototyping with zero-friction single-file rich HTML application, game (`Game Vibe Mode`), and creative studio / interactive sandbox (`Creative & Sandbox Vibe Mode`) delivery.
@@ -257,8 +257,8 @@ their own tool policies:
 * **`procoder`:** sprint scaffolding for repositories that contain `.procoder/`.
 * **`antislop`:** core 40-rule UI/copy filter + structural UI scanner (`check_ui_slop.py`), bundling on-demand reference modules and tools for UI geometry (`/antislop-ui`), code-comment hygiene (`/antislop-code`), prose scanning (`/antislop-copywriting` + `check_synthetic_markers.py` for English and Turkish), WCAG contrast (`/antislop-human` + `contrast-check.py` / `contrast-mcp.py`), mobile layout (`/antislop-layoutmobile`), and kinetic motion (`/silk-design`).
 * **`technical-writing`:** Diataxis documentation, executable example verification, and `/visualizer` diagramming (`skills/technical-writing/references/visualizer.md`; Mermaid or built-in `generative_ui`).
-* **`audit`:** read-only structural, consistency, and security boundary audit engine (with automatic `ARCHITECTURE.md` and `SECURITY_POSTURE.md` Phase 0.B control grounding per `ADR-0011`), bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
-* **`upstream-auditor`:** model catalog, built-in Antigravity runtime, and 8-repository upstream drift auditor (supporting both branch commits, consolidated sub-reference targets, and `"track": "release"` tag tracking such as `morluto/rea`).
+* **`audit`:** read-only structural, consistency, and security boundary audit engine (with automatic `REPOSTATE.md`, `ARCHITECTURE.md`, and `SECURITY_POSTURE.md` Phase 0.B control grounding per `ADR-0011` and `ADR-0012`), bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
+* **`upstream-auditor`:** model catalog, built-in Antigravity runtime, and 9-repository upstream drift auditor (supporting branch commits, consolidated sub-reference targets, and `"track": "release"` tag tracking such as `morluto/rea` and `erkamyaman/rust-anything`).
 * **`refactoring`**, **`retro`**, **`data-analysis`**, **`diagnosing-bugs`**, **`database-migrations`**.
 
 Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
@@ -287,19 +287,19 @@ While all core invariants, formal specifications, architectural decision records
 antigravity-harness/
 ├── GEMINI.md / DESIGN.md / MISTAKES.md   # Constitution, design contract, harness incident log
 ├── CHANGELOG.md / CONTRIBUTING.md / THIRD_PARTY_NOTICES.md / LICENSE
-├── hooks.json                             # Reference PreInvocation, PreToolUse & Stop hooks
+├── hooks.json                             # Reference SessionStart, PreInvocation, PreToolUse & Stop hooks
 ├── install.py / install.sh                # Installer (install.sh is a POSIX wrapper around install.py)
 ├── guard.py / porter.py                   # CLI entry points
 ├── .github/workflows/ci.yml               # 3 OS x Python 3.10-3.14, lint, trusted-boundary, release
 ├── .harness/manifest.json                 # Canonical manifest (checked by CI)
-├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0011)
+├── docs/adr/                              # Architecture Decision Records (ADR-0001 through ADR-0013)
 ├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
 ├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
 │   │                                      #   notifier, approval, audit_log, doctor, paths, startup,
 │   │                                      #   test_boundary, provenance, porter_bridge, upstream, cli, gui, tray
-│   ├── agy_hooks.py                       #   lazy CLI router & PEP 562 compatibility facade (ADR-0008, ADR-0010)
-│   └── hooks/                             #   event-scoped lifecycle hooks: common, pre_invocation, pre_tool_use, _workflow_ast, stop_gate
+│   ├── agy_hooks.py                       #   lazy CLI router & PEP 562 compatibility facade (ADR-0008, ADR-0010, ADR-0013)
+│   └── hooks/                             #   event- & tool-scoped lifecycle hooks: common, pre_invocation, pre_tool_use, _shell_guard, _swarm_guard, _mcp_guard, _write_guard, _workflow_ast, stop_gate
 ├── porter/                                # analyzer, sanitizer, frontmatter, manifest, net, archive, emitters/
 ├── scripts/
 │   ├── code_map.py                        # AST caller/dataflow/blast-radius map, runtime tracer & FTS5 search
@@ -307,8 +307,8 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 10 auditor subagent definitions
 ├── skills/                                # 21 top-level skills + on-demand references/ & scripts/
-├── tests/                                 # Hermetic unittest suite (720 tests)
-└── templates/                             # ARCHITECTURE, HANDOFF, MISTAKES, SECURITY_POSTURE & config templates
+├── tests/                                 # Hermetic unittest suite (768 tests)
+└── templates/                             # ARCHITECTURE, HANDOFF, MISTAKES, REPOSTATE, SECURITY_POSTURE, vulkan.SKILL & config templates
 ```
 
 Runtime state never lives in the repository: registry, baselines, leases, lock-mode records and the
@@ -401,6 +401,12 @@ agy-guard test-boundary verify --base-ref origin/main
 agy-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py" --passes 2
 agy-guard provenance generate
 
+# Portable workspace verification tools (work from any external project cwd)
+agy-guard code-map callers handle_request src/
+agy-guard ui-slop index.html --mode utility
+agy-guard synthetic-markers --profile technical README.md
+agy-guard verify-invariants --all
+
 # Boot sentinel, notifications, self-audit, GUI
 agy-guard startup enable
 agy-guard boot-check
@@ -448,7 +454,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (720 tests)
+# Hermetic unit test suite (768 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings
@@ -476,7 +482,7 @@ Grounded in prompt-failure post-mortems from [r/ChatGPTCoding](https://www.reddi
 [r/ClaudeAI](https://www.reddit.com/r/ClaudeAI/) and [r/LocalLLaMA](https://www.reddit.com/r/LocalLLaMA/),
 and on these open-source projects (licenses in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)):
 `miqdadbadjuber/anti-slop`, `JayPokale/Chisle`, `Leonxlnx/unlazy`, `azrtydxb/procoder`,
-`bendrape1-byte/silk-design`, `affaan-m/everything-claude-code`, `mattpocock/skills`.
+`bendrape1-byte/silk-design`, `affaan-m/everything-claude-code`, `mattpocock/skills`, `erkamyaman/rust-anything`.
 
 ---
 

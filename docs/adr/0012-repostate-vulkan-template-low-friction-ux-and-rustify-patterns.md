@@ -1,0 +1,52 @@
+# ADR-0012: Opt-In `REPOSTATE` & `vulkan.SKILL` Templates, Low-Friction Turbo UX, Restricted Governance Model Allowlist, and `rust-anything` / Rust Game-Hardening Patterns
+
+**Date**: 2026-11-21
+**Status**: accepted
+**Amends**: [ADR-0003](0003-rustify-skill-and-codemap-c-rust-indexing.md) (partial: expanded language coverage, batching, noise taxonomy & strangler cutover), [ADR-0009](0009-cognitive-slimming-skill-consolidation-and-midturn-hook-silence.md) (partial: maintained `21` skills within the `10,800`-byte frontmatter cap), [ADR-0010](0010-lazy-guard-init-ast-inline-shield-and-reactive-wakeup-continuity.md) (partial: restricted Rule 17 governance customization model allowlist), [ADR-0011](0011-governance-templates-rust-harden-and-simplicity-auditor.md) (partial: 3rd progressive-disclosure `rust-harden` profile & opt-in templates)
+**Deciders**: Human Operator (`tugay`), Antigravity Harness Maintainers
+
+## Context
+
+Five operational gaps remained across multi-window campaigns, domain-specific graphics/Rust projects, and governance administration: (1) repositories lacked an opt-in, anti-rot milestone snapshot template (`REPOSTATE.md`) and a project-local Vulkan `1.3`/`1.4` verification template (`vulkan.SKILL.template.md`), while `marathon` campaigns lacked an append-only per-window completion log (`## Completed Windows Log`); (2) low-stakes reversible workflow steps (initializing `docs/adr/` on required ADRs, clear Tier-2 plans, auto-triggered Tier-3 `deep-grill` rounds, explicit `/audit` invocations) still interrupted the operator unnecessarily; (3) `upstream_state.seed.json` permitted older or cross-family models (`Hydrogen`, `Argon`, `Carbon XHigh`, `Orchestrator`, `Opus`) for Rule 17 governance writes rather than restricting edits exclusively to the active highest-tier `Gemini 4 Neon (XHigh)` and `Gemini 4 Carbon (High)` models; (4) `rustify` lacked managed/dynamic runtime bridges (`TS/JS`, `Ruby`, `Java/Kotlin`), FFI bridge-overhead batching (`--batch` / `FnIndex`), cross-language semantic traps, two-run oracle noise taxonomy (`values`/`order`/`lines`), `known-diffs.jsonl`, and strangler fallback-rate cutover; and (5) `rust-harden` lacked a dedicated real-time game, GPU/Vulkan, and audio profile. The decision-driving constraint is **delivering all five improvements without adding a 22nd top-level skill, without exceeding the `10,800`-byte aggregate frontmatter cap, without weakening any `guard/hooks/pre_tool_use.py` Layer A gate, and without softening `C++`/`#![no_std]`/`miri`/`ASan`/`UBSan`/`cargo kani` verification**.
+
+## Decision
+
+We adopt five coordinated changes across templates, workflow skills, upstream state, and Rust domain references:
+
+1. **Opt-In Portable Templates & Append-Only Marathon Window Log:** Ship `templates/REPOSTATE.template.md` (`<= 150` lines, `Last Verified Commit`, zero volatile `:L<n>` coordinates, three fixed sections: Current State Snapshot, Planned Roadmap, Compact Milestone Ledger) registered in `scripts/meta_audit.py` `KNOWN_EXTERNAL_MD`, plus `templates/vulkan.SKILL.template.md` (valid YAML frontmatter with explicit negative boundary and 3-stage Vulkan `1.3`/`1.4` verification: modern defaults, `$VULKAN_SDK`/`vk.xml` source grounding, and `spirv-val` + `VK_LAYER_KHRONOS_validation` Sync Validation + headless Lavapipe). Add a compact, append-only `## Completed Windows Log` table to `skills/harness/references/marathon.md` (`tasks.md` and `HANDOFF.md`) without spawning competing per-window directories.
+2. **Low-Friction Turbo UX With Intact Guard Layer A:** Codify the Reversible-First default rule, 3-Class Hard Ask Gate (destructive/external side-effects, unresolved product/contract/security trade-offs, and Rule 9/17 overrides), `RequestFeedback: false` on clear Tier-2 plans, Frontier-Batch `deep-grill` rounds for auto-triggered Tier-3 flows (retaining strict one-at-a-time questioning exclusively for explicit `/deep-grill`), automatic `docs/adr/` initialization on required/requested ADRs, explicit-`/audit` confirmation cleanup, and explicit `--auto` autonomous defaults across `harness`, `marathon`, `adr`, `deep-grill`, and `audit`. `guard/hooks/pre_tool_use.py` Layer A `force_ask`/`deny` rules remain untouched.
+3. **Restricted Rule 17 Governance Model Allowlist:** Restrict `approved_customization_models` in `skills/upstream-auditor/upstream_state.seed.json` and the `guard/upstream.py` fallback strictly to `["gemini-4-neon-xhigh", "gemini-4-carbon-high"]`, setting `last_audited_model: "Gemini 4 Neon (XHigh)"`, `last_model_slug: "gemini-4-neon-xhigh"`, `last_pbtxt_model: "MODEL_PLACEHOLDER_M535"`, and `known_placeholder_models: {"MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)", "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)"}`, aligned across `upstream-auditor`, `model-calibration-matrix.md`, `harness`, and `marathon`.
+4. **Absorbed `erkamyaman/rust-anything` (`v2.1.0`, MIT) Patterns & Release Tracking:** Integrate verified patterns from `erkamyaman/rust-anything` into `skills/rustify/SKILL.md`, `skills/rustify/references/managed-go-python.md`, and `skills/rust-harden/SKILL.md`: TS/JS (`napi-rs`/`wasm`), Ruby, and Java/Kotlin interop; caller-inclusive FFI overhead profiling and `--batch`/`FnIndex` batching; cross-language semantic traps (UTF-16 vs. UTF-8, `fancy-regex`/ASCII `\w`/Turkish `i`/Kelvin, `char::is_alphanumeric`, `indexmap`, Python/Ruby numeric fidelity); two-run oracle noise taxonomy (`values`/`order`/`lines`) and `known-diffs.jsonl`; error-path reachability, `// INFALLIBLE: <why>`, `3x + 50` line-bloat checks, and `#[expect(lint, reason = "...")]`; whole-app strangler-fig fallback-rate (`% -> 0%`), kill switches, and post-lift reshape; and optional pinned `rust-anything` (`=2.1.0 --locked`) CLI/MCP integration with full manual fallback. Preserve all C++ (`cxx`), `#![no_std]`, `miri`, `ASan`/`UBSan`, and `cargo kani` gates, attribute MIT copyright in `THIRD_PARTY_NOTICES.md`, and register `"rust-anything"` (`"track": "release"`, `"last_synced_commit": "v2.1.0"`, `"target_skills": ["rustify", "rust-harden"]`) in `upstream_state.seed.json` and `guard/upstream.py` (9 tracked repositories total).
+5. **Third `rust-harden` Progressive-Disclosure Profile (`skills/rust-harden/references/game-and-realtime.md`):** Add an on-demand reference module (`0` frontmatter bytes) covering per-frame heap/cache hygiene (`clippy::large_enum_variant`, deterministic `1,000`-tick zero-allocation tests), generational arenas vs. `Rc<RefCell<T>>`/`Arc<Mutex<T>>`, deterministic non-`HashMap` simulation ordering, `f32`/`f64` `NaN`/`total_cmp`/clamp guards, reverse-order GPU/Vulkan `Drop` + swapchain `Outdated`/`Lost` handling + lock-free `SPSC` audio threads, and bounded binary packet/save deserialization, linked from `skills/rust-harden/SKILL.md` §4 & §6 and `templates/vulkan.SKILL.template.md` §4.
+
+## Alternatives Considered
+
+### Alternative 1: Add `rust-anything` as a 22nd Top-Level Skill, Plus `<repo>/rust/MAP.md` and Root Rust Game Templates
+- **Pros**: Mirrors upstream packaging directly without editing existing Rust skills.
+- **Cons**: Exceeds `ADR-0009`'s `10,800`-byte aggregate frontmatter cap, splits Rust migration routing across three overlapping top-level skills (`rustify`, `rust-harden`, `rust-anything`), and introduces a competing project ledger alongside `tasks.md`, `HANDOFF.md`, and `REPOSTATE.md`.
+- **Why not**: Rejected on frontmatter budget, routing clarity, and single-ledger invariants; absorbing verified patterns into `rustify` and `rust-harden` preserves `21` top-level skills and leaves `> 100` bytes of frontmatter headroom.
+
+### Alternative 2: Relax `guard/hooks/pre_tool_use.py` Layer A Gates or Create Per-Window `WORKLOG` / `NEXTWORK` Subdirectories
+- **Pros**: Fewer runtime prompts and separate files per marathon window.
+- **Cons**: Weakening Layer A `force_ask`/`deny` erodes Rule 9 test-boundary and Rule 17 governance enforcement; renaming `skills/harness` or spawning per-window ledger directories breaks cross-references and fragments handoff state.
+- **Why not**: Rejected on security and single-ledger grounds; prompt-level Low-Friction UX and an append-only `## Completed Windows Log` row inside `tasks.md` and `HANDOFF.md` remove workflow drag without weakening mechanical hooks.
+
+### Alternative 3: Retain Legacy Multi-Family Models in `approved_customization_models`
+- **Pros**: Zero test fixture churn on older placeholder/model fixtures.
+- **Cons**: Leaves retired or non-preferred model slugs authorized for high-risk Rule 17 governance edits against operator policy.
+- **Why not**: Rejected per operator mandate; restricting the allowlist to `gemini-4-neon-xhigh` (`M535`) and `gemini-4-carbon-high` (`M427`) enforces exact current flagship governance while keeping all authorized tests strict.
+
+## Consequences
+
+### Positive
+- Operators gain zero-rot opt-in `REPOSTATE.md` snapshots, copy-ready project-local Vulkan `1.3`/`1.4` verification, and compact append-only `marathon` window history with zero global prompt bloat on unrelated repos.
+- Low-stakes confirmations drop across Tier-2 and auto-triggered Tier-3 workflows while Layer A `PreToolUse` safety, Rule 9 test protection, and explicit `/deep-grill` depth remain strictly enforced.
+- `rustify` and `rust-harden` cover JS/TS, Ruby, Java/Kotlin, FFI batching, semantic traps, strangler cutover, and Rust game/GPU/audio hardening while keeping all `C++`/`#![no_std]`/`miri`/`ASan`/`UBSan`/`cargo kani` verification gates intact.
+
+### Negative
+- Aggregate `skills/*/SKILL.md` frontmatter rises slightly within the `10,800`-byte ceiling (`21` top-level skills unchanged), leaving tighter headroom for future top-level skill descriptions.
+- Restricting `approved_customization_models` requires human deployment of the updated `upstream_state.seed.json` (`python3 install.py`) before live host hooks allow `Gemini 4 Neon (XHigh)` (`MODEL_PLACEHOLDER_M535`) without `force_ask`.
+
+### Risks
+- **Unintended safety erosion under `--auto` mode**: Mitigated by explicitly binding autonomous defaults to Reversible-First actions only and verifying in `tests/test_adr0012_templates_ux_and_rustify.py` that `guard/hooks/pre_tool_use.py` Layer A still blocks unauthorized governance and test mutations.
+- **Upstream drift in `erkamyaman/rust-anything` releases**: Mitigated by registering `"rust-anything"` with `"track": "release"` pinned at `"v2.1.0"` in both `upstream_state.seed.json` and `guard/upstream.py` fallback, audited automatically by the 72-hour upstream watchdog.
