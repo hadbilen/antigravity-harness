@@ -17,3 +17,4 @@
 | [0013](0013-swarm-orchestrator-hook-isolation-modularity-and-guard-hardening.md) | Multi-Agent Hook Isolation, Orchestrator Rule 17 Calibration, Lazy Hook Modularization, Portable Script Dispatch, and OS-Level Guard Hardening | accepted | 2026-11-22 |
 | [0014](0014-predictive-handoff-rust-greenfield-decision-provenance-and-procoder-archival.md) | Predictive Context-Window Handoff, `builtin/.checksum` Watchdog, `rust-harden` Greenfield Architecture, Structured Decision Provenance, and `procoder` Template Archival | accepted | 2026-11-22 |
 | [0015](0015-external-audit-hardening-host-contract-parity-and-measurement.md) | External Audit Hardening, Antigravity Host-Contract Parity, Ergonomics, Surface Governance, and Real-Project Quality Measurement | accepted | 2026-11-23 |
+| [0016](0016-hybrid-modular-plugin-architecture.md) | Hybrid Modular Plugin Architecture, Standalone Domain Packs, and Opt-In OS-Locked Deployment | accepted | 2026-11-23 |

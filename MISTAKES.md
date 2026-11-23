@@ -14,6 +14,12 @@ Per Rule 10 of the Antigravity Constitution, each entry must contain the followi
 
 <!-- Entries are prepended below this line -->
 
+### 2026-11-23: Live `--plugins` Canary Exposed Antigravity Auto-Prefixing of Plugin MCP Server Keys (`antislop_antislop_contrast`)
+- **Date & Incident:** During the live `v2.4.0` `--plugins` canary (`AC-7`), Antigravity registered `plugins/antislop/mcp_config.json` (`"mcpServers": {"antislop_contrast": ...}`) as `antislop_antislop_contrast` (mirroring `plugins/rea/mcp_config.json` key `"rea"` -> `rea_rea`), causing a mismatch with `guard/hooks/pre_invocation.py` and `plugins/antislop/skills/antislop/SKILL.md` (`ServerName="antislop_contrast"`).
+- **Root Cause:** Followed static `plugin/SKILL.md` advice ("prefix a plugin's servers with the plugin name") without checking live `<mcp_servers>` prefixing behavior; Antigravity automatically prefixes every plugin MCP key with `<plugin_dir>_`.
+- **Impact:** Live `call_mcp_tool(ServerName="antislop_contrast", ...)` hints in `pre_invocation.py` and `SKILL.md` targeted a non-existent runtime server name until fixed.
+- **Preventive Invariant:** Define plugin `mcp_config.json` keys without repeating `<plugin_dir>_` (`guard/plugins.py` `mcp_server_name="contrast"` -> live `antislop_contrast`), document the `<plugin_dir>_<key>` runtime mapping in generated plugin `README.md` and `ADR-0016`, and pin a `validate_plugin_dir()` regression test in `tests/test_hybrid_plugins.py` rejecting double-prefixed `"antislop_contrast"`.
+
 ### 2026-11-22: External Audit (`Fable 5.2`) Exposed Rule 9 Expected-Value Gap, Unverified Antigravity Host Contracts, Silent Stop Circuit Breaker, Python 3.10 CI Break, and Over-Broad Hook/Ledger Heuristics
 - **Date & Incident:** Independent structural and runtime audit (`Fable 5.2`, verified line-by-line against code, live Antigravity docs, `guard.log`, and a live `silent-failure-hunter` tool-schema probe) surfaced six high/critical systemic defects across the harness:
   1. **Rule 9 Expected-Value Mutation Blind Spot (`stop_gate.py`, `verify_invariants.py`):** Changing an existing assertion's expected value (`== 110` -> `== 99.0`, `toBe(110)` -> `toBe(99)`) passed `PreToolUse`, passed `Stop` with empty output (`{}`), and printed `"PASS — Zero test weakening"` in `verify_invariants.py --diff` whenever no manual `TestBoundaryGuard` snapshot or `--base-ref` flag was supplied.

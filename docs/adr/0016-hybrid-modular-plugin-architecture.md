@@ -1,0 +1,78 @@
+# ADR-0016: Hybrid Modular Plugin Architecture, Standalone Domain Packs, and Opt-In OS-Locked Deployment
+
+**Date**: 2026-11-23
+**Status**: accepted
+**Amends**: [ADR-0015](0015-external-audit-hardening-host-contract-parity-and-measurement.md) (partial: lifts Alternative 2's flat-only plugin deferral for 4 standalone domain packs via opt-in `--plugins` Hybrid Layout while keeping ADR-0015's 25-subcommand `agy-guard` CLI freeze and 5-emitter Porter freeze intact)
+**Deciders**: Human Operator (`tugay`), Antigravity Harness Maintainers
+**Proposed By**: Model (Gemini 4 Neon, XHigh)
+**Approved By**: User
+**Authority**: Model Recommendation
+
+## Context
+
+[ADR-0015](0015-external-audit-hardening-host-contract-parity-and-measurement.md) Alternative 2 deferred native Antigravity plugin packaging on three assumptions: plugin slash commands were namespaced, native plugins could not install `agy-guard` binaries or OS-level read-only locks, and global `agents/*.md` overrides (`research`) plus `templates/` did not map 1:1 into plugin directories. Live empirical canary checks (`C1..C4`) executed against `~/.gemini/config/plugins/rea/` and the Antigravity Language Server on 2026-11-23 disproved two blockers for domain packs while confirming that core constitutional governance still belongs in `install.py` and `agy-guard`:
+
+- **C1 (Live Toggle Schema):** Toggling `rea` in the Antigravity UI grew `~/.gemini/config/config.json` by `+61` bytes and wrote top-level `"plugins": {"rea": {"enabled": true}}`.
+- **C2 (Zero Writes Inside `plugins/<dir>/`):** UI enable/disable wrote zero bytes inside `~/.gemini/config/plugins/rea/` (`plugin.json` mtime stayed unchanged), proving that OS-locking harness plugin subdirectories (`0555`/`0444`) inside the existing `antigravity` `enforced` scope does not conflict with live UI toggles.
+- **C3 (Manual Plugin UI Support):** Manually installed `~/.gemini/config/plugins/rea/` exposes working Disable/Enable controls in Antigravity Customizations (verified via `GetAllPlugins` RPC).
+- **C4 (Flat Slash Commands):** `/reverse-engineer-anything` resolves as a flat, non-namespaced slash command in chat, superseding ADR-0015's namespacing assumption.
+
+The decision-driving constraint is **packaging the 4 specialized domain bundles (`antislop`, `rust-suite`, `media-studio`, `game-engineering`) as standalone-clean Antigravity plugins and opt-in OS-locked `--plugins` deployments without weakening Governance Shield, breaking any of the 834 existing tests (`GEMINI.md` Rule 9), or expanding the frozen 25-subcommand `agy-guard` CLI or 5-emitter Porter surfaces**.
+
+## Decision
+
+We adopt a Hybrid Modular Plugin Architecture (`v2.4.0`, `D1..D10`) built from the canonical `antigravity-harness` monorepo:
+
+1. **Opt-In `--plugins` Rollout (`D1`, Expand -> Migrate -> Contract):** Default `install.py` and `agy-guard init` stay Flat Layout in `v2.4.0` (preserving `0/834` existing test edits and green `trusted-boundary` CI). Passing `--plugins` activates Hybrid Layout; passing `--flat-skills` reverts Hybrid back to Flat losslessly.
+2. **OS-Locked 4 Packs Inside Existing `antigravity` `enforced` Scope (`D2`):** Confirmed by `C2`, `--plugins` registers the 4 harness plugin subdirectories (`plugins/antislop`, `plugins/rust-suite`, `plugins/media-studio`, `plugins/game-engineering`) inside `antigravity`'s existing `enforced` OS-locked and SHA-256 File Integrity Monitor (`FIM`) scope while keeping the `~/.gemini/config/plugins/` parent directory writable in `ANTIGRAVITY_RUNTIME_ENTRIES` for Marketplace and third-party plugins (`rea`). No new `antigravity-plugins` environment type is added; `guard/lease.py`, `guard/startup.py`, `guard/gui.py`, and `guard/hooks/stop_gate.py` stay untouched.
+3. **Install-Time Core Path Rewriting (`D3`):** Canonical repository files keep flat paths so Flat Layout, 5 Porter emitters, and existing governance tests remain intact. In `--plugins` mode, `rewrite_core_for_hybrid()` transforms plugin-skill path references across installed core copies (`DESIGN.md`, `rules/antigravity-constitution.md`, `agents/*.md`, 14 core `skills/`, `templates/`, excluding `skills/upstream-auditor/upstream_state.seed.json`) while preserving prefix style (bare `skills/<slug>/...` -> `plugins/<pack>/skills/<slug>/...`; config-rooted `~/.gemini/config/skills/<slug>` -> `~/.gemini/config/plugins/<pack>/skills/<slug>`) so zero dead paths exist on disk.
+4. **Standalone-Clean 4 Plugin Packs (`D4`):** `guard/plugins.py` builds 4 standalone packs (`antislop`, `rust-suite`, `media-studio`, `game-engineering`) via `rewrite_plugin_markdown()`:
+   - Intra-plugin links and script paths use depth-aware `posixpath.relpath` with explicit `./` or `../` prefixes (zero bare `scripts/...` tokens).
+   - `media-studio` removes flat `$HOME/.gemini/config/skills/media-studio/...` fallback paths in favor of plugin-local and `./scripts/media_qc.py` resolution.
+   - All 34 core-path references and cross-plugin static paths inside the 6 plugin-owned skills rewrite to path-free skill/concept references.
+   - All 20 `agy-guard` invocations rewrite to bundled local scripts or language-native commands with optional `agy-guard` notes, leaving zero mandatory `agy-guard` dependencies.
+5. **Module Seam & Surface Freeze (`D5`):** Plugin catalog, standalone rewriter, hybrid core rewriter, deterministic 3-OS `.zip` + `.sha256` archiver, and strict offline validator live in pure-stdlib `guard/plugins.py`, with 4 SVG logos under `guard/plugin_assets/` and a thin external/CI CLI wrapper at `scripts/build_plugins.py`. `installers/build_binaries.py` bundles `guard/plugin_assets/*.svg` via `--add-data` (`sys._MEIPASS` resolution). Zero new `agy-guard` subcommands (`25` freeze) and zero new Porter emitters (`5` freeze) are added.
+6. **Strict `v1/plugin.json` Compliance, MIT Legal Packaging & `DESIGN.md` Budget (`D6`):** Every pack emits strict `https://antigravity.google/schemas/v1/plugin.json` metadata (`additionalProperties: false`, plain `https://` string `repository`, `"license": "MIT"`, zero banned `Antigravity`/`Gemini`/`Claude`/`Cursor` name prefixes: `antislop` / `"AntiSlop UI"`, `rust-suite` / `"Rust Suite"`, `media-studio` / `"Media Studio"`, `game-engineering` / `"Game Engineering"`), 3 `suggestedPrompts`, a generated `README.md` stating the MIT License, root `LICENSE` across all 4 packs, pack-scoped `THIRD_PARTY_NOTICES.md` for packs containing adapted MIT works (`antislop`, `rust-suite`), and a compliant 1:1 `128x128` SVG logo (`[12, 116]` bounds, `<= 16 KiB`, safe XML, WCAG `>= 3.0:1` contrast against both `#FFFFFF` and `#09090B`). `DESIGN.md` ships at `plugins/antislop/skills/antislop/references/DESIGN.md` (never always-on `rules/AGENTS.md`); `templates/vulkan.SKILL.template.md` ships solely inside `rust-suite` (`skills/rust-harden/assets/vulkan.SKILL.template.md`).
+7. **`antislop_contrast` MCP & Global Config Retirement (`D7`):** Live Antigravity runtime automatically prefixes every plugin `mcp_config.json` server key with `<plugin_dir>_` (verified live on host: `rea` -> `rea_rea`, and `antislop` + key `antislop_contrast` -> `antislop_antislop_contrast`). Therefore `plugins/antislop/mcp_config.json` defines server key `"contrast"` with `"args": ["${PLUGIN_ROOT}/skills/antislop/scripts/contrast-mcp.py"]` (`"command"`: `"python3"` in portable archives, `sys.executable` in local non-frozen installs, frozen-safe `python`/`python3` fallback in frozen binaries), which Antigravity exposes cleanly as runtime `ServerName="antislop_contrast"`. `migrate_harness_mcp_config()` retains its strict `bool` return contract, backs up and retires all harness-owned `contrast-mcp.py` entries (including `antislop-human`) on `--plugins`, records keys in `install_receipt.json["retired_mcp_servers"]`, and restores them on `--flat-skills`.
+8. **Glob-Hardened `PreToolUse` / `_shell_guard`, Directory-Drop Shield & Official `agy plugin` CLI Gate (`D8`):** `PreToolUse` and `_shell_guard` deny `plugins/` root, trailing-slash, `.`/`..`, glob/expansion segments (`*?[{}$`), and all paths inside `HARNESS_PLUGIN_NAMES` packs while preserving allow contracts for literal third-party slugs (`rea`, `demo`). Directory-copy/clone/move/extract commands (`cp -r/-R/-a`, `rsync`, `git clone`, `mv`, `tar -x`, `unzip`) targeting `~/.gemini/config/plugins/<any-dir>`, all `agy plugin install` / `agy plugin import` commands regardless of target name, and `agy plugin (disable|uninstall)` commands targeting `HARNESS_PLUGIN_NAMES` trigger a 3-sentence `force_ask` prompt (third-party `disable`/`uninstall` exempt; explicit archive extraction and harness-pack mutations remain `deny`).
+9. **Constitutional `stop_gate.py` Invariant vs. Live `pre_invocation.py` Toggle Boundary (`D9`):** `guard/hooks/stop_gate.py` remains untouched: `_load_ui_slop_scanner()` resolves `check_ui_slop.py` across `_repo_root()` (OS-locked `~/.local/share/antigravity-harness/runtime/` on `install.py` installs), `config_dir()`, `configured_config_dir()`, and `/usr/share/antigravity-harness` (standard Linux packages) without consulting writable `config.json`, so constitutional Rule 14 cannot be disabled via UI plugin toggles (custom `--source` Linux package prefixes without `/usr/share/antigravity-harness` remain unchanged until a future release). `guard/hooks/pre_invocation.py` reads live-verified `config.json["plugins"][<pack>]["enabled"] is False` (`O_NOFOLLOW <= 2 MiB`, `config.json` overriding `plugin.json["disabled"]`, fail-safe enabled + `stderr` warning on corrupt/oversized/symlink files, ignored when reverted to active flat `skills/<slug>/SKILL.md`) to suppress disabled or removed plugin skill hints (including 6 `antislop` sub-hints and workspace-domain hints before `seen_turns`) and `antislop_contrast` MCP hints.
+10. **Porter & Meta-Audit Hybrid Parity Without an Inverse-Rewriter (`D10`):** `ManifestEngine` adds zero inverse-rewriters. On installed hybrid profiles, `porter.py export` reads canonical `.harness/manifest.json` directly (failing explicitly if absent); `ManifestEngine.is_up_to_date()` and `scripts/meta_audit.py` verify committed core files forward-transformed via `rewrite_core_for_hybrid()` byte-for-byte against installed core copies and validate the 4 packs via `PLUGIN_CATALOG` + `validate_plugin_dir()`. `SuitabilityAnalyzer._load_known_skills()` scans both `skills/` and harness `plugins/<pack>/skills/`.
+
+## Alternatives Considered
+
+### Alternative 1: Package the Entire Harness as One Monolithic Native Plugin (`antigravity-harness`)
+- **Pros**: Single directory to install or disable from the Antigravity UI.
+- **Cons**: Native plugins cannot install `agy-guard` / `agy-porter` PATH binaries or OS-level read-only `chmod`/`chattr` locks, have no live canary proving `agents/research.md` overrides built-in `research` from a plugin root, and force an all-or-nothing toggle across core safety and optional domain skills.
+- **Why not**: Rejected because the decision-driving security boundary (`agy-guard` OS locks and core constitution integrity) requires `install.py` + `antigravity` `enforced` scope; a monolithic plugin breaks safety guarantees.
+
+### Alternative 2: Leave the 4 Harness Plugin Subdirectories Unlocked (Writable `monitored` Environment)
+- **Pros**: Avoids adding plugin paths to `antigravity`'s `enforced` `governance_paths` list.
+- **Cons**: Unnecessarily exposes `plugins/antislop/mcp_config.json`, `contrast-mcp.py`, `check_ui_slop.py`, and skill instructions to rogue agent mutations even though live canary `C2` proved Antigravity UI toggles never write inside `plugins/<dir>/`.
+- **Why not**: Rejected on security grounds; OS-locking the 4 subdirectories inside existing `antigravity` `enforced` scope gives full write protection with zero UX friction and zero extra environment types.
+
+### Alternative 3: Flip Default Install Layout to Hybrid in `v2.4.0` and Rewrite Repo Paths Directly
+- **Pros**: Ships Hybrid Layout immediately without a `--plugins` flag.
+- **Cons**: Breaks existing flat-layout unit tests (violating `GEMINI.md` Rule 9 without necessity), breaks the 5 Porter emitters' canonical flat skill paths, and increases first-release blast radius before live soak testing.
+- **Why not**: Rejected in favor of Expand -> Migrate -> Contract (`--plugins` opt-in in `v2.4.0`, optional default flip in `v2.5.0` after live soak).
+
+## Consequences
+
+### Positive
+- Operators can install all 4 domain packs as OS-locked, UI-toggleable Antigravity plugins via `install.py --plugins` or `agy-guard init --plugins`, or install any pack standalone from deterministic cross-OS `.zip` + `.sha256` releases without `agy-guard`.
+- Default `v2.4.0` installs stay byte-compatible with `v2.3.0`, keeping all 834 existing tests untouched and green.
+- Single-scope `antigravity` `enforced` protection covers both core governance and all 4 harness plugin packs while leaving `~/.gemini/config/plugins/` writable for Marketplace and third-party plugins.
+- Offline validation (`validate_plugin_dir()`, `validate_plugin_zip()`) mechanically enforces `v1/plugin.json` schema rules, SVG contrast/geometry/safety, POSIX script executability, and zero dead paths across 3-OS CI.
+
+### Negative
+- Two install layouts (`flat` and `hybrid`) coexist during `v2.4.x`, requiring install-time core path rewriting (`rewrite_core_for_hybrid()`) and hybrid-aware `meta_audit.py` / `ManifestEngine` verification.
+- UI toggle state in writable `config.json` controls `<skills>`, plugin MCP loading, and `pre_invocation.py` hints, whereas `stop_gate.py` Rule 14 checks resolve `check_ui_slop.py` from OS-locked `runtime/` (or `/usr/share/antigravity-harness` on standard Linux packages) independent of `config.json` even when `antislop` is toggled off in the UI.
+
+### Risks
+- **Host CLI Absence (`agy plugin validate`):** On hosts where the `agy` CLI binary is absent from `PATH`, schema compliance relies on `guard/plugins.py`'s strict offline validator until live Antigravity App canary verification (`AC-7`) runs in `W4`.
+- **OS-Locked Plugin Dir Loading on Host Updates:** Although Antigravity already loads `0555`/`0444` global `skills/` and `C2` confirmed zero writes inside `plugins/rea/`, future host updates could touch files inside `plugins/<pack>/`; mitigated by verifying in `W4` live canary and documenting `agy-guard request-unlock` / `--flat-skills` recovery.
+- **Windows Standalone `python3` Alias:** Portable `.zip` archives set `mcp_config.json` `"command": "python3"` (whereas local `--plugins` installs pin `sys.executable` or frozen-safe `python`); mitigated by documenting Python `3.10+` prerequisites in each generated plugin `README.md`.
+
+## Failure Modes & Rollback
+- **Broken Hybrid Upgrade or Partial Install Failure:** `Installer.rollback()` and `_rollback_init()` snapshot and restore `environments.json`, `install_receipt.json`, `antigravity` FIM baseline/pending state, and newly created `config.json`, while backups of retired global skills and global `mcp_config.json` stay intact under `backups/install_<stamp>/` or `backups/init_<stamp>/`.
+- **Reverting Hybrid Back to Flat:** Running `python3 install.py --flat-skills` (or `agy-guard init --flat-skills`) restores all 20 canonical skills under `skills/`, backs up and removes the 4 harness plugin packs from `plugins/` and `antigravity` governance paths, and restores all `install_receipt.json["retired_mcp_servers"]` entries.
+- **Missing Receipt on Uninstall:** `install.py --uninstall` and `agy-guard init --uninstall` remove only receipt-tracked `installed_plugins`; if `install_receipt.json` is absent, uninstall emits `[WARN]` and leaves `~/.gemini/config/plugins/` untouched so third-party plugins (`rea`) are never deleted.
