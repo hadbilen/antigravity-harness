@@ -3,6 +3,9 @@
 **Date**: YYYY-MM-DD
 **Status**: proposed | accepted | deprecated | superseded by ADR-NNNN
 **Deciders**: [who was involved]
+**Proposed By**: User | Model (<Model Display Name & Effort>)
+**Approved By**: User | pending
+**Authority**: User Constraint | Model Recommendation
 
 ## Context
 

@@ -12,7 +12,7 @@ licenses require. Adapted files may have been modified for this harness.
 | [miqdadbadjuber/anti-slop](https://github.com/miqdadbadjuber/anti-slop) | MIT | `antislop` (`skills/antislop/references/{code-comments,ui,human-a11y,copywriting,layoutmobile}.md`) |
 | [JayPokale/Chisle](https://github.com/JayPokale/Chisle) | MIT | `chisle` |
 | [Leonxlnx/unlazy](https://github.com/Leonxlnx/unlazy) | MIT | `harness` (`skills/harness/references/unlazy.md`) |
-| [azrtydxb/procoder](https://github.com/azrtydxb/procoder) | Apache-2.0 | `procoder` |
+| [azrtydxb/procoder](https://github.com/azrtydxb/procoder) | Apache-2.0 | `templates/procoder.SKILL.template.md` (opt-in project-local `procoder` template) |
 | [bendrape1-byte/silk-design](https://github.com/bendrape1-byte/silk-design) | MIT | `antislop` (`skills/antislop/references/silk-design.md`) |
 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `database-migrations`, `harness` (`skills/harness/references/adr.md` & acceptance criteria), `audit` (`skills/audit/references/security-review.md`), `build-error-resolver`, `silent-failure-hunter` |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `deep-grill`, `diagnosing-bugs`, `harness` (`skills/harness/references/test-design.md`), `retro` |
