@@ -27,10 +27,12 @@ from .common import (
     REHINT_TURN_GAP,
     _EXPLICIT_CMD_TOKEN_RE,
     _FENCE_RE,
+    _HARNESS_PLUGIN_NAMES,
     _INLINE_CODE_RE,
     _LazyRegex,
     _PATH_WORD_POST,
     _PATH_WORD_PRE,
+    _PLUGIN_SKILL_TO_PACK,
     _SLASH_POST,
     _SLASH_PRE,
     _STALE_IN_FLIGHT_SECONDS,
@@ -73,12 +75,14 @@ from .common import (
 )
 
 
-# Bilingual (EN + TR) skill suggestion table: (skill_name, skill_rel_path, compiled_regex, summary)
-SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
+# Bilingual (EN + TR) skill suggestion table: (skill_name, skill_rel_path, raw_pattern, summary)
+# Compiled lazily via PEP 562 `__getattr__` (`SKILL_HINTS`) and sound necessary-literal prefiltering
+# in `_match_hint_pattern` to avoid ~100 ms cold-start `re.compile` overhead on `inv=1`.
+_SKILL_HINTS_RAW: Tuple[Tuple[str, str, str, str], ...] = (
     (
         "diagnosing-bugs",
         "skills/diagnosing-bugs/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/diagnosing-bugs{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"bug|regression|regresyon\w*|crash(?:es|ed|ing)?|traceback|stack\s*trace|segfault|"
             r"failing\s+(?:tests?|assertions?)|flaky\s+(?:tests?|assertions?|failures?|builds?|checks?)|intermittent\s+failure|bisect|"
@@ -88,15 +92,14 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"neden\s+(?:çalışmıyor|calismiyor|patlıyor|patliyor|hata\s+veriyor|kırmızı|kirmizi|geçmiyor|gecmiyor)|"
             r"hata(?:yı|sı|ları)?\s+(?:ayıkla\w*|bul\w*|teşhis\s+et\w*)|"
             r"kök\s+neden\w*|test(?:ler|i)?\s+(?:neden\s+)?(?:kırmızı|kirmizi|kırıl\w*|patl\w*|fail(?:\s+ediyor)?|geçmiyor|gecmiyor|çalışmıyor|calismiyor|hata\s+veriyor)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "7-phase root-cause analysis before editing code",
     ),
     (
         "test-design",
         "skills/harness/references/test-design.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/test-design{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"test\s+design|design\s+tests?|coverage\s+gaps?|property[- ]based\s+test|"
             r"boundary[- ]value|equivalence\s+partition|parametrize[d]?\s+tests?|"
@@ -104,58 +107,54 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"test\s+yaz|test\s+ekle|regresyon\s+testi|birim\s+test(?:i|leri)\s+(?:yaz|ekle)|"
             r"test\s+tasar(?:ımı|imi|la)|test\s+senaryo(?:su|ları)|kapsama\s+boşlu(?:ğu|gu)|"
             r"sınır\s+değer\s+test"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "behaviour-first test design, boundary analysis & anti-tautology checks",
     ),
     (
         "mistake-proofing",
         "skills/harness/references/mistake-proofing.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/mistake-proofing{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"poka[- ]?yoke|mistake[- ]proof(?:ing)?|parse[,\s]+don'?t\s+validate|"
             r"boolean\s+trap|primitive\s+obsession|illegal\s+state\s+unrepresentable|"
             r"yine\s+aynı\s+hata|bir\s+daha\s+olmasın|tekrar\s+etti|"
             r"hata\s+önleme|yanlış\s+kullanımı\s+engelle|tip\s+güvenli(?:ği|gi)\s+ile\s+koru"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "compile/parse-time structural mistake-proofing (poka-yoke) for APIs & schemas",
     ),
     (
         "refactoring",
         "skills/refactoring/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/refactoring{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"refactor(?:ing)?|extract\s+(?:\w+\s+)?(?:functions?|methods?|classes|modules?|helpers?)|"
             r"restructur(?:e|ing)\s+(?:this\s+|the\s+|these\s+)?(?:modules?|classes|functions?|codebase)|"
             r"split\s+(?:file|module|class)|decouple|code\s+smell|dead\s+code|"
             r"refactor\s+et|yeniden\s+düzenle|sadeleştir|parçala|kod\s+tekrarını\s+kaldır|"
             r"yeniden\s+yapılandır|kod\s+kokusu|modüllere\s+ayır|fonksiyon\w*\s+çıkar"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "behaviour-preserving step-by-step refactoring with red-green test seams",
     ),
     (
         "dependency-upgrade",
         "skills/harness/references/dependency-upgrade.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/dependency-upgrade{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"upgrade\s+(?:dependenc(?:y|ies)|packages?)|bump\s+version|version\s+bump|major\s+upgrade|"
             r"lockfile\s+update|cve\s+fix|dependenc(?:y|ies)\s+migration|"
             r"sürümü\s+yükselt|bağımlılık(?:ları|\w*\s+sürüm\w*)(?:\s+[\wçğıöşüÇĞİÖŞÜ-]+){0,3}\s+(?:güncelle\w*|yükselt\w*)|"
             r"paket\w*\s+(?:güncelle|yeni\s+sürüme\s+(?:taşı|geçir|yükselt))|bağımlılık\s+güncelle|sürüm\s+yükselt"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "compatibility matrix, changelog review & lockfile-safe dependency upgrades",
     ),
     (
         "renew",
         "skills/renew/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/renew{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"(?:use|apply|run|invoke|load)\s+(?:the\s+)?renew\s+(?:skill|workflow)?|"
             r"renew\s+(?:skill|beceri\w*)|"
@@ -167,15 +166,14 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"(?:win32|winforms|vb6|delphi|flash|sdl1|pygame|mfc)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}(?:uygulama\w*|oyun\w*|proje\w*|program\w*)\s+(?:modern|güncel|html5|webgl|web|\w+\s+ortam\w*)\s+(?:taşı\w*|geçir\w*|ayağa\s+kaldır\w*|uyarla\w*)|"
             r"(?:güncel|modern)\s+(?:sistem\w*|çalışma\s+zaman\w*)\s+(?:taşı\w*|uyarla\w*)|"
             r"(?:oyun\w*|program\w*|yazılım\w*|uygulama\w*)\s+remaster\s+yap\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "5-stage legacy app & classic game modernization (autopsy, contract, golden-master oracle, strangler cutover & security sanitization)",
     ),
     (
         "rustify",
         "skills/rustify/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/rustify{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"rustify\w*(?!\.(?:rs|py|c|cc|cpp|cxx|h|hh|hpp|hxx|go|js|ts|md|json|toml|yaml|yml)\b)|"
             r"(?<!bump\s)(?<!upgrade\s)(?<!update\s)(?:cbindgen|bindgen|cxx\s+bridge|#?\[?cxx::bridge\]?|pyo3|napi[-_]rs|wasm[-_]bindgen)(?!\s+(?:from|to|in)\s+[\dv]|[^\n]{0,30}\bcargo\.toml\b)|"
@@ -186,15 +184,14 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python|typescript|javascript|ts/js|js/ts|ruby|java(?:/kotlin)?|kotlin)'?(?:dan|den|tan|ten)\s+rust'?(?:a|ya)\b|"
             r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python|typescript|javascript|ruby|java|kotlin)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}rust\s+ile\s+(?:yeniden\s+yaz\w*|değiştir\w*)|"
             r"rust'?(?:a|ya)\s*(?:çevir\w*|cevir\w*|taşı\w*|tasi\w*|dönüştür\w*|donustur\w*|geçir\w*|gecir\w*|aktar\w*|port\s+et\w*)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "5-stage C/C++/Go/Python/TS/JS/Ruby/Java -> memory-safe Rust migration, ABI/FFI bridges (bindgen/cbindgen/cxx/PyO3/napi-rs/JNI) & Miri/sanitizer/Kani verification",
     ),
     (
         "rust-harden",
         "skills/rust-harden/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/rust-harden{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"rust[-_]harden(?![./\w-])|"
             r"harden(?:ing)?\s+(?:(?:this|the|our|my|existing)\s+)?(?:[\w-]+\s+){0,3}rust\b|"
@@ -212,27 +209,25 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"rust\s+(?:servis\w*|crate\w*|kütüphane\w*|kutuphane\w*|workspace\w*)\s+yaz(?!ılım|ilim|dır|dir|ılmış|ilmis|ıl\b|il\b)\w*|"
             r"rust\s+kod\w*\s+sertleştir\w*|idiomatic\s+rust\s+yap\w*|"
             r"sahiplik\s+borc\w*\s+temizle\w*|unsafe\s+(?:blok\w*\s+|kod\w*\s+)?arındır\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "intra-Rust hardening (`--internal` vs `--contract`), greenfield crate/workspace architecture (`--greenfield`), panic removal, async cancellation & `#![no_std]`/kernel `unsafe` narrowing",
     ),
     (
         "retro",
         "skills/retro/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/retro{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"retrospective|sprint\s+retro|post[- ]?mortem|"
             r"retrospektif\w*|tekrarlayan\s+hata\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "read-only retrospective over MISTAKES.md, plan outcomes & 3-strike rule promotion",
     ),
     (
         "deep-grill",
         "skills/deep-grill/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/deep-grill{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"deep[- ]grill|"
             r"(?:tier[- ]?3|architecture|design|schema|protocol|requirements?|spec(?:ification)?)\s+grill\s+me|"
@@ -240,55 +235,51 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"design\s+interview|stress[- ]test\s+requirements|edge[- ]case\s+interview|"
             r"(?:mimari\w*|tasarım\w*|sistem\w*|şema\w*|protokol\w*|gereksinim\w*|uç\s+durum\w*|kod\w*)\s+(?:\S+\s+){0,2}(?:mülakat\s+yap\w*|sorgula\w*)|"
             r"uç\s+durumlar\w*\s+sorgula\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "adversarial requirement & architecture boundary interview before coding",
     ),
     (
         "audit",
         "skills/audit/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/audit{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"audit\s+this|full\s+audit|security\s+audit|consistency\s+audit|boundary\s+audit|spec\s+gap\s+audit|"
             r"perform\s+consistency\s+analysis|inspect\s+design\s+and\s+security\s+boundaries|"
             r"run\s+harness\s+meta[- ]audit|self[- ]audit\s+harness|"
             r"güvenlik\s+denetim\w*|tutarlılık\s+denetim\w*|mimari\s+denetim\w*|sınır\s+denetim\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "read-only multi-pass consistency, specification-gap & security boundary audit",
     ),
     (
         "technical-writing",
         "skills/technical-writing/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/technical-writing{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"technical\s+writing|documentation\s+architecture|diataxis|diátaxis|"
             r"api\s+reference\s+docs?|write\s+(?:a\s+)?(?:tutorial|runbook|release\s+notes)|"
             r"teknik\s+dokümantasyon|teknik\s+yazarlık|kullanım\s+kılavuzu|sürüm\s+notları|doküman\s+yaz"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Diataxis mode separation, executable snippet verification & changelog discipline",
     ),
     (
         "data-analysis",
         "skills/data-analysis/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/data-analysis{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"data\s+analysis|exploratory\s+data\s+analysis|jupyter\s+notebooks?|data\s+leakage|"
             r"train[/-]test\s+split|feature\s+engineering|statistical\s+analysis|"
             r"veri\s+analizi|veri\s+bilimi|istatistiksel\s+analiz|veri\s+sızıntısı"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "row-count/drop accounting, train/test split anti-leakage & honest chart scaling",
     ),
     (
         "game-engineering",
         "skills/game-engineering/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/game-engineering{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"game\s+loop|fixed[- ]timestep|game\s+dev(?:elopment)?|canvas\s+game|webgl\s+game|webgpu\s+game|"
             r"(?:2d|3d|phaser|godot|unity|unreal|pixi(?:\.js)?|three(?:\.js)?|browser|arcade|indie|platformer|roguelike)\s+games?|"
@@ -297,15 +288,14 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"oyun\s+(?:geliştir(?:me)?|yap\w*|tasarla\w*|kodla\w*|motoru|fiziğ\w*|fizik\w*|döngü\w*)|"
             r"sabit\s+(?:timestep|zaman\s+adımı)|fizik\s+döngüsü|çarpışma\s+(?:algılama|sistemi|testi)|"
             r"(?:canvas|webgl|tarayıcı|2d|3d|2b|3b|arcade|platform)\s+oyun\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "fixed-timestep simulation loop, zero per-frame allocation, seeded PRNG & MODE: GAME vitality",
     ),
     (
         "media-studio",
         "skills/media-studio/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/media-studio{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"sprite\s*sheets?|pixel\s+art|tile\s*sets?|texture\s+atlas\w*|alpha\s+(?:bleed|matting)|color[- ]?key(?:ed)?\s+(?:bitmap|sprite|transparency)|"
             r"(?:game\s+)?(?:sound\s+effects?|sfx\b|game\s+audio|loop(?:ing)?\s+(?:audio|sfx|sound|music))|"
@@ -320,27 +310,25 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"(?:görsel\w*|fotoğraf\w*|fotograf\w*|görüntü\w*|(?!session\w*)ses\w*|video\w*)\s+(?:[\wçğıöşüÇĞİÖŞÜ-]+\s+){0,2}(?:temizle\w*|boyutlandır\w*|ölçekle\w*|kırp\w*|normalize\s+et\w*)|"
             r"(?:png|jpe?g|webp|gif|apng|wav|ogg|opus|flac|mp3|mp4|webm|mkv)\s+(?:temizle\w*|boyutlandır\w*|dönüştür\w*|normalize\s+et\w*|sıkıştır\w*|kırp\w*|birleştir\w*)|"
             r"gürültü\s+temizle(?:me)?|ses\s+seviyesi(?:ni)?\s+dengele|hareketli\s+görsel(?:\s+üret)?"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "4-stage Probe->Plan->Process->Verify media pipeline, container salvage, photo/AV restoration, fidelity upscaling & media_qc.py gate",
     ),
     (
         "marathon",
         "skills/harness/references/marathon.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/marathon{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"marathon\s+plan|multi[- ]window\s+(?:plan|rework|build)|split\s+into\s+windows|"
             r"maraton\s+başlat|maraton\s+plan(?:ı|la)|pencerelere\s+böl"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "proactive multi-window goal planning, model/effort routing & HANDOFF.md orchestration",
     ),
     (
         "sweetspot",
         "skills/sweetspot/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/(?:sweetspot|optimize){_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"sweetspot|sweet[- ]spot\s+optimization|"
             r"(?:benchmark|profile)\s+(?:(?:and\s+optimize|memory|ram|cpu|latency|network|waterfall|startup|frame|performance)(?:\s+footprint)?)|"
@@ -355,125 +343,115 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"(?:bellek|ram|bant\s+genişliği)\s+kullanımını\s+(?:düşür|azalt)|"
             r"(?:disk\s+alanını|dosya\s+boyutunu|paket\s+boyutunu|[iİ]ndirme\s+(?:ve\s+yükleme\s+)?boyutunu|yükleme\s+boyutunu|çıktının\s+boyutunu)\s+küçült|"
             r"(?:ağ\s+)?gecikme(?:yi|sini)\s+(?:düşür|azalt)|(?:fps|kare\s+hızını)\s+artır"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "controlled behavior-preserving speed, memory (RAM), disk & network optimization (3-Zone Sweet-Spot Gate)",
     ),
     (
         "vibecoder",
         "skills/vibecoder/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/vibecoder?{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"vibecoder|vibe\s*coding|rapid\s+prototyp(?:e|ing)|single[- ]file\s+(?:html\s+)?prototyp(?:e|ing)|"
             r"game\s+prototype|interactive\s+(?:prototype|sandbox)|(?:audio|sound|visual)\s+synthesizer|creative\s+studio\s+prototype|"
             r"fikrim\s+var|hızlı\s+prototip|oyun\s+prototipi|etkileşimli\s+kum\s+havuzu|ses\s+sentezleyici|"
             r"yaratıcı\s+stüdyo\s+prototip(?:i)?|tek\s+dosya(?:lık)?\s+(?:html|prototip|oyun|stüdyo)|prototip\s+üret"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "3-question Vibe-Grill & zero-friction single-file rich HTML app, game & creative sandbox prototyping",
     ),
     (
         "antislop",
         "skills/antislop/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/antislop{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"anti[- ]?slop|ui\s+delivery\s+gate|ai\s+slop|design\s+quality\s+gate|"
             r"arayüz\s+kalite(?:si)?|tasarım\s+denetimi|yapay\s+zeka\s+klişe(?:si|leri)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "40-rule design/copy quality filter, Liveliness Toolkit & UI Delivery Gate",
     ),
     (
         "antislop-ui",
         "skills/antislop/references/ui.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/antislop-ui{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]ui|visual\s+slop\s+audit|audit\s+ui\s+components?|anti[- ]boxification|sibling\s+symmetry|"
             r"görsel\s+slop|bileşen\s+denetimi|kart\s+simetrisi"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Anti-Boxification, Sibling Symmetry Cap, Typographic Scale Lock & HUD vitality",
     ),
     (
         "antislop-copywriting",
         "skills/antislop/references/copywriting.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/antislop-copywriting{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]copy(?:writing)?|write\s+copy|de[- ]ai\s+(?:prose|text|copy)|synthetic\s+markers?|anti[- ]ai\s+tone|"
             r"metin\s+yazımı|pazarlama\s+metni|yapay\s+zeka\s+dili(?:ni)?\s+temizle"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "de-AI prose rewrites, tone calibration & EN/TR synthetic-marker scanning",
     ),
     (
         "antislop-human",
         "skills/antislop/references/human-a11y.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/antislop-human{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]human|check\s+contrast|wcag\s+contrast|accessibility\s+audit|a11y\s+audit|color\s+contrast\s+ratio|"
             r"renk\s+kontrast(?:ı|i)|erişilebilirlik\s+denetimi|wcag\s+uyumu"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "WCAG AA contrast verification, keyboard navigation & 5 component states",
     ),
     (
         "antislop-layoutmobile",
         "skills/antislop/references/layoutmobile.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/antislop-layoutmobile{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]layoutmobile|mobile\s+layout|fix\s+overflow|horizontal\s+overflow|tap[- ]target\s+siz(?:e|ing)|responsive\s+check|"
             r"mobil\s+yerleşim|yatay\s+taşma|mobil\s+uyumluluk|dokunma\s+hedefi"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "mobile horizontal-overflow elimination, 44px tap targets & responsive reflow",
     ),
     (
         "antislop-code",
         "skills/antislop/references/code-comments.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/antislop-code{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antislop[- ]code|clean\s+comments|comment\s+hygiene|remove\s+slop\s+comments|"
             r"yorum\s+temizli(?:ği|gi)|gereksiz\s+yorumlar(?:ı|i)\s+(?:sil|temizle|kaldır)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "code-comment hygiene: strips AI-slop comments while preserving why/contract notes",
     ),
     (
         "silk-design",
         "skills/antislop/references/silk-design.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/silk-design{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"silk[- ]design|kinetic\s+(?:motion|typography)|smooth[- ]scroll(?:ing)?|motion\s+3|lenis\s+scroll|"
             r"kinetik\s+tasarım|akıcı\s+kaydırma|vitrin\s+sayfası\s+tasarla"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "physics-based kinetic motion (MOTION 3), fluid typography & showcase landing pages",
     ),
     (
         "visualizer",
         "skills/technical-writing/references/visualizer.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/visualizer{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"visualize\s+(?:architecture|workflow|state|codebase|journey)|architecture\s+diagram|mermaid\s+diagram|sequence\s+diagram|"
             r"mimari(?:yi)?\s+görselleştir|diyagram\s+çiz|akış\s+şeması\s+oluştur|şematize\s+et"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "4-lens visual structure routing (Mermaid for static, generative_ui for interactive)",
     ),
     (
         "porter",
         "skills/porter/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/porter{_SLASH_POST}|"
             r"@\[[^\]\r\n[]{0,256}(?:Downloads|İndirilenler|/tmp/)[^\]\r\n[]{0,256}(?:SKILL|CLAUDE|AGENTS|CONVENTIONS|RULES)\.md\]|"
             r"@\[[^\]\r\n[]{0,256}(?:CLAUDE|CONVENTIONS)\.md\]|"
@@ -485,97 +463,89 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"export\s+to\s+(?:claude|cursor|aider|codex|windsurf|copilot)|"
             r"kural(?:lar\w*|ı)?\s+(?:aktar\w*|dönüştür\w*|port\s+et\w*|içe\s+aktar\w*)|başka\s+ajana\s+uyarla\w*|"
             r"(?:bu|dış\w*|harici)\s+(?:[\w-]+\s+)?(?:beceri\w*|skill(?:\.md)?|kural\w*)\b[^\n.?!]{0,80}\b(?:özelleştir\w*|faydalı|uyarla\w*|içe\s+aktar\w*|adapte\s+et\w*|alabileceğ\w*)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "bidirectional rule/skill suitability analyzer, sanitizer & ecosystem transpiler",
     ),
     (
         "database-migrations",
         "skills/database-migrations/SKILL.md",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"schema\s+migration|database\s+migration|zero[- ]downtime\s+migration|database\s+rollback|alter\s+table|"
             r"veritabanı\s+göç\w*|şema\s+göç\w*|migrasyon\s+yaz\w*|"
             r"(?:veritabanı|veritabani|şema|sema|tablo|sql|prisma|drizzle|alembic|django|knex|typeorm)\s+migration\w*|"
             r"migration\s+(?:yaz\w*|oluştur\w*|olustur\w*|ekle\w*|hazırla\w*|hazirla\w*|geri\s+al\w*)"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "expand-migrate-contract schema changes, lock timeouts & rollback safety",
     ),
     (
         "architecture-decision-records",
         "skills/harness/references/adr.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/adr{_SLASH_POST}|(?<![/\w\\-])docs/adr(?![\w-])|{_PATH_WORD_PRE}(?:"
             r"record\s+adr|architecture\s+decision\s+records?|write\s+an\s+adr|"
             r"mimari\s+karar\s+kayd\w*|adr\s+(?:yaz\w*|oluştur\w*|kaydet\w*)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "weighted trade-off matrix & structured Architecture Decision Records in docs/adr/",
     ),
     (
         "security-review",
         "skills/audit/references/security-review.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/security-review{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"security\s+review\s+checklist|pre[- ]deployment\s+security|transport\s+security\s+headers|"
             r"dağıtım\s+öncesi\s+güvenlik\w*|güvenlik\s+kontrol\s+liste\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "pre-deployment security checklist for secrets, transport headers & cloud boundaries",
     ),
     (
         "chisle",
         "skills/chisle/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/chisle{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"chisle\s+mode|activate\s+chisle|chislify"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "terse zero-fluff prose & YAGNI/ladder-first engineering mode",
     ),
     (
         "harness",
         "skills/harness/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/(?:harness|verify|gate|run-gate){_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"harness\s+verification\s+gate|run\s+verification\s+gate|doğrulama\s+kapıs\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "strict computational verification gates, artifact-driven task lifecycle & auditor handoffs",
     ),
     (
         "unlazy",
         "skills/harness/references/unlazy.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}[/\$]unlazy{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"tree\s+\d+|do\s+not\s+stop\s+until\s+it\s+is\s+done|bitene\s+kadar\s+durma"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Tier-3 deep completion engine with Depth Tree & reverification gates",
     ),
     (
         "upstream-auditor",
         "skills/upstream-auditor/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/audit-upstream{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"upstream[- ]auditor|model\s+drift\s+audit|upstream\s+skill\s+sync"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "upstream model catalog, runtime & tracked repository synchronization auditor",
     ),
     (
         "reverse-engineer-anything",
         "plugins/rea/skills/reverse-engineer-anything/SKILL.md",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/rea{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"reverse[- ]engineer(?:ing)?|"
             r"decompile\s+(?:(?:this|the)\s+)?(?:(?:compiled\s+)?(?:binary|executable)|apk|elf|macho|jar|wasm|exe|dll|firmware)|"
@@ -588,18 +558,17 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"ikili\s+dosyay(?:ı|i)\s+disassemble|disassemble(?:\s+ve\s+decompile)?\s+et|"
             r"tersine\s+mühendislik|binary\s+analiz(?:i)?|apk\s+incele|decompile\s+et|ikili\s+dosya\s+analiz|"
             r"derlenmiş\s+(?:ikili\s+dosya\w*|binary|uygulama\w*)\s+(?:analiz|incele|çözümle|disassemble|decompile)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "evidence-backed binary, APK/IPA/ELF, firmware, PCAP & Electron/JS reverse engineering",
     ),
 )
 
-# Bilingual (EN + TR) Subagent, MCP Server & Plugin routing hints: (route_key, compiled_regex, directive)
-ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
+# Bilingual (EN + TR) Subagent, MCP Server & Plugin routing hints: (route_key, raw_pattern, directive)
+_ECOSYSTEM_ROUTING_HINTS_RAW: Tuple[Tuple[str, str, str], ...] = (
     (
         "route:mcp:rea_rea",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/rea{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"reverse[- ]engineer(?:ing)?|"
             r"decompile\s+(?:(?:this|the)\s+)?(?:(?:compiled\s+)?(?:binary|executable)|apk|elf|macho|jar|wasm|exe|dll|firmware)|"
@@ -612,76 +581,70 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             r"ikili\s+dosyay(?:ı|i)\s+disassemble|disassemble(?:\s+ve\s+decompile)?\s+et|"
             r"tersine\s+mühendislik|binary\s+analiz(?:i)?|apk\s+incele|decompile\s+et|ikili\s+dosya\s+analiz|"
             r"derlenmiş\s+(?:ikili\s+dosya\w*|binary|uygulama\w*)\s+(?:analiz|incele|çözümle|disassemble|decompile)"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "MCP Server `rea_rea` & Plugin `rea` (`call_mcp_tool` with `ServerName=\"rea_rea\"` + read `~/.gemini/config/plugins/rea/skills/reverse-engineer-anything/SKILL.md`)",
     ),
     (
         "route:mcp:antislop-contrast",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"check\s+contrast|wcag\s+contrast|color\s+contrast(?:\s+ratio)?|contrast\s+ratio|"
             r"renk\s+kontrast(?:ı|i)|kontrast\s+oran(?:ı|i)"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "MCP Server `antislop-contrast` (`call_mcp_tool` with `ServerName=\"antislop-contrast\"`, `ToolName=\"check_contrast\"`)",
     ),
     (
         "route:subagent:security-silent",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"authentication\s+boundary|authorization\s+boundary|jwt\s+(?:token|auth)|oauth2?\s+flow|"
             r"cryptograph(?:y|ic)|payment\s+processing|storage\s+integrity|secret\s+boundary|"
             r"permission\s+boundary|auth(?:entication|orization)\s+bypass|toctou|race\s+condition|"
             r"kimlik\s+doğrulama|yetkilendirme\s+sınır(?:ı|i)|yetki\s+sınır(?:ı|i)|güvenlik\s+sınır(?:ı|i)|"
             r"kriptografi|ödeme\s+altyapısı|depolama\s+bütünlüğü"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Subagents `security-boundary-verifier` & `silent-failure-hunter` (`invoke_subagent` before delivery per GEMINI.md §3 Critical Exceptions)",
     ),
     (
         "route:subagent:contract-test",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"public\s+api\s+contract|breaking\s+contract\s+change|wire\s+protocol\s+change|openapi\s+schema\s+change|"
             r"public\s+interface\s+migration|migration\s+rollback\s+safety|wire\s+format\s+change|schema\s+breaking\s+change|"
             r"sözleşme\s+değişikliği|api\s+kontrat(?:ı|i)|public\s+arayüz\s+değişikliği|kırıcı\s+şema\s+değişikliği"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Subagents `contract-change-auditor` & `test-adequacy-auditor` (`invoke_subagent` before delivering public contract/schema changes)",
     ),
     (
         "route:subagent:spec-consistency",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"formal\s+specification|multi[- ]volume\s+spec|state\s+machine\s+invariant|safety\s+core\s+spec|"
             r"multi[- ]file\s+invariant|axiomatic\s+consistency|"
             r"resmi\s+spesifikasyon|güvenlik\s+çekirdeği\s+spesifikasyonu|spesifikasyon\s+tutarsızl\w*|durum\s+makinesi\s+değişmezi"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Subagents `consistency-auditor` & `specification-gap-auditor` (`invoke_subagent` per GEMINI.md §3 Critical Exceptions)",
     ),
     (
         "route:subagent:simplicity-auditor",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"simplicity[- ]auditor(?![./\w-])|"
             r"yagni\s+(?:audit|review|check)|over[- ]engineering\s+(?:audit|review|check)|"
             r"efficiency\s+ladder\s+(?:audit|review|check)|premature\s+abstraction\s+(?:audit|review|check)|"
             r"yagni\s+denetim\w*|aşırı\s+mühendislik\s+denetim\w*|gereksiz\s+soyutlama\s+denetim\w*"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Subagent `simplicity-auditor` (`invoke_subagent` with `TypeName=\"simplicity-auditor\"` to audit Tier 2/3 diffs for GEMINI.md Rule 4 YAGNI, Rule 18 surgical reuse & 7-Rung Efficiency Ladder compliance)",
     ),
     (
         "route:subagent:research",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"external\s+documentation|official\s+sdk\s+docs|research\s+library\s+api|"
             r"(?:read|check)\s+(?:the\s+)?(?:(?:official|external|latest|versioned)\s+){1,2}(?:(?:sdk|library|framework)\s+)?(?:docs|documentation|reference|spec|api)|"
@@ -689,14 +652,13 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             r"dış\s+dokümantasyon\s+araştır|resmi\s+kütüphane\s+dokümanı|"
             r"(?:resmi|dış|harici|güncel)\s+(?:dokümantasyon\w*|api\s+referans\w*)\s+(?:araştır\w*|oku\w*|incele\w*|kontrol\s+et\w*)|"
             r"kütüphane\s+(?:api|doküman)\w*\s+(?:doğrula\w*|araştır\w*)"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Subagent `research` (`invoke_subagent` to isolate >50 KB documentation or broad codebase exploration per GEMINI.md Rule 11)",
     ),
     (
         "route:subagent:build-error-resolver",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"compiler\s+error\s+trace|typescript\s+build\s+error|typecheck\s+failure\s+log|"
             r"(?:fix|resolve|debug)\s+(?:these\s+|the\s+|this\s+)?(?:(?:typescript|tsc|mypy|cargo|rustc|go)\s+)?(?:build|compiler|type)\s+errors?|"
@@ -704,47 +666,43 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             r"500\+?\s*lines?\s+of\s+(?:build|compiler|type|tsc|cargo|mypy)\s+errors?|"
             r"uzun\s+derleme\s+hatası|tip\s+hatası\s+izini\s+çöz|"
             r"(?:derleme|typecheck|tip\s+kontrol|tsc|mypy|cargo\s+build)\s+hatalar(?:ı|ını)\s+(?:çöz\w*|gider\w*|ayıkla\w*)"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Subagent `build-error-resolver` (`invoke_subagent` on >500-line traces or after 2 consecutive failed compiler/type fix attempts)",
     ),
     (
         "route:builtin:generative_ui",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"generative[_ ]ui|agent-embed|inline\s+(?:interactive\s+)?widget|interactive\s+chat\s+widget|"
             r"sohbet\s+içinde\s+(?:interaktif|etkileşimli)\s+widget|interaktif\s+widget|canlı\s+kontrol\s+paneli\s+göm\w*"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Built-in Skill `generative_ui` (read `~/.gemini/antigravity/builtin/skills/generative_ui/SKILL.md`; use host theme variables and allowlisted `gstatic` Tailwind solely inside isolated widgets per GEMINI.md Rule 15c)",
     ),
     (
         "route:builtin:automation",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/automation{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"scheduled\s+background\s+automation|recurring\s+scheduled\s+task|background\s+cron\s+automation|"
             r"zamanlanmış\s+görev|arka\s+plan\s+otomasyonu|tekrarlayan\s+otomasyon"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Built-in Skill `automation` (read `~/.gemini/antigravity/builtin/skills/automation/SKILL.md`; obey GEMINI.md Rule 15a/15b: never write to governance seams in `~/.gemini/config/`, route runtime sidecars only to `~/.gemini/config/sidecars/` or `~/.gemini/antigravity/sidecars/`, default to the native `schedule` tool, and report progress via `toolAction`/`toolSummary`)",
     ),
     (
         "route:builtin:antigravity-guide",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"antigravity\s+(?:ide|cli|sdk|keybindings?|slash\s+commands?|2\.0)|agy\s+cli|"
             r"antigravity\s+(?:kısayol\w*|ayar\w*|nasıl\s+kullanıl\w*)|agy\s+komut\s+satır\w*"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Built-in Skill `antigravity-guide` (read `~/.gemini/antigravity/builtin/skills/antigravity_guide/SKILL.md` for Antigravity 2.0, `agy` CLI, IDE keybindings, slash commands & Python SDK reference)",
     ),
     (
         "route:builtin:agy-customizations",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"agy[- ]customizations|"
             r"antigravity\s+customization\w*|"
@@ -753,78 +711,71 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             r"yerleşik\s+(?:antigravity\s+)?özelleştir\w*|"
             r"keşif\s+önceliğ\w*\s+ve\s+kanca\s+yapı\w*|"
             r"(?:hint|ipucu)\s+mekanizma\w*"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Built-in Skill `agy-customizations` (read `~/.gemini/antigravity/builtin/skills/agy-customizations/SKILL.md`; obey GEMINI.md Rule 15a: `~/.gemini/config/` is read-only, author repo-managed changes in the source checkout)",
     ),
     (
         "route:builtin:plugin",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/plugin{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"antigravity\s+plugin|package\s+into\s+a\s+plugin|install\s+or\s+uninstall\s+a\s+plugin|"
             r"eklenti\s+paketi\s+olarak\s+paketle\w*|antigravity\s+eklentisi\s+(?:oluştur|kur|kaldır)\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
-        "Built-in Skill `plugin` (read `~/.gemini/antigravity/builtin/skills/plugin/SKILL.md`; obey GEMINI.md Rule 15a: never write directly to `~/.gemini/config/` outside runtime `plugins/`)",
+        "Built-in Skill `plugin` (read `~/.gemini/antigravity/builtin/skills/plugin/SKILL.md`; obey GEMINI.md Rule 15a: harness plugin packs under `~/.gemini/config/plugins/` are OS-locked/denied and mutating `agy plugin` commands targeting them require human confirmation)",
     ),
     (
         "route:subagent:meta-auditor",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/audit\s+--(?:meta|self){_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"meta[- ]auditor|"
             r"harness\s+(?:self[- ]audit|meta[- ]consistency|meta[- ]audit)|"
             r"porter\s+parity\s+audit|"
             r"harness\s+(?:öz[- ]?denetim\w*|meta[- ]?tutarlılık\w*|iç\s+tutarlılık\w*)|"
             r"(?:beceri|kanca|anayasa)\s+tutarlılık\s+denetim\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Subagent `meta-auditor` (`invoke_subagent` with `TypeName=\"meta-auditor\"` + `agy-guard self-audit --strict` (or `python3 scripts/meta_audit.py --strict` in repo checkouts) for harness, skill, hook & Porter meta-consistency verification per GEMINI.md Rule 17)",
     ),
     (
         "route:subagent:image-generator",
-        re.compile(
+        (
             rf"{_PATH_WORD_PRE}(?:"
             r"generate\s+(?:an\s+)?(?:illustration|raster\s+image|hero\s+image)|image[- ]generator\s+subagent|"
             r"özel\s+bir\s+illüstrasyon\s+ve\s+görsel\s+üret\w*|illüstrasyon\s+üret\w*|görsel\s+varlık\s+üret\w*"
-            rf"){_PATH_WORD_POST}",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST}"
         ),
         "Built-in Subagent `image-generator` (`invoke_subagent` with `TypeName=\"image-generator\"` after obtaining explicit user approval for asset creation per `antislop` R-23; never use for logical diagrams per `visualizer`)",
     ),
     (
         "route:builtin:native_swarm",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/(?:swarm|native_swarm){_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"native[- _]swarm|agent\s+swarm|swarm\s+(?:mode|board|workers?)|"
             r"ajan\s+sürüsü\w*|paylaşımlı\s+mesaj\s+panosu\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Built-in Skill `native_swarm` (`swarm` tool & `~/.gemini/antigravity/builtin/skills/native_swarm/SKILL.md`; obey GEMINI.md Rule 15f & Rule 17: never downgrade worker `model` when editing customization/governance files, and isolate parallel authors with `workspace='share'`/`'branch'`)",
     ),
     (
         "route:builtin:migrate-agent-settings",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/migrate-agent-settings{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"migrate[- _]agent[- _]settings|"
             r"import\s+(?:claude\s+code|codex|cursor|gemini\s+cli)\s+(?:config|settings|rules|mcp)|"
             r"(?:claude\s+code|codex|cursor|gemini\s+cli)\s+ayarlarını\s+içe\s+aktar\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Built-in Skill `migrate-agent-settings` (read `~/.gemini/antigravity/builtin/skills/migrate-agent-settings/SKILL.md`; obey GEMINI.md Rules 12, 15g & 16: keep `npx` dependencies pinned, pass imported rules through `porter inspect`, and obtain human confirmation before plugin writes)",
     ),
     (
         "route:builtin:mcp-app-development",
-        re.compile(
+        (
             rf"(?:{_SLASH_PRE}/mcp-app-development{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"mcp[- _]app[- _]development|mcp\s+app\s+(?:ui|resource|widget)|ui://\s*app|"
             r"mcp\s+uygulama\s+arayüzü\w*"
-            rf"){_PATH_WORD_POST})",
-            re.IGNORECASE,
+            rf"){_PATH_WORD_POST})"
         ),
         "Built-in Skill `mcp-app-development` (read `~/.gemini/antigravity/builtin/skills/mcp-app-development/SKILL.md`; obey GEMINI.md Rules 12 & 15h: never emit `ANTIGRAVITY_CSRF_TOKEN`, restrict endpoints to Content Security Policy allowlists, and pin `@modelcontextprotocol/ext-apps` packages)",
     ),
@@ -850,7 +801,7 @@ _ROUTE_SLASH_ALIASES: Dict[str, Tuple[str, ...]] = {
 
 _ROUTE_EXPLICIT_SLUGS: Dict[str, Tuple[str, ...]] = {
     "route:mcp:rea_rea": ("rea_rea", "reverse-engineer-anything"),
-    "route:mcp:antislop-contrast": ("antislop-contrast", "check_contrast"),
+    "route:mcp:antislop-contrast": ("antislop-contrast", "antislop_contrast", "check_contrast"),
     "route:subagent:security-silent": ("security-boundary-verifier", "silent-failure-hunter"),
     "route:subagent:contract-test": ("contract-change-auditor", "test-adequacy-auditor"),
     "route:subagent:spec-consistency": ("consistency-auditor", "specification-gap-auditor"),
@@ -869,12 +820,12 @@ _ROUTE_EXPLICIT_SLUGS: Dict[str, Tuple[str, ...]] = {
 
 _SKILL_HINT_BY_NAME: Dict[str, Tuple[str, str, str]] = {
     skill_name: (skill_name, rel_path, summary)
-    for skill_name, rel_path, _pattern, summary in SKILL_HINTS
+    for skill_name, rel_path, _pattern, summary in _SKILL_HINTS_RAW
 }
 
 _ROUTE_HINT_BY_KEY: Dict[str, Tuple[str, str]] = {
     route_key: (route_key, directive)
-    for route_key, _pattern, directive in ECOSYSTEM_ROUTING_HINTS
+    for route_key, _pattern, directive in _ECOSYSTEM_ROUTING_HINTS_RAW
 }
 
 _DISTINCTIVE_SKILL_SLUGS = frozenset({
@@ -953,8 +904,203 @@ _ANY_EXPLICIT_SLUG_RE = _LazyRegex(
     re.IGNORECASE,
 )
 
+def _extract_necessary_literals(pat: str) -> Optional[Tuple[str, ...]]:
+    """
+    Sound conservative necessary-literal extractor for `re.IGNORECASE` regex patterns.
+
+    Returns a non-empty tuple of normalized lowercase substrings (`>= 2` chars) such that ANY
+    text matched by `re.compile(pat, re.IGNORECASE)` MUST contain at least one returned literal
+    after `İ`/`ı` -> `i` + `.casefold()`. Returns `None` whenever a branch may match without a
+    guaranteed safe literal (caller must then compile and run the full regex — zero false negatives).
+    """
+    if not pat or "(?#" in pat or "(?(" in pat:
+        return None
+    norm_trans = getattr(_extract_necessary_literals, "_norm_trans", None)
+    if norm_trans is None:
+        norm_trans = str.maketrans({"İ": "i", "ı": "i"})
+        unescaped_safe = frozenset(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_:#çğıöşüÇĞİÖŞÜ-"
+        )
+        escaped_safe = unescaped_safe | frozenset(".+$")
+        tok_re = re.compile(
+            r"\\."
+            r"|\[(?:\^?\]?(?:\\.|[^\]])*)\]"
+            r"|\(\?(?:<=|<!|[:=!]|P<[^>]*>|[aiLmsux-]+:?)"
+            r"|[()|]"
+            r"|[?*+][?+]?"
+            r"|\{\d+(?:,\d*)?\}[?+]?"
+            r"|[.^$]"
+            r"|[A-Za-z0-9/_:#çğıöşüÇĞİÖŞÜ-]+"
+            r"|[^\\\[\]()|?*+.^${}]"
+        )
+        setattr(_extract_necessary_literals, "_norm_trans", norm_trans)
+        setattr(_extract_necessary_literals, "_unescaped_safe", unescaped_safe)
+        setattr(_extract_necessary_literals, "_escaped_safe", escaped_safe)
+        setattr(_extract_necessary_literals, "_tok_re", tok_re)
+    else:
+        unescaped_safe = getattr(_extract_necessary_literals, "_unescaped_safe")
+        escaped_safe = getattr(_extract_necessary_literals, "_escaped_safe")
+        tok_re = getattr(_extract_necessary_literals, "_tok_re")
+
+    clean_pat = pat
+    for _zwa in (_PATH_WORD_PRE, _PATH_WORD_POST, _SLASH_PRE, _SLASH_POST):
+        if _zwa in clean_pat:
+            clean_pat = clean_pat.replace(_zwa, "")
+    tokens = tok_re.findall(clean_pat)
+    if "".join(tokens) != clean_pat:
+        return None
+    n = len(tokens)
+    pos = 0
+    abort = False
+
+    def parse_alt() -> Optional[Tuple[str, ...]]:
+        nonlocal pos, abort
+        b0 = parse_seq()
+        if abort:
+            return None
+        if pos >= n or tokens[pos] != "|":
+            return b0
+        out: Optional[List[str]] = None if b0 is None else list(b0)
+        while pos < n and tokens[pos] == "|":
+            pos += 1
+            bi = parse_seq()
+            if abort:
+                return None
+            if out is None or bi is None:
+                out = None
+            else:
+                out.extend(bi)
+        return tuple(out) if out else None
+
+    def parse_seq() -> Optional[Tuple[str, ...]]:
+        nonlocal pos, abort
+        best: Optional[Tuple[str, ...]] = None
+        best_n = 999999
+        best_m = 0
+        lit = ""
+        while pos < n:
+            tok = tokens[pos]
+            c0 = tok[0]
+            if c0 == "|" or c0 == ")":
+                break
+            pos += 1
+            if c0 in unescaped_safe:
+                if pos < n and tokens[pos][0] in "?*+{":
+                    nt = tokens[pos]
+                    pos += 1
+                    nc = nt[0]
+                    if nc in "?*" or (nc == "{" and (nt[1] == "0" or nt[1] == ",")):
+                        s = lit + tok[:-1]
+                    else:
+                        s = lit + tok
+                    lit = ""
+                    if len(s) >= 2 and (1 < best_n or (best_n == 1 and len(s) > best_m)):
+                        best = (s,)
+                        best_n = 1
+                        best_m = len(s)
+                else:
+                    lit += tok
+                continue
+            if c0 == "\\":
+                ec = tok[1:]
+                has_q = False
+                opt = False
+                if pos < n and tokens[pos][0] in "?*+{":
+                    nt = tokens[pos]
+                    pos += 1
+                    has_q = True
+                    nc = nt[0]
+                    opt = nc in "?*" or (nc == "{" and (nt[1] == "0" or nt[1] == ","))
+                if not opt and len(ec) == 1 and not ec.isalnum() and ec in escaped_safe:
+                    if has_q:
+                        s = lit + ec
+                        lit = ""
+                        if len(s) >= 2 and (1 < best_n or (best_n == 1 and len(s) > best_m)):
+                            best = (s,)
+                            best_n = 1
+                            best_m = len(s)
+                    else:
+                        lit += ec
+                    continue
+            if lit:
+                if len(lit) >= 2 and (1 < best_n or (best_n == 1 and len(lit) > best_m)):
+                    best = (lit,)
+                    best_n = 1
+                    best_m = len(lit)
+                lit = ""
+            if c0 == "(":
+                if len(tok) > 2 and tok[1] == "?" and not tok.startswith("(?P<") and "x" in tok:
+                    abort = True
+                    return None
+                is_assert = len(tok) > 1 and (
+                    tok[1:3] in ("?=", "?!", "?<")
+                    or (tok[1] == "?" and not tok.startswith(("(?:", "(?P<")) and not tok.endswith(":"))
+                )
+                sub = parse_alt()
+                if abort or pos >= n or tokens[pos] != ")":
+                    abort = True
+                    return None
+                pos += 1
+                opt = False
+                if pos < n and tokens[pos][0] in "?*+{":
+                    nt = tokens[pos]
+                    pos += 1
+                    nc = nt[0]
+                    opt = nc in "?*" or (nc == "{" and (nt[1] == "0" or nt[1] == ","))
+                if not is_assert and not opt and sub is not None:
+                    sn = len(sub)
+                    if sn < best_n:
+                        best = sub
+                        best_n = sn
+                        best_m = min(len(x) for x in sub)
+                    elif sn == best_n:
+                        sm = min(len(x) for x in sub)
+                        if sm > best_m:
+                            best = sub
+                            best_m = sm
+            elif c0 in "[.^$":
+                if pos < n and tokens[pos][0] in "?*+{":
+                    pos += 1
+        if lit and len(lit) >= 2 and (1 < best_n or (best_n == 1 and len(lit) > best_m)):
+            best = (lit,)
+        return best
+
+    res = parse_alt()
+    if abort or pos != n or not res:
+        return None
+    return tuple(dict.fromkeys(x.translate(norm_trans).casefold() for x in res))
+
+
+def _match_hint_pattern(pat_str: str, scan_text: str, norm_scan: str) -> bool:
+    """Matches a raw `re.IGNORECASE` hint regex using sound necessary-literal prefiltering + lazy compilation."""
+    rx_cache: Dict[str, re.Pattern[str]] = getattr(_match_hint_pattern, "_rx_cache", None)  # type: ignore[assignment]
+    if rx_cache is None:
+        rx_cache = {}
+        lit_cache: Dict[str, Optional[Tuple[str, ...]]] = {}
+        setattr(_match_hint_pattern, "_rx_cache", rx_cache)
+        setattr(_match_hint_pattern, "_lit_cache", lit_cache)
+    else:
+        lit_cache = getattr(_match_hint_pattern, "_lit_cache")
+    compiled = rx_cache.get(pat_str)
+    if compiled is not None:
+        return bool(compiled.search(scan_text))
+    if pat_str not in lit_cache:
+        lit_cache[pat_str] = _extract_necessary_literals(pat_str)
+    lits = lit_cache[pat_str]
+    if lits is not None and not any(tok in norm_scan for tok in lits):
+        return False
+    compiled = re.compile(pat_str, re.IGNORECASE)
+    rx_cache[pat_str] = compiled
+    return bool(compiled.search(scan_text))
+
+
 def _has_any_explicit_slug_mention(explicit_surface: str) -> bool:
     """Returns True when any known explicit skill or ecosystem route slug appears directly in user prose."""
+    if not explicit_surface:
+        return False
+    norm = explicit_surface.replace("İ", "i").replace("ı", "i").casefold()
+    if not any(slug in norm for slug in _KNOWN_INLINE_EXPLICIT_SLUGS):
+        return False
     return bool(_ANY_EXPLICIT_SLUG_RE.search(explicit_surface))
 
 def _load_conv_hint_state(raw_entry: Any) -> Tuple[Dict[str, int], int, str]:
@@ -1560,26 +1706,320 @@ def _strip_pasted_review_and_quote_blocks(text: str) -> str:
                     break
     kept: List[str] = []
     for line in lines:
-        if (
-            _PASTED_BLOCKQUOTE_LINE_RE.match(line)
-            or _PASTED_DIFF_LINE_RE.match(line)
-            or _PASTED_TABLE_LINE_RE.match(line)
-            or _PASTED_AUDIT_FINDING_LINE_RE.match(line)
-        ):
-            continue
+        s = line.lstrip()
+        if s:
+            c0 = s[0]
+            if c0 == ">" and _PASTED_BLOCKQUOTE_LINE_RE.match(line):
+                continue
+            if line[0] in "di-+@" and _PASTED_DIFF_LINE_RE.match(line):
+                continue
+            if c0 == "|" and _PASTED_TABLE_LINE_RE.match(line):
+                continue
+            if (c0 in "-*•[" or c0.lower() in "chmlipfwrı" or c0 == "İ") and _PASTED_AUDIT_FINDING_LINE_RE.match(line):
+                continue
         kept.append(line)
     return "\n".join(kept).strip()
 
 
-def _resolve_hint_skill_path(rel_path: str, workspaces: Sequence[Path]) -> str:
+def _read_bounded_json_nofollow(
+    path: Path,
+    label: str,
+    max_bytes: int = 2 * 1024 * 1024,
+    *,
+    warn: bool = True,
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Reads a bounded regular JSON object file with O_NOFOLLOW/O_NONBLOCK, warning and failing safe on error."""
+    def _warn(reason: str) -> None:
+        if warn:
+            sys.stderr.write(f"[Harness PreInvocation] Ignoring {reason} {label} `{path}`; failing safe enabled.\n")
+
+    try:
+        path_str = os.fspath(path)
+        if "\x00" in path_str:
+            _warn("invalid NUL path")
+            return "invalid", None
+        if path.is_symlink():
+            _warn("symlink")
+            return "invalid", None
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path_str, flags)
+    except (FileNotFoundError, NotADirectoryError):
+        return "missing", None
+    except OSError as exc:
+        _warn(f"unreadable/symlink ({exc})")
+        return "invalid", None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
+            _warn("non-regular")
+            return "invalid", None
+        if st.st_size > max_bytes:
+            os.close(fd)
+            _warn(f"oversized ({st.st_size} > {max_bytes} bytes)")
+            return "invalid", None
+        fh = os.fdopen(fd, "rb")
+    except OSError as exc:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        _warn(f"unreadable ({exc})")
+        return "invalid", None
+    try:
+        with fh:
+            raw = fh.read(max_bytes + 1)
+    except OSError as exc:
+        _warn(f"unreadable ({exc})")
+        return "invalid", None
+    if len(raw) > max_bytes:
+        _warn(f"oversized (>{max_bytes} bytes)")
+        return "invalid", None
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        _warn(f"corrupt/deep JSON ({exc})")
+        return "invalid", None
+    if not isinstance(parsed, dict):
+        _warn("non-object JSON")
+        return "invalid", None
+    return "ok", parsed
+
+
+def _is_harness_plugin_active(
+    pack_name: str,
+    cfg_dir: Optional[Path] = None,
+    workspaces: Sequence[Path] = (),
+    *,
+    _turn_cache: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Determines whether a harness-owned plugin pack is active for PreInvocation skill/MCP routing.
+
+    Live toggle precedence (ADR-0016 D9):
+      1. `cfg_dir/plugins/<pack>` present: `config.json["plugins"][<pack>]["enabled"]` (bool) >
+         `plugin.json["disabled"] is True` > enabled.
+      2. `cfg_dir/plugins/<pack>` absent & flat `cfg_dir/skills/<slug>/SKILL.md` present:
+         active (`True`, ignoring stale `config.json["plugins"]` toggles after `--flat-skills` revert
+         and ignoring workspace `.agents/plugins/<pack>` disable flags).
+      3. Workspace `<ws>/.agents/plugins/<pack>` present: `config.json["plugins"][<pack>]["enabled"]`
+         > `plugin.json["disabled"] is True` > enabled.
+      4. Absent everywhere: disabled if `cfg_enabled is False` or an explicit hybrid-install signal exists
+         for `cfg_dir`; otherwise enabled (flat/repo/isolated test mode).
+    """
+    pack = (pack_name or "").strip().lower()
+    if pack not in _HARNESS_PLUGIN_NAMES:
+        return False
+    cache = _turn_cache if _turn_cache is not None else {}
+    cfg = Path(cfg_dir) if cfg_dir is not None else configured_config_dir()
+    cfg_key = os.path.abspath(cfg)
+    pack_cache = cache.setdefault("pack_active", {})
+    cache_key = (cfg_key, pack)
+    if cache_key in pack_cache:
+        return bool(pack_cache[cache_key])
+
+    cfg_json_cache = cache.setdefault("config_json", {})
+    if cfg_key not in cfg_json_cache:
+        cfg_json_cache[cfg_key] = _read_bounded_json_nofollow(cfg / "config.json", "config.json")
+    cfg_status, cfg_data = cfg_json_cache[cfg_key]
+
+    cfg_enabled: Optional[bool] = None
+    if cfg_status == "ok" and isinstance(cfg_data, dict):
+        plugins_map = cfg_data.get("plugins")
+        if plugins_map is not None and not isinstance(plugins_map, dict):
+            warned_cfg = cache.setdefault("warned_cfg_plugins", set())
+            if cfg_key not in warned_cfg:
+                warned_cfg.add(cfg_key)
+                sys.stderr.write(
+                    f"[Harness PreInvocation] Ignoring non-object `plugins` in `{cfg / 'config.json'}`; "
+                    "failing safe enabled.\n"
+                )
+        elif isinstance(plugins_map, dict):
+            pack_entry = plugins_map.get(pack)
+            if isinstance(pack_entry, dict) and isinstance(pack_entry.get("enabled"), bool):
+                cfg_enabled = pack_entry["enabled"]
+            elif pack_entry is not None and not isinstance(pack_entry, dict):
+                sys.stderr.write(
+                    f"[Harness PreInvocation] Ignoring non-object `plugins.{pack}` in `{cfg / 'config.json'}`; "
+                    "failing safe enabled.\n"
+                )
+
+    plugins_root = cfg / "plugins"
+    pack_dir = plugins_root / pack
+    try:
+        if plugins_root.is_symlink() or pack_dir.is_symlink():
+            sys.stderr.write(
+                f"[Harness PreInvocation] Ignoring symlinked plugin path `{pack_dir}`; failing safe enabled.\n"
+            )
+            pack_cache[cache_key] = True
+            return True
+    except OSError as exc:
+        sys.stderr.write(
+            f"[Harness PreInvocation] Cannot inspect plugin path `{pack_dir}` ({exc}); failing safe enabled.\n"
+        )
+        pack_cache[cache_key] = True
+        return True
+
+    global_pack_dir: Optional[Path] = None
+    try:
+        if pack_dir.is_dir():
+            global_pack_dir = pack_dir
+    except OSError:
+        global_pack_dir = None
+
+    if global_pack_dir is not None:
+        if cfg_enabled is False:
+            pack_cache[cache_key] = False
+            return False
+        if cfg_enabled is True:
+            pack_cache[cache_key] = True
+            return True
+        pj_status, pj_data = _read_bounded_json_nofollow(global_pack_dir / "plugin.json", f"plugins/{pack}/plugin.json")
+        if pj_status == "ok" and isinstance(pj_data, dict) and pj_data.get("disabled") is True:
+            pack_cache[cache_key] = False
+            return False
+        pack_cache[cache_key] = True
+        return True
+
+    # Global pack dir is absent: if flat skill copies exist under `cfg/skills/`, honor Flat Layout directly
+    # (prevents stale `config.json["plugins"]` toggles or workspace plugin manifests from silencing flat skills).
+    for slug, owner in _PLUGIN_SKILL_TO_PACK.items():
+        if owner == pack:
+            try:
+                if (cfg / "skills" / slug / "SKILL.md").is_file():
+                    pack_cache[cache_key] = True
+                    return True
+            except OSError:
+                continue
+
+    ws_pack_dir: Optional[Path] = None
+    for ws in workspaces:
+        try:
+            ws_proot = ws / ".agents" / "plugins"
+            ws_pdir = ws_proot / pack
+            if not ws_proot.is_symlink() and not ws_pdir.is_symlink() and ws_pdir.is_dir():
+                ws_pack_dir = ws_pdir
+                break
+        except (OSError, ValueError):
+            continue
+
+    if ws_pack_dir is not None:
+        if cfg_enabled is False:
+            pack_cache[cache_key] = False
+            return False
+        if cfg_enabled is True:
+            pack_cache[cache_key] = True
+            return True
+        pj_status, pj_data = _read_bounded_json_nofollow(ws_pack_dir / "plugin.json", f"plugins/{pack}/plugin.json")
+        if pj_status == "ok" and isinstance(pj_data, dict) and pj_data.get("disabled") is True:
+            pack_cache[cache_key] = False
+            return False
+        pack_cache[cache_key] = True
+        return True
+
+    if cfg_enabled is False:
+        pack_cache[cache_key] = False
+        return False
+
+    # Suppress removed pack only when an explicit hybrid-install signal exists for `cfg`.
+    hyb_cache = cache.setdefault("hybrid_signal", {})
+    if cfg_key not in hyb_cache:
+        has_hybrid_signal = False
+        receipt_targets_cfg_flat = False
+        try:
+            cfg_res = cfg.resolve()
+        except (OSError, RuntimeError):
+            cfg_res = cfg
+        rec_status, rec_data = _read_bounded_json_nofollow(
+            state_dir() / "install_receipt.json", "install_receipt.json", warn=False
+        )
+        if rec_status == "ok" and isinstance(rec_data, dict):
+            raw_tgt = rec_data.get("target")
+            if isinstance(raw_tgt, str) and raw_tgt.strip():
+                try:
+                    tgt_res = Path(os.path.expanduser(raw_tgt.strip())).resolve()
+                except (OSError, RuntimeError):
+                    tgt_res = None
+                if tgt_res == cfg_res:
+                    rec_layout = str(rec_data.get("layout") or "").strip().lower()
+                    rec_plugs = rec_data.get("installed_plugins")
+                    has_rec_plugs = isinstance(rec_plugs, list) and any(
+                        isinstance(x, str) and x in _HARNESS_PLUGIN_NAMES for x in rec_plugs
+                    )
+                    if rec_layout == "hybrid" or has_rec_plugs:
+                        has_hybrid_signal = True
+                    elif rec_layout == "flat":
+                        receipt_targets_cfg_flat = True
+        if not has_hybrid_signal:
+            try:
+                if plugins_root.is_dir() and not plugins_root.is_symlink():
+                    for other_pack in _HARNESS_PLUGIN_NAMES:
+                        other_dir = plugins_root / other_pack
+                        if not other_dir.is_symlink() and other_dir.is_dir():
+                            has_hybrid_signal = True
+                            break
+            except OSError:
+                pass
+        if (
+            not has_hybrid_signal
+            and not receipt_targets_cfg_flat
+            and cfg_status == "ok"
+            and isinstance(cfg_data, dict)
+            and isinstance(cfg_data.get("plugins"), dict)
+            and any(k in _HARNESS_PLUGIN_NAMES for k in cfg_data["plugins"])
+        ):
+            try:
+                if (cfg / "skills").is_dir():
+                    has_hybrid_signal = True
+            except OSError:
+                pass
+        hyb_cache[cfg_key] = has_hybrid_signal
+
+    result = not bool(hyb_cache[cfg_key])
+    pack_cache[cache_key] = result
+    return result
+
+
+def _resolve_hint_skill_path(
+    rel_path: str,
+    workspaces: Sequence[Path],
+    *,
+    _turn_cache: Optional[Dict[str, Any]] = None,
+) -> str:
     """Resolves a canonical skill/plugin relpath to an installed-layout-safe path for external workspaces."""
     if not rel_path.startswith(("skills/", "plugins/")):
         return rel_path
     cfg = configured_config_dir()
     default_cfg = Path.home() / ".gemini" / "config"
+    is_default_cfg = cfg.expanduser() == default_cfg
+    if rel_path.startswith("skills/"):
+        parts = rel_path.split("/")
+        pack = _PLUGIN_SKILL_TO_PACK.get(parts[1]) if len(parts) >= 2 else None
+        if pack is not None and _is_harness_plugin_active(pack, cfg, workspaces, _turn_cache=_turn_cache):
+            plugin_rel = f"plugins/{pack}/{rel_path}"
+            try:
+                plugins_root = cfg / "plugins"
+                pack_dir = plugins_root / pack
+                plugin_file = cfg / plugin_rel
+                if (
+                    not plugins_root.is_symlink()
+                    and not pack_dir.is_symlink()
+                    and not plugin_file.is_symlink()
+                    and plugin_file.is_file()
+                ):
+                    return f"~/.gemini/config/{plugin_rel}" if is_default_cfg else str(plugin_file)
+            except (OSError, ValueError):
+                pass
+            for ws in workspaces:
+                try:
+                    ws_plugin_file = ws / ".agents" / plugin_rel
+                    if not ws_plugin_file.is_symlink() and ws_plugin_file.is_file():
+                        return f".agents/{plugin_rel}"
+                except (OSError, ValueError):
+                    continue
     try:
         if (cfg / rel_path).is_file():
-            if cfg.expanduser() == default_cfg:
+            if is_default_cfg:
                 return f"~/.gemini/config/{rel_path}"
             return str(cfg / rel_path)
     except (OSError, ValueError):
@@ -1601,16 +2041,17 @@ def _is_pure_readonly_or_question_prompt(scan_text: str, explicit_text: str = ""
     exp = (explicit_text or text).strip()
     if _EXPLICIT_CMD_TOKEN_RE.search(exp) and not _READONLY_SLASH_RE.match(exp):
         return False
+    tail_stripped = re.sub(r"[*_`\"'»”\s)]+$", "", text)
+    is_question_shaped = (
+        tail_stripped.endswith("?")
+        or bool(_QUESTION_ONLY_OPENER_RE.match(text))
+        or bool(_QUESTION_ONLY_TR_CLITIC_RE.search(tail_stripped))
+    )
+    if not is_question_shaped:
+        return False
     if _QUESTION_ONLY_ACTION_VERB_RE.search(text):
         return False
-    tail_stripped = re.sub(r"[*_`\"'»”\s)]+$", "", text)
-    if tail_stripped.endswith("?"):
-        return True
-    if _QUESTION_ONLY_OPENER_RE.match(text):
-        return True
-    if _QUESTION_ONLY_TR_CLITIC_RE.search(tail_stripped):
-        return True
-    return False
+    return True
 
 
 def _detect_workspace_recovery_hint(
@@ -2499,11 +2940,14 @@ def _collect_context_domain_and_transcript_hints(
     is_new_user_turn: bool,
     active_turn: int,
     suppress_workspace_domain_hints: bool = False,
+    _turn_cache: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]], set[str]]:
     """Appends bounded workspace marker and transcript error-trace hints with turn-gap deduplication."""
     if is_short_or_continuation:
         return matched, matched_routes, set()
 
+    turn_cache = _turn_cache if _turn_cache is not None else {}
+    cfg = configured_config_dir()
     extra_keys: set[str] = set()
     emitted_skills = {m[0] for m in matched}
     emitted_routes = {r[0] for r in matched_routes}
@@ -2516,11 +2960,17 @@ def _collect_context_domain_and_transcript_hints(
     for skill_name in ws_skills:
         if added_ctx_skills >= MAX_CONTEXT_SIGNALS:
             break
-        ctx_key = f"ws_ctx:{skill_name}"
-        if skill_name in emitted_skills or _within_cooldown(skill_name) or _within_cooldown(ctx_key):
-            continue
         hint_tuple = _SKILL_HINT_BY_NAME.get(skill_name)
         if hint_tuple is None:
+            continue
+        h_rel = hint_tuple[1]
+        if h_rel.startswith("skills/"):
+            h_parts = h_rel.split("/")
+            h_pack = _PLUGIN_SKILL_TO_PACK.get(h_parts[1]) if len(h_parts) >= 2 else None
+            if h_pack is not None and not _is_harness_plugin_active(h_pack, cfg, workspaces, _turn_cache=turn_cache):
+                continue
+        ctx_key = f"ws_ctx:{skill_name}"
+        if skill_name in emitted_skills or _within_cooldown(skill_name) or _within_cooldown(ctx_key):
             continue
         matched.append(hint_tuple)
         emitted_skills.add(skill_name)
@@ -2573,14 +3023,28 @@ def _collect_invocation_skill_hints(
     active_turn: int,
     explicit_text: Optional[str] = None,
     is_readonly_meta_question: bool = False,
+    _turn_cache: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
     """Selects bounded skill hints and ecosystem routing directives for `handle_pre_invocation`."""
     if is_short_or_continuation:
         return [], []
+    turn_cache = _turn_cache if _turn_cache is not None else {}
+    cfg = configured_config_dir()
     explicit_surface = scan_text if explicit_text is None else explicit_text
     has_viable_token = has_explicit_cmd or bool(_VIABLE_HINT_TOKEN_RE.search(scan_text))
+    norm_scan = scan_text.replace("İ", "i").replace("ı", "i").casefold()
+    fac = _facade()
+    fac_globals = getattr(fac, "_globals", None) if fac is not None else None
+    fac_dict = fac_globals if isinstance(fac_globals, dict) else (getattr(fac, "__dict__", {}) if fac is not None else {})
+    mod_globals = globals()
+    custom_skills = (
+        fac_dict["SKILL_HINTS"]
+        if "SKILL_HINTS" in fac_dict
+        else (mod_globals["SKILL_HINTS"] if "SKILL_HINTS" in mod_globals else None)
+    )
+    skill_source = custom_skills if custom_skills is not None else _SKILL_HINTS_RAW
     skill_candidates: List[Tuple[int, int, str, str, str]] = []
-    for table_idx, (skill_name, rel_path, pattern, summary) in enumerate(SKILL_HINTS):
+    for table_idx, (skill_name, rel_path, pat_or_rx, summary) in enumerate(skill_source):
         aliases = _SKILL_SLASH_ALIASES.get(skill_name, (skill_name,))
         explicit_slash = has_explicit_cmd and _has_explicit_slash_command(explicit_surface, aliases)
         explicit_slug = (
@@ -2589,19 +3053,29 @@ def _collect_invocation_skill_hints(
             else _has_explicit_slug_mention(explicit_surface, skill_name)
         )
         is_explicit = explicit_slash or explicit_slug
-        if not is_explicit:
-            if is_readonly_meta_question and skill_name not in _READONLY_HINT_ALLOWLIST_SKILLS:
-                continue
-            if not has_viable_token and "@\\[" not in pattern.pattern:
-                continue
-            if not pattern.search(scan_text):
-                continue
-        if not _optional_plugin_skill_available(rel_path, workspaces):
-            continue
         if skill_name in seen_turns:
             if not is_new_user_turn:
                 continue
             if not explicit_slash and (active_turn - seen_turns[skill_name]) < REHINT_TURN_GAP:
+                continue
+        if not is_explicit:
+            if is_readonly_meta_question and skill_name not in _READONLY_HINT_ALLOWLIST_SKILLS:
+                continue
+            pat_text = pat_or_rx if isinstance(pat_or_rx, str) else pat_or_rx.pattern
+            if not has_viable_token and "@\\[" not in pat_text:
+                continue
+        if not _optional_plugin_skill_available(rel_path, workspaces):
+            continue
+        if rel_path.startswith("skills/"):
+            s_parts = rel_path.split("/")
+            s_pack = _PLUGIN_SKILL_TO_PACK.get(s_parts[1]) if len(s_parts) >= 2 else None
+            if s_pack is not None and not _is_harness_plugin_active(s_pack, cfg, workspaces, _turn_cache=turn_cache):
+                continue
+        if not is_explicit:
+            if isinstance(pat_or_rx, str):
+                if not _match_hint_pattern(pat_or_rx, scan_text, norm_scan):
+                    continue
+            elif not pat_or_rx.search(scan_text):
                 continue
         priority = 2 if explicit_slash else (1 if explicit_slug else 0)
         skill_candidates.append((-priority, table_idx, skill_name, rel_path, summary))
@@ -2610,8 +3084,14 @@ def _collect_invocation_skill_hints(
     selected_skills = _select_tiered_hints(skill_candidates)
     matched = [(s, r, d) for _p, _i, s, r, d in selected_skills]
 
+    custom_routes = (
+        fac_dict["ECOSYSTEM_ROUTING_HINTS"]
+        if "ECOSYSTEM_ROUTING_HINTS" in fac_dict
+        else (mod_globals["ECOSYSTEM_ROUTING_HINTS"] if "ECOSYSTEM_ROUTING_HINTS" in mod_globals else None)
+    )
+    route_source = custom_routes if custom_routes is not None else _ECOSYSTEM_ROUTING_HINTS_RAW
     route_candidates: List[Tuple[int, int, str, str]] = []
-    for table_idx, (route_key, pattern, directive) in enumerate(ECOSYSTEM_ROUTING_HINTS):
+    for table_idx, (route_key, pat_or_rx, directive) in enumerate(route_source):
         route_aliases = _ROUTE_SLASH_ALIASES.get(route_key, ())
         explicit_route_slash = has_explicit_cmd and _has_explicit_slash_command(explicit_surface, route_aliases)
         if (
@@ -2630,22 +3110,66 @@ def _collect_invocation_skill_hints(
             else _has_explicit_route_slug_mention(explicit_surface, route_key)
         )
         is_explicit_route = explicit_route_slash or explicit_route_slug
-        if not is_explicit_route:
-            if is_readonly_meta_question and route_key not in _READONLY_HINT_ALLOWLIST_ROUTES:
-                continue
-            if not has_viable_token and "@\\[" not in pattern.pattern:
-                continue
-            if not pattern.search(scan_text):
-                continue
-        if route_key == "route:mcp:rea_rea" and not _is_rea_mcp_available(workspaces):
-            continue
         if route_key in seen_turns:
             if not is_new_user_turn:
                 continue
             if not explicit_route_slash and (active_turn - seen_turns[route_key]) < REHINT_TURN_GAP:
                 continue
+        if not is_explicit_route:
+            if is_readonly_meta_question and route_key not in _READONLY_HINT_ALLOWLIST_ROUTES:
+                continue
+            pat_text = pat_or_rx if isinstance(pat_or_rx, str) else pat_or_rx.pattern
+            if not has_viable_token and "@\\[" not in pat_text:
+                continue
+        if route_key == "route:mcp:rea_rea" and not _is_rea_mcp_available(workspaces):
+            continue
+        if not is_explicit_route:
+            if isinstance(pat_or_rx, str):
+                if not _match_hint_pattern(pat_or_rx, scan_text, norm_scan):
+                    continue
+            elif not pat_or_rx.search(scan_text):
+                continue
+        effective_directive = directive
+        if route_key == "route:mcp:antislop-contrast":
+            if not _is_harness_plugin_active("antislop", cfg, workspaces, _turn_cache=turn_cache):
+                continue
+            try:
+                p_root = cfg / "plugins"
+                p_dir = p_root / "antislop"
+                p_mcp = p_dir / "mcp_config.json"
+                has_plugin_mcp = (
+                    not p_root.is_symlink()
+                    and not p_dir.is_symlink()
+                    and not p_mcp.is_symlink()
+                    and p_mcp.is_file()
+                )
+            except (OSError, ValueError):
+                has_plugin_mcp = False
+            if not has_plugin_mcp:
+                for ws in workspaces:
+                    try:
+                        ws_a = ws / ".agents"
+                        ws_proot = ws_a / "plugins"
+                        ws_pdir = ws_proot / "antislop"
+                        ws_mcp = ws_pdir / "mcp_config.json"
+                        if (
+                            not ws_a.is_symlink()
+                            and not ws_proot.is_symlink()
+                            and not ws_pdir.is_symlink()
+                            and not ws_mcp.is_symlink()
+                            and ws_mcp.is_file()
+                        ):
+                            has_plugin_mcp = True
+                            break
+                    except (OSError, ValueError):
+                        continue
+            if has_plugin_mcp:
+                effective_directive = (
+                    "MCP Server `antislop_contrast` (`call_mcp_tool` with "
+                    '`ServerName="antislop_contrast"`, `ToolName="check_contrast"`)'
+                )
         priority = 2 if explicit_route_slash else (1 if explicit_route_slug else 0)
-        route_candidates.append((-priority, table_idx, route_key, directive))
+        route_candidates.append((-priority, table_idx, route_key, effective_directive))
     selected_routes = _select_tiered_hints(route_candidates)
     matched_routes = [(rk, d) for _p, _i, rk, d in selected_routes]
     return matched, matched_routes
@@ -2724,6 +3248,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     matched: List[Tuple[str, str, str]] = []
     matched_routes: List[Tuple[str, str]] = []
     ctx_advisory: Optional[Tuple[int, str, str]] = None
+    turn_cache: Dict[str, Any] = {}
     prompt_hash = hashlib.sha256(explicit_text.encode("utf-8")).hexdigest()[:12]
     current_sig = f"{step_idx}:{prompt_hash}"
 
@@ -2833,6 +3358,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 active_turn=active_turn,
                 explicit_text=explicit_text,
                 is_readonly_meta_question=is_question_only,
+                _turn_cache=turn_cache,
             )
             matched, matched_routes, ctx_keys = _collect_context_domain_and_transcript_hints(
                 payload,
@@ -2844,6 +3370,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 is_new_user_turn=is_new_user_turn,
                 active_turn=active_turn,
                 suppress_workspace_domain_hints=is_question_only,
+                _turn_cache=turn_cache,
             )
 
             if (
@@ -2932,6 +3459,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 active_turn=1,
                 explicit_text=explicit_text,
                 is_readonly_meta_question=fb_question_only,
+                _turn_cache=turn_cache,
             )
             matched, matched_routes, _ctx_keys = _collect_context_domain_and_transcript_hints(
                 payload,
@@ -2943,6 +3471,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 is_new_user_turn=not is_short_or_continuation,
                 active_turn=1,
                 suppress_workspace_domain_hints=fb_question_only,
+                _turn_cache=turn_cache,
             )
 
     if not recovery_msgs and not matched and not matched_routes and ctx_advisory is None:
@@ -2951,7 +3480,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     parts: List[str] = list(recovery_msgs)
     if matched:
         items = "; ".join(
-            f"`{name}` ({_resolve_hint_skill_path(rel, workspaces)} — {desc})"
+            f"`{name}` ({_resolve_hint_skill_path(rel, workspaces, _turn_cache=turn_cache)} — {desc})"
             for name, rel, desc in matched
         )
         parts.append(
@@ -2980,3 +3509,27 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
     return {"injectSteps": inject_steps} if inject_steps else {}
+
+
+def __getattr__(name: str) -> Any:
+    if name == "SKILL_HINTS":
+        rx_cache: Dict[str, re.Pattern[str]] = getattr(_match_hint_pattern, "_rx_cache", {})
+        compiled_skills: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = tuple(
+            (s_name, s_rel, rx_cache.setdefault(pat_str, re.compile(pat_str, re.IGNORECASE)), summary)
+            for s_name, s_rel, pat_str, summary in _SKILL_HINTS_RAW
+        )
+        globals()["SKILL_HINTS"] = compiled_skills
+        return compiled_skills
+    if name == "ECOSYSTEM_ROUTING_HINTS":
+        rx_cache = getattr(_match_hint_pattern, "_rx_cache", {})
+        compiled_routes: Tuple[Tuple[str, re.Pattern[str], str], ...] = tuple(
+            (r_key, rx_cache.setdefault(pat_str, re.compile(pat_str, re.IGNORECASE)), directive)
+            for r_key, pat_str, directive in _ECOSYSTEM_ROUTING_HINTS_RAW
+        )
+        globals()["ECOSYSTEM_ROUTING_HINTS"] = compiled_routes
+        return compiled_routes
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> List[str]:
+    return sorted(set(globals()) | {"SKILL_HINTS", "ECOSYSTEM_ROUTING_HINTS"})

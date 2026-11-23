@@ -53,6 +53,7 @@ KNOWN_EXTERNAL_MD = {
 }
 # `.claude` holds local agent worktrees (full repository copies) and is never harness content.
 SKIP_DIRS = {".git", "node_modules", "export", "__pycache__", "dist", "build", ".harness", ".claude"}
+_INSTALLED_RUNTIME_ROOT_DIRS = frozenset({"projects", "sidecars", "cache"})
 # Custom subagents in Antigravity 2.0 are read-only (no shell execution tool in custom agent profiles).
 AGENT_ACCESS_LEVELS = ("read-only",)
 VERIFIED_READONLY_AGENT_TOOLS = frozenset({"read_file", "search_web"})
@@ -255,19 +256,103 @@ class MetaAuditEngine:
         self._heading_cache[resolved] = res
         return res
 
+    def _is_installed_root(self) -> bool:
+        return not (self.repo_root / "porter.py").is_file() and not (self.repo_root / "guard.py").is_file()
+
+    def _is_hybrid_root(self) -> bool:
+        from porter.manifest import is_installed_hybrid_root
+
+        return is_installed_hybrid_root(self.repo_root)
+
+    def _iter_plugin_skill_dirs(self) -> List[Tuple[str, Path, str]]:
+        """Returns sorted `(skill_slug, skill_dir, pack_name)` tuples for installed harness plugin packs."""
+        if not self._is_hybrid_root():
+            return []
+        from guard.plugins import HARNESS_PLUGIN_NAMES
+
+        plugins_dir = self.repo_root / "plugins"
+        if os.path.islink(plugins_dir) or not plugins_dir.is_dir():
+            return []
+        out: List[Tuple[str, Path, str]] = []
+        for pack in sorted(HARNESS_PLUGIN_NAMES):
+            pack_dir = plugins_dir / pack
+            p_skills = pack_dir / "skills"
+            if os.path.islink(pack_dir) or os.path.islink(p_skills) or not p_skills.is_dir():
+                continue
+            for item in sorted(p_skills.iterdir()):
+                if item.is_dir() and not os.path.islink(item) and (item / "SKILL.md").is_file():
+                    out.append((item.name, item, pack))
+        return out
+
+    def _skill_md_path(self, skill_slug: str) -> Optional[Path]:
+        direct = self.repo_root / "skills" / skill_slug / "SKILL.md"
+        if direct.is_file():
+            return direct
+        if self._is_hybrid_root():
+            from guard.plugins import PLUGIN_SKILL_TO_PACK
+
+            pack = PLUGIN_SKILL_TO_PACK.get(skill_slug)
+            if pack:
+                cand = self.repo_root / "plugins" / pack / "skills" / skill_slug / "SKILL.md"
+                if cand.is_file():
+                    return cand
+        return None
+
     @staticmethod
     def _collect_basenames(root: Path) -> Set[str]:
         names: Set[str] = set()
-        for _dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        is_installed = not (root / "porter.py").is_file() and not (root / "guard.py").is_file()
+        harness_packs: Set[str] = set()
+        if is_installed:
+            try:
+                from guard.plugins import HARNESS_PLUGIN_NAMES
+
+                harness_packs = set(HARNESS_PLUGIN_NAMES)
+            except ImportError:
+                pass
+        root_res = root.resolve()
+        plugins_res = (root / "plugins").resolve() if (root / "plugins").exists() else (root_res / "plugins")
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            cur = Path(dirpath)
+            pruned = [d for d in dirnames if d not in SKIP_DIRS]
+            if is_installed:
+                if cur == root:
+                    pruned = [
+                        d for d in pruned
+                        if d not in _INSTALLED_RUNTIME_ROOT_DIRS
+                        and not (d == "plugins" and os.path.islink(cur / d))
+                    ]
+                elif cur == root / "plugins" or cur.resolve() == plugins_res:
+                    pruned = [d for d in pruned if d in harness_packs and not os.path.islink(cur / d)]
+            dirnames[:] = pruned
             names.update(dirnames)
             names.update(filenames)
         return names
 
     def _markdown_files(self) -> List[Path]:
-        files = []
+        files: List[Path] = []
+        is_installed = self._is_installed_root()
+        harness_packs: Set[str] = set()
+        if is_installed:
+            try:
+                from guard.plugins import HARNESS_PLUGIN_NAMES
+
+                harness_packs = set(HARNESS_PLUGIN_NAMES)
+            except ImportError:
+                pass
         for dirpath, dirnames, filenames in os.walk(self.repo_root, followlinks=False):
-            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+            cur = Path(dirpath)
+            pruned = sorted(d for d in dirnames if d not in SKIP_DIRS)
+            if is_installed:
+                if cur == self.repo_root:
+                    pruned = [
+                        d for d in pruned
+                        if d not in _INSTALLED_RUNTIME_ROOT_DIRS
+                        and not (d == "plugins" and os.path.islink(cur / d))
+                    ]
+                elif cur == self.repo_root / "plugins":
+                    pruned = [d for d in pruned if d in harness_packs and not os.path.islink(cur / d)]
+            dirnames[:] = pruned
             files.extend(Path(dirpath) / f for f in sorted(filenames) if f.endswith(".md"))
         return files
 
@@ -328,6 +413,18 @@ class MetaAuditEngine:
                             if rf.is_file() and not SKIP_DIRS.intersection(rf.relative_to(self.repo_root).parts)
                         )
                     )
+        for p_slug, p_dir, _p_pack in self._iter_plugin_skill_dirs():
+            p_skill_md = p_dir / "SKILL.md"
+            entries.append((p_skill_md, p_slug))
+            p_refs_dir = p_dir / "references"
+            if p_refs_dir.is_dir():
+                ref_md_files.extend(
+                    sorted(
+                        rf
+                        for rf in p_refs_dir.rglob("*.md")
+                        if rf.is_file() and not SKIP_DIRS.intersection(rf.relative_to(self.repo_root).parts)
+                    )
+                )
         agents_dir = self.repo_root / "agents"
         if agents_dir.is_dir():
             for p in sorted(agents_dir.iterdir()):
@@ -655,6 +752,13 @@ class MetaAuditEngine:
 
     def pass2_cross_references(self) -> None:
         name = "Pass 2 (Cross-Reference Integrity)"
+        is_hybrid = self._is_hybrid_root()
+        plugin_skill_dirs = self._iter_plugin_skill_dirs()
+        try:
+            from guard.plugins import HARNESS_PLUGIN_NAMES, PLUGIN_OWNED_SKILL_SLUGS
+        except ImportError:
+            HARNESS_PLUGIN_NAMES = frozenset()
+            PLUGIN_OWNED_SKILL_SLUGS = frozenset()
         agents_dir = self.repo_root / "agents"
         available_agents = {f.stem for f in agents_dir.glob("*.md")} if agents_dir.is_dir() else set()
         skills_dir = self.repo_root / "skills"
@@ -663,6 +767,7 @@ class MetaAuditEngine:
             if skills_dir.is_dir()
             else set()
         )
+        available_skills |= {slug for slug, _sdir, _pack in plugin_skill_dirs}
 
         def _extract_subagents(text_without_fences: str) -> Set[str]:
             explicit = set(re.findall(r"`([a-z0-9-]+)`\s+(?:subagent|auditor|agent)", text_without_fences))
@@ -736,6 +841,14 @@ class MetaAuditEngine:
                         if not SKIP_DIRS.intersection(p.relative_to(self.repo_root).parts)
                     )
                 )
+            for _p_slug, p_sdir, _p_pack in plugin_skill_dirs:
+                subagent_scan_files.extend(
+                    sorted(
+                        p
+                        for p in p_sdir.rglob("*.md")
+                        if not SKIP_DIRS.intersection(p.relative_to(self.repo_root).parts)
+                    )
+                )
             if agents_dir.is_dir():
                 subagent_scan_files.extend(sorted(agents_dir.glob("*.md")))
             ws_rules_dir = self.repo_root / ".agents" / "rules"
@@ -754,6 +867,9 @@ class MetaAuditEngine:
 
         top_dirs = {"skills", "agents", "scripts", "guard", "porter", "templates", "installers", "tests", "bin", "references", "assets"}
         config_mapped_heads = {"GEMINI.md", "DESIGN.md", "rules", "skills", "agents", "templates", "scripts", "guard", "porter"}
+        if is_hybrid:
+            top_dirs.add("plugins")
+            config_mapped_heads.add("plugins")
         code_dirs = {"scripts", "guard", "porter", "tests"}
         is_split_layout = not (self.repo_root / "scripts").is_dir() and (
             (self.repo_root / "GEMINI.md").is_file() or (self.repo_root / "rules" / "antigravity-constitution.md").is_file()
@@ -1046,11 +1162,19 @@ class MetaAuditEngine:
                     break
 
         skills_root_p2 = self.repo_root / "skills"
-        if skills_root_p2.is_dir():
+        if skills_root_p2.is_dir() or plugin_skill_dirs:
             fm_total_bytes = 0
-            for sk_md in sorted(skills_root_p2.glob("*/SKILL.md")):
-                if is_split_layout and managed_skills_p2 is not None and sk_md.parent.name not in managed_skills_p2:
-                    continue
+            skill_mds_p2: List[Path] = []
+            if skills_root_p2.is_dir():
+                for sk_md in sorted(skills_root_p2.glob("*/SKILL.md")):
+                    if is_split_layout and managed_skills_p2 is not None and sk_md.parent.name not in managed_skills_p2:
+                        continue
+                    skill_mds_p2.append(sk_md)
+            for _p_slug, p_sdir, _p_pack in plugin_skill_dirs:
+                p_sk_md = p_sdir / "SKILL.md"
+                if p_sk_md.is_file():
+                    skill_mds_p2.append(p_sk_md)
+            for sk_md in skill_mds_p2:
                 sk_text = self._read_text(sk_md)
                 try:
                     sk_bytes = sk_md.stat().st_size
@@ -1079,7 +1203,32 @@ class MetaAuditEngine:
         basenames = self._collect_basenames(self.repo_root)
         for rt in runtime_roots:
             basenames |= self._collect_basenames(rt)
+
+        def _is_dead_hybrid_skill_rel(rel_p: str) -> bool:
+            if not is_hybrid or not rel_p.startswith("skills/"):
+                return False
+            s_parts = rel_p.split("/")
+            return len(s_parts) >= 2 and s_parts[1] in PLUGIN_OWNED_SKILL_SLUGS
+
+        def _is_unmanaged_plugin_rel(rel_p: str) -> bool:
+            if not rel_p.startswith("plugins/"):
+                return False
+            p_parts = rel_p.split("/")
+            return len(p_parts) >= 2 and p_parts[1] not in HARNESS_PLUGIN_NAMES
+
+        dead_hybrid_skill_re = (
+            re.compile(
+                r"(?:~/|\$HOME/)\.gemini/config/skills/("
+                + "|".join(re.escape(s) for s in sorted(PLUGIN_OWNED_SKILL_SLUGS))
+                + r")(?:/[A-Za-z0-9_./-]*|\b)"
+            )
+            if (is_hybrid and PLUGIN_OWNED_SKILL_SLUGS)
+            else None
+        )
+
         def _config_path_candidates(rel_cfg: str) -> List[Path]:
+            if _is_dead_hybrid_skill_rel(rel_cfg):
+                return [self.repo_root / rel_cfg]
             cands = [self.repo_root / rel_cfg] + [rt / rel_cfg for rt in runtime_roots]
             if rel_cfg == "rules/antigravity-constitution.md":
                 cands.append(self.repo_root / "GEMINI.md")
@@ -1102,6 +1251,15 @@ class MetaAuditEngine:
                             f"Stale 1.x XDG path `{m_stale.group(0)}` referenced (v2.0 uses `antigravity-harness`)",
                             "Update XDG path from `antigravity-guard` to `antigravity-harness`.",
                         )
+                    if dead_hybrid_skill_re is not None and not target.startswith("plugins/"):
+                        for m_dead in dead_hybrid_skill_re.finditer(line):
+                            self._add(
+                                "CRITICAL",
+                                name,
+                                f"{target}:{lineno}",
+                                f"Dead flat plugin-owned skill path `{m_dead.group(0).rstrip('.,:;)`')}` in installed hybrid core file",
+                                "Rewrite via rewrite_core_for_hybrid() to `~/.gemini/config/plugins/<pack>/skills/<slug>/...` or re-run `install.py --plugins`.",
+                            )
                     for m_rt in re.finditer(r"~/\.local/share/antigravity-harness/runtime/([A-Za-z0-9_./-]+)", line):
                         rel_rt = m_rt.group(1).rstrip(".,:;)`'\"")
                         if rel_rt and "." in rel_rt.rsplit("/", 1)[-1]:
@@ -1117,6 +1275,10 @@ class MetaAuditEngine:
                     for m_cfg in re.finditer(r"~/\.gemini/config/([A-Za-z0-9_./-]+)", line):
                         rel_cfg_line = m_cfg.group(1).rstrip(".,:;)`'\"")
                         cfg_head_line = rel_cfg_line.split("/", 1)[0]
+                        if _is_dead_hybrid_skill_rel(rel_cfg_line) and not target.startswith("plugins/"):
+                            continue
+                        if _is_unmanaged_plugin_rel(rel_cfg_line):
+                            continue
                         if rel_cfg_line and cfg_head_line in config_mapped_heads and "." in rel_cfg_line.rsplit("/", 1)[-1]:
                             if not any(c.exists() for c in _config_path_candidates(rel_cfg_line)):
                                 self._add(
@@ -1215,9 +1377,12 @@ class MetaAuditEngine:
                         cand_docs: List[Path] = []
                         ref_label = ref_md or ref_skill or ""
                         if ref_md:
-                            cand_docs = [self.repo_root / ref_md, md.parent / ref_md] + [rt / ref_md for rt in runtime_roots]
+                            cand_docs = [self.repo_root / ref_md, md.parent / ref_md]
+                            if not _is_dead_hybrid_skill_rel(ref_md):
+                                cand_docs.extend(rt / ref_md for rt in runtime_roots)
                         elif ref_skill and ref_skill in available_skills:
-                            cand_docs = [self.repo_root / "skills" / ref_skill / "SKILL.md"]
+                            sk_doc = self._skill_md_path(ref_skill)
+                            cand_docs = [sk_doc] if sk_doc is not None else [self.repo_root / "skills" / ref_skill / "SKILL.md"]
                         else:
                             continue
                         target_doc = next((c for c in cand_docs if c.is_file()), None)
@@ -1259,6 +1424,10 @@ class MetaAuditEngine:
                 if clean.startswith("~/.gemini/config/") and not any(c in clean for c in "<>*{}$"):
                     rel_cfg = clean[len("~/.gemini/config/"):].rstrip("/")
                     cfg_head = rel_cfg.split("/", 1)[0]
+                    if _is_dead_hybrid_skill_rel(rel_cfg) and not target.startswith("plugins/"):
+                        continue
+                    if _is_unmanaged_plugin_rel(rel_cfg):
+                        continue
                     if rel_cfg and cfg_head in config_mapped_heads and "." in rel_cfg.rsplit("/", 1)[-1]:
                         if not any(c.exists() for c in _config_path_candidates(rel_cfg)):
                             self._add("WARNING", name, target,
@@ -1269,8 +1438,15 @@ class MetaAuditEngine:
                     continue
                 head = clean.split("/", 1)[0]
                 if "/" in clean and head in top_dirs and "." in clean.rsplit("/", 1)[-1]:
+                    if head == "plugins" and _is_unmanaged_plugin_rel(clean):
+                        continue
                     parts = md.relative_to(self.repo_root).parts
-                    skill_root = self.repo_root / parts[0] / parts[1] if len(parts) > 2 and parts[0] == "skills" else md.parent
+                    if len(parts) > 4 and parts[0] == "plugins" and parts[2] == "skills":
+                        skill_root = self.repo_root / parts[0] / parts[1] / parts[2] / parts[3]
+                    elif len(parts) > 2 and parts[0] == "skills":
+                        skill_root = self.repo_root / parts[0] / parts[1]
+                    else:
+                        skill_root = md.parent
                     candidates = [self.repo_root / clean, md.parent / clean, skill_root / clean]
                     if is_split_layout and head in code_dirs:
                         candidates.extend(rt / clean for rt in runtime_roots)
@@ -1315,6 +1491,10 @@ class MetaAuditEngine:
                 if is_split_layout and managed_skills is not None and rel_parts and rel_parts[0] not in managed_skills:
                     continue
                 scan_files.append(md)
+        for _slug, p_skill_dir, _pack_name in self._iter_plugin_skill_dirs():
+            for md in sorted(p_skill_dir.rglob("*.md")):
+                if md.is_file() and not os.path.islink(md) and not SKIP_DIRS.intersection(md.relative_to(self.repo_root).parts):
+                    scan_files.append(md)
         agents_dir = self.repo_root / "agents"
         if agents_dir.is_dir():
             for md in sorted(agents_dir.glob("*.md")):
@@ -1376,23 +1556,42 @@ class MetaAuditEngine:
         for skill_md in sorted((self.repo_root / "skills").glob("*/SKILL.md")):
             text = self._read_text(skill_md)
             declared |= self._frontmatter_slash_commands(text)
+        for _p_slug, p_sdir, _p_pack in self._iter_plugin_skill_dirs():
+            p_md = p_sdir / "SKILL.md"
+            if p_md.is_file():
+                declared |= self._frontmatter_slash_commands(self._read_text(p_md))
         return declared
 
     def _check_slash_commands(self, name: str) -> None:
         """Instructions must not point the agent or the user at slash commands no skill provides in frontmatter."""
         declared = self._declared_slash_commands()
+        plugin_skill_dirs = self._iter_plugin_skill_dirs()
+        try:
+            from guard.plugins import HARNESS_PLUGIN_NAMES
+        except ImportError:
+            HARNESS_PLUGIN_NAMES = frozenset()
         sources = (
             [self.repo_root / "GEMINI.md", self.repo_root / "rules" / "antigravity-constitution.md"]
             + sorted((self.repo_root / ".agents" / "rules").glob("*.md"))
             + sorted((self.repo_root / "agents").glob("*.md"))
             + sorted((self.repo_root / "templates").glob("*.md"))
             + sorted((self.repo_root / "skills").rglob("*.md"))
+            + sorted(p for _slug, sdir, _pack in plugin_skill_dirs for p in sdir.rglob("*.md"))
         )
         for md in sources:
             if not md.is_file() or SKIP_DIRS.intersection(md.relative_to(self.repo_root).parts):
                 continue
             text = self._read_text(md)
-            is_skill_root = md.name == "SKILL.md" and md.parent.parent == (self.repo_root / "skills")
+            rel_parts_sc = md.relative_to(self.repo_root).parts
+            is_skill_root = md.name == "SKILL.md" and (
+                (len(rel_parts_sc) == 3 and rel_parts_sc[0] == "skills")
+                or (
+                    len(rel_parts_sc) == 5
+                    and rel_parts_sc[0] == "plugins"
+                    and rel_parts_sc[1] in HARNESS_PLUGIN_NAMES
+                    and rel_parts_sc[2] == "skills"
+                )
+            )
             own_fm_cmds = self._frontmatter_slash_commands(text) if is_skill_root else set()
             in_fence = False
             in_section = False
@@ -1431,8 +1630,13 @@ class MetaAuditEngine:
         name = "Pass 3 (Directive Collision & Mutex)"
         skills_dir = self.repo_root / "skills"
         for skill in MODE_SKILLS:
-            f = skills_dir / skill / "SKILL.md"
-            rel_f = f"skills/{skill}/SKILL.md"
+            resolved_skill = self._skill_md_path(skill)
+            if resolved_skill is not None:
+                f = resolved_skill
+                rel_f = self._rel(f)
+            else:
+                f = skills_dir / skill / "SKILL.md"
+                rel_f = f"skills/{skill}/SKILL.md"
             if not f.is_file() and skill in self._CONSOLIDATED_MODE_SKILL_PATHS:
                 rel_f = self._CONSOLIDATED_MODE_SKILL_PATHS[skill]
                 f = self.repo_root / rel_f
@@ -1507,40 +1711,87 @@ class MetaAuditEngine:
             return
 
         engine = ManifestEngine(harness_root=self.repo_root)
-        manifest = engine.build_manifest(deterministic=True)
-        if not manifest.constitution.get("raw"):
-            self._add("CRITICAL", name, "porter/manifest.py", "Manifest failed to ingest GEMINI.md.", "Ensure GEMINI.md exists.")
-
+        is_hybrid = self._is_hybrid_root()
         committed = self.repo_root / ".harness" / "manifest.json"
-        if committed.is_file():
-            is_split, m_skills, m_agents, m_templates = self._split_layout_managed_sets(committed)
-            check_manifest = manifest
-            if is_split and m_skills is not None and m_agents is not None and m_templates is not None:
-                import copy
+        if is_hybrid:
+            from guard.plugins import PLUGIN_CATALOG, validate_plugin_dir
 
-                check_manifest = copy.copy(manifest)
-                check_manifest.skills = [s for s in manifest.skills if s.get("name") in m_skills]
-                check_manifest.agents = [a for a in manifest.agents if a.get("name") in m_agents]
-                check_manifest.templates = {k: v for k, v in manifest.templates.items() if k in m_templates}
-            if not engine.is_up_to_date(committed, manifest=check_manifest):
-                sys_share = Path(os.environ.get("ANTIGRAVITY_SHARE_DIR", "/usr/share/antigravity-harness"))
-                if not (self.repo_root / "install.py").is_file() and (
-                    "share/antigravity-harness" in self.repo_root.as_posix()
-                    or sys_share.is_dir()
-                    or not (REPO_ROOT / "install.py").is_file()
-                ):
-                    fix_msg = "Run 'agy-guard init' to refresh installed governance assets from /usr/share/antigravity-harness."
-                elif is_split:
-                    fix_msg = "Re-run 'python3 install.py' from the source checkout to refresh installed governance assets."
-                else:
-                    fix_msg = "Run 'python3 porter.py manifest' and commit the result."
+            for pack_name in sorted(PLUGIN_CATALOG):
+                pack_dir = self.repo_root / "plugins" / pack_name
+                val = validate_plugin_dir(pack_dir, expected_pack=pack_name)
+                if not val.ok:
+                    for err_msg in list(val.errors) + list(val.warnings):
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            f"plugins/{pack_name}",
+                            f"Hybrid plugin pack '{pack_name}' failed validation: {err_msg}",
+                            "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' to rebuild the pack.",
+                        )
+            if not committed.is_file():
                 self._add(
                     "CRITICAL",
                     name,
                     ".harness/manifest.json",
-                    "Committed manifest is stale (content differs from a fresh build).",
-                    fix_msg,
+                    "Installed hybrid profile is missing canonical .harness/manifest.json.",
+                    "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' to restore it.",
                 )
+                return
+            if not engine.is_up_to_date(committed, validate_packs=False):
+                self._add(
+                    "CRITICAL",
+                    name,
+                    ".harness/manifest.json",
+                    "Installed hybrid profile core files or plugin packs diverge from canonical .harness/manifest.json.",
+                    "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' to refresh installed assets.",
+                )
+            try:
+                manifest = engine.load_manifest(committed)
+            except (OSError, ValueError, TypeError) as exc:
+                self._add(
+                    "CRITICAL",
+                    name,
+                    ".harness/manifest.json",
+                    f"Canonical .harness/manifest.json could not be loaded: {exc}",
+                    "Re-run 'python3 install.py --plugins' to restore a valid canonical manifest.",
+                )
+                return
+            if not manifest.constitution.get("raw"):
+                self._add("CRITICAL", name, ".harness/manifest.json", "Canonical manifest is missing constitution raw text.", "Regenerate .harness/manifest.json from the source checkout.")
+        else:
+            manifest = engine.build_manifest(deterministic=True)
+            if not manifest.constitution.get("raw"):
+                self._add("CRITICAL", name, "porter/manifest.py", "Manifest failed to ingest GEMINI.md.", "Ensure GEMINI.md exists.")
+
+            if committed.is_file():
+                is_split, m_skills, m_agents, m_templates = self._split_layout_managed_sets(committed)
+                check_manifest = manifest
+                if is_split and m_skills is not None and m_agents is not None and m_templates is not None:
+                    import copy
+
+                    check_manifest = copy.copy(manifest)
+                    check_manifest.skills = [s for s in manifest.skills if s.get("name") in m_skills]
+                    check_manifest.agents = [a for a in manifest.agents if a.get("name") in m_agents]
+                    check_manifest.templates = {k: v for k, v in manifest.templates.items() if k in m_templates}
+                if not engine.is_up_to_date(committed, manifest=check_manifest):
+                    sys_share = Path(os.environ.get("ANTIGRAVITY_SHARE_DIR", "/usr/share/antigravity-harness"))
+                    if not (self.repo_root / "install.py").is_file() and (
+                        "share/antigravity-harness" in self.repo_root.as_posix()
+                        or sys_share.is_dir()
+                        or not (REPO_ROOT / "install.py").is_file()
+                    ):
+                        fix_msg = "Run 'agy-guard init' to refresh installed governance assets from /usr/share/antigravity-harness."
+                    elif is_split:
+                        fix_msg = "Re-run 'python3 install.py' from the source checkout to refresh installed governance assets."
+                    else:
+                        fix_msg = "Run 'python3 porter.py manifest' and commit the result."
+                    self._add(
+                        "CRITICAL",
+                        name,
+                        ".harness/manifest.json",
+                        "Committed manifest is stale (content differs from a fresh build).",
+                        fix_msg,
+                    )
 
         readonly_agents: Set[str] = set()
         for agent in manifest.agents:
@@ -1649,6 +1900,15 @@ class MetaAuditEngine:
             for t_name, t_raw in sorted((getattr(manifest, "templates", {}) or {}).items())
             if str(t_name).lower().endswith(".md") and isinstance(t_raw, str)
         ]
+        if is_hybrid:
+            from guard.plugins import PLUGIN_CATALOG
+
+            for pack_name in sorted(PLUGIN_CATALOG):
+                pdir = self.repo_root / "plugins" / pack_name
+                if pdir.is_dir() and not os.path.islink(pdir):
+                    for pmd in sorted(pdir.rglob("*.md")):
+                        if pmd.is_file() and not os.path.islink(pmd):
+                            sources.append((self._rel(pmd), self._read_text(pmd)))
         for rel, text in sources:
             hits = find_directives(text)
             if hits:
@@ -1816,6 +2076,128 @@ class MetaAuditEngine:
                     "Ensure `upstream_state.seed.json` is valid JSON and `guard/upstream.py` imports cleanly.",
                 )
 
+        if (self.repo_root / "guard" / "plugins.py").is_file():
+            try:
+                from guard.plugins import (
+                    HARNESS_PLUGIN_NAMES,
+                    PLUGIN_ASSET_FILENAMES,
+                    PLUGIN_CATALOG,
+                    PLUGIN_SKILL_TO_PACK,
+                    validate_svg_logo,
+                )
+
+                seen_cat_skills: Set[str] = set()
+                for pack_name, spec in sorted(PLUGIN_CATALOG.items()):
+                    if spec.name != pack_name:
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            "guard/plugins.py",
+                            f"PLUGIN_CATALOG key '{pack_name}' mismatches PluginSpec.name '{spec.name}'",
+                            "Align PLUGIN_CATALOG key and PluginSpec.name.",
+                        )
+                    for slug in spec.skills:
+                        if slug in seen_cat_skills:
+                            self._add(
+                                "CRITICAL",
+                                name,
+                                "guard/plugins.py",
+                                f"Skill '{slug}' is assigned to multiple packs in PLUGIN_CATALOG",
+                                "Assign each plugin-owned skill to exactly one pack.",
+                            )
+                        seen_cat_skills.add(slug)
+                        if not (self.repo_root / "skills" / slug / "SKILL.md").is_file():
+                            self._add(
+                                "CRITICAL",
+                                name,
+                                "guard/plugins.py",
+                                f"PLUGIN_CATALOG pack '{pack_name}' references missing skill 'skills/{slug}/SKILL.md'",
+                                f"Restore 'skills/{slug}/SKILL.md' or update PLUGIN_CATALOG.",
+                            )
+                    for src_rel, _dst_rel in spec.extra_files:
+                        if not (self.repo_root / src_rel).is_file():
+                            self._add(
+                                "CRITICAL",
+                                name,
+                                "guard/plugins.py",
+                                f"PLUGIN_CATALOG pack '{pack_name}' references missing extra file '{src_rel}'",
+                                f"Restore '{src_rel}' or update PLUGIN_CATALOG.",
+                            )
+                    if spec.mcp_script_rel and not (self.repo_root / spec.mcp_script_rel).is_file():
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            "guard/plugins.py",
+                            f"PLUGIN_CATALOG pack '{pack_name}' references missing MCP script '{spec.mcp_script_rel}'",
+                            f"Restore '{spec.mcp_script_rel}' or update PLUGIN_CATALOG.",
+                        )
+
+                assets_dir = self.repo_root / "guard" / "plugin_assets"
+                expected_svgs = set(PLUGIN_ASSET_FILENAMES)
+                actual_svgs = (
+                    {p.name for p in assets_dir.iterdir() if p.is_file() and p.suffix.lower() == ".svg"}
+                    if assets_dir.is_dir()
+                    else set()
+                )
+                for missing_svg in sorted(expected_svgs - actual_svgs):
+                    self._add(
+                        "CRITICAL",
+                        name,
+                        f"guard/plugin_assets/{missing_svg}",
+                        f"Plugin SVG logo '{missing_svg}' declared in PLUGIN_CATALOG is missing",
+                        f"Create compliant 128x128 SVG logo at guard/plugin_assets/{missing_svg}.",
+                    )
+                for orphan_svg in sorted(actual_svgs - expected_svgs):
+                    self._add(
+                        "WARNING",
+                        name,
+                        f"guard/plugin_assets/{orphan_svg}",
+                        f"Uncatalogued SVG logo '{orphan_svg}' in guard/plugin_assets/ not referenced by PLUGIN_CATALOG",
+                        "Register it in PLUGIN_CATALOG or remove the orphaned SVG asset.",
+                    )
+                for svg_name in sorted(actual_svgs & expected_svgs):
+                    for svg_err in validate_svg_logo(assets_dir / svg_name):
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            f"guard/plugin_assets/{svg_name}",
+                            f"Plugin SVG logo failed validation: {svg_err}",
+                            f"Fix SVG compliance in guard/plugin_assets/{svg_name}.",
+                        )
+
+                if (self.repo_root / "installers" / "build_binaries.py").is_file():
+                    from installers.build_binaries import PORTABLE_PLUGIN_ASSETS
+
+                    exp_portable = {f"guard/plugin_assets/{fn}" for fn in PLUGIN_ASSET_FILENAMES}
+                    if set(PORTABLE_PLUGIN_ASSETS) != exp_portable:
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            "installers/build_binaries.py",
+                            f"PORTABLE_PLUGIN_ASSETS diverges from PLUGIN_ASSET_FILENAMES ({sorted(PORTABLE_PLUGIN_ASSETS)} != {sorted(exp_portable)})",
+                            "Synchronize PORTABLE_PLUGIN_ASSETS with PLUGIN_ASSET_FILENAMES in guard/plugins.py.",
+                        )
+
+                if (self.repo_root / "guard" / "hooks" / "common.py").is_file():
+                    from guard.hooks.common import _HARNESS_PLUGIN_NAMES, _PLUGIN_SKILL_TO_PACK
+
+                    if _HARNESS_PLUGIN_NAMES != HARNESS_PLUGIN_NAMES or _PLUGIN_SKILL_TO_PACK != PLUGIN_SKILL_TO_PACK:
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            "guard/hooks/common.py",
+                            "Hot-path plugin constants in guard/hooks/common.py diverge from guard/plugins.py PLUGIN_CATALOG",
+                            "Synchronize _HARNESS_PLUGIN_NAMES and _PLUGIN_SKILL_TO_PACK with guard/plugins.py.",
+                        )
+            except Exception as exc:
+                self._add(
+                    "CRITICAL",
+                    name,
+                    "guard/plugins.py",
+                    f"PLUGIN_CATALOG & SVG logo parity check failed ({type(exc).__name__}): {exc}",
+                    "Ensure guard/plugins.py and guard/plugin_assets/*.svg are valid.",
+                )
+
     def _count_tests(self) -> int:
         tests = self.repo_root / "tests"
         if not tests.is_dir():
@@ -1909,6 +2291,17 @@ class MetaAuditEngine:
                                 managed_agents.add(Path(parts[1]).stem)
                             elif len(parts) >= 2 and parts[0] == "templates":
                                 managed_templates.add(parts[1])
+                        rec_plugins = rdata.get("installed_plugins")
+                        if isinstance(rec_plugins, list):
+                            try:
+                                from guard.plugins import PLUGIN_CATALOG
+
+                                for pack_name in rec_plugins:
+                                    spec = PLUGIN_CATALOG.get(str(pack_name))
+                                    if spec is not None:
+                                        managed_skills.update(spec.skills)
+                            except ImportError:
+                                pass
         except Exception:
             pass
         if not has_anchor:
@@ -1996,8 +2389,14 @@ class MetaAuditEngine:
     def pass7_trigger_specificity(self) -> None:
         name = "Pass 7 (Trigger Specificity)"
         skills_dir = self.repo_root / "skills"
-        if not skills_dir.is_dir():
+        is_hybrid = self._is_hybrid_root()
+        plugin_skill_dirs = self._iter_plugin_skill_dirs()
+        if not skills_dir.is_dir() and not plugin_skill_dirs:
             return
+        try:
+            from guard.plugins import PLUGIN_SKILL_TO_PACK
+        except ImportError:
+            PLUGIN_SKILL_TO_PACK = {}
         is_split, managed_skills, _, _ = self._split_layout_managed_sets()
         hooks_py = self._resolve_hooks_py_for_audit(allow_split_fallback=bool(is_split and managed_skills is not None))
         hint_map: Dict[str, object] = {}
@@ -2027,18 +2426,19 @@ class MetaAuditEngine:
                         check_hint_file = (not is_split) or (
                             managed_skills is not None and s_parent in managed_skills
                         )
-                        if (
-                            check_hint_file
-                            and str(s_rel).startswith("skills/")
-                            and not (self.repo_root / s_rel).is_file()
-                        ):
-                            self._add(
-                                "WARNING",
-                                name,
-                                "guard/agy_hooks.py",
-                                f"SKILL_HINTS entry `{s_name}` points to missing file `{s_rel}`",
-                                f"Restore `{s_rel}` or update SKILL_HINTS in guard/agy_hooks.py.",
-                            )
+                        if check_hint_file and str(s_rel).startswith("skills/"):
+                            if is_hybrid and s_parent in PLUGIN_SKILL_TO_PACK:
+                                expected_hint_file = self.repo_root / "plugins" / PLUGIN_SKILL_TO_PACK[s_parent] / s_rel
+                            else:
+                                expected_hint_file = self.repo_root / s_rel
+                            if not expected_hint_file.is_file():
+                                self._add(
+                                    "WARNING",
+                                    name,
+                                    "guard/agy_hooks.py",
+                                    f"SKILL_HINTS entry `{s_name}` points to missing file `{s_rel}`",
+                                    f"Restore `{s_rel}` or update SKILL_HINTS in guard/agy_hooks.py.",
+                                )
                     raw_eco_hints = (
                         mod.ECOSYSTEM_ROUTING_HINTS
                         if (has_lazy_facade or "ECOSYSTEM_ROUTING_HINTS" in mod.__dict__)
@@ -2175,7 +2575,11 @@ class MetaAuditEngine:
         pos_clause_split = re.compile(
             r"(?i)\b(?:not\s+for\b|do\s+not\s+(?:use|co-load|invoke)\b|don't\s+use\s+(?:for|on|to|when)\b|skip\s+[^.;]{1,60}\bfor\b|never\s+(?:use|invoke)\s+to\b)"
         )
-        for d in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
+        all_skill_dirs: List[Tuple[str, Path]] = []
+        if skills_dir.is_dir():
+            all_skill_dirs.extend((p.name, p) for p in sorted(p for p in skills_dir.iterdir() if p.is_dir()))
+        all_skill_dirs.extend((slug, sdir) for slug, sdir, _pack in plugin_skill_dirs)
+        for skill_slug, d in all_skill_dirs:
             skill_file = d / "SKILL.md"
             if not skill_file.is_file():
                 continue
@@ -2190,25 +2594,25 @@ class MetaAuditEngine:
                     "WARNING",
                     name,
                     self._rel(skill_file),
-                    f"Skill '{d.name}' frontmatter description lacks an explicit negative trigger boundary ('Not for ...' / 'DO NOT ...' / 'Skip ...' / 'EXCLUSIVELY when ...')",
+                    f"Skill '{skill_slug}' frontmatter description lacks an explicit negative trigger boundary ('Not for ...' / 'DO NOT ...' / 'Skip ...' / 'EXCLUSIVELY when ...')",
                     "Add a 'Not for ... (use <adjacent-skill>)' or 'DO NOT co-load/use when ...' clause to the YAML frontmatter description.",
                 )
             if hint_map:
-                if is_split and managed_skills is not None and d.name not in managed_skills:
+                if is_split and managed_skills is not None and skill_slug not in managed_skills:
                     continue
-                if d.name not in hint_map:
+                if skill_slug not in hint_map:
                     self._add(
                         "WARNING",
                         name,
                         self._rel(skill_file),
-                        f"Skill '{d.name}' is missing from SKILL_HINTS auto-routing table in guard/agy_hooks.py",
-                        f"Register '{d.name}' in SKILL_HINTS inside guard/agy_hooks.py.",
+                        f"Skill '{skill_slug}' is missing from SKILL_HINTS auto-routing table in guard/agy_hooks.py",
+                        f"Register '{skill_slug}' in SKILL_HINTS inside guard/agy_hooks.py.",
                     )
                 else:
                     candidate_rxs = [
                         cand_rx
                         for cand_name, (cand_rel, cand_rx) in hint_map.items()  # type: ignore[misc]
-                        if cand_name == d.name or str(cand_rel).startswith(f"skills/{d.name}/")
+                        if cand_name == skill_slug or str(cand_rel).startswith(f"skills/{skill_slug}/")
                     ]
                     pos_desc = pos_clause_split.split(desc, maxsplit=1)[0]
                     for slash_cmd in sorted(set(re.findall(r"(?<![\w/.])(/[a-z][a-z0-9-]*)", pos_desc))):
@@ -2217,8 +2621,8 @@ class MetaAuditEngine:
                                 "WARNING",
                                 name,
                                 self._rel(skill_file),
-                                f"Positive frontmatter slash trigger `{slash_cmd}` in '{d.name}' is not matched by SKILL_HINTS in guard/agy_hooks.py",
-                                f"Add `{slash_cmd}` to the `{d.name}` trigger regex in guard/agy_hooks.py.",
+                                f"Positive frontmatter slash trigger `{slash_cmd}` in '{skill_slug}' is not matched by SKILL_HINTS in guard/agy_hooks.py",
+                                f"Add `{slash_cmd}` to the `{skill_slug}` trigger regex in guard/agy_hooks.py.",
                             )
                         path_probe = f"src{slash_cmd}/worker.py"
                         if any(cand_rx.search(path_probe) for cand_rx in candidate_rxs):  # type: ignore[union-attr]
@@ -2226,7 +2630,7 @@ class MetaAuditEngine:
                                 "WARNING",
                                 name,
                                 self._rel(skill_file),
-                                f"Slash trigger `{slash_cmd}` in '{d.name}' lacks a left-side token boundary and false-triggers on file path `{path_probe}`",
+                                f"Slash trigger `{slash_cmd}` in '{skill_slug}' lacks a left-side token boundary and false-triggers on file path `{path_probe}`",
                                 "Guard slash commands in SKILL_HINTS with `(?:^|(?<=[\\s(\\[\\\"'«“]))` and right-side delimiter boundaries.",
                             )
 

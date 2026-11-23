@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from guard.audit_log import audit
 from guard.os_adapter import OSProtectionAdapter
@@ -29,6 +31,14 @@ from guard.paths import (
     path_key,
     read_json_strict,
     state_dir,
+)
+from guard.plugins import (
+    HARNESS_PLUGIN_NAMES,
+    PLUGIN_CATALOG,
+    PLUGIN_HOMEPAGE,
+    PLUGIN_REPOSITORY,
+    resolve_local_python_command,
+    rewrite_core_for_hybrid,
 )
 
 VALID_POLICIES = ("enforced", "monitored", "disabled")
@@ -254,13 +264,262 @@ class AgentEnvironment:
         return cls(**payload)
 
 
+def is_harness_plugin_dir(path: Path, expected_pack: Optional[str] = None) -> bool:
+    """True when `path` is a real directory holding a canonical Antigravity Harness plugin manifest."""
+    if os.path.islink(path) or not path.is_dir():
+        return False
+    manifest = path / "plugin.json"
+    if os.path.islink(manifest) or not manifest.is_file():
+        return False
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    name = data.get("name")
+    if not isinstance(name, str) or name not in HARNESS_PLUGIN_NAMES:
+        return False
+    if expected_pack is not None and name != expected_pack:
+        return False
+    repo = data.get("repository")
+    if isinstance(repo, str):
+        repo_url = repo
+    elif isinstance(repo, dict):
+        repo_url = repo.get("url") if isinstance(repo.get("url"), str) else ""
+    else:
+        repo_url = ""
+    homepage = data.get("homepage") or ""
+    return repo_url == PLUGIN_REPOSITORY or homepage == PLUGIN_HOMEPAGE
+
+
+def read_install_receipt(
+    receipt_path: Optional[Path] = None,
+    *,
+    target_dir: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Reads `install_receipt.json` safely, optionally checking that its `target` matches `target_dir`."""
+    rpath = Path(receipt_path) if receipt_path is not None else (state_dir() / "install_receipt.json")
+    if os.path.islink(rpath) or not rpath.is_file():
+        return None
+    try:
+        data = json.loads(rpath.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"[WARN] Could not parse install receipt {rpath} ({exc}).", file=sys.stderr)
+        return None
+    if not isinstance(data, dict):
+        print(f"[WARN] Install receipt {rpath} is not a JSON object.", file=sys.stderr)
+        return None
+    if target_dir is not None:
+        rec_target = data.get("target")
+        if not isinstance(rec_target, str) or not rec_target.strip():
+            return None
+        try:
+            if Path(rec_target).expanduser().resolve() != Path(target_dir).expanduser().resolve():
+                return None
+        except OSError:
+            return None
+    return data
+
+
+def antigravity_plugin_governance_seams(
+    root: Path,
+    *,
+    receipt_path: Optional[Path] = None,
+    include_receipt: bool = True,
+) -> List[str]:
+    """
+    Returns sorted `plugins/<pack>` governance seams for `HARNESS_PLUGIN_NAMES` packs
+    that exist under `root/plugins/` (without following a symlinked `plugins/` root)
+    or are recorded in `install_receipt.json["installed_plugins"]` for `root`.
+    """
+    resolved_root = Path(root).expanduser()
+    plugins_dir = resolved_root / "plugins"
+    active: set[str] = set()
+    if not os.path.islink(plugins_dir):
+        for pack in HARNESS_PLUGIN_NAMES:
+            if os.path.lexists(plugins_dir / pack):
+                active.add(pack)
+    if include_receipt:
+        receipt = read_install_receipt(receipt_path=receipt_path, target_dir=resolved_root)
+        if receipt is not None:
+            rec_plugins = receipt.get("installed_plugins")
+            if isinstance(rec_plugins, list):
+                for item in rec_plugins:
+                    if isinstance(item, str) and item in HARNESS_PLUGIN_NAMES:
+                        active.add(item)
+    return [f"plugins/{pack}" for pack in sorted(active)]
+
+
+def sync_antigravity_plugin_seams(
+    env: AgentEnvironment,
+    *,
+    receipt_path: Optional[Path] = None,
+    include_receipt: bool = True,
+) -> List[str]:
+    """Synchronizes managed `plugins/<pack>` seams on `env.governance_paths`, pruning removed packs."""
+    active_seams = antigravity_plugin_governance_seams(
+        env.get_root(),
+        receipt_path=receipt_path,
+        include_receipt=include_receipt,
+    )
+    active_set = set(active_seams)
+    managed_seams = {f"plugins/{pack}" for pack in HARNESS_PLUGIN_NAMES}
+    env.governance_paths = [
+        s for s in env.governance_paths if s not in managed_seams or s in active_set
+    ]
+    for seam in active_seams:
+        if seam not in env.governance_paths:
+            env.governance_paths.append(seam)
+    return active_seams
+
+
+@dataclass
+class StateFileSnapshot:
+    """Point-in-time byte snapshot of a state file for transactional installer/init rollback."""
+
+    path: Path
+    existed: bool
+    is_link: bool = False
+    link_target: Optional[str] = None
+    raw_bytes: Optional[bytes] = None
+    mode: Optional[int] = None
+    captured: bool = True
+
+
+def snapshot_state_files(paths: Iterable[Path]) -> List[StateFileSnapshot]:
+    """Captures exact state (existence, bytes, symlink, POSIX mode) of files before mutation."""
+    snaps: List[StateFileSnapshot] = []
+    seen: set[str] = set()
+    for raw_p in paths:
+        p = Path(os.path.abspath(raw_p))
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not os.path.lexists(p):
+            snaps.append(StateFileSnapshot(path=p, existed=False))
+        elif os.path.islink(p):
+            try:
+                snaps.append(StateFileSnapshot(path=p, existed=True, is_link=True, link_target=os.readlink(p)))
+            except OSError as exc:
+                print(f"[WARN] Could not snapshot symlink state file {p} ({exc}); rollback will preserve it.", file=sys.stderr)
+                snaps.append(StateFileSnapshot(path=p, existed=True, is_link=True, captured=False))
+        elif p.is_file():
+            try:
+                st_mode = os.lstat(p).st_mode & 0o7777
+                snaps.append(StateFileSnapshot(path=p, existed=True, raw_bytes=p.read_bytes(), mode=st_mode))
+            except OSError as exc:
+                print(f"[WARN] Could not snapshot state file {p} ({exc}); rollback will preserve it.", file=sys.stderr)
+                snaps.append(StateFileSnapshot(path=p, existed=True, captured=False))
+    return snaps
+
+
+def restore_state_files(
+    snapshots: Iterable[StateFileSnapshot],
+    os_adapter: Optional[OSProtectionAdapter] = None,
+) -> None:
+    """Restores snapshotted state files atomically, removing files that did not exist before."""
+    for snap in snapshots:
+        p = snap.path
+        if not snap.captured:
+            print(f"[WARN] Skipping rollback restore for uncaptured pre-existing state file {p}.", file=sys.stderr)
+            continue
+        try:
+            if os_adapter is not None and os.path.lexists(p) and not os.path.islink(p):
+                os_adapter.unlock(p, recursive=False)
+            if not snap.existed:
+                if os.path.lexists(p):
+                    if not os.path.islink(p) and os.name != "nt":
+                        try:
+                            os.chmod(p, 0o600)
+                        except OSError:
+                            pass
+                    p.unlink(missing_ok=True)
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if snap.is_link and snap.link_target is not None:
+                if os.path.lexists(p):
+                    p.unlink(missing_ok=True)
+                os.symlink(snap.link_target, p)
+                continue
+            if snap.raw_bytes is not None:
+                if os.path.lexists(p) and not os.path.islink(p) and os.name != "nt":
+                    try:
+                        os.chmod(p, 0o600)
+                    except OSError:
+                        pass
+                fd, tmp_name = tempfile.mkstemp(prefix=f".{p.name}.rb.", dir=str(p.parent))
+                try:
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(snap.raw_bytes)
+                    if os.name != "nt" and snap.mode is not None:
+                        os.chmod(tmp_name, snap.mode)
+                    os.replace(tmp_name, p)
+                except Exception:
+                    try:
+                        os.unlink(tmp_name)
+                    except OSError:
+                        pass
+                    raise
+        except OSError as exc:
+            print(f"[WARN] Rollback failed restoring state file {p}: {exc}", file=sys.stderr)
+
+
+def stage_hybrid_skill_tree(
+    src_skill: Path,
+    skill_name: str,
+    dest_stage: Path,
+    ignore_fn: Callable[[str, List[str]], List[str]],
+) -> bool:
+    """
+    Stages a core skill directory applying `rewrite_core_for_hybrid()` to `.md` files.
+    Returns True if at least one file was modified by `rewrite_core_for_hybrid()`.
+    """
+    changed_any = False
+    dest_stage.mkdir(parents=True, exist_ok=True)
+    for cur_root, dirs, files in os.walk(src_skill, followlinks=False):
+        ignored_dirs = set(ignore_fn(cur_root, dirs))
+        dirs[:] = sorted(d for d in dirs if d not in ignored_dirs)
+        ignored_files = set(ignore_fn(cur_root, files))
+        kept_files = sorted(f for f in files if f not in ignored_files)
+        cur_path = Path(cur_root)
+        rel_dir = cur_path.relative_to(src_skill)
+        out_dir = dest_stage if str(rel_dir) == "." else (dest_stage / rel_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for fname in kept_files:
+            src_file = cur_path / fname
+            dst_file = out_dir / fname
+            rel_inside = src_file.relative_to(src_skill).as_posix()
+            repo_rel = f"skills/{skill_name}/{rel_inside}"
+            if src_file.suffix.lower() == ".md" and not os.path.islink(src_file):
+                raw_text = src_file.read_text(encoding="utf-8")
+                rewritten = rewrite_core_for_hybrid(raw_text, repo_rel)
+                if rewritten != raw_text:
+                    changed_any = True
+                    dst_file.write_bytes(rewritten.replace("\r\n", "\n").encode("utf-8"))
+                    if os.name != "nt":
+                        try:
+                            os.chmod(dst_file, os.lstat(src_file).st_mode & 0o777)
+                        except OSError:
+                            pass
+                    continue
+            shutil.copy2(src_file, dst_file)
+    return changed_any
+
+
 def default_antigravity_environment(root: Optional[Path] = None) -> AgentEnvironment:
+    resolved_root = Path(root) if root is not None else config_dir()
+    seams = list(ANTIGRAVITY_GOVERNANCE_SEAMS)
+    for plugin_seam in antigravity_plugin_governance_seams(resolved_root):
+        if plugin_seam not in seams:
+            seams.append(plugin_seam)
     return AgentEnvironment(
         id="antigravity",
         name="Antigravity Global Config",
         platform_type="antigravity",
-        root_path=str((root or config_dir())),
-        governance_paths=list(ANTIGRAVITY_GOVERNANCE_SEAMS),
+        root_path=str(resolved_root),
+        governance_paths=seams,
         policy="enforced",
         is_global=True,
         enabled=True,
@@ -355,6 +614,7 @@ class EnvironmentRegistry:
             for seam in ANTIGRAVITY_GOVERNANCE_SEAMS:
                 if seam not in existing.governance_paths:
                     existing.governance_paths.append(seam)
+            sync_antigravity_plugin_seams(existing)
 
     @staticmethod
     def _migrate_broad_seams(env: AgentEnvironment) -> None:
@@ -719,23 +979,58 @@ def migrate_harness_mcp_config(
     python_executable: Optional[str] = None,
     backup_fn: Optional[Callable[[Path], Any]] = None,
     log_fn: Optional[Callable[[str], None]] = None,
+    retire_plugin_mcp: Optional[Any] = None,
+    retired_out: Optional[List[str]] = None,
+    restore_flat_keys: Optional[Iterable[str]] = None,
+    restored_out: Optional[List[str]] = None,
 ) -> bool:
-    """Repoints harness-owned MCP skill scripts (including ADR-0009 relocations) and pins bare python."""
+    """
+    Repoints harness-owned MCP skill scripts (including ADR-0009 relocations), pins bare python,
+    retires plugin-provided harness MCP entries in hybrid mode, and restores them in flat mode.
+    Always returns a strict bool indicating whether `mcp_config.json` changed (or would change).
+    """
     _emit = log_fn or (lambda _msg: None)
+    retire_packs: set[str] = set()
+    if retire_plugin_mcp is True:
+        retire_packs = set(HARNESS_PLUGIN_NAMES)
+    elif retire_plugin_mcp:
+        retire_packs = {str(p) for p in retire_plugin_mcp if str(p) in HARNESS_PLUGIN_NAMES}
+
+    restore_keys: List[str] = []
+    if restore_flat_keys is not None:
+        seen_rk: set[str] = set()
+        for raw_k in restore_flat_keys:
+            if isinstance(raw_k, str) and raw_k.strip() and raw_k not in seen_rk:
+                restore_keys.append(raw_k)
+                seen_rk.add(raw_k)
+
+    if retire_packs and restore_keys:
+        raise ValueError("Cannot pass both retire_plugin_mcp and restore_flat_keys")
+
+    retire_rel_scripts: set[str] = set()
+    for pack_name in retire_packs:
+        spec = PLUGIN_CATALOG.get(pack_name)
+        if spec is not None and spec.mcp_script_rel:
+            retire_rel_scripts.add(spec.mcp_script_rel)
+
     mcp = target_dir / "mcp_config.json"
     if os.path.islink(mcp):
         _emit(f"[WARN] {mcp} is a symbolic link; skipping MCP path migration.")
         return False
-    if not mcp.is_file():
-        return False
-    try:
-        data = json.loads(mcp.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        _emit(f"[WARN] Could not parse {mcp}: {exc}; skipping MCP path migration.")
-        return False
-    if not isinstance(data, dict):
-        _emit(f"[WARN] {mcp} root is not a JSON object; skipping MCP path migration.")
-        return False
+    mcp_existed = mcp.is_file()
+    if not mcp_existed:
+        if not restore_keys:
+            return False
+        data: Dict[str, Any] = {"mcpServers": {}}
+    else:
+        try:
+            data = json.loads(mcp.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            _emit(f"[WARN] Could not parse {mcp}: {exc}; skipping MCP path migration.")
+            return False
+        if not isinstance(data, dict):
+            _emit(f"[WARN] {mcp} root is not a JSON object; skipping MCP path migration.")
+            return False
     mcp_servers = data.get("mcpServers")
     if mcp_servers is not None and not isinstance(mcp_servers, dict):
         _emit(f"[WARN] {mcp} 'mcpServers' is not a JSON object; skipping MCP path migration.")
@@ -766,19 +1061,25 @@ def migrate_harness_mcp_config(
     bare_python_names = {"python", "python3", "python.exe", "python3.exe"}
     if getattr(sys, "frozen", False) and (python_executable is None or python_executable == sys.executable):
         pin_exec = ""
+        restore_exec = resolve_local_python_command(None)
     else:
         pin_exec = python_executable if python_executable is not None else sys.executable
+        restore_exec = resolve_local_python_command(pin_exec)
 
     changed = False
     repointed = False
     pinned = False
-    for server in (mcp_servers or {}).values():
+    retired_keys: List[str] = []
+    restored_keys: List[str] = []
+
+    for server_key, server in list((mcp_servers or {}).items()):
         if not isinstance(server, dict):
             continue
         args = server.get("args") or []
         if not isinstance(args, list):
             continue
         is_harness_server = False
+        should_retire = False
         for i, arg in enumerate(args):
             if not isinstance(arg, str) or not arg.strip() or "\x00" in arg:
                 continue
@@ -822,8 +1123,31 @@ def migrate_harness_mcp_config(
                 ) or (
                     prefix_res is not None and target_dir_res is not None and prefix_res == target_dir_res
                 )
+                is_target_plugin_tree = False
+                if (
+                    retire_packs
+                    and skills_idx >= 2
+                    and parts[skills_idx - 2] == "plugins"
+                    and parts[skills_idx - 1] in retire_packs
+                ):
+                    pack_dir = target_dir / "plugins" / parts[skills_idx - 1]
+                    try:
+                        pack_dir_res: Optional[Path] = pack_dir.resolve()
+                    except (OSError, RuntimeError, ValueError):
+                        pack_dir_res = None
+                    is_target_plugin_tree = (
+                        (arg_path is not None and _is_within_lexically(arg_path, pack_dir))
+                        or (prefix_res is not None and pack_dir_res is not None and prefix_res == pack_dir_res)
+                    )
                 raw_rel_posix = "/".join(parts[skills_idx:])
                 mapped_rel_posix = RELOCATED_SKILL_SCRIPTS.get(raw_rel_posix, raw_rel_posix)
+                if (
+                    retire_rel_scripts
+                    and mapped_rel_posix in retire_rel_scripts
+                    and (is_repo_tree or is_target_tree or is_target_plugin_tree)
+                ):
+                    should_retire = True
+                    break
                 mapped_rel = Path(*mapped_rel_posix.split("/"))
                 if is_repo_tree or (is_target_tree and mapped_rel_posix != raw_rel_posix):
                     candidate = target_dir / mapped_rel
@@ -858,6 +1182,14 @@ def migrate_harness_mcp_config(
                 if is_target_tree:
                     is_harness_server = True
                     break
+            if should_retire:
+                break
+
+        if should_retire:
+            retired_keys.append(server_key)
+            if retired_out is not None and server_key not in retired_out:
+                retired_out.append(server_key)
+            continue
 
         if is_harness_server:
             cmd = server.get("command")
@@ -871,8 +1203,66 @@ def migrate_harness_mcp_config(
                 changed = True
                 pinned = True
 
+    if retired_keys and isinstance(mcp_servers, dict):
+        for rkey in retired_keys:
+            mcp_servers.pop(rkey, None)
+        changed = True
+
+    if restore_keys:
+        antislop_spec = PLUGIN_CATALOG.get("antislop")
+        flat_rel_posix = antislop_spec.mcp_script_rel if (antislop_spec and antislop_spec.mcp_script_rel) else "skills/antislop/scripts/contrast-mcp.py"
+        flat_rel = Path(*flat_rel_posix.split("/"))
+        flat_candidate = target_dir / flat_rel
+        src_flat = source_dir / flat_rel
+        source_skills_res = (source_dir_res / "skills") if source_dir_res is not None else None
+        flat_skill_dir = target_skills_dir / flat_rel.parts[1] if len(flat_rel.parts) >= 2 else None
+        try:
+            flat_res = flat_candidate.resolve()
+            is_verified_repo_link = (
+                flat_skill_dir is not None
+                and os.path.islink(flat_skill_dir)
+                and source_skills_res is not None
+                and is_within(flat_res, source_skills_res)
+            )
+            flat_within = (
+                not os.path.islink(target_skills_dir)
+                and _is_within_lexically(flat_candidate, target_skills_dir)
+                and not os.path.islink(flat_candidate)
+                and (
+                    (target_skills_res is not None and is_within(flat_res, target_skills_res))
+                    or is_verified_repo_link
+                    or dry_run
+                )
+            )
+            flat_ready = flat_within and (
+                (not os.path.islink(flat_candidate) and flat_candidate.is_file())
+                or (dry_run and not os.path.islink(src_flat) and src_flat.is_file())
+            )
+        except (OSError, RuntimeError, ValueError):
+            flat_ready = False
+        if not flat_ready:
+            _emit(f"[WARN] Flat MCP script target {flat_candidate} not found; skipping retired MCP restore.")
+        else:
+            if mcp_servers is None:
+                mcp_servers = {}
+                data["mcpServers"] = mcp_servers
+            for rkey in restore_keys:
+                if rkey not in mcp_servers:
+                    mcp_servers[rkey] = {
+                        "command": restore_exec,
+                        "args": [str(flat_candidate)],
+                    }
+                    restored_keys.append(rkey)
+                    changed = True
+                if restored_out is not None and rkey not in restored_out:
+                    restored_out.append(rkey)
+
     if changed:
         actions: List[str] = []
+        if retired_keys:
+            actions.append(f"retire plugin-provided MCP: {', '.join(retired_keys)}")
+        if restored_keys:
+            actions.append(f"restore flat MCP: {', '.join(restored_keys)}")
         if repointed:
             actions.append("repoint skill scripts")
         if pinned:
@@ -881,10 +1271,10 @@ def migrate_harness_mcp_config(
         if dry_run:
             _emit(f"[DRY-RUN] Would update {mcp} ({summary})")
         else:
-            if backup_fn is not None:
+            if mcp_existed and backup_fn is not None:
                 backup_fn(mcp)
             atomic_write_json(mcp, data, mode=0o600)
-            if repointed:
+            if repointed and not retired_keys and not restored_keys:
                 _emit("[CONFIGURED] mcp_config.json now points to the protected skill copies")
             else:
                 _emit(f"[CONFIGURED] Updated {mcp} ({summary})")

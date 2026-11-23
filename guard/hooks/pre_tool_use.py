@@ -17,6 +17,7 @@ from guard.paths import HOOK_LOCK_TIMEOUT, is_within, read_json
 from .common import (
     _CONV_ID_FALLBACK_RE,
     _FENCE_RE,
+    _HARNESS_PLUGIN_NAMES,
     _HEX_OID_RE,
     _INLINE_TAG_CODE_RE,
     _PASTED_RE,
@@ -693,19 +694,36 @@ _PLUGIN_EXEC_SUFFIXES = (
 )
 
 def _is_plugin_governance_path(candidate: Path, plugin_root: Path) -> bool:
+    glob_meta_chars = "*?[{}$`!@+("
     rel_part_sets: List[Tuple[str, ...]] = []
     try:
         rel_part_sets.append(candidate.relative_to(plugin_root).parts)
     except ValueError:
-        pass
+        try:
+            rel_part_sets.append(
+                Path(os.path.abspath(candidate)).relative_to(Path(os.path.abspath(plugin_root))).parts
+            )
+        except ValueError:
+            pass
     try:
         rel_part_sets.append(candidate.resolve().relative_to(plugin_root.resolve()).parts)
     except (OSError, RuntimeError, ValueError):
         pass
+    if not rel_part_sets:
+        return True
     for rel_parts in rel_part_sets:
+        if len(rel_parts) == 0:
+            return True
+        if any(part in (".", "..") for part in rel_parts):
+            return True
+        first_seg = rel_parts[0]
+        if any(ch in glob_meta_chars for ch in first_seg):
+            return True
+        if first_seg.rstrip(". ").lower() in _HARNESS_PLUGIN_NAMES:
+            return True
         if any(part.lower() in _PLUGIN_GOVERNANCE_SEGMENTS for part in rel_parts):
             return True
-        if rel_parts and rel_parts[-1].lower().endswith(_PLUGIN_EXEC_SUFFIXES):
+        if rel_parts[-1].lower().endswith(_PLUGIN_EXEC_SUFFIXES):
             return True
     return False
 
@@ -1022,6 +1040,7 @@ _HARNESS_SOURCE_FILES = frozenset({
     "guard.py",
     "porter.py",
     "install.py",
+    "scripts/build_plugins.py",
     "scripts/meta_audit.py",
     "scripts/verify_invariants.py",
 })
@@ -1075,7 +1094,7 @@ _CUST_CMD_UNIVERSAL_TARGET_PAT = (
     r"GEMINI\.md\b|AGENTS\.md\b|CLAUDE\.md\b|hooks\.json\b|"
     r"mcp_config\.json\b|skills\.json\b|plugins\.json\b|\.cursorrules\b|"
     r"SKILL\.md\b|[A-Za-z0-9_.-]+\.mdc\b|"
-    r"guard\.py\b|porter\.py\b|install\.py\b|scripts/meta_audit\.py\b|scripts/verify_invariants\.py\b)"
+    r"guard\.py\b|porter\.py\b|install\.py\b|scripts/build_plugins\.py\b|scripts/meta_audit\.py\b|scripts/verify_invariants\.py\b)"
 )
 
 _CUST_CMD_HARNESS_DIRS_PAT = r"(?:^|[\s'\"=/])(?:skills|agents|guard|porter|templates)(?:/|\b)"
@@ -1088,7 +1107,7 @@ _CUST_CMD_TARGET_PAT = (
     r"GEMINI\.md\b|AGENTS\.md\b|CLAUDE\.md\b|DESIGN\.md\b|hooks\.json\b|"
     r"mcp_config\.json\b|skills\.json\b|plugins\.json\b|\.cursorrules\b|"
     r"SKILL\.md\b|[A-Za-z0-9_.-]+\.mdc\b|"
-    r"guard\.py\b|porter\.py\b|install\.py\b|scripts/meta_audit\.py\b|scripts/verify_invariants\.py\b)"
+    r"guard\.py\b|porter\.py\b|install\.py\b|scripts/build_plugins\.py\b|scripts/meta_audit\.py\b|scripts/verify_invariants\.py\b)"
 )
 
 _READONLY_SUBAGENT_TYPES = frozenset({

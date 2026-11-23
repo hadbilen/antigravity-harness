@@ -102,6 +102,13 @@ class LinuxPackager:
         for folder in ("templates", "skills", "agents"):
             if not (self.repo_root / folder).is_dir():
                 raise FileNotFoundError(f"Mandatory governance directory missing: {self.repo_root / folder}")
+        if (self.repo_root / "guard" / "plugins.py").is_file():
+            from guard.plugins import PLUGIN_ASSET_FILENAMES
+
+            for asset_name in PLUGIN_ASSET_FILENAMES:
+                asset_path = self.repo_root / "guard" / "plugin_assets" / asset_name
+                if not asset_path.is_file():
+                    raise FileNotFoundError(f"Mandatory plugin SVG asset missing: {asset_path}")
 
     def _prepare_payload(self, staging_dir: Path) -> None:
         """Populates staging directory with standard Linux FHS hierarchy."""

@@ -27,6 +27,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -47,15 +48,32 @@ from guard.environment import (  # noqa: E402
     CONSOLIDATED_SKILL_SLUGS,
     CONSTITUTION_RULE_FRONTMATTER,
     CONSTITUTION_RULE_REL,
+    AgentEnvironment,
     EnvironmentRegistry,
     RegistryError,
+    StateFileSnapshot,
     is_harness_constitution_file,
+    is_harness_plugin_dir,
     migrate_harness_mcp_config,
+    read_install_receipt,
     render_constitution_rule,
+    restore_state_files,
+    snapshot_state_files,
+    stage_hybrid_skill_tree,
+    sync_antigravity_plugin_seams,
 )
 from guard.integrity import FileIntegrityMonitor  # noqa: E402
 from guard.lease import LeaseManager  # noqa: E402
 from guard.paths import atomic_write_json, atomic_write_text, copy_entry, data_dir, state_dir  # noqa: E402
+from guard.plugins import (  # noqa: E402
+    HARNESS_PLUGIN_NAMES,
+    PLUGIN_ASSET_FILENAMES,
+    PLUGIN_CATALOG,
+    PLUGIN_OWNED_SKILL_SLUGS,
+    _plugin_assets_dir,
+    build_plugin_pack,
+    rewrite_core_for_hybrid,
+)
 from guard.startup import StartupManager  # noqa: E402
 
 IS_WINDOWS = platform.system().lower() == "windows"
@@ -192,22 +210,59 @@ def _ignore(src: str, names: List[str]) -> List[str]:
 
 
 class Installer:
-    def __init__(self, target_dir: Path, mode: str, dry_run: bool = False, expected_sha256: str = ""):
+    def __init__(
+        self,
+        target_dir: Path,
+        mode: str,
+        dry_run: bool = False,
+        expected_sha256: str = "",
+        layout: str = "flat",
+        explicit_flat: bool = False,
+    ):
+        if layout not in ("flat", "hybrid"):
+            raise ValueError(f"Unsupported install layout: {layout!r}")
         self.target_dir = target_dir
         self.mode = mode  # "copy" | "link"
+        self.layout = layout  # "flat" | "hybrid"
+        self.explicit_flat = explicit_flat
         self.dry_run = dry_run
         self.expected_sha256 = (expected_sha256 or "").strip()
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.backup_dir = state_dir() / "backups" / f"install_{stamp}"
         self.installed: List[str] = []
+        self.installed_plugins: List[str] = []
+        self.retired_mcp_servers: List[str] = []
+        self._prior_installed_plugins: List[str] = []
+        self._prior_retired_mcp_servers: List[str] = []
         self._backed_up: List[tuple[Path, Path]] = []
         self._placed_new: List[Path] = []
+        self._created_dirs_for_cleanup: List[Path] = []
+        self._state_snapshots: List[StateFileSnapshot] = []
+        self._rollback_registry: Optional[EnvironmentRegistry] = None
         self._runtime_rotation: Optional[tuple[Path, Path]] = None
         self._binary_dest: Optional[Path] = None
+        self._hybrid_link_notice_emitted = False
 
     # ------------------------------------------------------------------
     def log(self, msg: str) -> None:
         print(msg)
+
+    def capture_rollback_state(
+        self,
+        registry: Optional[EnvironmentRegistry],
+        env: Optional[AgentEnvironment],
+    ) -> None:
+        """Snapshots state files (registry, receipt, FIM baseline/pending) for transactional rollback."""
+        if self.dry_run:
+            return
+        paths: List[Path] = [state_dir() / "install_receipt.json"]
+        if registry is not None:
+            paths.append(registry.config_path)
+            if env is not None:
+                monitor = FileIntegrityMonitor.for_environment(env, os_adapter=registry.os_adapter)
+                paths.extend([monitor.state_file, monitor.pending_file])
+        self._state_snapshots = snapshot_state_files(paths)
+        self._rollback_registry = registry
 
     def _ensure_private_backup_dir(self, parent: Path) -> None:
         parent.mkdir(parents=True, exist_ok=True)
@@ -229,6 +284,19 @@ class Installer:
         if self.dry_run:
             return True
         self._ensure_private_backup_dir(target.parent)
+        if not os.path.islink(dest):
+            if self._rollback_registry is not None:
+                try:
+                    self._rollback_registry.os_adapter.unlock(dest, recursive=dest.is_dir())
+                except OSError:
+                    pass
+            if dest.is_dir():
+                self._release_legacy_tree(dest)
+            elif dest.is_file():
+                try:
+                    os.chmod(dest, (os.lstat(dest).st_mode & 0o7777) | 0o200)
+                except OSError:
+                    pass
         shutil.move(str(dest), str(target))
         if not IS_WINDOWS and target.is_file() and not os.path.islink(target) and dest.name in ("mcp_config.json", "config.json"):
             try:
@@ -239,41 +307,61 @@ class Installer:
         return True
 
     def rollback(self) -> None:
-        """Restores backed-up entries and removes newly created entries on a failed install."""
+        """Restores backed-up entries, newly created entries, runtime, and state snapshots on a failed install."""
         if self.dry_run:
             return
+        adapter = self._rollback_registry.os_adapter if self._rollback_registry is not None else None
         for created in reversed(self._placed_new):
             try:
+                if adapter is not None and os.path.lexists(created) and not os.path.islink(created):
+                    adapter.unlock(created, recursive=created.is_dir())
                 if os.path.islink(created) or created.is_file():
                     created.unlink(missing_ok=True)
                 elif created.is_dir():
                     self._release_legacy_tree(created)
-                    shutil.rmtree(created, ignore_errors=True)
-            except OSError:
-                pass
+                    shutil.rmtree(created)
+            except OSError as exc:
+                print(f"[WARN] Rollback failed removing created entry {created}: {exc}", file=sys.stderr)
         for orig_dest, backup_src in reversed(self._backed_up):
             try:
                 if os.path.lexists(orig_dest):
+                    if adapter is not None and not os.path.islink(orig_dest):
+                        adapter.unlock(orig_dest, recursive=orig_dest.is_dir())
                     if os.path.islink(orig_dest) or orig_dest.is_file():
                         orig_dest.unlink(missing_ok=True)
                     elif orig_dest.is_dir():
                         self._release_legacy_tree(orig_dest)
-                        shutil.rmtree(orig_dest, ignore_errors=True)
+                        shutil.rmtree(orig_dest)
                 if os.path.lexists(backup_src):
                     orig_dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(backup_src), str(orig_dest))
-            except OSError:
-                pass
+            except OSError as exc:
+                print(f"[WARN] Rollback failed restoring {orig_dest} from {backup_src}: {exc}", file=sys.stderr)
+        for created_dir in reversed(self._created_dirs_for_cleanup):
+            try:
+                if created_dir.is_dir() and not os.path.islink(created_dir) and not any(created_dir.iterdir()):
+                    created_dir.rmdir()
+            except OSError as exc:
+                print(f"[WARN] Rollback failed removing directory {created_dir}: {exc}", file=sys.stderr)
         if self._runtime_rotation is not None:
             runtime_path, prev_path = self._runtime_rotation
             try:
                 if os.path.lexists(prev_path):
                     if runtime_path.exists():
+                        if adapter is not None and not os.path.islink(runtime_path):
+                            adapter.unlock(runtime_path, recursive=True)
                         self._release_legacy_tree(runtime_path)
-                        shutil.rmtree(runtime_path, ignore_errors=True)
+                        shutil.rmtree(runtime_path)
                     os.replace(prev_path, runtime_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                print(f"[WARN] Rollback failed restoring runtime {runtime_path}: {exc}", file=sys.stderr)
+        if self._state_snapshots:
+            restore_state_files(self._state_snapshots, os_adapter=adapter)
+        if self._rollback_registry is not None:
+            try:
+                self._rollback_registry.load()
+            except Exception as exc:
+                print(f"[WARN] Rollback failed reloading registry: {exc}", file=sys.stderr)
 
     def place(self, src: Path, dest: Path) -> None:
         """Copies (or links) src to dest after backing up whatever was there."""
@@ -342,25 +430,135 @@ class Installer:
             self._placed_new.append(dest)
 
     # ------------------------------------------------------------------
+    def _place_core_file(self, src: Path, dest: Path, rel_path: str) -> None:
+        """Places a core file, applying `rewrite_core_for_hybrid()` when installing in hybrid layout."""
+        if self.layout == "hybrid" and src.suffix.lower() == ".md":
+            raw_text = src.read_text(encoding="utf-8")
+            rewritten = rewrite_core_for_hybrid(raw_text, rel_path)
+            if rewritten != raw_text:
+                if self.mode == "link" and not self._hybrid_link_notice_emitted:
+                    self.log("[NOTICE] Hybrid-rewritten core files and plugin packs are installed as real copies even in --link mode.")
+                    self._hybrid_link_notice_emitted = True
+                self.place_text(rewritten, dest, rel_path)
+                return
+        self.place(src, dest)
+
+    def _place_core_skill(self, src: Path, dest: Path, skill_name: str) -> None:
+        """Places a core skill directory, rewriting plugin-skill paths atomically in hybrid layout."""
+        if self.layout != "hybrid":
+            self.place(src, dest)
+            return
+        with tempfile.TemporaryDirectory(prefix=f"agy-core-{skill_name}-") as tmp_stage:
+            staged_dir = Path(tmp_stage) / skill_name
+            changed_by_rewrite = stage_hybrid_skill_tree(src, skill_name, staged_dir, _ignore)
+            if self.dry_run:
+                if changed_by_rewrite:
+                    self.log(f"[DRY-RUN] copy (hybrid-rewritten) {src} -> {dest}")
+                else:
+                    self.place(src, dest)
+                return
+            if self.mode == "link" and not changed_by_rewrite:
+                self.place(src, dest)
+                return
+            if self.mode == "link" and changed_by_rewrite and not self._hybrid_link_notice_emitted:
+                self.log("[NOTICE] Hybrid-rewritten core files and plugin packs are installed as real copies even in --link mode.")
+                self._hybrid_link_notice_emitted = True
+            if os.path.lexists(dest) and not os.path.islink(dest) and dest.is_dir() and _trees_identical(staged_dir, dest):
+                self.installed.append(str(dest))
+                return
+            had_existing = self.backup(dest)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            copy_entry(staged_dir, dest, _ignore)
+            self.log(f"[COPIED] {dest.relative_to(self.target_dir) if dest.is_relative_to(self.target_dir) else dest}")
+            self.installed.append(str(dest))
+            if not had_existing:
+                self._placed_new.append(dest)
+
+    def install_plugins(self) -> None:
+        """Atomically builds and copies the 4 canonical Plugin Packs into `plugins/<pack>/` (copy-only)."""
+        target_plugins = self.target_dir / "plugins"
+        if os.path.islink(target_plugins) or (os.path.lexists(target_plugins) and not target_plugins.is_dir()):
+            raise ValueError(
+                f"Refusing to install plugin packs: {target_plugins} is a symbolic link or not a directory."
+            )
+        if self.mode == "link" and not self._hybrid_link_notice_emitted:
+            self.log("[NOTICE] Plugin packs under plugins/ are installed as real copies (not symlinks) even in --link mode.")
+            self._hybrid_link_notice_emitted = True
+        if self.dry_run:
+            assets_dir = _plugin_assets_dir(SCRIPT_DIR)
+            for asset_name in PLUGIN_ASSET_FILENAMES:
+                asset_path = assets_dir / asset_name
+                if os.path.islink(asset_path) or not asset_path.is_file():
+                    raise ValueError(f"Plugin SVG logo asset missing or symlink: {asset_path}")
+            for pack_name in sorted(PLUGIN_CATALOG):
+                dest = target_plugins / pack_name
+                if os.path.lexists(dest) and (os.path.islink(dest) or not dest.is_dir()):
+                    self.backup(dest)
+                self.log(f"[DRY-RUN] install plugin pack {pack_name} -> {dest}")
+            return
+
+        plugins_existed = target_plugins.exists()
+        target_plugins.mkdir(parents=True, exist_ok=True)
+        if not plugins_existed:
+            self._created_dirs_for_cleanup.append(target_plugins)
+
+        for pack_name in sorted(PLUGIN_CATALOG):
+            dest = target_plugins / pack_name
+            stage_parent = Path(tempfile.mkdtemp(prefix=f".{pack_name}-inst-", dir=str(target_plugins)))
+            try:
+                staged = build_plugin_pack(
+                    pack_name,
+                    SCRIPT_DIR,
+                    stage_parent / pack_name,
+                    portable_mcp=False,
+                )
+                if (
+                    os.path.lexists(dest)
+                    and not os.path.islink(dest)
+                    and dest.is_dir()
+                    and _trees_identical(staged, dest)
+                ):
+                    if not IS_WINDOWS:
+                        ensure_skill_script_permissions(dest / "skills")
+                    self.installed.append(str(dest))
+                    self.installed_plugins.append(pack_name)
+                    continue
+                had_existing = self.backup(dest)
+                os.replace(staged, dest)
+                if not IS_WINDOWS:
+                    ensure_skill_script_permissions(dest / "skills")
+                self.log(f"[PLUGIN] {pack_name} -> {dest.relative_to(self.target_dir)}")
+                self.installed.append(str(dest))
+                self.installed_plugins.append(pack_name)
+                if not had_existing:
+                    self._placed_new.append(dest)
+            finally:
+                shutil.rmtree(stage_parent, ignore_errors=True)
+
     def install_governance(self) -> None:
         prior_installed: set[str] = set()
+        self._prior_installed_plugins = []
+        self._prior_retired_mcp_servers = []
         receipt_path = state_dir() / "install_receipt.json"
-        if os.path.lexists(receipt_path):
-            try:
-                rec = json.loads(receipt_path.read_text(encoding="utf-8"))
-                if isinstance(rec, dict) and isinstance(rec.get("installed"), list):
-                    rec_target = rec.get("target")
-                    if not rec_target or Path(str(rec_target)).resolve() == self.target_dir.resolve():
-                        prior_installed = {str(p).replace("\\", "/") for p in rec["installed"]}
-                else:
-                    self.log(f"[WARN] {receipt_path} has no valid 'installed' list; preserving unrecorded custom entries.")
-            except (OSError, ValueError) as e:
-                self.log(f"[WARN] Could not parse {receipt_path} ({e}); preserving unrecorded custom entries.")
+        rec = read_install_receipt(receipt_path=receipt_path, target_dir=self.target_dir)
+        if rec is not None:
+            if isinstance(rec.get("installed"), list):
+                prior_installed = {str(p).replace("\\", "/") for p in rec["installed"]}
+                if isinstance(rec.get("installed_plugins"), list):
+                    self._prior_installed_plugins = [
+                        str(p) for p in rec["installed_plugins"] if isinstance(p, str) and p in HARNESS_PLUGIN_NAMES
+                    ]
+                if isinstance(rec.get("retired_mcp_servers"), list):
+                    self._prior_retired_mcp_servers = [
+                        str(k) for k in rec["retired_mcp_servers"] if isinstance(k, str) and k.strip()
+                    ]
+            else:
+                self.log(f"[WARN] {receipt_path} has no valid 'installed' list; preserving unrecorded custom entries.")
 
         for name in GOVERNANCE_FILES:
             src = SCRIPT_DIR / name
             if src.is_file():
-                self.place(src, self.target_dir / name)
+                self._place_core_file(src, self.target_dir / name, name)
 
         # Install the global constitution under rules/ (loaded once across Antigravity App, CLI, and IDE/Extensions).
         gemini_src = SCRIPT_DIR / "GEMINI.md"
@@ -369,8 +567,11 @@ class Installer:
             if os.path.lexists(target_rules) and (os.path.islink(target_rules) or not target_rules.is_dir()):
                 self.backup(target_rules)
             rule_dest = self.target_dir / CONSTITUTION_RULE_REL
+            rule_text = render_constitution_rule(gemini_src, mode=self.mode)
+            if self.layout == "hybrid" and self.mode != "link":
+                rule_text = rewrite_core_for_hybrid(rule_text, "GEMINI.md")
             self.place_text(
-                render_constitution_rule(gemini_src, mode=self.mode),
+                rule_text,
                 rule_dest,
                 CONSTITUTION_RULE_REL,
             )
@@ -396,7 +597,11 @@ class Installer:
             target_harness = self.target_dir / ".harness"
             if os.path.lexists(target_harness) and (os.path.islink(target_harness) or not target_harness.is_dir()):
                 self.backup(target_harness)
-            self.place(manifest, target_harness / "manifest.json")
+            manifest_dest = target_harness / "manifest.json"
+            if self.layout == "hybrid" and self.mode == "link":
+                self.place_text(manifest.read_text(encoding="utf-8"), manifest_dest, ".harness/manifest.json")
+            else:
+                self.place(manifest, manifest_dest)
         for sub in ("agents",):
             target_sub = self.target_dir / sub
             if os.path.lexists(target_sub) and (os.path.islink(target_sub) or not target_sub.is_dir()):
@@ -407,22 +612,29 @@ class Installer:
                     if existing.name not in src_agents and f"{sub}/{existing.name}" in prior_installed:
                         self.backup(existing)
             for name, agent in src_agents.items():
-                self.place(agent, target_sub / name)
+                self._place_core_file(agent, target_sub / name, f"{sub}/{name}")
         skills_src = SCRIPT_DIR / "skills"
         target_skills = self.target_dir / "skills"
         if os.path.lexists(target_skills) and (os.path.islink(target_skills) or not target_skills.is_dir()):
             self.backup(target_skills)
-        src_skills = {p.name: p for p in sorted(p for p in skills_src.iterdir() if p.is_dir())}
+        src_skills = {
+            p.name: p
+            for p in sorted(p for p in skills_src.iterdir() if p.is_dir())
+            if self.layout != "hybrid" or p.name not in PLUGIN_OWNED_SKILL_SLUGS
+        }
+        retired_skill_slugs = set(CONSOLIDATED_SKILL_SLUGS)
+        if self.layout == "hybrid":
+            retired_skill_slugs.update(PLUGIN_OWNED_SKILL_SLUGS)
         if target_skills.is_dir() and not os.path.islink(target_skills):
             for existing in sorted(target_skills.iterdir()):
                 if (
-                    (existing.is_dir() or os.path.islink(existing))
+                    (existing.is_dir() or os.path.islink(existing) or existing.name in PLUGIN_OWNED_SKILL_SLUGS)
                     and existing.name not in src_skills
-                    and (f"skills/{existing.name}" in prior_installed or existing.name in CONSOLIDATED_SKILL_SLUGS)
+                    and (f"skills/{existing.name}" in prior_installed or existing.name in retired_skill_slugs)
                 ):
                     self.backup(existing)
         for name, skill in src_skills.items():
-            self.place(skill, target_skills / name)
+            self._place_core_skill(skill, target_skills / name, name)
         templates = SCRIPT_DIR / "templates"
         if templates.is_dir():
             target_templates = self.target_dir / "templates"
@@ -445,7 +657,26 @@ class Installer:
                     ):
                         self.backup(existing)
             for name, tmpl in src_templates.items():
-                self.place(tmpl, target_templates / name)
+                self._place_core_file(tmpl, target_templates / name, f"templates/{name}")
+
+        if self.layout == "hybrid":
+            self.install_plugins()
+        elif self.explicit_flat or self._prior_installed_plugins:
+            target_plugins = self.target_dir / "plugins"
+            if target_plugins.is_dir() and not os.path.islink(target_plugins):
+                for pack_name in sorted(HARNESS_PLUGIN_NAMES):
+                    pdir = target_plugins / pack_name
+                    if os.path.lexists(pdir) and (
+                        pack_name in self._prior_installed_plugins
+                        or is_harness_plugin_dir(pdir, expected_pack=pack_name)
+                    ):
+                        self.backup(pdir)
+                if not self.dry_run:
+                    try:
+                        if not any(target_plugins.iterdir()):
+                            target_plugins.rmdir()
+                    except OSError:
+                        pass
 
     def install_hooks(self) -> bool:
         """Merges the upstream-watchdog and harness-gate hooks into hooks.json (other hooks are preserved)."""
@@ -525,7 +756,30 @@ class Installer:
             return False
 
     def migrate_mcp_config(self) -> None:
-        """Repoints harness-owned skill MCP servers to the installed copy and pins bare python to sys.executable."""
+        """Repoints, retires (hybrid), or restores (flat) harness-owned skill MCP servers."""
+        if self.layout == "hybrid":
+            newly_retired: List[str] = []
+            migrate_harness_mcp_config(
+                self.target_dir,
+                SCRIPT_DIR,
+                dry_run=self.dry_run,
+                python_executable=sys.executable,
+                backup_fn=self.backup,
+                log_fn=self.log,
+                retire_plugin_mcp=HARNESS_PLUGIN_NAMES,
+                retired_out=newly_retired,
+            )
+            merged: List[str] = []
+            for key in [*self._prior_retired_mcp_servers, *newly_retired]:
+                if key not in merged:
+                    merged.append(key)
+            self.retired_mcp_servers = merged
+            return
+
+        mcp_path = self.target_dir / "mcp_config.json"
+        mcp_existed_before = os.path.lexists(mcp_path)
+        restore_keys = self._prior_retired_mcp_servers if (self.explicit_flat or self._prior_retired_mcp_servers) else None
+        restored_keys: List[str] = []
         migrate_harness_mcp_config(
             self.target_dir,
             SCRIPT_DIR,
@@ -533,7 +787,12 @@ class Installer:
             python_executable=sys.executable,
             backup_fn=self.backup,
             log_fn=self.log,
+            restore_flat_keys=restore_keys,
+            restored_out=restored_keys,
         )
+        if not self.dry_run and not mcp_existed_before and os.path.lexists(mcp_path):
+            self._placed_new.append(mcp_path)
+        self.retired_mcp_servers = [k for k in self._prior_retired_mcp_servers if k not in restored_keys]
 
     @staticmethod
     def _release_legacy_tree(path: Path) -> None:
@@ -653,6 +912,14 @@ class Installer:
 
     def _write_launcher(self, path: Path, content: str, executable: bool = True) -> None:
         had_existing = os.path.lexists(path)
+        if had_existing and not os.path.islink(path) and path.is_file():
+            try:
+                if path.read_text(encoding="utf-8") == content:
+                    if executable and not IS_WINDOWS and not (os.lstat(path).st_mode & 0o111):
+                        os.chmod(path, 0o755)
+                    return
+            except OSError:
+                pass
         if had_existing:
             if not os.path.islink(path):
                 try:
@@ -850,9 +1117,12 @@ class Installer:
                 "source_commit": commit,
                 "source_dirty": dirty,
                 "mode": self.mode,
+                "layout": self.layout,
                 "target": str(self.target_dir),
                 "backup_dir": str(self.backup_dir) if self.backup_dir.exists() else None,
                 "installed": installed_rel,
+                "installed_plugins": list(self.installed_plugins),
+                "retired_mcp_servers": list(self.retired_mcp_servers),
             }
             if self._binary_dest is not None:
                 payload["binary_path"] = str(self._binary_dest)
@@ -982,16 +1252,42 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     receipt_path = state_dir() / "install_receipt.json"
     tracked_rel: List[str] = []
     recorded_binary_path = ""
+    receipt_matches_target = False
     if receipt_path.is_file():
         try:
             rec = json.loads(receipt_path.read_text(encoding="utf-8"))
             if isinstance(rec, dict):
-                if isinstance(rec.get("installed"), list):
-                    tracked_rel = [str(x) for x in rec["installed"] if isinstance(x, str)]
-                if isinstance(rec.get("binary_path"), str):
-                    recorded_binary_path = rec["binary_path"]
+                rec_target = rec.get("target")
+                if not rec_target or Path(str(rec_target)).expanduser().resolve() == target_dir.resolve():
+                    receipt_matches_target = True
+                    if isinstance(rec.get("installed"), list):
+                        for raw_item in rec["installed"]:
+                            if not isinstance(raw_item, str):
+                                continue
+                            norm_i = raw_item.replace("\\", "/").strip("/")
+                            if norm_i == "plugins" or norm_i.startswith("plugins/"):
+                                sub_parts = norm_i.split("/")
+                                if len(sub_parts) == 2 and sub_parts[1] in HARNESS_PLUGIN_NAMES:
+                                    tracked_rel.append(norm_i)
+                            else:
+                                tracked_rel.append(raw_item)
+                    if isinstance(rec.get("installed_plugins"), list):
+                        for p in rec["installed_plugins"]:
+                            if isinstance(p, str) and p in HARNESS_PLUGIN_NAMES:
+                                rel_p = f"plugins/{p}"
+                                if rel_p not in tracked_rel:
+                                    tracked_rel.append(rel_p)
+                    if isinstance(rec.get("binary_path"), str):
+                        recorded_binary_path = rec["binary_path"]
         except (OSError, ValueError) as exc:
             print(f"[WARN] Could not parse {receipt_path} ({exc}); falling back to canonical harness manifest.", file=sys.stderr)
+
+    if not receipt_matches_target and os.path.lexists(target_dir / "plugins"):
+        print(
+            f"[WARN] Install receipt missing or unmatched for {target_dir}; preserving {target_dir / 'plugins'} "
+            "untouched so third-party and unmanaged plugins are never deleted.",
+            file=sys.stderr,
+        )
 
     if not tracked_rel:
         tracked_rel = list(GOVERNANCE_FILES) + [CONSTITUTION_RULE_REL, "GEMINI.md", "MISTAKES.md", ".harness/manifest.json"]
@@ -1063,7 +1359,8 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
             _stash(entry, rel_dest)
 
     if not dry_run and target_dir.is_dir() and not os.path.islink(target_dir):
-        for sub_name in (".harness", "agents", "rules", "skills", "templates"):
+        cleanup_subdirs = (".harness", "agents", "rules", "skills", "templates", "plugins") if receipt_matches_target else (".harness", "agents", "rules", "skills", "templates")
+        for sub_name in cleanup_subdirs:
             sub_dir = target_dir / sub_name
             if sub_dir.is_dir() and not os.path.islink(sub_dir):
                 try:
@@ -1115,8 +1412,18 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
                     print(f"[REMOVED] Runtime {rt_cand}")
 
     if env is not None:
-        monitor = FileIntegrityMonitor.for_environment(env, os_adapter=registry.os_adapter)
-        for st_file in (monitor.state_file, monitor.pending_file, receipt_path):
+        env_matches_target = False
+        try:
+            env_matches_target = Path(env.get_root()).resolve() == target_resolved
+        except OSError:
+            env_matches_target = False
+        state_files_to_remove: List[Path] = []
+        if env_matches_target:
+            monitor = FileIntegrityMonitor.for_environment(env, os_adapter=registry.os_adapter)
+            state_files_to_remove.extend([monitor.state_file, monitor.pending_file])
+        if receipt_matches_target or env_matches_target:
+            state_files_to_remove.append(receipt_path)
+        for st_file in state_files_to_remove:
             if os.path.lexists(st_file):
                 if dry_run:
                     print(f"[DRY-RUN] remove state file {st_file}")
@@ -1129,6 +1436,14 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
                     except OSError as exc:
                         print(f"[ERROR] Could not remove state file {st_file}: {exc}", file=sys.stderr)
                         cleanup_failed = True
+        if env_matches_target and not dry_run:
+            sync_antigravity_plugin_seams(env)
+            if registry.config_path.exists():
+                try:
+                    registry.save()
+                except RegistryError as exc:
+                    print(f"[ERROR] Could not update environment registry after uninstall: {exc}", file=sys.stderr)
+                    cleanup_failed = True
 
     print("=" * 60)
     if cleanup_failed:
@@ -1146,10 +1461,24 @@ def release_runtime_state(adapter, target_dir: Path, dry_run: bool = False) -> L
     """
     Guard 1.3.0 and earlier locked the whole configuration tree, which also froze Antigravity's
     own state (config.json, projects/, ...). Restores owner write access on the root directory
-    entry and on those runtime entries only; governance seams are handled by the registry.
+    entry and on those runtime entries only; governance seams (including OS-locked harness
+    plugin packs under `plugins/<pack>`) are handled by the registry.
     """
     released: List[str] = []
-    candidates = [(target_dir, False)] + [(target_dir / n, True) for n in ANTIGRAVITY_RUNTIME_ENTRIES]
+    candidates: List[tuple[Path, bool]] = [(target_dir, False)]
+    for name in ANTIGRAVITY_RUNTIME_ENTRIES:
+        entry = target_dir / name
+        if name == "plugins":
+            candidates.append((entry, False))
+            if entry.is_dir() and not os.path.islink(entry):
+                try:
+                    for child in sorted(entry.iterdir()):
+                        if child.name not in HARNESS_PLUGIN_NAMES:
+                            candidates.append((child, True))
+                except OSError:
+                    pass
+        else:
+            candidates.append((entry, True))
     for entry, recursive in candidates:
         if not os.path.lexists(entry) or os.path.islink(entry):
             continue
@@ -1172,6 +1501,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Antigravity Harness installer")
     parser.add_argument("--link", "--dev", action="store_true", dest="link",
                         help="Developer mode: symlink governance files to this checkout (cannot be locked)")
+    layout_group = parser.add_mutually_exclusive_group()
+    layout_group.add_argument(
+        "--plugins",
+        action="store_true",
+        help="Install Hybrid Layout: 14 core skills + 4 OS-locked Antigravity Plugin Packs under plugins/",
+    )
+    layout_group.add_argument(
+        "--flat-skills",
+        action="store_true",
+        help="Install or revert to Flat Layout: all 20 canonical skills under skills/ and restore retired MCP entries",
+    )
     parser.add_argument("--from-source", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--binary", action="store_true", help="Also install the checksum-verified standalone agy-guard binary")
     parser.add_argument("--sha256", default="", help="Expected 64-hex SHA-256 digest when downloading --binary from GitHub Releases")
@@ -1198,10 +1538,39 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.uninstall:
         return uninstall_harness(target_dir, dry_run=args.dry_run)
     mode = "link" if args.link else "copy"
-    installer = Installer(target_dir, mode, dry_run=args.dry_run, expected_sha256=args.sha256)
+    prior_receipt = read_install_receipt(target_dir=target_dir)
+    has_existing_hybrid_packs = (
+        not os.path.islink(target_dir / "plugins")
+        and (target_dir / "plugins").is_dir()
+        and any(is_harness_plugin_dir(target_dir / "plugins" / p, expected_pack=p) for p in HARNESS_PLUGIN_NAMES)
+    )
+    if args.plugins:
+        layout = "hybrid"
+        explicit_flat = False
+    elif args.flat_skills:
+        layout = "flat"
+        explicit_flat = True
+    elif (prior_receipt is not None and prior_receipt.get("layout") == "hybrid") or (
+        prior_receipt is None and has_existing_hybrid_packs
+    ):
+        layout = "hybrid"
+        explicit_flat = False
+        print("[NOTICE] Preserving existing hybrid plugin layout (pass --flat-skills to revert to flat skills).")
+    else:
+        layout = "flat"
+        explicit_flat = False
+
+    installer = Installer(
+        target_dir,
+        mode,
+        dry_run=args.dry_run,
+        expected_sha256=args.sha256,
+        layout=layout,
+        explicit_flat=explicit_flat,
+    )
 
     print("=" * 60)
-    print(f"      Antigravity Harness {__version__} Installer ({mode} mode)")
+    print(f"      Antigravity Harness {__version__} Installer ({mode} mode, {layout} layout)")
     print("=" * 60)
     print(f"Platform : {SYSTEM} ({platform.release()})")
     print(f"Source   : {SCRIPT_DIR}")
@@ -1262,6 +1631,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for line in release_runtime_state(registry.os_adapter, target_dir, dry_run=args.dry_run):
         print(line)
 
+    installer.capture_rollback_state(registry, env)
     install_failed = False
     lock_failed = False
     try:
@@ -1278,10 +1648,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         installer.move_legacy_runtime_links()
         config_file = target_dir / "config.json"
         template_config = SCRIPT_DIR / "templates" / "config.example.json"
-        if not config_file.exists() and template_config.is_file() and not args.dry_run:
+        if not os.path.lexists(config_file) and template_config.is_file() and not args.dry_run:
             shutil.copy2(template_config, config_file)
             if not IS_WINDOWS:
                 os.chmod(config_file, 0o600)
+            installer._placed_new.append(config_file)
             print(f"[CREATED] Initialized {config_file.name} from template.")
         if not IS_WINDOWS and not args.dry_run:
             ensure_skill_script_permissions(target_dir / "skills")
@@ -1294,16 +1665,24 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return 1
         installer.write_receipt()
         if not args.dry_run:
+            sync_antigravity_plugin_seams(env)
+            registry.save()
             prune_install_backups(keep=BACKUP_RETENTION_KEEP, dry_run=False)
             monitor = FileIntegrityMonitor.for_environment(env, os_adapter=registry.os_adapter)
             count, path = monitor.save_baseline()
             print(f"[BASELINE] Integrity baseline established for {count} governance entries -> {path}")
+    except ValueError as exc:
+        install_failed = True
+        installer.rollback()
+        print(f"[ERROR] Installation aborted and rolled back: {exc}", file=sys.stderr)
+        return 1
     except Exception:
         install_failed = True
         installer.rollback()
         raise
     finally:
-        if not args.dry_run and not args.no_lock and (mode != "link" or was_locked):
+        should_lock = was_locked if install_failed else ((not args.no_lock) and (mode != "link" or was_locked))
+        if not args.dry_run and should_lock:
             ok, msg = registry.lock("antigravity")
             print(f"[{'LOCKED' if ok else 'LOCK WARNING'}] {msg.splitlines()[0] if msg else ''}")
             if not ok and mode != "link":

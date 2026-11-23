@@ -22,6 +22,13 @@ PORTABLE_SKILL_SCRIPTS = (
     "skills/antislop/scripts/check_synthetic_markers.py",
 )
 
+PORTABLE_PLUGIN_ASSETS = (
+    "guard/plugin_assets/antislop.svg",
+    "guard/plugin_assets/rust-suite.svg",
+    "guard/plugin_assets/media-studio.svg",
+    "guard/plugin_assets/game-engineering.svg",
+)
+
 
 def build_pyinstaller_command(
     repo_root: Path,
@@ -69,6 +76,13 @@ def build_pyinstaller_command(
             raise FileNotFoundError(f"Declared portable skill script missing for binary build: {src_script}")
         dest_dir = str(Path(rel_script).parent.as_posix())
         cmd.extend(["--add-data", f"{src_script}{data_sep}{dest_dir}"])
+
+    for rel_asset in PORTABLE_PLUGIN_ASSETS:
+        src_asset = repo_root / rel_asset
+        if not src_asset.is_file():
+            raise FileNotFoundError(f"Declared plugin SVG asset missing for binary build: {src_asset}")
+        dest_dir = str(Path(rel_asset).parent.as_posix())
+        cmd.extend(["--add-data", f"{src_asset}{data_sep}{dest_dir}"])
 
     if system == "Linux":
         # Prevent PyInstaller from bundling colliding system GTK3/PyGObject libraries alongside Tcl/Tk.

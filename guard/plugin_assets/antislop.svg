@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="AntiSlop UI">
+  <title>AntiSlop UI</title>
+  <rect x="18" y="18" width="92" height="92" rx="18" fill="none" stroke="#1E6FD9" stroke-width="6"/>
+  <rect x="30" y="32" width="38" height="64" rx="8" fill="none" stroke="#1E6FD9" stroke-width="5"/>
+  <circle cx="49" cy="54" r="8" fill="#D14926"/>
+  <line x1="39" y1="74" x2="59" y2="74" stroke="#1E6FD9" stroke-width="5" stroke-linecap="round"/>
+  <line x1="39" y1="84" x2="53" y2="84" stroke="#1E6FD9" stroke-width="5" stroke-linecap="round"/>
+  <rect x="76" y="32" width="22" height="18" rx="5" fill="#D14926"/>
+  <rect x="76" y="57" width="22" height="16" rx="5" fill="#1E6FD9"/>
+  <rect x="76" y="80" width="22" height="16" rx="5" fill="#1E6FD9"/>
+</svg>

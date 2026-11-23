@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Game Engineering">
+  <title>Game Engineering</title>
+  <circle cx="64" cy="64" r="44" fill="none" stroke="#0E7FA8" stroke-width="6"/>
+  <g stroke="#0E7FA8" stroke-width="6" stroke-linecap="round">
+    <line x1="64" y1="20" x2="64" y2="30"/>
+    <line x1="64" y1="98" x2="64" y2="108"/>
+    <line x1="20" y1="64" x2="30" y2="64"/>
+    <line x1="98" y1="64" x2="108" y2="64"/>
+  </g>
+  <path d="M56 42 H72 V56 H86 V72 H72 V86 H56 V72 H42 V56 H56 Z" fill="none" stroke="#0E7FA8" stroke-width="5" stroke-linejoin="round"/>
+  <polygon points="59,54 75,64 59,74" fill="#C95D14"/>
+</svg>

@@ -35,6 +35,18 @@ from . import _ACTIVE_FACADE
 
 _DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Lightweight hot-path mirrors of guard/plugins.py (verified in scripts/meta_audit.py Pass 5)
+# so PreInvocation and PreToolUse avoid importing xml/zipfile/porter.frontmatter (~120 ms).
+_PLUGIN_SKILL_TO_PACK: Dict[str, str] = {
+    "antislop": "antislop",
+    "vibecoder": "antislop",
+    "rustify": "rust-suite",
+    "rust-harden": "rust-suite",
+    "media-studio": "media-studio",
+    "game-engineering": "game-engineering",
+}
+_HARNESS_PLUGIN_NAMES = frozenset(_PLUGIN_SKILL_TO_PACK.values())
+
 
 def _facade() -> Any:
     """Resolve the active facade module (`_ACTIVE_FACADE` ContextVar first, else `guard.agy_hooks`)."""

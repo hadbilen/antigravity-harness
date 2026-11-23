@@ -20,6 +20,7 @@ from guard.paths import HOOK_LOCK_TIMEOUT, is_within
 from . import pre_tool_use as _ptu
 from .pre_tool_use import _normalize_shell_paths
 from .common import (
+    _HARNESS_PLUGIN_NAMES,
     _LazyRegex,
     _conversation_id,
     _facade_attr,
@@ -1045,6 +1046,7 @@ _SHELL_MUTATION_INDICATOR_RE = _LazyRegex(
     r"(?:"
     r">{1,2}\|?|"
     r"\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip)\b|"
+    rf"\bgit{_GIT_GLOBAL_OPTS}\s+clone\b|"
     r"\bfind\b[^\n;|&]*\s-(?:delete|exec|execdir|ok)\b|"
     r"\bsed\b[^\n;|&]*\s-(?:[A-Za-z]*i\S*|-in-place(?:=\S*)?)\b|"
     r"\b(?:curl|wget)\b[^\n;|&]*\s-(?:o|O)\b|"
@@ -1138,10 +1140,13 @@ _SHELL_DOTDOT_TOKEN_RE = _LazyRegex(r"(?:^|[\s/'\"=])\.\.(?:$|[\s/'\";&|()])")
 @functools.lru_cache(maxsize=256)
 def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str], ...]:
     sep = r"(?:[/\\]|\\\\)+"
-    plugin_gov_tail = (
-        rf"(?:{sep}(?:skills|agents|rules|hooks|scripts|bin|hooks\.json|mcp_config\.json|\.mcp\.json)\b"
-        r"|\.(?:mdc?|py[cow]?|m?js|cjs|tsx?|jsx|sh|bash|zsh|fish|ksh|pl|rb|php|ps1|bat|cmd|so|dylib|dll|exe|wasm)\b)"
+    seg_end = r"(?=[/\\]|\\\\|[\s;|&'\"(),]|$)"
+    gov_segs = "|".join(re.escape(seg) for seg in sorted(_ptu._PLUGIN_GOVERNANCE_SEGMENTS, key=len, reverse=True))
+    exec_sfxs = "|".join(
+        re.escape(sfx.lstrip(".")) for sfx in sorted(_ptu._PLUGIN_EXEC_SUFFIXES, key=len, reverse=True)
     )
+    plugin_gov_tail = rf"(?:{sep}(?:{gov_segs}){seg_end}|\.(?:{exec_sfxs}){seg_end})"
+    harness_packs = "|".join(re.escape(pack) for pack in sorted(_HARNESS_PLUGIN_NAMES, key=len, reverse=True))
     esc_root = re.escape(root)
     pats: List[Tuple[re.Pattern[str], str]] = []
     for sub in _ptu._RUNTIME_CONFIG_SUBDIRS:
@@ -1149,7 +1154,10 @@ def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str
             pats.append(
                 (
                     re.compile(
-                        rf"(['\"]){esc_root}{sep}plugins(?=[/\\])(?![^'\"\n]*{plugin_gov_tail})[^'\"\n]*\1",
+                        rf"(['\"]){esc_root}{sep}plugins(?![^'\"\n]*{plugin_gov_tail}){sep}"
+                        rf"(?!(?:{harness_packs})[. ]*(?=[/\\]|\\\\|['\"\n]|$))"
+                        rf"[^./\\'\"\n*?\[\]{{}}$`!@+()<>][^/\\'\"\n*?\[\]{{}}$`!@+()<>]*"
+                        rf"(?:(?=[/\\]|\\\\)[^'\"\n`$]*|(?=\1))\1",
                         re.IGNORECASE,
                     ),
                     r"\1__RUNTIME_SUBDIR__\1",
@@ -1158,7 +1166,10 @@ def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str
             pats.append(
                 (
                     re.compile(
-                        rf"(?<!['\"]){esc_root}{sep}plugins(?=[/\\]|\s|$|[;&|'\"(),])(?![^\s;|&'\"]*{plugin_gov_tail})",
+                        rf"(?<!['\"]){esc_root}{sep}plugins(?![^\s;|&'\"]*{plugin_gov_tail}){sep}"
+                        rf"(?!(?:{harness_packs})[. ]*(?=[/\\]|\\\\|[\s;|&'\"),]|$))"
+                        rf"[^./\\\s;|&'\"(),*?\[\]{{}}$`!@+<>][^/\\\s;|&'\"(),*?\[\]{{}}$`!@+<>]*"
+                        rf"(?:(?=[/\\]|\\\\)[^\s;|&'\"`$]*|(?=[\s;|&'\"),]|$))",
                         re.IGNORECASE,
                     ),
                     "__RUNTIME_SUBDIR__",
@@ -2312,7 +2323,7 @@ def _compiled_governance_root_patterns(root: str) -> Tuple[re.Pattern[str], ...]
         re.compile(rf">{{1,2}}\|?\s*['\"]?{escaped}"),
         re.compile(rf"\b(?:cd|pushd)\s+['\"]?{escaped}"),
         re.compile(
-            rf"\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip)\b(?:[^\n;|&]*|\s*\$\([\s\S]*?){escaped}"
+            rf"(?:\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip)\b|\bgit{_GIT_GLOBAL_OPTS}\s+clone\b)(?:[^\n;|&]*|\s*\$\([\s\S]*?){escaped}"
         ),
         re.compile(
             rf"{escaped}[^\n;&]*\|\s*(?:{_CMD_WRAPPER_PREFIX})*xargs\b[^\n;&]*\b(?:rm|mv|cp|chmod|chattr|chown|tee|touch|mkdir|rmdir|ln|install|rsync|tar|dd|truncate|shred|patch|unzip|sed|{interp_names}|(?:ba|z|da|k)?sh)\b"
@@ -3320,6 +3331,11 @@ def _inspect_external_script_command(
         _repo_root(),
         _ptu.config_dir() / "skills",
         _ptu.configured_config_dir() / "skills",
+        *(
+            cfg_base / "plugins" / pack / "skills"
+            for cfg_base in (_ptu.config_dir(), _ptu.configured_config_dir())
+            for pack in sorted(_HARNESS_PLUGIN_NAMES)
+        ),
         data_dir() / "runtime" / "scripts",
         data_dir() / "runtime" / "skills",
         Path("/usr/share/antigravity-harness/skills"),
@@ -3538,6 +3554,58 @@ def _inspect_external_script_command(
                                         "administration or mutates protected governance state (GEMINI.md Rule 12)."
                                     ),
                                 }
+                            plug_script_hit = _detect_harness_plugin_cli_mutation(non_comment)
+                            if plug_script_hit is None:
+                                for sc in synth_list_cmds:
+                                    plug_script_hit = _detect_harness_plugin_cli_mutation(sc)
+                                    if plug_script_hit is not None:
+                                        break
+                            if plug_script_hit is not None:
+                                plug_verb, plug_pack = plug_script_hit
+                                is_h_pack = plug_pack in _HARNESS_PLUGIN_NAMES or plug_pack == "harness-plugin"
+                                target_desc = (
+                                    f"harness-managed plugin pack `{plug_pack}`" if is_h_pack else f"plugin `{plug_pack}`"
+                                )
+                                return {
+                                    "decision": "force_ask",
+                                    "reason": _ptu._format_force_ask_reason(
+                                        f"[Harness Plugin Gate] Script `{script_arg}` invokes official CLI command "
+                                        f"`agy plugin {plug_verb}` targeting {target_desc} (GEMINI.md Rule 12).",
+                                        what_changes=(
+                                            f"Executes `{script_arg}` running `agy plugin {plug_verb}` on `{plug_pack}`"
+                                        ),
+                                        if_approved=(
+                                            f"Permits `{script_arg}` to modify or install `{plug_pack}` plugin state"
+                                        ),
+                                        if_denied=(
+                                            f"Cancels `{script_arg}` and leaves `{plug_pack}` unchanged"
+                                        ),
+                                    ),
+                                }
+                            drop_script_hit = _detect_plugin_directory_drop(non_comment, effective_cwd)
+                            if drop_script_hit is None:
+                                for sc in synth_list_cmds:
+                                    drop_script_hit = _detect_plugin_directory_drop(sc, effective_cwd)
+                                    if drop_script_hit is not None:
+                                        break
+                            if drop_script_hit is not None:
+                                drop_op, drop_pack = drop_script_hit
+                                return {
+                                    "decision": "force_ask",
+                                    "reason": _ptu._format_force_ask_reason(
+                                        f"[Harness Plugin Gate] Script `{script_arg}` runs `{drop_op}` into "
+                                        f"`~/.gemini/config/plugins/{drop_pack}` (GEMINI.md Rule 12).",
+                                        what_changes=(
+                                            f"Executes `{script_arg}` dropping plugin files into `plugins/{drop_pack}` via `{drop_op}`"
+                                        ),
+                                        if_approved=(
+                                            f"Permits `{script_arg}` to write or extract plugin directory `plugins/{drop_pack}`"
+                                        ),
+                                        if_denied=(
+                                            f"Cancels `{script_arg}` and leaves `plugins/{drop_pack}` unchanged"
+                                        ),
+                                    ),
+                                }
                 except OSError:
                     in_trusted = False
             if not in_trusted:
@@ -3548,6 +3616,682 @@ def _inspect_external_script_command(
                         "bypasses inline command inspection and requires explicit human confirmation (GEMINI.md Rule 12)."
                     ),
                 }
+    return None
+
+
+_WRAPPER_VAL_FLAGS: Dict[str, frozenset[str]] = {
+    "env": frozenset({"-u", "--unset", "-C", "--chdir"}),
+    "exec": frozenset({"-a"}),
+    "sudo": frozenset({"-u", "-U", "-g", "-C", "-p", "--user", "--group", "--chdir", "--other-user"}),
+    "doas": frozenset({"-u", "-C"}),
+    "stdbuf": frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}),
+    "timeout": frozenset({"-k", "-s", "--signal", "--kill-after"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "ionice": frozenset({"-c", "-n", "-p", "-t"}),
+    "taskset": frozenset({"-c", "--cpu-list"}),
+    "xargs": frozenset({
+        "-I", "-i", "-n", "-L", "-l", "-P", "-d", "-E", "-e", "-s", "-a",
+        "--arg-file", "--delimiter", "--eof", "--max-args", "--max-lines", "--max-procs", "--replace",
+    }),
+}
+
+
+def _unwrap_shell_command_tokens(seg_tokens: Sequence[str]) -> Tuple[Optional[int], bool, List[str]]:
+    """Strips leading env assignments and command wrappers; returns `(cmd_idx, via_xargs, expanded_tokens)`."""
+    import shlex
+
+    idx = 0
+    toks = list(seg_tokens)
+    in_wrapper: Optional[str] = None
+    via_xargs = False
+    skip_next = False
+    while idx < len(toks):
+        tok = toks[idx]
+        if skip_next:
+            skip_next = False
+            idx += 1
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tok, re.DOTALL):
+            idx += 1
+            continue
+        if in_wrapper is not None:
+            if tok == "--":
+                in_wrapper = None
+                idx += 1
+                continue
+            if in_wrapper == "env" and tok in ("-S", "--split-string") and idx + 1 < len(toks):
+                try:
+                    spliced = shlex.split(toks[idx + 1])
+                except ValueError:
+                    spliced = toks[idx + 1].split()
+                toks[idx : idx + 2] = spliced
+                in_wrapper = None
+                continue
+            if in_wrapper == "env" and (tok.startswith("--split-string=") or (tok.startswith("-S") and len(tok) > 2)):
+                raw_s = tok.split("=", 1)[1] if tok.startswith("--split-string=") else tok[2:]
+                try:
+                    spliced = shlex.split(raw_s)
+                except ValueError:
+                    spliced = raw_s.split()
+                toks[idx : idx + 1] = spliced
+                in_wrapper = None
+                continue
+            if in_wrapper == "command" and re.fullmatch(r"-[A-Za-z]*[vV][A-Za-z]*", tok):
+                return None, via_xargs, toks
+            if tok.startswith("-"):
+                if tok in _WRAPPER_VAL_FLAGS.get(in_wrapper, frozenset()):
+                    skip_next = True
+                idx += 1
+                continue
+            if in_wrapper == "timeout" and re.fullmatch(r"\d+(?:\.\d+)?[smhd]?", tok):
+                in_wrapper = None
+                idx += 1
+                continue
+            if in_wrapper in ("taskset", "chrt") and re.fullmatch(r"[0-9a-fA-Fx,-]+", tok):
+                in_wrapper = None
+                idx += 1
+                continue
+        base = tok.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if base in _C_FLAG_LAUNCH_WRAPPERS or base == "xargs":
+            in_wrapper = base
+            if base == "xargs":
+                via_xargs = True
+            idx += 1
+            continue
+        return idx, via_xargs, toks
+    return None, via_xargs, toks
+
+
+def _detect_harness_plugin_cli_mutation(sub_cmd: str) -> Optional[Tuple[str, str]]:
+    """Detects `agy plugin (install|import)` (any target) and `agy plugin (disable|uninstall)` targeting harness packs."""
+    import fnmatch
+    import posixpath
+    import shlex
+
+    mutating_verbs = frozenset({"disable", "uninstall", "install", "import"})
+    agy_bins = frozenset({"agy", "agy.exe", "agy.cmd", "agy.bat", "agy.ps1"})
+
+    def _expand_braces(text_item: str, max_items: int = 32) -> List[str]:
+        work = [text_item]
+        for _ in range(4):
+            next_work: List[str] = []
+            changed = False
+            for cand in work:
+                m_brace = re.search(r"\{([^{}]+)\}", cand)
+                if not m_brace:
+                    next_work.append(cand)
+                    continue
+                changed = True
+                prefix = cand[: m_brace.start()]
+                suffix = cand[m_brace.end() :]
+                for alt in m_brace.group(1).split(","):
+                    next_work.append(f"{prefix}{alt.strip()}{suffix}")
+                    if len(next_work) >= max_items:
+                        break
+                if len(next_work) >= max_items:
+                    break
+            work = next_work
+            if not changed:
+                break
+        return work
+
+    def _match_target(raw_token: str) -> Optional[str]:
+        tok = raw_token.strip().strip("'\"")
+        if not tok:
+            return None
+        if any(ch in tok for ch in ("$", "`")):
+            return "harness-plugin"
+        norm_raw = tok.replace("\\", "/")
+        norm = posixpath.normpath(norm_raw)
+        if norm in (".", "..", "/"):
+            return "harness-plugin"
+        parts_path = [p for p in norm.split("/") if p and p != "."]
+        if not parts_path:
+            return "harness-plugin"
+        base = parts_path[-1].lower()
+        candidates: List[str] = [base]
+        if base == "plugin.json" and len(parts_path) >= 2:
+            candidates.append(parts_path[-2].lower())
+        expanded: List[str] = []
+        for cand in candidates:
+            expanded.extend(_expand_braces(cand))
+        sorted_packs = sorted(_HARNESS_PLUGIN_NAMES)
+        for item in expanded:
+            if "{" in item or "}" in item:
+                return "harness-plugin"
+            clean_item = item.rstrip(". ")
+            if clean_item in _HARNESS_PLUGIN_NAMES:
+                return clean_item
+            for pack in sorted_packs:
+                if (
+                    clean_item in (f"{pack}.zip", f"{pack}.tar.gz", f"{pack}.tgz")
+                    or clean_item.startswith((f"{pack}-", f"{pack}_", f"{pack}.", f"{pack}@"))
+                ):
+                    return pack
+            if any(ch in clean_item for ch in "*?["):
+                for pack in sorted_packs:
+                    if (
+                        fnmatch.fnmatchcase(pack, clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}.zip", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}.tar.gz", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}.tgz", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}-v2.4.0.zip", clean_item)
+                    ):
+                        return pack
+        return None
+
+    cleaned = _strip_unquoted_shell_comments(_join_shell_line_continuations(sub_cmd))
+    if not any(ch in cleaned for ch in "\"'\\$`"):
+        low_clean = cleaned.lower()
+        if "agy" not in low_clean or "plugin" not in low_clean:
+            return None
+    expanded_vars = _expand_simple_shell_vars(cleaned)
+    text = re.sub(r"\$'", "'", expanded_vars)
+    # Inspect unquoted `echo/printf ... | sh` pipelines as well.
+    m_pipe_sh = re.search(
+        r"(?:^|[;&|()\n`])\s*(?:echo|printf)\b(?:\s+-[neE]+)*\s+([^\n|;&]+?)\s*\|\s*"
+        r"(?:[^\s;|&`]*/)?(?:env\s+)?(?:ba|z|da|k)?sh\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m_pipe_sh:
+        piped_payload = m_pipe_sh.group(1).strip()
+        if piped_payload and piped_payload != sub_cmd:
+            nested = _detect_harness_plugin_cli_mutation(piped_payload)
+            if nested is not None:
+                return nested
+
+    # Keep `$(...)` and backtick command substitutions attached to their target token during splitting.
+    punct_chars = ";&|\n"
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=punct_chars)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        tokens = [
+            t.strip("'\"")
+            for t in re.findall(r"'[^']*'|\"(?:\\.|[^\"\\])*\"|[;&|\n]|\S+", _unquote_single_tokens(text))
+        ]
+
+    segments: List[List[str]] = []
+    cur_seg: List[str] = []
+    for tok in tokens:
+        if tok and set(tok) <= set(punct_chars):
+            if cur_seg:
+                segments.append(cur_seg)
+                cur_seg = []
+        else:
+            cur_seg.append(tok)
+    if cur_seg:
+        segments.append(cur_seg)
+
+    for seg_tokens in segments:
+        cmd_idx, via_xargs, toks = _unwrap_shell_command_tokens(seg_tokens)
+        if cmd_idx is None:
+            continue
+        cmd_base = toks[cmd_idx].replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if cmd_base not in agy_bins:
+            continue
+
+        rest = toks[cmd_idx + 1 :]
+        try:
+            plugin_idx = next(i for i, t in enumerate(rest) if t.lower() == "plugin")
+        except StopIteration:
+            continue
+        after_plugin = rest[plugin_idx + 1 :]
+        verb_idx: Optional[int] = None
+        verb = ""
+        for i, t in enumerate(after_plugin):
+            low = t.lower()
+            if low in ("-h", "--help"):
+                verb_idx = None
+                break
+            if low in mutating_verbs:
+                verb_idx = i
+                verb = low
+                break
+        if verb_idx is None:
+            continue
+
+        target_args = after_plugin[verb_idx + 1 :]
+        after_dd = False
+        candidates_to_check: List[str] = []
+        bulk_flag_hit = False
+        is_help = False
+        for t in target_args:
+            if not after_dd and t == "--":
+                after_dd = True
+                continue
+            if not after_dd and t.lower() in ("-h", "--help"):
+                is_help = True
+                candidates_to_check = []
+                bulk_flag_hit = False
+                break
+            if not after_dd and t.startswith("-"):
+                if t.lower() in ("--all", "-a"):
+                    bulk_flag_hit = True
+                elif "=" in t:
+                    candidates_to_check.append(t.split("=", 1)[1])
+                continue
+            candidates_to_check.append(t)
+
+        if is_help:
+            continue
+        if bulk_flag_hit or (via_xargs and not candidates_to_check):
+            return verb, "harness-plugin"
+        for cand in candidates_to_check:
+            matched_pack = _match_target(cand)
+            if matched_pack is not None:
+                return verb, matched_pack
+        if verb in ("install", "import"):
+            target_label = candidates_to_check[0] if candidates_to_check else "plugin"
+            return verb, target_label
+    return None
+
+
+def _detect_plugin_directory_drop(
+    sub_cmd: str, effective_cwd: Optional[Path] = None
+) -> Optional[Tuple[str, str]]:
+    """Detects directory-copy/clone/move/extract commands targeting `~/.gemini/config/plugins/<any>`."""
+    import shlex
+
+    cleaned = _strip_unquoted_shell_comments(_join_shell_line_continuations(sub_cmd))
+    if not cleaned.strip():
+        return None
+
+    plugin_roots: List[Path] = []
+    cfg_roots_abs: List[Path] = []
+    for cfg_cand in _ptu._config_root_candidates():
+        c_abs = Path(os.path.abspath(cfg_cand))
+        if c_abs not in cfg_roots_abs:
+            cfg_roots_abs.append(c_abs)
+        p_abs = Path(os.path.abspath(cfg_cand / "plugins"))
+        if p_abs not in plugin_roots:
+            plugin_roots.append(p_abs)
+        try:
+            p_res = (cfg_cand / "plugins").resolve()
+            if p_res not in plugin_roots:
+                plugin_roots.append(p_res)
+        except OSError:
+            pass
+
+    cwd_under_cfg = False
+    if effective_cwd is not None:
+        cwd_abs = Path(os.path.abspath(effective_cwd))
+        for cr in cfg_roots_abs:
+            try:
+                cwd_abs.relative_to(cr)
+                cwd_under_cfg = True
+                break
+            except ValueError:
+                continue
+
+    low_clean = cleaned.lower()
+    if (
+        not cwd_under_cfg
+        and "plugins" not in low_clean
+        and not any(ch in cleaned for ch in "\"'\\$`")
+    ):
+        return None
+    if not any(ch in cleaned for ch in "\"'\\$`") and not any(
+        verb in low_clean for verb in ("cp", "rsync", "git", "mv", "tar", "unzip")
+    ):
+        return None
+
+    expanded_vars = _expand_simple_shell_vars(cleaned)
+    text = re.sub(r"\$'", "'", expanded_vars)
+
+    m_pipe_sh = re.search(
+        r"(?:^|[;&|()\n`])\s*(?:echo|printf)\b(?:\s+-[neE]+)*\s+([^\n|;&]+?)\s*\|\s*"
+        r"(?:[^\s;|&`]*/)?(?:env\s+)?(?:ba|z|da|k)?sh\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m_pipe_sh:
+        piped_payload = m_pipe_sh.group(1).strip()
+        if piped_payload and piped_payload != sub_cmd:
+            nested = _detect_plugin_directory_drop(piped_payload, effective_cwd)
+            if nested is not None:
+                return nested
+
+    cfg_dir_str = str(_ptu.configured_config_dir())
+
+    def _match_plugin_dest(raw_dest: Optional[str], base_cwd: Optional[Path]) -> Optional[str]:
+        if raw_dest is None:
+            return None
+        tok = raw_dest.strip().strip("'\"")
+        if not tok:
+            return None
+        tok = tok.replace("${ANTIGRAVITY_CONFIG_DIR}", cfg_dir_str)
+        tok = re.sub(r"\$ANTIGRAVITY_CONFIG_DIR(?![A-Za-z0-9_])", lambda _m: cfg_dir_str, tok)
+        resolved = _resolve_shell_dir_token(tok, base_cwd)
+        cand_paths: List[Path] = []
+        if resolved is not None:
+            cand_paths.append(resolved)
+            try:
+                res_real = resolved.resolve()
+                if res_real != resolved:
+                    cand_paths.append(res_real)
+            except OSError:
+                pass
+        for cp_cand in cand_paths:
+            for p_root in plugin_roots:
+                try:
+                    rel = cp_cand.relative_to(p_root)
+                except ValueError:
+                    continue
+                if not rel.parts:
+                    return "plugins"
+                return rel.parts[0]
+        return None
+
+    _RSYNC_VAL_FLAGS = frozenset({
+        "-e", "--rsh", "-f", "--filter", "--exclude", "--include", "--exclude-from", "--include-from",
+        "--files-from", "--compare-dest", "--copy-dest", "--link-dest", "--backup-dir", "--suffix",
+        "--chmod", "--chown", "--bwlimit", "--log-file", "--temp-dir", "-T", "--out-format",
+        "--port", "--password-file", "--address", "--sockopts", "--timeout", "--contimeout",
+        "--max-size", "--min-size", "--modify-window", "--block-size", "-B", "--compress-level",
+        "--skip-compress", "--iconv", "--usermap", "--groupmap", "--info", "--debug",
+    })
+    _GIT_GLOBAL_VAL_FLAGS = frozenset({
+        "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--list-cmds",
+    })
+    _GIT_CLONE_VAL_FLAGS = frozenset({
+        "-b", "--branch", "--depth", "-o", "--origin", "-u", "--upload-pack", "--reference",
+        "--reference-if-able", "--separate-git-dir", "-c", "--config", "--filter", "-j", "--jobs",
+        "--template", "--shallow-since", "--shallow-exclude", "--server-option", "--bundle-uri",
+    })
+    _TAR_VAL_FLAGS = frozenset({
+        "-f", "--file", "-T", "--files-from", "-X", "--exclude-from", "--exclude", "-I",
+        "--use-compress-program", "-L", "--tape-length", "-V", "--label", "-b", "--blocking-factor",
+        "-H", "--format", "--transform", "--strip-components",
+    })
+
+    for seg, seg_cwd in _iter_shell_segments_with_cwd(text, effective_cwd):
+        try:
+            lexer = shlex.shlex(seg, posix=True, punctuation_chars="|")
+            lexer.whitespace_split = True
+            seg_toks = list(lexer)
+        except ValueError:
+            seg_toks = [
+                t.strip("'\"")
+                for t in re.findall(r"'[^']*'|\"(?:\\.|[^\"\\])*\"|\||\S+", _unquote_single_tokens(seg))
+            ]
+
+        pipe_stages: List[List[str]] = []
+        cur_stage: List[str] = []
+        for t in seg_toks:
+            if t == "|":
+                if cur_stage:
+                    pipe_stages.append(cur_stage)
+                    cur_stage = []
+            else:
+                cur_stage.append(t)
+        if cur_stage:
+            pipe_stages.append(cur_stage)
+
+        for stage in pipe_stages:
+            cmd_idx, via_xargs, toks = _unwrap_shell_command_tokens(stage)
+            if cmd_idx is None:
+                continue
+            cmd_base = toks[cmd_idx].replace("\\", "/").rsplit("/", 1)[-1].lower()
+            rest = toks[cmd_idx + 1 :]
+
+            if cmd_base in ("cp", "gcp"):
+                is_dir_copy = False
+                target_dir: Optional[str] = None
+                positionals: List[str] = []
+                after_dd = False
+                expect_target = False
+                skip_next = False
+                for t in rest:
+                    if expect_target:
+                        target_dir = t
+                        expect_target = False
+                        continue
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if not after_dd and t == "--":
+                        after_dd = True
+                        continue
+                    if not after_dd and t in ("-t", "--target-directory"):
+                        expect_target = True
+                        continue
+                    if not after_dd and t.startswith("--target-directory="):
+                        target_dir = t.split("=", 1)[1]
+                        continue
+                    if not after_dd and t.startswith("-t") and len(t) > 2:
+                        target_dir = t[2:]
+                        continue
+                    if not after_dd and t in ("--recursive", "--archive"):
+                        is_dir_copy = True
+                        continue
+                    if not after_dd and t.startswith("-") and not t.startswith("--") and len(t) > 1:
+                        flags_str = t[1:]
+                        if any(ch in flags_str for ch in ("r", "R", "a")):
+                            is_dir_copy = True
+                        if flags_str.endswith("t"):
+                            expect_target = True
+                        elif flags_str.endswith("S"):
+                            skip_next = True
+                        continue
+                    if not after_dd and t.startswith("--"):
+                        if t == "--suffix":
+                            skip_next = True
+                        continue
+                    positionals.append(t)
+                if is_dir_copy:
+                    dests: List[Optional[str]] = (
+                        [target_dir]
+                        if target_dir is not None
+                        else ([positionals[-1]] if len(positionals) >= 2 else ([str(seg_cwd)] if via_xargs and seg_cwd is not None else []))
+                    )
+                    for d in dests:
+                        hit = _match_plugin_dest(d, seg_cwd)
+                        if hit is not None:
+                            return "cp -r", hit
+
+            elif cmd_base in ("mv", "gmv"):
+                target_dir = None
+                positionals = []
+                after_dd = False
+                expect_target = False
+                skip_next = False
+                for t in rest:
+                    if expect_target:
+                        target_dir = t
+                        expect_target = False
+                        continue
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if not after_dd and t == "--":
+                        after_dd = True
+                        continue
+                    if not after_dd and t in ("-t", "--target-directory"):
+                        expect_target = True
+                        continue
+                    if not after_dd and t.startswith("--target-directory="):
+                        target_dir = t.split("=", 1)[1]
+                        continue
+                    if not after_dd and t.startswith("-t") and len(t) > 2:
+                        target_dir = t[2:]
+                        continue
+                    if not after_dd and t.startswith("-") and not t.startswith("--") and len(t) > 1:
+                        if t[1:].endswith("t"):
+                            expect_target = True
+                        elif t[1:].endswith("S"):
+                            skip_next = True
+                        continue
+                    if not after_dd and t.startswith("--"):
+                        if t == "--suffix":
+                            skip_next = True
+                        continue
+                    positionals.append(t)
+                dests = (
+                    [target_dir]
+                    if target_dir is not None
+                    else ([positionals[-1]] if len(positionals) >= 2 else ([str(seg_cwd)] if via_xargs and seg_cwd is not None else []))
+                )
+                for d in dests:
+                    hit = _match_plugin_dest(d, seg_cwd)
+                    if hit is not None:
+                        return "mv", hit
+
+            elif cmd_base in ("rsync", "rsync.exe"):
+                positionals = []
+                after_dd = False
+                skip_next = False
+                for t in rest:
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if not after_dd and t == "--":
+                        after_dd = True
+                        continue
+                    if not after_dd and t.startswith("-"):
+                        if t in _RSYNC_VAL_FLAGS:
+                            skip_next = True
+                        continue
+                    positionals.append(t)
+                if len(positionals) >= 2:
+                    hit = _match_plugin_dest(positionals[-1], seg_cwd)
+                    if hit is not None:
+                        return "rsync", hit
+
+            elif cmd_base in ("git", "git.exe"):
+                git_cwd = seg_cwd
+                g_idx = 0
+                subcmd = ""
+                while g_idx < len(rest):
+                    gt = rest[g_idx]
+                    if gt == "-C" and g_idx + 1 < len(rest):
+                        git_cwd = _resolve_shell_dir_token(rest[g_idx + 1], git_cwd)
+                        g_idx += 2
+                        continue
+                    if gt.startswith("-C") and len(gt) > 2:
+                        git_cwd = _resolve_shell_dir_token(gt[2:], git_cwd)
+                        g_idx += 1
+                        continue
+                    if gt in _GIT_GLOBAL_VAL_FLAGS and g_idx + 1 < len(rest):
+                        g_idx += 2
+                        continue
+                    if gt.startswith("-"):
+                        g_idx += 1
+                        continue
+                    subcmd = gt.lower()
+                    g_idx += 1
+                    break
+                if subcmd == "clone":
+                    clone_args = rest[g_idx:]
+                    positionals = []
+                    after_dd = False
+                    skip_next = False
+                    for ct in clone_args:
+                        if skip_next:
+                            skip_next = False
+                            continue
+                        if not after_dd and ct == "--":
+                            after_dd = True
+                            continue
+                        if not after_dd and ct.startswith("-"):
+                            if ct in _GIT_CLONE_VAL_FLAGS:
+                                skip_next = True
+                            continue
+                        positionals.append(ct)
+                    dest_cand: Optional[str] = None
+                    if len(positionals) >= 2:
+                        dest_cand = positionals[1]
+                    elif (len(positionals) == 1 or via_xargs) and git_cwd is not None:
+                        dest_cand = str(git_cwd)
+                    hit = _match_plugin_dest(dest_cand, git_cwd)
+                    if hit is not None:
+                        return "git clone", hit
+
+            elif cmd_base in ("tar", "gtar", "bsdtar", "tar.exe"):
+                is_extract = False
+                target_dir = None
+                expect_dir = False
+                skip_next = False
+                for t_idx, t in enumerate(rest):
+                    if expect_dir:
+                        target_dir = t
+                        expect_dir = False
+                        continue
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if t in ("-C", "--directory"):
+                        expect_dir = True
+                        continue
+                    if t.startswith("--directory="):
+                        target_dir = t.split("=", 1)[1]
+                        continue
+                    if t.startswith("-C") and len(t) > 2:
+                        target_dir = t[2:]
+                        continue
+                    if t in ("--extract", "--get"):
+                        is_extract = True
+                        continue
+                    if t.startswith("-f") and len(t) > 2:
+                        continue
+                    if t in _TAR_VAL_FLAGS:
+                        skip_next = True
+                        continue
+                    if t.startswith("-") and not t.startswith("--") and len(t) > 1:
+                        flags_str = t[1:]
+                        if "x" in flags_str:
+                            is_extract = True
+                        if flags_str.endswith("f"):
+                            skip_next = True
+                        elif flags_str.endswith("C"):
+                            expect_dir = True
+                        continue
+                    if t_idx == 0 and re.fullmatch(r"[A-Za-z0-9]+", t):
+                        if "x" in t:
+                            is_extract = True
+                        if "f" in t:
+                            skip_next = True
+                        continue
+                if is_extract:
+                    dest_cand = target_dir if target_dir is not None else (str(seg_cwd) if seg_cwd is not None else None)
+                    hit = _match_plugin_dest(dest_cand, seg_cwd)
+                    if hit is not None:
+                        return "tar -x", hit
+
+            elif cmd_base in ("unzip", "unzip.exe"):
+                is_readonly = False
+                target_dir = None
+                expect_dir = False
+                skip_next = False
+                for t in rest:
+                    if expect_dir:
+                        target_dir = t
+                        expect_dir = False
+                        continue
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if t == "-d":
+                        expect_dir = True
+                        continue
+                    if t.startswith("-d") and len(t) > 2:
+                        target_dir = t[2:]
+                        continue
+                    if t in ("-P", "-O", "-I"):
+                        skip_next = True
+                        continue
+                    if t.startswith("-") and not t.startswith("--") and len(t) > 1:
+                        if any(ch in t[1:] for ch in ("l", "t", "Z", "p", "c")):
+                            is_readonly = True
+                        continue
+                if not is_readonly:
+                    dest_cand = target_dir if target_dir is not None else (str(seg_cwd) if seg_cwd is not None else None)
+                    hit = _match_plugin_dest(dest_cand, seg_cwd)
+                    if hit is not None:
+                        return "unzip", hit
+
     return None
 
 
@@ -3635,6 +4379,50 @@ def _handle_command_pre_tool_use(
                     "reason": (
                         "[Harness Bash Guard] Bypassing repository verification hooks (`--no-verify`, "
                         "`commit -n`, `core.hooksPath`, `HUSKY=0`) is prohibited."
+                    ),
+                }
+
+            plug_cli_hit = _detect_harness_plugin_cli_mutation(sub_cmd)
+            if plug_cli_hit is not None and pending_cmd_force_ask is None:
+                plug_verb, plug_pack = plug_cli_hit
+                is_h_pack = plug_pack in _HARNESS_PLUGIN_NAMES or plug_pack == "harness-plugin"
+                target_desc = (
+                    f"harness-managed plugin pack `{plug_pack}`" if is_h_pack else f"plugin `{plug_pack}`"
+                )
+                pending_cmd_force_ask = {
+                    "decision": "force_ask",
+                    "reason": _ptu._format_force_ask_reason(
+                        f"[Harness Plugin Gate] Official CLI command `agy plugin {plug_verb}` targets "
+                        f"{target_desc} (GEMINI.md Rule 12).",
+                        what_changes=(
+                            f"Runs `agy plugin {plug_verb}` targeting {target_desc}"
+                        ),
+                        if_approved=(
+                            f"Permits `agy plugin {plug_verb}` to modify or install `{plug_pack}` plugin state"
+                        ),
+                        if_denied=(
+                            f"Cancels `agy plugin {plug_verb}` and leaves `{plug_pack}` unchanged"
+                        ),
+                    ),
+                }
+
+            plug_drop_hit = _detect_plugin_directory_drop(sub_cmd, cur_cwd)
+            if plug_drop_hit is not None and pending_cmd_force_ask is None:
+                drop_op, drop_pack = plug_drop_hit
+                pending_cmd_force_ask = {
+                    "decision": "force_ask",
+                    "reason": _ptu._format_force_ask_reason(
+                        f"[Harness Plugin Gate] Shell command `{drop_op}` drops or extracts plugin content into "
+                        f"`~/.gemini/config/plugins/{drop_pack}` (GEMINI.md Rule 12).",
+                        what_changes=(
+                            f"Runs `{drop_op}` into `~/.gemini/config/plugins/{drop_pack}`"
+                        ),
+                        if_approved=(
+                            f"Permits `{drop_op}` to write or extract files into `plugins/{drop_pack}`"
+                        ),
+                        if_denied=(
+                            f"Cancels `{drop_op}` and leaves `plugins/{drop_pack}` unchanged"
+                        ),
                     ),
                 }
 

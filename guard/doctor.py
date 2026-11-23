@@ -22,6 +22,7 @@ from guard.environment import AgentEnvironment, EnvironmentRegistry, RegistryErr
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.notifier import load_settings
 from guard.paths import move_aside, read_json, state_dir
+from guard.plugins import HARNESS_PLUGIN_NAMES
 
 
 def recover_or_load_registry(
@@ -269,6 +270,150 @@ def _check_native_deny_rules(root: Path, infos: List[str], warnings: Optional[Li
         )
     else:
         infos.append("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.")
+
+
+def _is_harness_contrast_mcp_arg(arg: str) -> bool:
+    from guard.environment import RELOCATED_SKILL_SCRIPTS
+    from guard.plugins import PLUGIN_CATALOG
+
+    antislop_spec = PLUGIN_CATALOG.get("antislop")
+    canonical = (
+        antislop_spec.mcp_script_rel
+        if (antislop_spec and antislop_spec.mcp_script_rel)
+        else "skills/antislop/scripts/contrast-mcp.py"
+    )
+    suffixes = {canonical.lower(), f"plugins/antislop/{canonical}".lower()}
+    for old_rel, new_rel in RELOCATED_SKILL_SCRIPTS.items():
+        if new_rel == canonical:
+            suffixes.add(old_rel.lower())
+    norm = arg.strip().replace("\\", "/").lower()
+    return any(norm == sfx or norm.endswith("/" + sfx) for sfx in suffixes)
+
+
+def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> None:
+    """Detects duplicate skill shadowing, stale global contrast-mcp.py collisions, and emits optional `agy plugin` INFO."""
+    plugins_dir = root / "plugins"
+    try:
+        if os.path.islink(plugins_dir) or not plugins_dir.is_dir():
+            return
+    except OSError as exc:
+        warnings.append(f"Could not inspect plugins directory {plugins_dir} ({exc}); hybrid diagnostics incomplete.")
+        return
+
+    installed_harness_packs: List[str] = []
+    duplicates: List[Tuple[str, str]] = []
+    skills_dir = root / "skills"
+    try:
+        check_skills = skills_dir.is_dir() and not os.path.islink(skills_dir)
+    except OSError as exc:
+        warnings.append(f"Could not inspect skills directory {skills_dir} ({exc}); duplicate skill diagnostics incomplete.")
+        check_skills = False
+
+    try:
+        pack_entries = sorted(plugins_dir.iterdir(), key=lambda p: p.name)
+    except OSError as exc:
+        warnings.append(f"Could not inspect plugins directory {plugins_dir} ({exc}); hybrid diagnostics incomplete.")
+        pack_entries = []
+
+    for pack_dir in pack_entries:
+        try:
+            is_pack_dir = not os.path.islink(pack_dir) and pack_dir.is_dir()
+        except OSError as exc:
+            warnings.append(f"Could not inspect plugin directory {pack_dir} ({exc}).")
+            continue
+        if not is_pack_dir:
+            continue
+        pack_name = pack_dir.name
+        if pack_name in HARNESS_PLUGIN_NAMES:
+            installed_harness_packs.append(pack_name)
+        if not check_skills:
+            continue
+        pack_skills_dir = pack_dir / "skills"
+        try:
+            has_pack_skills = not os.path.islink(pack_skills_dir) and pack_skills_dir.is_dir()
+        except OSError as exc:
+            warnings.append(f"Could not inspect plugin skills directory {pack_skills_dir} ({exc}).")
+            continue
+        if not has_pack_skills:
+            continue
+        try:
+            skill_entries = sorted(pack_skills_dir.iterdir(), key=lambda p: p.name)
+        except OSError as exc:
+            warnings.append(f"Could not inspect plugin skills directory {pack_skills_dir} ({exc}).")
+            continue
+        for pskill in skill_entries:
+            try:
+                is_skill_dir = not os.path.islink(pskill) and pskill.is_dir()
+            except OSError as exc:
+                warnings.append(f"Could not inspect plugin skill directory {pskill} ({exc}).")
+                continue
+            if not is_skill_dir:
+                continue
+            slug = pskill.name
+            try:
+                if os.path.lexists(skills_dir / slug):
+                    duplicates.append((slug, pack_name))
+            except OSError as exc:
+                warnings.append(f"Could not inspect skill entry {skills_dir / slug} ({exc}).")
+
+    repair_hint = _repair_command_hint()
+    if duplicates:
+        dupes_desc = ", ".join(f"skills/{slug} <-> plugins/{pack}/skills/{slug}" for slug, pack in duplicates)
+        warnings.append(
+            f"Duplicate skill installation detected (double-loading/shadowing): {dupes_desc}. "
+            f"Re-run {repair_hint} with --plugins or --flat-skills to resolve shadowing."
+        )
+
+    plugin_mcp = plugins_dir / "antislop" / "mcp_config.json"
+    global_mcp = root / "mcp_config.json"
+    try:
+        has_plugin_mcp = not os.path.islink(plugin_mcp) and plugin_mcp.is_file()
+    except OSError as exc:
+        warnings.append(f"Could not inspect plugin MCP config {plugin_mcp} ({exc}).")
+        has_plugin_mcp = False
+    try:
+        has_global_mcp = not os.path.islink(global_mcp) and global_mcp.is_file()
+    except OSError as exc:
+        warnings.append(f"Could not inspect global MCP config {global_mcp} ({exc}).")
+        has_global_mcp = False
+    if has_plugin_mcp and has_global_mcp:
+        mcp_data = read_json(global_mcp, default=None)
+        if mcp_data is None:
+            warnings.append(
+                f"Could not parse {global_mcp} as valid JSON while {plugin_mcp} is active; "
+                "inspect mcp_config.json for syntax errors or stale contrast-mcp.py entries."
+            )
+        elif isinstance(mcp_data, dict) and isinstance(mcp_data.get("mcpServers"), dict):
+            stale_keys: List[str] = []
+            for server_key, server in mcp_data["mcpServers"].items():
+                if not isinstance(server, dict):
+                    continue
+                args = server.get("args")
+                if not isinstance(args, list):
+                    continue
+                if any(isinstance(a, str) and _is_harness_contrast_mcp_arg(a) for a in args):
+                    stale_keys.append(str(server_key))
+            if stale_keys:
+                warnings.append(
+                    f"Stale global contrast-mcp.py server(s) in {global_mcp} ({', '.join(stale_keys)}) "
+                    f"collide with {plugin_mcp}; re-run {repair_hint} with --plugins to retire the global entry."
+                )
+
+    if installed_harness_packs:
+        deny_entries = _collect_native_deny_rules(root, warnings=None)
+        lowered = [e.lower() for e in deny_entries]
+        has_agy_plugin_deny = any("agy" in e and "plugin" in e for e in lowered)
+        if has_agy_plugin_deny:
+            infos.append(
+                "Native Antigravity deny rules cover 'agy plugin' mutations for installed harness plugins."
+            )
+        else:
+            infos.append(
+                "Installed harness plugin pack(s) ("
+                + ", ".join(installed_harness_packs)
+                + "): optional native Antigravity deny rule recommended for defense-in-depth: "
+                "'agy plugin' (e.g. command(regex:.*\\bagy\\s+plugin\\s+(disable|uninstall|install|import)\\b.*))."
+            )
 
 
 def _check_plugins_symlinks(root: Path, warnings: List[str]) -> None:
@@ -718,6 +863,7 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
             )
         _check_hooks_and_runtime_state(root, warnings, infos)
         _check_plugins_symlinks(root, warnings)
+        _check_hybrid_plugins(root, warnings, infos)
         missing_ws: List[str] = []
         home_ws: List[str] = []
         for other in registry.list_environments():

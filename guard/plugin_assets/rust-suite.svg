@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Rust Suite">
+  <title>Rust Suite</title>
+  <g fill="none" stroke="#C64D1E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="64" cy="64" r="38"/>
+    <line x1="64" y1="18" x2="64" y2="26"/>
+    <line x1="64" y1="102" x2="64" y2="110"/>
+    <line x1="18" y1="64" x2="26" y2="64"/>
+    <line x1="102" y1="64" x2="110" y2="64"/>
+    <line x1="31.5" y1="31.5" x2="37.1" y2="37.1"/>
+    <line x1="90.9" y1="90.9" x2="96.5" y2="96.5"/>
+    <line x1="96.5" y1="31.5" x2="90.9" y2="37.1"/>
+    <line x1="37.1" y1="90.9" x2="31.5" y2="96.5"/>
+  </g>
+  <path d="M64 38 L84 46 V63 C84 76 75 85 64 90 C53 85 44 76 44 63 V46 Z" fill="none" stroke="#4A748A" stroke-width="6" stroke-linejoin="round"/>
+  <circle cx="64" cy="63" r="8" fill="#C64D1E"/>
+</svg>

@@ -29,7 +29,7 @@ from porter.analyzer import SuitabilityAnalyzer
 from porter.archive import inspect_zip
 from porter.emitters import EMITTERS, EmitterConflictError
 from porter.frontmatter import FrontmatterError, dump_frontmatter, parse_frontmatter_block, split_frontmatter
-from porter.manifest import ManifestEngine, default_harness_root
+from porter.manifest import ManifestEngine, default_harness_root, is_installed_hybrid_root
 from porter.net import safe_fetch_url
 
 
@@ -249,7 +249,24 @@ def cmd_import(args: argparse.Namespace) -> int:
 def cmd_export(args: argparse.Namespace) -> int:
     """Exports the canonical harness into native target agent configurations."""
     harness_root = _harness_root()
-    manifest = ManifestEngine(harness_root=harness_root).build_manifest()
+    engine = ManifestEngine(harness_root=harness_root)
+    if is_installed_hybrid_root(harness_root):
+        manifest_path = harness_root / ".harness" / "manifest.json"
+        if os.path.islink(manifest_path) or not manifest_path.is_file():
+            print(
+                f"Error: installed hybrid profile '{harness_root}' is missing canonical manifest "
+                f"'{manifest_path}'. Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' "
+                "from the source checkout, or run 'porter.py export' from the source repository.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            manifest = engine.load_manifest(manifest_path)
+        except (OSError, ValueError, TypeError) as e:
+            print(f"Error loading canonical manifest '{manifest_path}': {e}", file=sys.stderr)
+            return 1
+    else:
+        manifest = engine.build_manifest()
     default_out = (Path.cwd() / "export") if harness_root != SCRIPT_DIR else (SCRIPT_DIR / "export")
     out_base = Path(args.out).resolve() if args.out else default_out
     targets = [args.target] if args.target != "all" else list(EMITTERS)
@@ -274,11 +291,26 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     harness_root = _harness_root()
     engine = ManifestEngine(harness_root=harness_root)
     out_path = Path(args.out).resolve() if args.out else harness_root / ".harness" / "manifest.json"
+    is_hybrid = is_installed_hybrid_root(harness_root)
     if args.check:
         if engine.is_up_to_date(out_path):
             print(f"[MANIFEST] Up to date: {out_path}")
             return 0
-        print(f"[MANIFEST] STALE: {out_path} does not match the repository. Run 'python3 porter.py manifest'.", file=sys.stderr)
+        if is_hybrid:
+            print(
+                f"[MANIFEST] STALE: {out_path} diverges from installed hybrid assets. "
+                "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' from the source checkout.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"[MANIFEST] STALE: {out_path} does not match the repository. Run 'python3 porter.py manifest'.", file=sys.stderr)
+        return 1
+    if is_hybrid:
+        print(
+            f"Error: refusing to regenerate canonical manifest from installed hybrid profile '{harness_root}'. "
+            "Run 'python3 porter.py manifest' from the canonical source checkout instead.",
+            file=sys.stderr,
+        )
         return 1
     saved = engine.save_manifest(out_path, deterministic=args.deterministic)
     print(f"[MANIFEST] Manifest generated at: {saved}")

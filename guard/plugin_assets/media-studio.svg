@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Media Studio">
+  <title>Media Studio</title>
+  <rect x="18" y="24" width="92" height="80" rx="16" fill="none" stroke="#12856E" stroke-width="6"/>
+  <line x1="32" y1="40" x2="96" y2="40" stroke="#C26A15" stroke-width="3" stroke-linecap="round"/>
+  <g stroke-linecap="round" stroke-width="6">
+    <line x1="34" y1="62" x2="34" y2="74" stroke="#12856E"/>
+    <line x1="46" y1="52" x2="46" y2="84" stroke="#12856E"/>
+    <line x1="58" y1="46" x2="58" y2="90" stroke="#C26A15"/>
+    <line x1="70" y1="54" x2="70" y2="82" stroke="#12856E"/>
+    <line x1="82" y1="48" x2="82" y2="88" stroke="#C26A15"/>
+    <line x1="94" y1="60" x2="94" y2="76" stroke="#12856E"/>
+  </g>
+</svg>

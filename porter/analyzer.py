@@ -5,6 +5,7 @@ Zero-dependency: strictly uses Python standard library.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -57,11 +58,11 @@ class SuitabilityAnalyzer:
         self.known_agents = self._load_known_agents()
 
     def _load_known_skills(self) -> Dict[str, str]:
-        """Discovers existing skills in the harness to detect overlap."""
+        """Discovers existing skills in the harness (flat `skills/` + hybrid `plugins/<pack>/skills/`) to detect overlap."""
         skills_dir = self.harness_root / "skills"
-        skills = {}
+        skills: Dict[str, str] = {}
         if skills_dir.is_dir():
-            for item in skills_dir.iterdir():
+            for item in sorted(skills_dir.iterdir()):
                 if item.is_dir():
                     skill_file = item / "SKILL.md"
                     if not skill_file.is_file():
@@ -72,8 +73,44 @@ class SuitabilityAnalyzer:
                     except OSError:
                         pass
                     skills[item.name.lower()] = desc
+        plugins_dir = self.harness_root / "plugins"
+        if plugins_dir.is_dir() and not os.path.islink(plugins_dir):
+            try:
+                from guard.plugins import HARNESS_PLUGIN_NAMES
+            except ImportError as exc:
+                import sys
+                print(
+                    f"[WARN] Could not import guard.plugins while scanning {plugins_dir} ({exc}); "
+                    "plugin-owned skills omitted from suitability analysis.",
+                    file=sys.stderr,
+                )
+                HARNESS_PLUGIN_NAMES = frozenset()
+            for pack_name in sorted(HARNESS_PLUGIN_NAMES):
+                pack_dir = plugins_dir / pack_name
+                pack_skills_dir = pack_dir / "skills"
+                if (
+                    os.path.islink(pack_dir)
+                    or os.path.islink(pack_skills_dir)
+                    or not pack_skills_dir.is_dir()
+                ):
+                    continue
+                for item in sorted(pack_skills_dir.iterdir()):
+                    if item.is_dir() and not os.path.islink(item):
+                        skill_file = item / "SKILL.md"
+                        if not skill_file.is_file() or os.path.islink(skill_file):
+                            continue
+                        slug_low = item.name.lower()
+                        if slug_low in skills:
+                            continue
+                        desc = ""
+                        try:
+                            desc = frontmatter_description(skill_file.read_text(encoding="utf-8", errors="ignore"))
+                        except OSError:
+                            pass
+                        skills[slug_low] = desc
+        if skills:
             for slug, (parent, desc) in _CONSOLIDATED_SKILL_DESCRIPTIONS.items():
-                if slug not in skills and (skills_dir / parent / "SKILL.md").is_file():
+                if slug not in skills and parent in skills:
                     skills[slug] = desc
             templates_dir = self.harness_root / "templates"
             for slug, (tmpl_name, desc) in _ARCHIVED_SKILL_TEMPLATES.items():
