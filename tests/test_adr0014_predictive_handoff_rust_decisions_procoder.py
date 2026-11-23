@@ -312,7 +312,7 @@ class TestW1BuiltinBundleChecksumAndCalibration(unittest.TestCase):
 
         # 2. Pre-digest state with newer local last_ack_timestamp preserves locally ack'd checksum (F-16)
         local_ack_cs = "builtin:8888888888888888888888888888888888888888888888888888888888888888"
-        seed_dt = datetime.fromisoformat(str(json.loads(SEED_PATH.read_text(encoding="utf-8"))["last_audit_timestamp"]))
+        seed_dt = datetime.fromisoformat(str(json.loads(self.seed_file.read_text(encoding="utf-8"))["last_audit_timestamp"]))
         ack_state_file = self.root / "cs_ack_state.json"
         ack_state_file.write_text(
             json.dumps(
