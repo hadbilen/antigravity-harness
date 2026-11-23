@@ -204,7 +204,11 @@ def cmd_import(args: argparse.Namespace) -> int:
         meta = {
             "name": name,
             "description": clean_desc,
+            "mainAgent": False,
+            "subagent": True,
+            "inheritMcp": False,
             "access": "read-only",
+            "tools": ["read_file"],
         }
     else:
         meta = {"name": name}
@@ -214,18 +218,18 @@ def cmd_import(args: argparse.Namespace) -> int:
         meta["description"] = clean_desc
     output_content = dump_frontmatter(meta) + "\n" + body.lstrip() + "\n"
 
+    if target_type == "skill" and name.lower() in CONSOLIDATED_SKILL_SLUGS and not args.overwrite:
+        print(
+            f"Error: skill '{name}' overlaps a consolidated ADR-0009 / archived ADR-0014 skill slug. Use --overwrite to force import.",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.dry_run:
         print(f"[DRY-RUN] Target destination: {dest_file}")
         print("-" * 50)
         print(output_content[:500] + ("\n... [truncated]" if len(output_content) > 500 else ""))
         return 0
-
-    if target_type == "skill" and name.lower() in CONSOLIDATED_SKILL_SLUGS and not args.overwrite:
-        print(
-            f"Error: skill '{name}' overlaps a consolidated ADR-0009 skill slug. Use --overwrite to force import.",
-            file=sys.stderr,
-        )
-        return 1
     if dest_file.exists() and not args.overwrite:
         print(f"Error: {dest_file} already exists. Use --overwrite to replace it.", file=sys.stderr)
         return 1

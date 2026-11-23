@@ -91,7 +91,7 @@ Note the evidence boundary: `workspace:"share"` gives each author leaf its own w
 ### 3. Dynamic workflows (`run_workflow`) & native lifecycle hooks
 When orchestrating larger waves through `run_workflow`, obey `GEMINI.md` Rule 15e and Rule 17: workflow scripts act strictly as orchestration glue (`agent`, `parallel`, `pipeline`, `phase`, `trajectory`, `call_tool`), must never execute child processes (`subprocess`, `os.system`) or direct filesystem writes that bypass `PreToolUse`, must default `model` to `"inherit"`, and must never downgrade `model` to `"flash"` or `"flash_lite"` when modifying customization or governance files.
 
-Never run `references/unlazy/scripts/install-hooks.mjs` in Antigravity: `references/unlazy/scripts/install-hooks.mjs` configures Claude Code `.claude/settings*.json` Stop hooks exclusively, whereas Antigravity enforces lifecycle gates (`SessionStart`, `PreInvocation`, `PreToolUse`, `Stop`) natively via `hooks.json` and `guard/agy_hooks.py` across `invoke_subagent`, `swarm`, `run_workflow`, and board/messaging/schedule tools.
+Never run `references/unlazy/scripts/install-hooks.mjs` in Antigravity: `references/unlazy/scripts/install-hooks.mjs` configures Claude Code `.claude/settings*.json` Stop hooks exclusively, whereas Antigravity enforces lifecycle gates (`SessionStart`, `PreInvocation`, `PreToolUse`, `Stop`) natively via `hooks.json` and `~/.local/share/antigravity-harness/runtime/guard/agy_hooks.py` across `invoke_subagent`, `swarm`, `run_workflow`, and board/messaging/schedule tools.
 
 ## Failure and fallback
 

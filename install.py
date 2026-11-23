@@ -45,18 +45,22 @@ from guard.doctor import recover_or_load_registry  # noqa: E402
 from guard.environment import (  # noqa: E402
     ANTIGRAVITY_RUNTIME_ENTRIES,
     CONSOLIDATED_SKILL_SLUGS,
+    CONSTITUTION_RULE_FRONTMATTER,
+    CONSTITUTION_RULE_REL,
     EnvironmentRegistry,
     RegistryError,
+    is_harness_constitution_file,
     migrate_harness_mcp_config,
+    render_constitution_rule,
 )
 from guard.integrity import FileIntegrityMonitor  # noqa: E402
 from guard.lease import LeaseManager  # noqa: E402
-from guard.paths import atomic_write_json, copy_entry, data_dir, state_dir  # noqa: E402
+from guard.paths import atomic_write_json, atomic_write_text, copy_entry, data_dir, state_dir  # noqa: E402
 from guard.startup import StartupManager  # noqa: E402
 
 IS_WINDOWS = platform.system().lower() == "windows"
 SYSTEM = platform.system()
-GOVERNANCE_FILES = ["GEMINI.md", "DESIGN.md", "MISTAKES.md"]
+GOVERNANCE_FILES = ["DESIGN.md"]
 RUNTIME_ENTRIES = ["guard", "porter", "scripts", "guard.py", "porter.py"]
 RUNTIME_PORTABLE_SKILL_SCRIPTS = (
     "skills/antislop/scripts/check_ui_slop.py",
@@ -176,6 +180,11 @@ def _write_protected(adapter, path: Path) -> bool:
     if not os.access(path, os.W_OK):
         return True
     return IS_WINDOWS and path.is_dir() and adapter.is_locked(path, recursive=False)
+
+
+def _is_harness_constitution_file(path: Path) -> bool:
+    """True when `path` appears to be an earlier Antigravity Harness GEMINI.md installation."""
+    return is_harness_constitution_file(path, source_root=SCRIPT_DIR)
 
 
 def _ignore(src: str, names: List[str]) -> List[str]:
@@ -308,6 +317,30 @@ class Installer:
         if not had_existing:
             self._placed_new.append(dest)
 
+    def place_text(self, content: str, dest: Path, label: str = "") -> None:
+        """Writes UTF-8 LF text content to dest after backing up any differing entry."""
+        data = content.replace("\r\n", "\n").encode("utf-8")
+        display = label or (
+            str(dest.relative_to(self.target_dir)) if dest.is_relative_to(self.target_dir) else str(dest)
+        )
+        if self.dry_run:
+            self.log(f"[DRY-RUN] write {display} -> {dest}")
+            return
+        if os.path.lexists(dest) and not os.path.islink(dest) and dest.is_file():
+            try:
+                if dest.read_bytes() == data:
+                    self.installed.append(str(dest))
+                    return
+            except OSError:
+                pass
+        had_existing = self.backup(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(dest, content.replace("\r\n", "\n"), mode=0o644)
+        self.log(f"[WRITTEN] {display}")
+        self.installed.append(str(dest))
+        if not had_existing:
+            self._placed_new.append(dest)
+
     # ------------------------------------------------------------------
     def install_governance(self) -> None:
         prior_installed: set[str] = set()
@@ -328,6 +361,36 @@ class Installer:
             src = SCRIPT_DIR / name
             if src.is_file():
                 self.place(src, self.target_dir / name)
+
+        # Install the global constitution under rules/ (loaded once across Antigravity App, CLI, and IDE/Extensions).
+        gemini_src = SCRIPT_DIR / "GEMINI.md"
+        if gemini_src.is_file():
+            target_rules = self.target_dir / "rules"
+            if os.path.lexists(target_rules) and (os.path.islink(target_rules) or not target_rules.is_dir()):
+                self.backup(target_rules)
+            rule_dest = self.target_dir / CONSTITUTION_RULE_REL
+            self.place_text(
+                render_constitution_rule(gemini_src, mode=self.mode),
+                rule_dest,
+                CONSTITUTION_RULE_REL,
+            )
+            legacy_gemini = self.target_dir / "GEMINI.md"
+            if os.path.lexists(legacy_gemini) and (
+                "GEMINI.md" in prior_installed or _is_harness_constitution_file(legacy_gemini)
+            ):
+                self.backup(legacy_gemini)
+
+        # Retire any previously installed harness-internal MISTAKES.md without touching unrecorded user files.
+        legacy_mistakes = self.target_dir / "MISTAKES.md"
+        if os.path.lexists(legacy_mistakes):
+            is_repo_link = False
+            if os.path.islink(legacy_mistakes):
+                try:
+                    is_repo_link = Path(os.path.realpath(legacy_mistakes)) == (SCRIPT_DIR / "MISTAKES.md").resolve()
+                except OSError:
+                    is_repo_link = False
+            if "MISTAKES.md" in prior_installed or is_repo_link:
+                self.backup(legacy_mistakes)
         manifest = SCRIPT_DIR / ".harness" / "manifest.json"
         if manifest.is_file():
             target_harness = self.target_dir / ".harness"
@@ -775,7 +838,7 @@ class Installer:
             pass
         if not self.dry_run:
             installed_rel = [
-                str(Path(p).relative_to(self.target_dir))
+                Path(p).relative_to(self.target_dir).as_posix()
                 if Path(p).is_relative_to(self.target_dir)
                 else str(p)
                 for p in self.installed
@@ -931,7 +994,7 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
             print(f"[WARN] Could not parse {receipt_path} ({exc}); falling back to canonical harness manifest.", file=sys.stderr)
 
     if not tracked_rel:
-        tracked_rel = list(GOVERNANCE_FILES) + [".harness/manifest.json"]
+        tracked_rel = list(GOVERNANCE_FILES) + [CONSTITUTION_RULE_REL, "GEMINI.md", "MISTAKES.md", ".harness/manifest.json"]
         if (SCRIPT_DIR / "agents").is_dir():
             tracked_rel.extend(f"agents/{p.name}" for p in sorted((SCRIPT_DIR / "agents").glob("*.md")))
         if (SCRIPT_DIR / "skills").is_dir():
@@ -1000,7 +1063,7 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
             _stash(entry, rel_dest)
 
     if not dry_run and target_dir.is_dir() and not os.path.islink(target_dir):
-        for sub_name in (".harness", "agents", "skills", "templates"):
+        for sub_name in (".harness", "agents", "rules", "skills", "templates"):
             sub_dir = target_dir / sub_name
             if sub_dir.is_dir() and not os.path.islink(sub_dir):
                 try:
@@ -1118,7 +1181,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing")
     args = parser.parse_args(argv)
 
-    target_dir = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
+    raw_target = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser()
+    if os.path.islink(raw_target):
+        print(
+            f"[ERROR] Refusing to install into symlinked configuration directory: {raw_target}",
+            file=sys.stderr,
+        )
+        return 1
+    target_dir = raw_target.resolve()
+    if not args.uninstall and target_dir == SCRIPT_DIR.resolve():
+        print(
+            f"[ERROR] Refusing to install into the Antigravity Harness source checkout itself: {target_dir}",
+            file=sys.stderr,
+        )
+        return 1
     if args.uninstall:
         return uninstall_harness(target_dir, dry_run=args.dry_run)
     mode = "link" if args.link else "copy"
@@ -1155,10 +1231,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"[RECOVERED] Quarantined corrupt environment registry -> {quarantined}")
     env = registry.get_environment("antigravity")
     was_locked = registry.is_locked("antigravity").get("antigravity", False)
-    # Anything already write-protected (fully or partially) must be released first.
-    has_locked_parts = any(_write_protected(registry.os_adapter, Path(p))
-                           for p in ([target_dir] if target_dir.exists() else []) + env.get_governance_paths(existing_only=True)
-                           if not os.path.islink(p))
+    # Anything already write-protected (fully or partially, including legacy retired GEMINI.md / MISTAKES.md) must be released first.
+    legacy_release_paths = [
+        target_dir / name
+        for name in ("GEMINI.md", "MISTAKES.md")
+        if os.path.lexists(target_dir / name) and not os.path.islink(target_dir / name)
+    ]
+    has_locked_parts = any(
+        _write_protected(registry.os_adapter, Path(p))
+        for p in ([target_dir] if target_dir.exists() else [])
+        + env.get_governance_paths(existing_only=True)
+        + legacy_release_paths
+        if not os.path.islink(p)
+    )
     if (was_locked or has_locked_parts) and not args.dry_run:
         if not install_approved and not request_approval(
             "install",
@@ -1171,6 +1256,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not ok:
             print(f"[ERROR] Could not unlock the governance scope: {msg}", file=sys.stderr)
             return 1
+        for lp in legacy_release_paths:
+            registry.os_adapter.unlock(lp, recursive=False)
 
     for line in release_runtime_state(registry.os_adapter, target_dir, dry_run=args.dry_run):
         print(line)

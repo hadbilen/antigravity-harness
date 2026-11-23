@@ -21,6 +21,9 @@ Use the lightweight ADR format proposed by Michael Nygard, adapted for AI-assist
 **Date**: YYYY-MM-DD
 **Status**: proposed | accepted | deprecated | superseded by ADR-NNNN
 **Deciders**: [who was involved]
+**Proposed By**: User | Model (<Model Display Name & Effort>)
+**Approved By**: User | pending
+**Authority**: User Constraint | Model Recommendation
 
 ## Context
 
@@ -62,13 +65,23 @@ What becomes easier or more difficult to do because of this change?
 - [risk and mitigation]
 ```
 
+### Decision Provenance & Backward Compatibility
+
+Record explicit provenance on every newly authored ADR so future maintainers and `/retro` passes can distinguish operator mandates from model-proposed architecture:
+
+- **`Proposed By`:** `User` when the human operator originated the option or constraint, or `Model (<Model Display Name & Effort>)` (for example, `Model (Gemini 4 Neon, XHigh)`) when an AI model proposed the design.
+- **`Approved By`:** `User` once the human operator explicitly accepts the ADR (use `pending` while `Status` is `proposed`).
+- **`Authority`:** `User Constraint` for binding operator requirements versus `Model Recommendation` for model-proposed architectural choices eligible for later `/retro` calibration review.
+- **Backward Compatibility (`docs/adr/0001..0013`):** Historical ADRs authored before structured provenance fields were adopted remain valid without mandatory backfill; apply the three fields to all newly created ADRs going forward.
+- **Single-Source-of-Truth Boundary vs. Opt-In `DECISIONS.md` (`~/.gemini/config/templates/DECISIONS.template.md`):** Keep deep Tier-3 architectural context, rejected alternatives, and consequences exclusively in `docs/adr/NNNN-*.md`. When a repository opts into a root `DECISIONS.md` ledger (`<= 150` lines, created only on explicit user request), record Tier-2 design choices there directly and add only a 1-line summary pointer to any Tier-3 ADR without duplicating ADR prose.
+
 ## Workflow
 
 ### Capturing a New ADR
 
 When a decision moment is detected:
 
-1. **Initialize (first time only):** If `docs/adr/` does not exist and an ADR is already required (Tier 3 planning) or explicitly requested (`/adr`), create `docs/adr/`, a `README.md` seeded with the index table header (see ADR Index Format below), and a blank `template.md` for manual use directly under the Reversible-First default (`skills/harness/SKILL.md` §1) without pausing for a low-stakes confirmation. Ask before initializing `docs/adr/` only when proposing an unsolicited ADR from implicit conversation signals.
+1. **Initialize (first time only):** If `docs/adr/` does not exist and an ADR is already required (Tier 3 planning) or explicitly requested (`/adr`), create `docs/adr/`, a `README.md` seeded with the index table header (see ADR Index Format below), and a blank `template.md` for manual use directly under the Reversible-First default (`~/.gemini/config/skills/harness/SKILL.md` §1) without pausing for a low-stakes confirmation. Ask before initializing `docs/adr/` only when proposing an unsolicited ADR from implicit conversation signals.
 2. **Identify the decision:** Extract the core architectural choice being made.
 3. **Gather context:** State the problem that prompted this decision and the active constraints.
 4. **Document alternatives with weighted criteria:** Record the other options considered and why each was rejected. Do not treat criteria as equally weighted: name the decision-driving constraint and whether a single critical failure mode outweighed several minor advantages.
@@ -172,3 +185,4 @@ proposed → accepted → [deprecated | superseded by ADR-NNNN]
 
 - **`harness` & `deep-grill` (Tier 3 Planning)**: when a Tier 3 architectural change (`>8 files`, schema, authentication, or cross-system protocol shift) is planned, record the decision in `docs/adr/` alongside `implementation_plan.md`.
 - **`consistency-auditor` & `specification-gap-auditor`**: verify that newly proposed specifications and architectural changes conform to accepted ADRs or explicitly supersede them.
+- **`retro` (`~/.gemini/config/skills/retro/SKILL.md`)**: inspects `Proposed By`, `Approved By`, and `Authority` across `docs/adr/` and opt-in `DECISIONS.md` to separate reversed `Model Recommendation` calibration patterns from intentional `User Constraint` pivots.

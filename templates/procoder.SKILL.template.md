@@ -1,12 +1,11 @@
 ---
 name: procoder
 description: >-
-  Work like a senior developer in a repository governed by procoder: drive the spec,
+  Project-local workflow for repositories governed by procoder: drive the spec,
   plan, todo, backlog, and sprint chain in .procoder/ and run procoder commit gates.
-  Use this skill EXCLUSIVELY when the repository already contains a .procoder/
-  directory, when an AGENTS.md explicitly mandates procoder, or when the user
-  explicitly invokes /procoder, "procoder backlog", "procoder sprint", or "procoder release".
-  For standard daily coding tasks, use the core 'harness' skill instead.
+  Copy to .agents/skills/procoder/SKILL.md inside repositories containing .procoder/
+  or an AGENTS.md mandating procoder. For standard daily coding tasks outside .procoder/,
+  use the core 'harness' skill instead.
 license: Apache-2.0
 metadata:
   category: development
@@ -16,7 +15,9 @@ metadata:
 
 # Procoder
 
-You are working in a repository governed by Procoder — a Tier-3 sprint and backlog harness
+Copy this portable template to `.agents/skills/procoder/SKILL.md` in repositories governed by `.procoder/`. Keep `templates/procoder.SKILL.template.md` opt-in so repositories without `.procoder/` incur zero global prompt overhead.
+
+You are working in a repository governed by Procoder, a Tier-3 sprint and backlog harness
 that gives AI coders the tools and discipline of a senior developer. The
 `procoder` binary computes; you act. It never modifies code behind your
 back, and a file it could not check is never reported as clean.
@@ -25,7 +26,7 @@ back, and a file it could not check is never reported as clean.
 ## Mutual Exclusion
 
 - **Activation:** EXCLUSIVELY when the repository contains a `.procoder/` directory, an `AGENTS.md`
-  mandates procoder, or the user explicitly invokes `/procoder`.
+  mandates procoder, or the user explicitly invokes procoder inside a `.procoder/` workspace.
 - **Relationship with `harness`, `unlazy`, `marathon`, and `vibecoder`:** procoder replaces the harness Tier 3 scaffolding (sprint chain in `.procoder/` instead
   of `tasks.md`/`HANDOFF.md` or `.unlazy/` depth tree) while keeping every harness verification gate; it is never combined with `unlazy`, `marathon`, or `vibecoder`.
 - **Deactivation:** ends when the work leaves the `.procoder/` repository or the user says "stop procoder";
@@ -34,57 +35,57 @@ back, and a file it could not check is never reported as clean.
 ## The contract
 
 - **Missing-Binary Stop Rule (`GEMINI.md` Rule 12):** Verify `command -v procoder` first. If the `procoder` binary is absent from `PATH`, halt immediately without attempting `.procoder/` CLI gates or unpinned binary installation (`GEMINI.md` Rule 12), report the missing binary, and ask the user whether to install `procoder` or proceed under `harness`.
-- Before calling any work finished, run `procoder check` — the commit
-  gate. Blocking findings (unformatted files, conflict markers, junk,
+- Before calling any work finished, run `procoder check` (the commit
+  gate). Blocking findings (unformatted files, conflict markers, junk,
   secrets, attribution lines) must be fixed, not argued with.
 - `procoder format <file>` prints the formatted result; you review and
   write it. The binary never touches the file.
 - Never add AI-attribution lines (Co-Authored-By, "generated with") to
-  commits or PRs — `procoder scrub` verifies. If the gate blocks one you
+  commits or PRs (`procoder scrub` verifies). If the gate blocks one you
   did not write, the host appended it and will append it again next
-  commit: turn it off at the source rather than amending forever
+  commit: turn it off at the source instead of amending forever
   (docs/portability.md, "The trailer your host adds").
 - Deliberate corner-cuts carry a `debt:` comment naming the ceiling and
   the revisit condition; `procoder debt` harvests the ledger.
 - Specs live in `.procoder/specs/`, plans in `.procoder/plans/`, tasks
-  in `.procoder/todo/` — each has a quality controller (`spec check`,
+  in `.procoder/todo/`; each has a quality controller (`spec check`,
   `plan check`, `todo close`) that blocks until the work is actually
   complete. Do not game the checkboxes; the controllers ask for evidence.
 - Run `procoder test` before claiming anything works. NOT run is never
   green. Where `[test] policy = "block"`, the closes refuse on a red or
   unverifiable suite.
 - A file an agent session could have written is never executed
-  automatically. procoder reads plenty of it — `.procoder/ask/`, the
-  handoff note, the backlog, the specs — and hooks run unattended on every
+  automatically. procoder reads plenty of it (`.procoder/ask/`, the
+  handoff note, the backlog, the specs), and hooks run unattended on every
   write and every commit. Display it, and require a separate step a human
   invokes before anything from it runs. `procoder run` is the shape: it
   prints the declared launch commands, executes only under `--exec`, and
-  refuses even then when more than one candidate exists rather than
+  refuses even then when more than one candidate exists instead of
   guessing which you meant.
 - A merge conflict is resolved hunk by hunk, by what each side was trying
-  to do. `git merge --abort` and `git rebase --abort` are not resolutions —
+  to do. `git merge --abort` and `git rebase --abort` are not resolutions:
   they erase the attempt. Being stuck is a thing to say, not a thing to
-  undo. Read the resolved file rather than trusting its shape: git splits a
+  undo. Read the resolved file instead of trusting its shape: git splits a
   conflict wherever the texts diverge, including through the middle of a
   function, so "keep both sides" can leave one side without its closing
   lines and still look plausible.
 - Before calling a piece of work finished, four passes in order, each a
   different question. Implement what was scoped, with nothing quietly
   deferred. Reread the diff as a reviewer who did not write it. Hunt
-  defects deliberately — `procoder review` is that pass, and its
+  defects deliberately: `procoder review` is that pass, and its
   `resilience` and `edge-case` lenses are pointed at exactly it. Then the
   cheap polish: a name, a comment, a small robustness gap, and stop there.
   Thoroughness comes from asking four different questions, not from
   asking the same one harder.
 - Splitting work does not divide the care. The eleventh story in an epic
   gets the same four passes as the first, and a task decomposed three
-  levels deep gets them at every leaf — not a share of them. "I am nine
+  levels deep gets them at every leaf, not a share of them. "I am nine
   stories in, I know this codebase now, I can go faster" is the feeling
   that precedes the bug that took the longest to find. Depth is where
   attention leaks: the work looks familiar, the pieces left look small,
   and each one is still somebody's afternoon spent reading what you wrote.
-- A decision that is not yours to make — commit or hold, merge now or
-  after, which of two approaches — goes in `.procoder/ask/decisions.md`,
+- A decision that is not yours to make (commit or hold, merge now or
+  after, which of two approaches) goes in `.procoder/ask/decisions.md`,
   one `## ` heading per decision with its options beneath, and then you
   ask. `procoder ask` collects it with everything else. Asking without
   recording means the question dies at the next compaction; recording
@@ -95,52 +96,52 @@ back, and a file it could not check is never reported as clean.
 Non-trivial work starts above the code, and each link refuses to advance
 until its own gap is closed.
 
-- `procoder spec <sub>` — `template <name> | list | check` in
+- `procoder spec <sub>`: `template <name> | list | check` in
   `.procoder/specs/`. Check blocks while a section is empty, a question
   in Open questions is unanswered (`procoder ask` records answers), or a
   criterion is untestable.
-- `procoder plan <sub>` — `template | list | check` in
+- `procoder plan <sub>`: `template | list | check` in
   `.procoder/plans/`. Check blocks on placeholders and on tasks without
   files or steps. Write the plan for a stranger; never say "same as
   task N".
-- `procoder backlog <sub>` — the project layer in `.procoder/backlog/`:
+- `procoder backlog <sub>`: the project layer in `.procoder/backlog/`:
   `milestone | epic | story | bug | seed <spec> | list | board | close`.
   Seed decomposes a COMPLETE spec into an epic and its stories. Story
   closes carry todo rigor; epic and milestone closes refuse while a
   child is open.
-- `procoder sprint <sub>` — `open`, `pull`, `carry`, `status`, `close`.
+- `procoder sprint <sub>`: `open`, `pull`, `carry`, `status`, `close`.
   One active sprint at a time. Close refuses while a committed story is
   neither done nor carried back with a reason, and scaffolds the retro
   the next `open` requires.
-- `procoder todo <sub>` — `add | list | show | close`. The standalone
+- `procoder todo <sub>`: `add | list | show | close`. The standalone
   list for work not born from a spec; `close` refuses without checked
   criteria, recorded evidence, and a clean gate.
-- `procoder adr <sub>` — `new <title> | list | check` in
+- `procoder adr <sub>`: `new <title> | list | check` in
   `.procoder/adr/`. Records are immutable: a changed mind supersedes,
   never rewrites. Check refuses hollow records and dangling supersedes.
-- `procoder release [<version>]` — the pre-tag controller: version sync
+- `procoder release [<version>]`: the pre-tag controller (version sync
   across `[release] files`, the changelog entry, a clean tree, the
-  gate, and the suite. It prints the `git tag` command; it never tags.
-  The whole process — deciding the version, the changelog's link and
+  gate, and the suite). It prints the `git tag` command; it never tags.
+  The whole process (deciding the version, the changelog's link and
   credit rules, the contract bump, the pull request, tagging a commit
   that is on main, and CI publishing the binaries nobody builds by
-  hand — is written down in `RELEASE.md` at the repository root, and
+  hand) is written down in `RELEASE.md` at the repository root, and
   the tag command above is only its step 7.
 
 ## Parallel work
 
-- Fan out when the work decomposes: independent units — research, separate
-  files, separate verification — run in parallel. Subagents where the host
+- Fan out when the work decomposes: independent units (research, separate
+  files, separate verification) run in parallel. Subagents where the host
   has them, parallel sessions where it does not. The ceiling is the unit, not
   the headcount: an independent fifteen-minute fix stays serial, and more
   agents than independent work is not parallelism, it is a pileup.
 - Writers are fenced by the tree, not by politeness: two agents that will
   touch the same files or the same feature each get their own `git worktree`
-  on their own branch — the parent creates the worktree and names each agent
-  its path. Read-only, file-disjoint work shares the tree; a worktree is a
+  on their own branch (the parent creates the worktree and names each agent
+  its path). Read-only, file-disjoint work shares the tree; a worktree is a
   fence, not a tax, so no fence when nothing collides.
 - Convergence is the chain, not a shortcut: each writer lands a mergeable
-  diff on its own branch — one branch, one writer — and the merges go back
+  diff on its own branch (one branch, one writer) and the merges go back
   through the normal way: the gate on every merge, the four passes over the
   merged result, not a share of them. The worktree is scratch; the branch
   is what outlives it. Subagents inherit every rule in this file the way a
@@ -149,11 +150,11 @@ until its own gap is closed.
 
 ## Which command, right now
 
-Read down; take the first row that matches — and run it. The trigger is the
+Read down; take the first row that matches and run it. The trigger is the
 situation, not a request: "mid-change, about to say it is done" means the
 gate runs on its own, not when told and not when convenient. The hosts offer
-the same commands through different surfaces — slash command, plugin tool,
-hook — and a command the host offers is workflow, not a feature to ask about;
+the same commands through different surfaces (slash command, plugin tool,
+hook), and a command the host offers is workflow, not a feature to ask about;
 the verdict is the same whichever surface carried it, and a blocked gate
 outranks a finished-sounding turn.
 
@@ -179,7 +180,7 @@ sentence; the right is what is true when it is said.
 | The thought                                         | What is true                                                                                                                       |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | "Small fix, I will skip `procoder check` this once" | The gate exists for changes too small to look worth checking. That is precisely when it gets skipped and something ships broken.   |
-| "I know what they meant, I will answer this myself" | An answer the user never saw is not a decision, it is a guess wearing one's clothes — and they never learn they were not asked.    |
+| "I know what they meant, I will answer this myself" | An answer the user never saw is not a decision, it is a guess wearing one's clothes, and they never learn they were not asked.     |
 | "The debt comment is self-explanatory"              | `procoder debt` harvests the ceiling and the revisit condition. A marker without them is unharvestable, which is to say invisible. |
 | "Tests are slow, I will run the gate without them"  | NOT run is never green. "I will add tests after" is how untested code ships permanently.                                           |
 | "The suite was green before my change"              | Before is not after. The one run that matters is the one over what you are about to commit.                                        |
@@ -189,7 +190,7 @@ sentence; the right is what is true when it is said.
 
 ## Before you call it done
 
-Not prose to agree with — five things with an answer.
+Not prose to agree with: five things with an answer.
 
 - [ ] `procoder check` ran clean over this change, this turn
 - [ ] `procoder test` ran, and passed, over what is about to be committed
@@ -202,7 +203,7 @@ Not prose to agree with — five things with an answer.
 Climb this ladder and stop at the first rung that holds: does it need to
 exist at all → does this codebase already have it → stdlib → platform →
 an installed dependency → one line → only then the minimum code that
-works. The ladder runs AFTER you understand the problem — read every
+works. The ladder runs AFTER you understand the problem: read every
 file the change touches first. Bug fix = root cause: find every caller
 before editing. Never simplify away input validation, error handling
 that prevents data loss, security, or accessibility. Non-trivial logic
@@ -212,46 +213,48 @@ text).
 
 ## The toolbox
 
-- `procoder doctor` / `procoder init` — which tools this repo needs and
+- `procoder doctor` / `procoder init`: which tools this repo needs and
   how to install the gaps.
-- `procoder index <sub>` — the code map: find, search, refs, outline,
-  callers, impact, unused, entrypoints. Reach for it before grepping.
+- `procoder index <sub>`: the code map (find, search, refs, outline,
+  callers, impact, unused, entrypoints). Reach for it before grepping.
 - `procoder lint [--types]` / `security [--deep]` / `ci` / `infra` /
-  `docs [--external]` / `maintain` — the domain reports; blocking beats
+  `docs [--external]` / `maintain`: the domain reports; blocking beats
   advisory, honesty beats convenience.
-- `procoder test [--coverage]` — every detected ecosystem's canonical
+- `procoder test [--coverage]`: every detected ecosystem's canonical
   runner. Coverage is reported, never enforced.
-- `procoder bench [--save]` — Go benchmarks against the saved baseline
+- `procoder bench [--save]`: Go benchmarks against the saved baseline
   (`.procoder/bench/baseline.txt`); regressions past `[bench] threshold`
   exit 1. Go only in this version. `--save` is a deliberate decision.
-- `procoder deps` — outdated dependencies per ecosystem, licenses where
+- `procoder deps`: outdated dependencies per ecosystem, licenses where
   a tool exists. Report-only: the judgment stays yours.
-- `procoder audit` — the whole-tree onboarding sweep for a repo procoder
+- `procoder audit`: the whole-tree onboarding sweep for a repo procoder
   has not governed before.
-- `procoder git` and `procoder templates` — pre-finish status and the
+- `procoder git` and `procoder templates`: pre-finish status and the
   repo's template files under `.procoder/`.
-- `procoder ask` — the questions no domain can answer for itself. When
+- `procoder ask`: the questions no domain can answer for itself. When
   you are handed one, STOP and put it to the user: an invented answer is
   indistinguishable from a decision. Record theirs with
   `procoder ask --file <path>`.
-- `procoder agents` — the per-host rule files derived from this file.
+- `procoder agents`: the per-host rule files derived from this file.
   Regenerate after editing it; drift blocks the gate.
-- `procoder lessons` — the ledger of what escaped the gates. A lesson
+- `procoder lessons`: the ledger of what escaped the gates. A lesson
   with no adaptation is UNLEARNED and exits 1.
-- `procoder copilot-leak` — what Copilot's auto-review caught that our
+- `procoder copilot-leak`: what Copilot's auto-review caught that our
   gates did not: sanitised, filed as issues only if you say yes, and
   recorded as unlearned. `--from-copilot` reads that ledger back.
-- `procoder hook post-tool-use` — the write hook's entry point, wired by
+- `procoder hook post-tool-use`: the write hook's entry point, wired by
   the plugin. You do not call it by hand.
-- `procoder version` — the version, when a report needs to name it.
-- `procoder version --check` and `procoder self-upgrade [--confirm <sha256>]` —
+- `procoder version`: the version, when a report needs to name it.
+- `procoder version --check` and `procoder self-upgrade [--confirm <sha256>]`:
   what is newer than this binary, and the install, after an explicit yes (or,
   with no terminal, via the `--confirm <64-hex-sha256>` checksum handshake /
   `.procoder/ask/decisions.md`). The upgrade
   refuses to move backwards and steps aside from a package manager's
   install. When a session start reports a newer version, say so and ask
-  the user rather than upgrading on their behalf.
+  the user instead of upgrading on their behalf.
 
 Install: the binary ships per platform in `dist/` of the procoder repo
 (github.com/azrtydxb/procoder); put the one for your platform on PATH,
 or use the Claude Code plugin which wires everything automatically.
+
+<!-- Adapted from azrtydxb/procoder under the Apache License 2.0 and modified for opt-in project-local use with Antigravity Harness; see THIRD_PARTY_NOTICES.md. -->

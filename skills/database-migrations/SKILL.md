@@ -15,7 +15,7 @@ This skill enforces safe schema evolutions, rollback strategies, and zero-downti
 - Writing data backfill migrations
 - Planning database deployments under active production traffic
 - Designing rollbacks for failed or reverted deployments
-- Before delivering any migration that alters or drops persisted columns/tables, dispatch `contract-change-auditor` (`agents/contract-change-auditor.md`) to verify expand-and-contract compatibility and rollback safety.
+- Before delivering any migration that alters or drops persisted columns/tables, dispatch `contract-change-auditor` (`~/.gemini/config/agents/contract-change-auditor.md`) to verify expand-and-contract compatibility and rollback safety.
 
 ## Core Principles
 

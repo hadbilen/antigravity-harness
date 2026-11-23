@@ -66,6 +66,6 @@ Fixing the mistake repairs one instance; fixing the hazard eliminates the class.
 
 - **Never accept "asked not to" (comments/docs) as a mistake-proofing fix** when a type, schema, or lint device is available.
 - **Never weaken existing tests to fit a new device (`GEMINI.md` Rule 9).** Existing test assertions are never edited or deleted without explicit user authorization (`## Authorized Test Modifications` in `tasks.md`).
-- **Size interface-changing devices by the `harness` 3-Tier Execution Ladder:** changing a public signature affects every caller and requires blast-radius mapping (`skills/harness/SKILL.md` §1).
+- **Size interface-changing devices by the `harness` 3-Tier Execution Ladder:** changing a public signature affects every caller and requires blast-radius mapping (`~/.gemini/config/skills/harness/SKILL.md` §1).
 
 <!-- Parts of this file and of hazards.md and languages.md are adapted from third-party work under the MIT License and were changed for this harness; see THIRD_PARTY_NOTICES.md. -->

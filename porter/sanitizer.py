@@ -790,6 +790,16 @@ class ConstitutionalSanitizer:
         text = re.sub(_home_cfg + r"/sidecars/?", ".harness/sidecars/", text)
         text = re.sub(_home_cfg + r"/", ".harness/", text)
         text = re.sub(_home_cfg + r"\b", ".harness", text)
+        _home_rt = (
+            r"(?:(?:~|\$HOME|\$\{HOME\}|/home/[^/\s`'\"]+|/Users/[^/\s`'\"]+)"
+            r"(?:/\.local/share|/Library/Application Support)"
+            r"|\$XDG_DATA_HOME|\$\{XDG_DATA_HOME\}|\$AGY_GUARD_DATA_DIR|\$\{AGY_GUARD_DATA_DIR\}"
+            r"|%LOCALAPPDATA%|[A-Za-z]:[/\\]Users[/\\][^/\\\s`'\"]+[/\\]AppData[/\\]Local)"
+            r"[/\\]antigravity-(?:harness|guard)[/\\]runtime"
+        )
+        text = re.sub(_home_rt + r"[/\\](guard(?:/|\.py\b)|scripts/|porter(?:/|\.py\b)|skills/)", r"\1", text)
+        text = re.sub(_home_rt + r"[/\\]", ".harness/runtime/", text)
+        text = re.sub(_home_rt + r"\b", ".harness/runtime", text)
 
         sentinel_base = "__PORTER_FENCED_BLOCK"
         while sentinel_base in text:

@@ -7,7 +7,7 @@ This skill enforces zero-trust security checks, defense-in-depth principles, and
 - Running a pre-deployment security checklist across secrets, HTTP headers, transport security, and cloud infrastructure
 - User explicitly invokes `/security-review` or requests a `security review checklist`
 - Verifying authentication, authorization, untrusted input/upload handling, API endpoints, credentials, or payment boundaries before release
-- **Boundary Disambiguation:** For active code design of hard-to-misuse interfaces and compile-time state guards, use `skills/harness/references/mistake-proofing.md`. For read-only adversarial boundary audits with negative test generation, use `/audit --boundary` (`skills/audit/SKILL.md`).
+- **Boundary Disambiguation:** For active code design of hard-to-misuse interfaces and compile-time state guards, use `~/.gemini/config/skills/harness/references/mistake-proofing.md`. For read-only adversarial boundary audits with negative test generation, use `/audit --boundary` (`~/.gemini/config/skills/audit/SKILL.md`).
 
 ## Context Hygiene & Think in Code
 
@@ -71,9 +71,9 @@ For critical security audits, authentication/authorization overhauls, or multi-t
 ## Pre-Deployment Verification Gate
 
 1. **Static Secret Scan:** Run `git diff origin/main --name-only -G "(key|secret|token|password)[[:space:]]*[:=]"` to list files that add secret-like assignments (file names only; inspect them without echoing values).
-2. **Cloud & Infrastructure:** For deployments, IAM, logging/monitoring or CI/CD changes, also apply the checklist in `skills/audit/references/cloud-infrastructure-security.md`.
+2. **Cloud & Infrastructure:** For deployments, IAM, logging/monitoring or CI/CD changes, also apply the checklist in `~/.gemini/config/skills/audit/references/cloud-infrastructure-security.md`.
 3. **Endpoint Auth Audit:** Verify every exported route / controller implements explicit auth guard.
 4. **Automated Security Tests:** Run integration tests verifying unauthorized access returns 401/403.
 5. **Boundary & Result Requirement:** For every reported vulnerability, name the lower-trust principal, accepted input or action, crossed control boundary, and concrete owner-observable result; do not elevate a checklist preference or self-impact into a severity-ranked vulnerability.
 6. **Source Visibility Discipline:** When external controls (reverse proxy, Web Application Firewall (WAF), Identity and Access Management (IAM) policy, or broker Access Control Lists (ACLs)) are absent from the repository, mark the item `[OPEN QUESTION]` with the exact missing deployment fact instead of assuming those controls exist or are missing.
-7. **Internal Security Posture Ledger (`SECURITY_POSTURE.md`):** When `SECURITY_POSTURE.md` exists in the repository (`skills/audit/SKILL.md` §3.B), verify every `[ENFORCED]` row's cited code path and test path exist on disk (reporting missing paths as `[FACT]` `HIGH` findings), and block release sign-off if any `` `[REQUIRED — UNVERIFIED]` `` row sets `Release Blocker = YES`.
+7. **Internal Security Posture Ledger (`SECURITY_POSTURE.md`):** When `SECURITY_POSTURE.md` exists in the repository (`~/.gemini/config/skills/audit/SKILL.md` §3.B), verify every `[ENFORCED]` row's cited code path and test path exist on disk (reporting missing paths as `[FACT]` `HIGH` findings), and block release sign-off if any `` `[REQUIRED — UNVERIFIED]` `` row sets `Release Blocker = YES`.

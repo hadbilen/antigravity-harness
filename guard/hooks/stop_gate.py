@@ -128,7 +128,7 @@ def _is_exempt_harness_scanner_path(norm_path: str, workspace: Optional[Path]) -
 
 def _extract_latest_assistant_message(payload: Dict[str, Any]) -> str:
     """Returns the latest assistant response text from payload or transcriptPath JSONL."""
-    for key in ("lastAssistantMessage", "assistantMessage", "response"):
+    for key in ("lastAssistantMessage", "response"):
         val = payload.get(key)
         if isinstance(val, str) and val.strip():
             return val.strip()
@@ -846,7 +846,7 @@ def _extract_relaxed_assert_subject(line_body: str) -> Optional[Tuple[str, str]]
             return subj, "truthy"
     return None
 
-def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[str]:
+def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None, *, base_ref: str = "") -> List[str]:
     """
     Scans a unified git diff (`git diff -U0`) for:
       1. Tautological assertions & calendar time-bombs in test files
@@ -1074,8 +1074,9 @@ def inspect_git_diff(diff_text: str, workspace: Optional[Path] = None) -> List[s
                 ):
                     continue
                 new_test_src = disk_test.read_text(encoding="utf-8", errors="replace")
+                ast_ref = base_ref or "HEAD"
                 head_blob = subprocess.run(
-                    ["git", "-c", "core.quotePath=false", "-C", str(workspace), "show", f"HEAD:{norm_path}"],
+                    ["git", "-c", "core.quotePath=false", "-C", str(workspace), "show", f"{ast_ref}:{norm_path}"],
                     capture_output=True,
                     text=True,
                     timeout=2,
@@ -1706,10 +1707,290 @@ def _compute_workspace_excluded_test_paths(
         diff_excluded |= _committed_untouched_test_paths(workspace, rem_untouched)
     return diff_excluded, boundary_excluded
 
+_NON_GIT_MAX_TOUCHED_FILES = 50
+_NON_GIT_MAX_FILE_BYTES = 262144
+
+
+def _is_git_unborn_head(workspace: Path) -> bool:
+    """True strictly when `workspace` is a git repository on an unborn branch with zero commits yet."""
+    git_base = ["git", "-c", "core.quotePath=false", "-C", str(workspace)]
+    try:
+        head_chk = subprocess.run(
+            [*git_base, "rev-parse", "--verify", "HEAD^{commit}"],
+            capture_output=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        if head_chk.returncode == 0:
+            return False
+        sym = subprocess.run(
+            [*git_base, "symbolic-ref", "-q", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        ref_name = (sym.stdout or "").strip()
+        if sym.returncode != 0 or not ref_name.startswith("refs/heads/") or ".." in ref_name:
+            return False
+        ref_chk = subprocess.run(
+            [*git_base, "show-ref", "--verify", "--quiet", ref_name],
+            capture_output=True,
+            timeout=3,
+            stdin=subprocess.DEVNULL,
+        )
+        return ref_chk.returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+_ANSI_OSC_CTRL_RE = re.compile(
+    r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|[\x00-\x1f\x7f\u200e\u200f\u202a-\u202e\u2066-\u2069]"
+)
+_NON_GIT_WALK_SKIP_DIRS = frozenset({
+    ".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
+    "target", "build", "dist", ".next", ".turbo", ".cache",
+})
+_NON_GIT_SCAN_EXTS = frozenset({
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json", ".toml", ".svg",
+    ".html", ".htm", ".css", ".scss", ".vue", ".svelte", ".astro",
+})
+
+
+def _sanitize_operator_text(text: str, limit: int = 160) -> str:
+    cleaned = _ANSI_OSC_CTRL_RE.sub(" ", text or "")
+    return " ".join(cleaned.split())[:limit]
+
+
+def _should_use_session_base_head(
+    ws_base_head: str,
+    conv_id: str,
+    prov: Dict[str, Any],
+) -> bool:
+    if not ws_base_head:
+        return False
+    if not conv_id or conv_id == "default" or not prov.get("ok", True) or prov.get("conv_touched_overflow"):
+        return True
+    if prov.get("conv_has_shell_write"):
+        return True
+    from guard.test_boundary import TestBoundaryGuard
+
+    for t in prov.get("conv_touched") or set():
+        if _is_test_path(t) or Path(str(t)).name in TestBoundaryGuard.KNOWN_CONFIG_NAMES:
+            return True
+    return False
+
+
+def _inspect_non_git_touched_files(
+    workspace: Path,
+    conv_id: str,
+    prov: Dict[str, Any],
+) -> List[str]:
+    """
+    Fallback Stop-gate scanner for non-git workspaces (`5.5`): inspects `flight_recorder`
+    `touched_files` (bounded by file count and size) for syntax corruption, UI slop,
+    unapproved test-skip/tautology markers, and C9 test-runner sniffing.
+    """
+    findings: List[str] = []
+    if prov.get("ok") is False:
+        findings.append(
+            f"Flight-recorder state could not be verified in non-git workspace `{workspace.name}` "
+            "— touched files could not be audited (failing closed; GEMINI.md Rule 8 & Rule 9)."
+        )
+
+    touched_paths: set[str] = set(prov.get("conv_touched") or set())
+    default_shell_write = False
+    default_overflow = False
+    if not touched_paths and (not conv_id or conv_id == "default"):
+        flight_file = _flight_recorder_file()
+        if flight_file.is_file():
+            try:
+                ws_key = str(workspace.resolve())
+                with file_lock(flight_file, timeout=HOOK_LOCK_TIMEOUT):
+                    ok, ledger = _read_ledger_checked(flight_file, quarantine=False)
+                if not ok:
+                    findings.append(
+                        f"Flight-recorder ledger `{flight_file.name}` is unreadable or corrupt in non-git "
+                        f"workspace `{workspace.name}` (failing closed; GEMINI.md Rule 8 & Rule 9)."
+                    )
+                else:
+                    convs = _extract_ws_flight_conversations(ledger.get(ws_key))
+                    def_rec = convs.get("default")
+                    if isinstance(def_rec, dict) and str(def_rec.get("status") or "") in (
+                        "in_flight",
+                        "in_progress_blocked",
+                        "interrupted_notified",
+                    ):
+                        if def_rec.get("touched_files_overflow"):
+                            default_overflow = True
+                        for item in def_rec.get("touched_files") or []:
+                            if not isinstance(item, str) or not item.strip():
+                                continue
+                            s_item = item.strip()
+                            if s_item.startswith("<shell:"):
+                                default_shell_write = True
+                            elif not s_item.startswith("<"):
+                                norm_i = s_item.replace("\\", "/").lstrip("./")
+                                if norm_i:
+                                    touched_paths.add(norm_i)
+            except (OSError, RuntimeError, TimeoutError) as exc:
+                sys.stderr.write(f"[Harness Stop Gate] Non-git flight-recorder read failed ({type(exc).__name__}): {exc}\n")
+                findings.append(
+                    f"Flight-recorder read failed in non-git workspace `{workspace.name}` ({type(exc).__name__}) "
+                    "— touched files could not be verified (failing closed; GEMINI.md Rule 8 & Rule 9)."
+                )
+
+    needs_bounded_walk = bool(
+        prov.get("conv_has_shell_write")
+        or prov.get("conv_touched_overflow")
+        or default_shell_write
+        or default_overflow
+    )
+    walk_overflow = False
+    if needs_bounded_walk:
+        walk_count = 0
+        try:
+            for dirpath, dirnames, filenames in os.walk(workspace, followlinks=False):
+                dirnames[:] = sorted(d for d in dirnames if d not in _NON_GIT_WALK_SKIP_DIRS and not d.startswith("."))
+                for fname in sorted(filenames):
+                    fp = Path(dirpath) / fname
+                    if fp.is_symlink():
+                        continue
+                    rel_w = fp.relative_to(workspace).as_posix()
+                    low_w = rel_w.lower()
+                    if _is_test_path(rel_w) or Path(low_w).suffix in _NON_GIT_SCAN_EXTS:
+                        touched_paths.add(rel_w)
+                        walk_count += 1
+                        if walk_count > _NON_GIT_MAX_TOUCHED_FILES:
+                            walk_overflow = True
+                            break
+                if walk_overflow:
+                    break
+        except OSError as exc:
+            sys.stderr.write(f"[Harness Stop Gate] Non-git workspace walk failed ({type(exc).__name__}): {exc}\n")
+            findings.append(
+                f"Non-git workspace scan failed in `{workspace.name}` ({type(exc).__name__}) "
+                "(failing closed; GEMINI.md Rule 8 & Rule 9)."
+            )
+
+    if not touched_paths:
+        return findings
+
+    from guard.test_boundary import TestBoundaryGuard
+
+    try:
+        ws_resolved = workspace.resolve()
+    except (OSError, RuntimeError) as exc:
+        sys.stderr.write(f"[Harness Stop Gate] Workspace resolve failed ({type(exc).__name__}): {exc}\n")
+        findings.append(
+            f"Could not resolve non-git workspace `{workspace}` ({type(exc).__name__}) "
+            "(failing closed; GEMINI.md Rule 8 & Rule 9)."
+        )
+        return findings
+
+    sorted_touched = sorted(touched_paths)
+    if len(sorted_touched) > _NON_GIT_MAX_TOUCHED_FILES or walk_overflow or prov.get("conv_touched_overflow") or default_overflow:
+        findings.append(
+            f"Non-git workspace `{workspace.name}` exceeded touched-file scan cap (`{_NON_GIT_MAX_TOUCHED_FILES}` files) "
+            "— split edits or initialize git to verify full diff integrity (GEMINI.md Rule 8 & Rule 9)."
+        )
+
+    auth_cache: Dict[str, bool] = {}
+
+    def _is_auth(rel_p: str) -> bool:
+        if rel_p not in auth_cache:
+            auth_cache[rel_p] = _has_authorized_test_modifications(workspace, rel_p)
+        return auth_cache[rel_p]
+
+    for rel in sorted_touched[:_NON_GIT_MAX_TOUCHED_FILES]:
+        if not rel or rel.startswith("<"):
+            continue
+        disk_path = workspace / rel
+        try:
+            if disk_path.is_symlink() or not disk_path.is_file():
+                continue
+            resolved = disk_path.resolve()
+            if not is_within(resolved, ws_resolved):
+                continue
+            if resolved.stat().st_size > _NON_GIT_MAX_FILE_BYTES:
+                findings.append(
+                    f"Touched file `{rel}` in non-git workspace `{workspace.name}` exceeds Stop-gate size cap "
+                    f"(`{_NON_GIT_MAX_FILE_BYTES}` bytes) — inspect manually or split file (GEMINI.md Rule 8 & Rule 9)."
+                )
+                continue
+            content = resolved.read_text(encoding="utf-8", errors="replace")
+        except (OSError, RuntimeError) as exc:
+            sys.stderr.write(f"[Harness Stop Gate] Non-git read failed for `{rel}` ({type(exc).__name__}): {exc}\n")
+            findings.append(
+                f"Could not read touched file `{rel}` in non-git workspace `{workspace.name}` ({type(exc).__name__}) "
+                "— failing closed (GEMINI.md Rule 8 & Rule 9)."
+            )
+            continue
+
+        lower = rel.lower()
+        is_test = _is_test_path(rel)
+
+        # 1. Syntax checks (.py, .json, .toml, .svg)
+        if lower.endswith(".py"):
+            try:
+                ast.parse(content, filename=rel)
+            except SyntaxError as exc:
+                findings.append(
+                    f"Malformed Python syntax in `{rel}` (`line {exc.lineno or 1}: {exc.msg}`) "
+                    "— fix syntax before completing (skills/harness/SKILL.md §3B Step 1)."
+                )
+        elif lower.endswith((".json", ".toml", ".svg")):
+            findings.extend(validate_structured_content(rel, content))
+
+        # 2. UI slop check on non-test UI/game files
+        if not is_test and lower.endswith(_UI_SLOP_EXTENSIONS):
+            findings.extend(validate_ui_slop_content(rel, content))
+
+        # 3. Test-skip / tautology checks or C9 test-runner sniffing
+        lines = content.splitlines()
+        if is_test:
+            for ln in lines:
+                added_ln = f"+{ln}"
+                if _TAUTOLOGY_PY_RE.search(added_ln) or _TAUTOLOGY_JS_RE.search(added_ln):
+                    findings.append(
+                        f"Tautological test assertion in `{rel}` (`{ln.strip()[:80]}`) "
+                        "— assertions must verify real behaviour (GEMINI.md Rule 9)."
+                    )
+                    break
+            for ln in lines:
+                added_ln = f"+{ln}"
+                if _TEST_SKIP_RE.search(added_ln) or bool(TestBoundaryGuard.weakening_lines([ln])):
+                    if not _is_auth(rel):
+                        findings.append(
+                            f"Unapproved test skip or weakening marker in `{rel}` (`{ln.strip()[:80]}`) "
+                            "— skipping or commenting out tests without logging the file under "
+                            "`## Authorized Test Modifications` in `tasks.md` is forbidden (GEMINI.md Rule 9)."
+                        )
+                        break
+        elif not lower.endswith((".md", ".mdc")) and not _is_exempt_harness_scanner_path(rel, workspace):
+            for ln in lines:
+                added_ln = f"+{ln}"
+                if not _COMMENT_ADDED_LINE_RE.match(added_ln) and _TEST_RUNNER_SNIFF_RE.search(added_ln):
+                    findings.append(
+                        f"Test-runner detection in production file `{rel}` (`{ln.strip()[:80]}`) "
+                        "— branching on test-runner state in production code is forbidden (GEMINI.md Rule 9 C9)."
+                    )
+                    break
+
+    seen: set[str] = set()
+    unique: List[str] = []
+    for item in findings:
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique
+
+
 def _verify_workspace_test_boundary(
     workspace: Path,
     *,
     excluded_paths: Sequence[str] = (),
+    base_ref: str = "",
 ) -> List[str]:
     out: List[str] = []
     try:
@@ -1717,27 +1998,90 @@ def _verify_workspace_test_boundary(
 
         tbg = TestBoundaryGuard(workspace_dir=workspace)
         snap_src = tbg._snapshot_source(None)
-        if os.path.lexists(snap_src):
-            authorized = set(TestBoundaryGuard.load_authorized_from_tasks_md(workspace))
-            main_root = TestBoundaryGuard.resolve_linked_worktree_root(workspace)
-            if main_root is not None and snap_src != tbg.state_file and snap_src != tbg.legacy_state_file:
-                authorized |= set(TestBoundaryGuard.load_authorized_from_tasks_md(main_root))
-            for ex_p in excluded_paths:
-                norm_ex = str(ex_p).strip().replace("\\", "/").lstrip("./")
-                if norm_ex:
-                    authorized.add(norm_ex)
-            tb_report = tbg.verify(
-                mode="tdd",
-                authorized_modifications=authorized,
-            )
-            if not tb_report.is_intact:
-                for viol in tb_report.violations:
-                    out.append(f"Test boundary violation in `{workspace.name}`: {viol} (GEMINI.md Rule 9).")
-    except Exception:
+        has_snap = os.path.lexists(snap_src)
+        use_git_head = (not has_snap) and _is_git_repo_workspace(workspace)
+        if not has_snap and not use_git_head:
+            return out
+
+        effective_ref = ""
+        if use_git_head:
+            effective_ref = base_ref or "HEAD"
+            if effective_ref == "HEAD" and _is_git_unborn_head(workspace):
+                return out
+
+        authorized = set(TestBoundaryGuard.load_authorized_from_tasks_md(workspace))
+        main_root = TestBoundaryGuard.resolve_linked_worktree_root(workspace)
+        if main_root is not None and (
+            use_git_head or (snap_src != tbg.state_file and snap_src != tbg.legacy_state_file)
+        ):
+            authorized |= set(TestBoundaryGuard.load_authorized_from_tasks_md(main_root))
+        for ex_p in excluded_paths:
+            norm_ex = str(ex_p).strip().replace("\\", "/").lstrip("./")
+            if norm_ex:
+                authorized.add(norm_ex)
+        tb_report = tbg.verify(
+            mode="tdd",
+            base_ref=effective_ref or None,
+            authorized_modifications=authorized,
+        )
+        if not tb_report.is_intact:
+            for viol in tb_report.violations:
+                out.append(f"Test boundary violation in `{workspace.name}`: {viol} (GEMINI.md Rule 9).")
+    except Exception as exc:
+        sys.stderr.write(f"[Harness Stop Gate] TestBoundaryGuard error in `{workspace}` ({type(exc).__name__}): {exc}\n")
         out.append(
             f"TestBoundaryGuard verification failed in `{workspace}` — test snapshot integrity could not be verified."
         )
     return out
+
+
+def _notify_stop_circuit_breaker(
+    conv_id: str,
+    fingerprint: str,
+    findings: Sequence[str],
+    workspaces: Sequence[Path],
+    count: int,
+    total_strikes: int,
+) -> bool:
+    """
+    Emits a prominent one-line operator warning on stderr and dispatches a non-blocking,
+    per-conversation/fingerprint-throttled desktop alert via `guard.notifier.GuardNotifier`
+    when `stop.circuit_breaker_tripped` fires (`5.4`).
+    """
+    ws_label = _sanitize_operator_text(", ".join(ws.name for ws in workspaces) or "(workspace)", limit=120)
+    safe_conv = _sanitize_operator_text(conv_id or "default", limit=64) or "default"
+    first_finding = _sanitize_operator_text(
+        findings[0] if findings else "unresolved verification finding",
+        limit=160,
+    )
+    sys.stderr.write(
+        f"[Harness Stop Gate — CIRCUIT BREAKER TRIPPED] conv={safe_conv} "
+        f"workspace={ws_label} strikes={count}/{MAX_STRIKES} total={total_strikes} "
+        f"fp={fingerprint} unresolved={len(findings)}: {first_finding} "
+        "(Review diff & guard.log before proceeding.)\n"
+    )
+    sys.stderr.flush()
+    try:
+        from guard.notifier import GuardNotifier, NotificationSeverity
+
+        notifier = GuardNotifier()
+        title = f"Stop Gate Circuit Breaker Tripped ({ws_label})"
+        message = (
+            f"{len(findings)} unresolved finding(s) after {count}/{MAX_STRIKES} strikes "
+            f"[fp:{fingerprint}]: {first_finding}"
+        )
+        return bool(
+            notifier.notify(
+                title=title,
+                message=message,
+                severity=NotificationSeverity.WARNING,
+                key=f"stop_cb:{safe_conv}:{fingerprint}",
+                record_audit=False,
+            )
+        )
+    except Exception as exc:
+        sys.stderr.write(f"[Harness Stop Gate] Circuit-breaker desktop notification failed ({type(exc).__name__}): {exc}\n")
+        return False
 
 def _verify_all_workspaces_test_boundary(workspaces: Sequence[Path]) -> List[str]:
     out: List[str] = []
@@ -1768,8 +2112,8 @@ def _audit_stop_strike(
             warn(event, **fields)
         else:
             audit(event, **fields)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[Harness Stop Gate] Failed to write audit event `{event}` ({type(exc).__name__}): {exc}\n")
 
 def _clear_stop_strikes(strikes_file: Path, conv_id: str) -> None:
     try:
@@ -1849,6 +2193,7 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     def _inspect_workspaces(require_base_head: bool) -> None:
         for ws in workspaces:
+            is_git_ws = _is_git_repo_workspace(ws)
             ws_diff, ws_clean, ws_git_error = _collect_workspace_diff_status_ex(ws, conv_id=conv_id)
             prov = _conversation_write_provenance(ws, conv_id)
             if (
@@ -1869,9 +2214,18 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
             diff_excl, boundary_excl = _compute_workspace_excluded_test_paths(ws, prov, ws_diff)
             scoped_diff = _filter_diff_excluding_paths(ws_diff, diff_excl) if diff_excl else ws_diff
-            if scoped_diff.strip() and (not require_base_head or _session_flight_base_head(ws, conv_id)):
-                ws_findings.extend(inspect_git_diff(scoped_diff, workspace=ws))
-            ws_findings.extend(_verify_workspace_test_boundary(ws, excluded_paths=sorted(boundary_excl)))
+            ws_base_head = _session_flight_base_head(ws, conv_id) if (is_git_ws and not ws_git_error) else ""
+            tb_base_ref = ws_base_head if _should_use_session_base_head(ws_base_head, conv_id, prov) else ""
+            if scoped_diff.strip() and (not require_base_head or ws_base_head):
+                ws_findings.extend(inspect_git_diff(scoped_diff, workspace=ws, base_ref=tb_base_ref))
+            if not is_git_ws:
+                ng_findings = _inspect_non_git_touched_files(ws, conv_id, prov)
+                if ng_findings:
+                    ws_clean = False
+                    ws_findings.extend(ng_findings)
+            ws_findings.extend(
+                _verify_workspace_test_boundary(ws, excluded_paths=sorted(boundary_excl), base_ref=tb_base_ref)
+            )
             if not ws_findings:
                 if is_question:
                     _record_flight_stop(ws, conv_id, 0, deferred_question=True)
@@ -1923,11 +2277,16 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
                                 findings.append(err_msg)
                     diff_excl, boundary_excl = _compute_workspace_excluded_test_paths(ws, prov, ws_diff)
                     scoped_ws_diff = _filter_diff_excluding_paths(ws_diff, diff_excl) if diff_excl else ws_diff
+                    tb_ws_ref = ws_bh if _should_use_session_base_head(ws_bh, conv_id, prov) else ""
                     if scoped_ws_diff.strip():
-                        for item in inspect_git_diff(scoped_ws_diff, workspace=ws):
+                        for item in inspect_git_diff(scoped_ws_diff, workspace=ws, base_ref=tb_ws_ref):
                             if item not in findings:
                                 findings.append(item)
-                    for item in _verify_workspace_test_boundary(ws, excluded_paths=sorted(boundary_excl)):
+                    for item in _verify_workspace_test_boundary(
+                        ws,
+                        excluded_paths=sorted(boundary_excl),
+                        base_ref=tb_ws_ref,
+                    ):
                         if item not in findings:
                             findings.append(item)
             target_workspaces = list(workspaces) if workspaces else ([workspace] if workspace is not None else [None])
@@ -2022,7 +2381,8 @@ def handle_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     if tripped:
-        # Rule 13 3-strike circuit breaker: allow stop rather than trapping the agent in an infinite loop
+        # Rule 13 3-strike circuit breaker: alert operator once per fingerprint & yield so the agent never loops infinitely
+        _notify_stop_circuit_breaker(conv_id, fingerprint, findings, workspaces, count, total_strikes)
         return {}
 
     state_notes: List[str] = []

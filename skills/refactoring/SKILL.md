@@ -27,7 +27,7 @@ Answer from the codebase and version history, never from memory:
 
 ## 3. Pin the Behavior With Characterization Tests
 
-Where existing tests do not cover the branches to be restructured, write characterization tests before the first code edit (following `skills/harness/references/test-design.md`):
+Where existing tests do not cover the branches to be restructured, write characterization tests before the first code edit (following `~/.gemini/config/skills/harness/references/test-design.md`):
 
 - **The existing code is the oracle.** A characterization test asserts what the code actually produces today, even if that looks questionable. If the code returns `19.27` and a document says `19.28`, the characterization test asserts `19.27` and the discrepancy is reported separately.
 - **Literal inputs and literal expected outputs**, captured from running the current code.

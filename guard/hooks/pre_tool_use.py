@@ -35,6 +35,7 @@ from .common import (
     _rebuild_ws_flight_entry,
     _repo_root,
     _safe_int,
+    _upstream_seed_candidates,
     _utc_now_iso,
     _workspaces_from_payload,
     atomic_write_json,
@@ -1156,12 +1157,7 @@ def _catalog_top_model_spec() -> Tuple[str, set[str]]:
     top_slug = "gemini-4-neon-xhigh"
     peer_slugs: set[str] = _expand_highest_effort_slug_aliases("gemini-4-carbon-high")
     loaded_seed: Optional[Dict[str, Any]] = None
-    seed_candidates = [
-        _repo_root() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        configured_config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        Path("/usr/share/antigravity-harness") / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-    ]
+    seed_candidates = _upstream_seed_candidates()
     for candidate in seed_candidates:
         if candidate.is_file():
             data = read_json(candidate, default={})
@@ -1266,32 +1262,48 @@ def _extract_transcript_model_setting(payload: Dict[str, Any]) -> str:
     return _extract_transcript_model_and_effort(payload)[0]
 
 def _find_harness_repo_root(path: Path) -> Optional[Path]:
-    """Walks bounded ancestors of `path` to locate an enclosing Antigravity Harness checkout."""
+    """Walks bounded ancestors of `path` (both lexical and resolved) to locate an enclosing Antigravity Harness checkout."""
+    starts: List[Path] = []
     try:
-        cur = Path(os.path.abspath(path))
+        starts.append(Path(os.path.abspath(path)))
     except (OSError, RuntimeError, ValueError):
-        return None
-    for idx, anc in enumerate((cur, *cur.parents)):
-        if idx > 24 or anc == Path(anc.anchor):
-            break
-        if _is_harness_repo_root(anc):
-            return anc
+        pass
+    try:
+        res_p = Path(path).resolve()
+        if res_p not in starts:
+            starts.append(res_p)
+    except (OSError, RuntimeError, ValueError):
+        pass
+    for cur in starts:
+        for idx, anc in enumerate((cur, *cur.parents)):
+            if idx > 24 or anc == Path(anc.anchor):
+                break
+            if _is_harness_repo_root(anc) and not _targets_governance_dir(str(anc)):
+                return anc
     return None
 
 def _workspaces_in_harness_scope(workspaces: Sequence[Path], effective_cwd: Optional[Path]) -> bool:
-    """True when active workspace/cwd context is a harness checkout or completely unspecified."""
+    """True when active workspace/cwd context is an `antigravity-harness` source checkout."""
     if effective_cwd is not None:
         return _find_harness_repo_root(effective_cwd) is not None
     if workspaces:
         return any(_find_harness_repo_root(ws) is not None for ws in workspaces)
-    return True
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        return False
+    if _targets_governance_dir(str(cwd)):
+        return False
+    return _find_harness_repo_root(cwd) is not None
 
 def _targets_customization_structure(target_path_str: str, workspace: Optional[Path] = None) -> bool:
     """
-    Returns True when `target_path_str` points to a customization or harness governance
-    artifact (`.agents/`, `.claude/`, `.cursor/`, `.harness/`, `GEMINI.md`, `AGENTS.md`,
-    `DESIGN.md`, `hooks.json`, `SKILL.md`, `.mdc`, or harness source `skills/`, `agents/`,
-    `guard/`, `porter/`, `porter.py`, `install.py`, `scripts/meta_audit.py`).
+    Returns True when `target_path_str` targets a harness governance/customization artifact
+    inside an `antigravity-harness` repository checkout or a protected global governance root
+    (`~/.gemini/config`, `~/.gemini/{GEMINI,AGENTS}.md`, `data_dir()/runtime`).
+    External non-harness projects' own `AGENTS.md`, `GEMINI.md`, `SKILL.md`, and `.cursor/`
+    files are NOT Rule-17 model-gated (workspace `.agents/hooks.json` remains separately
+    protected via `force_ask`).
     """
     if not target_path_str or not target_path_str.strip():
         return False
@@ -1308,6 +1320,11 @@ def _targets_customization_structure(target_path_str: str, workspace: Optional[P
             cleaned_target = urllib.parse.unquote(cleaned_target)
         if "\x00" in cleaned_target:
             return True
+    if _targets_governance_dir(cleaned_target):
+        return True
+    if workspace is not None and workspace.is_absolute() and _targets_governance_dir(cleaned_target, base_dir=workspace):
+        return True
+
     canon_cust = _canonicalize_check_path(cleaned_target)
     raw = os.path.expanduser(canon_cust or cleaned_target).replace("\\", "/")
     collapsed = _normalize_shell_paths(raw if raw.startswith("/") else f"/{raw}")
@@ -1317,15 +1334,31 @@ def _targets_customization_structure(target_path_str: str, workspace: Optional[P
     if not parts:
         return False
 
-    basename_lower = parts[-1].lower()
-    if basename_lower in _CUSTOMIZATION_BASENAMES or basename_lower.endswith(".mdc"):
-        return True
-    if any(p.lower() in _CUSTOMIZATION_DIR_SEGMENTS for p in parts):
-        return True
-
     expanded = Path(os.path.expanduser(cleaned_target))
-    base_ws = workspace if workspace is not None else _repo_root()
-    cand_raw = expanded if expanded.is_absolute() else (base_ws / expanded)
+    if expanded.is_absolute():
+        cand_raw = expanded
+        check_gov = True
+    elif workspace is not None and workspace.is_absolute():
+        cand_raw = workspace / expanded
+        check_gov = True
+    else:
+        # Never resolve relative paths against a governance/runtime `os.getcwd()` (CWD-isolation invariant).
+        # With no workspace provided, fail closed on harness-owned source paths (e.g. `guard/hooks/...`, `skills/...`).
+        norm_lower = norm.lower()
+        parts_lower = [p.lower() for p in parts]
+        if (
+            norm_lower in _HARNESS_SOURCE_FILES
+            or (len(parts_lower) >= 2 and parts_lower[0] in _HARNESS_SOURCE_TOP_DIRS)
+        ):
+            return True
+        try:
+            cwd = Path.cwd()
+        except OSError:
+            return False
+        if _targets_governance_dir(str(cwd)) or _find_harness_repo_root(cwd) is None:
+            return False
+        cand_raw = cwd / expanded
+        check_gov = True
 
     candidates: List[Path] = []
     try:
@@ -1340,12 +1373,7 @@ def _targets_customization_structure(target_path_str: str, workspace: Optional[P
         pass
 
     for cand_path in candidates:
-        c_parts = [p.lower() for p in cand_path.parts if p]
-        if not c_parts:
-            continue
-        if c_parts[-1] in _CUSTOMIZATION_BASENAMES or c_parts[-1].endswith(".mdc"):
-            return True
-        if any(p in _CUSTOMIZATION_DIR_SEGMENTS for p in c_parts):
+        if check_gov and _targets_governance_dir(str(cand_path)):
             return True
         h_root = _find_harness_repo_root(cand_path)
         if h_root is not None:
@@ -1357,7 +1385,11 @@ def _targets_customization_structure(target_path_str: str, workspace: Optional[P
                 rel_norm = str(rel).replace("\\", "/").lower()
                 rel_parts = [p.lower() for p in rel.parts if p]
                 if rel_parts and (
-                    rel_norm in _HARNESS_SOURCE_FILES or rel_parts[0] in _HARNESS_SOURCE_TOP_DIRS
+                    rel_parts[-1] in _CUSTOMIZATION_BASENAMES
+                    or rel_parts[-1].endswith(".mdc")
+                    or any(p in _CUSTOMIZATION_DIR_SEGMENTS for p in rel_parts)
+                    or rel_norm in _HARNESS_SOURCE_FILES
+                    or rel_parts[0] in _HARNESS_SOURCE_TOP_DIRS
                 ):
                     return True
     return False
@@ -1370,8 +1402,6 @@ def _text_targets_customization(
     extra_tokens: Sequence[str] = (),
 ) -> bool:
     """Checks subagent/swarm/workflow natural-language descriptions without bare English word false positives."""
-    if re.search(_CUST_CMD_UNIVERSAL_TARGET_PAT, text, re.IGNORECASE):
-        return True
     def _abs_ws(p: Optional[Path]) -> Optional[Path]:
         if p is None:
             return None
@@ -1384,8 +1414,9 @@ def _text_targets_customization(
     abs_fb = _abs_ws(fallback_ws)
     abs_workspaces = [w for w in (_abs_ws(ws) for ws in workspaces) if w is not None]
     ws_ctx = abs_eff if abs_eff is not None else (abs_fb if abs_fb is not None else (abs_workspaces[0] if abs_workspaces else None))
-    if _workspaces_in_harness_scope(abs_workspaces, ws_ctx) and re.search(
-        _CUST_CMD_HARNESS_SLASH_DIRS_PAT, text, re.IGNORECASE
+    if _workspaces_in_harness_scope(abs_workspaces, ws_ctx) and (
+        re.search(_CUST_CMD_UNIVERSAL_TARGET_PAT, text, re.IGNORECASE)
+        or re.search(_CUST_CMD_HARNESS_SLASH_DIRS_PAT, text, re.IGNORECASE)
     ):
         return True
     gov_bases: List[Path] = []
@@ -1843,6 +1874,98 @@ def _payload_cwd(payload: Dict[str, Any], args: Optional[Dict[str, Any]] = None)
     return None
 
 
+def _format_force_ask_reason(
+    reason: str,
+    *,
+    what_changes: str,
+    if_approved: str,
+    if_denied: str,
+) -> str:
+    """Formats a PreToolUse `force_ask` reason with a standardized 3-sentence plain-language operator header."""
+    raw = (reason or "").strip()
+    if raw.startswith("What changes:"):
+        return raw
+    w = " ".join(what_changes.split()).rstrip(".") + "."
+    a = " ".join(if_approved.split()).rstrip(".") + "."
+    d = " ".join(if_denied.split()).rstrip(".") + "."
+    detail_lines: List[str] = []
+    if raw:
+        collapsed = " ".join(raw.splitlines()).strip()
+        for chunk in collapsed.split(". "):
+            c = " ".join(chunk.split())
+            if not c:
+                continue
+            if not c.endswith((".", "!", "?", ")")):
+                c += "."
+            detail_lines.append(c)
+    lines = [
+        f"What changes: {w}",
+        f"If approved: {a}",
+        f"If denied: {d}",
+    ]
+    if detail_lines:
+        lines.append(f"Details: {detail_lines[0]}")
+        lines.extend(detail_lines[1:])
+    return "\n".join(lines)
+
+
+def _enrich_force_ask_response(
+    res: Dict[str, Any],
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Ensures every `force_ask` PreToolUse response carries a readable 3-sentence operator header."""
+    if not isinstance(res, dict) or res.get("decision") != "force_ask":
+        return res
+    raw_reason = str(res.get("reason") or "").strip()
+    if raw_reason.startswith("What changes:"):
+        return res
+    m_tag = re.match(r"^(\[Harness [^\]]+\])\s*(.*)$", raw_reason, re.DOTALL)
+    tag = m_tag.group(1).lower() if m_tag else ""
+    body_head = (m_tag.group(2) if m_tag else raw_reason)[:96].lower()
+    if tag == "[harness test boundary]":
+        what = "Updates `## Authorized Test Modifications` in `tasks.md` to change Rule 9 test-edit permissions"
+        approved = "Allows the Stop gate to accept edits to the listed test file(s) under Rule 9"
+        denied = "Keeps `tasks.md` unchanged and leaves existing test assertions frozen"
+    elif tag == "[harness hook boundary]":
+        what = "Modifies workspace `.agents/hooks.json`, which can override or disable global harness hooks"
+        approved = "Writes the workspace hook configuration as requested"
+        denied = "Leaves `.agents/hooks.json` untouched and preserves current global hook enforcement"
+    elif tag in ("[harness customization model gate]", "[harness model & effort gate]"):
+        what = f"Runs `{tool_name}` on harness governance/customization files under an unverified or non-allowlisted model/effort"
+        approved = "Permits this governance/customization action for this turn"
+        denied = "Blocks the edit until an approved top model runs at highest effort"
+    elif tag == "[harness supply-chain guard]" or (tag == "[harness bash guard]" and body_head.startswith("unpinned")):
+        what = f"Runs `{tool_name}` with an unpinned remote package executable"
+        approved = "Downloads and executes the remote package version resolved at runtime"
+        denied = "Cancels execution so an exact pinned version can be supplied first"
+    elif tag == "[harness mcp shield]":
+        what = f"Invokes mutating or high-risk MCP tool `{tool_name}` against project or runtime state"
+        approved = "Executes the MCP tool call as requested"
+        denied = "Blocks the MCP call and leaves target state unchanged"
+    elif tag in ("[harness bash guard]", "[harness workflow guard]") and any(
+        tok in body_head for tok in ("high-risk", "destructive", "recursive", "outside the active", "external script", "shutil.rmtree")
+    ):
+        what = f"Executes a potentially destructive `{tool_name}` operation affecting files or git history"
+        approved = "Runs the command immediately with irreversible or persistent side effects"
+        denied = "Cancels the operation with zero files or commits modified"
+    elif tag in ("[harness swarm guard]", "[harness workflow guard]", "[harness schedule guard]"):
+        what = f"Dispatches orchestration tool `{tool_name}` touching governed or sensitive scope"
+        approved = "Starts or delivers the delegated agent, workflow, or scheduled job"
+        denied = "Blocks the delegation or schedule with no background task launched"
+    else:
+        what = f"Executes gated `{tool_name}` operation flagged by PreToolUse safety rules"
+        approved = "Proceeds with this tool call as requested"
+        denied = "Cancels this tool call and leaves workspace state unchanged"
+    enriched = dict(res)
+    enriched["reason"] = _format_force_ask_reason(
+        raw_reason,
+        what_changes=what,
+        if_approved=approved,
+        if_denied=denied,
+    )
+    return enriched
+
+
 def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         return {
@@ -1879,6 +2002,15 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
             "decision": "deny",
             "reason": "[Harness PreToolUse Gate] Malformed non-dict `toolCall.args` (failing closed).",
         }
+    res = _handle_pre_tool_use_core(payload, tool_name, args)
+    return _enrich_force_ask_response(res, tool_name)
+
+
+def _handle_pre_tool_use_core(
+    payload: Dict[str, Any],
+    tool_name: str,
+    args: Dict[str, Any],
+) -> Dict[str, Any]:
     workspaces = _workspaces_from_payload(payload)
     workspace = workspaces[0] if workspaces else None
     accepts_args_cwd = tool_name in ("run_command", "bash", "execute_command", "shell", "run_workflow")
@@ -2063,11 +2195,17 @@ def handle_pre_tool_use(payload: Dict[str, Any]) -> Dict[str, Any]:
                     _tasks_check_target, args, effective_cwd or t_ws, conv_id=_conversation_id(payload)
                 )
             ):
+                diff_summary = _sub_fn("_write_guard", "_summarize_authorized_test_mutation_diff")(
+                    _tasks_check_target, args, effective_cwd or t_ws
+                )
                 return {
                     "decision": "force_ask",
-                    "reason": (
+                    "reason": _format_force_ask_reason(
                         "[Harness Test Boundary] Modifying `## Authorized Test Modifications` in `tasks.md` "
-                        "requires explicit human confirmation (GEMINI.md Rule 9)."
+                        "requires explicit human confirmation (GEMINI.md Rule 9).",
+                        what_changes=f"Updates `## Authorized Test Modifications` in `tasks.md`: {diff_summary}",
+                        if_approved="Authorizes Stop-gate Rule 9 edits strictly for the listed test path(s)",
+                        if_denied="Leaves `tasks.md` unchanged and keeps existing test assertions frozen under Rule 9",
                     ),
                 }
         for target in targets:

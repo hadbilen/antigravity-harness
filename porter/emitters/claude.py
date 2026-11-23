@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from porter.emitters.common import (
-    Plan, commit, index_section, plan_support_tree, plan_templates, support_executables,
+    Plan,
+    commit,
+    index_section,
+    inject_standalone_agent_baseline,
+    plan_support_tree,
+    plan_templates,
+    support_executables,
 )
 from porter.frontmatter import FrontmatterError, parse_frontmatter
 from porter.models import UniversalManifest
@@ -28,16 +34,26 @@ ACCESS_TOOLS: Dict[str, List[str]] = {
     "read-exec": ["Read", "Grep", "Glob", "Bash"],
 }
 WEB_TOOLS = ["WebFetch", "WebSearch"]
-_READONLY_CANONICAL_TOOLS: Dict[str, str] = {
-    "read": "Read",
-    "grep": "Grep",
-    "glob": "Glob",
-    "webfetch": "WebFetch",
-    "websearch": "WebSearch",
+_READONLY_CANONICAL_TOOLS: Dict[str, List[str]] = {
+    "read": ["Read"],
+    "grep": ["Grep"],
+    "glob": ["Glob"],
+    "webfetch": ["WebFetch"],
+    "websearch": ["WebSearch"],
+    "read_file": ["Read", "Grep", "Glob"],
+    "search_web": ["WebSearch"],
+}
+_ANTIGRAVITY_TOOL_MAP: Dict[str, List[str]] = {
+    "read_file": ["Read", "Grep", "Glob"],
+    "search_web": ["WebSearch"],
+    "write_file": ["Write"],
+    "edit_file": ["Edit"],
+    "run_command": ["Bash"],
 }
 _WEB_RESEARCH = re.compile(r"(?i)\bweb\s+resources?\b|\bfetch\s+target\s+urls?\b|\bweb\s+(?:search|research)(?:es)?\b")
 _FRONTMATTER = re.compile(r"\A(---\r?\n.*?\r?\n)(---[ \t]*(?:\r?\n|\Z))", re.DOTALL)
 _EXISTING_TOOLS_BLOCK = re.compile(r"(?m)^tools\s*:[^\r\n]*(?:\r?\n[ \t]+-[ \t]+[^\r\n]*)*\r?\n?")
+_ANTIGRAVITY_AGENT_FM_KEYS = re.compile(r"(?m)^(?:mainAgent|subagent|inheritMcp|inheritCustomizations)\s*:[^\r\n]*\r?\n?")
 
 
 def agent_tools(raw: str) -> Optional[List[str]]:
@@ -54,22 +70,48 @@ def agent_tools(raw: str) -> Optional[List[str]]:
     return list(tools)
 
 
-def _filter_readonly_tools(raw_fm: str, parsed_tools: object, fallback: List[str]) -> List[str]:
-    tokens: List[str] = []
+def _parse_tools_tokens(raw_fm: str, parsed_tools: object) -> List[str]:
     if isinstance(parsed_tools, list):
-        tokens = [str(item).strip() for item in parsed_tools if str(item).strip()]
-    elif isinstance(parsed_tools, str):
-        tokens = [tok.strip(" []'\"") for tok in re.split(r"[,\s]+", parsed_tools) if tok.strip(" []'\"")]
-    else:
-        m_line = re.search(r"(?m)^tools\s*:\s*(.*)$", raw_fm)
-        if m_line and m_line.group(1).strip():
-            tokens = [tok.strip(" []'\"") for tok in re.split(r"[,\s]+", m_line.group(1)) if tok.strip(" []'\"")]
+        return [str(item).strip() for item in parsed_tools if str(item).strip()]
+    if isinstance(parsed_tools, str):
+        return [tok.strip(" []'\"") for tok in re.split(r"[,\s]+", parsed_tools) if tok.strip(" []'\"")]
+    m_line = re.search(r"(?m)^tools\s*:\s*(.*)$", raw_fm)
+    if m_line and m_line.group(1).strip():
+        return [tok.strip(" []'\"") for tok in re.split(r"[,\s]+", m_line.group(1)) if tok.strip(" []'\"")]
+    return []
+
+
+def _filter_readonly_tools(raw_fm: str, parsed_tools: object, fallback: List[str]) -> List[str]:
+    tokens = _parse_tools_tokens(raw_fm, parsed_tools)
     cleaned: List[str] = []
     for tok in tokens:
-        canon = _READONLY_CANONICAL_TOOLS.get(tok.lower())
-        if canon and canon not in cleaned:
-            cleaned.append(canon)
-    return cleaned if cleaned else list(fallback)
+        mapped = _READONLY_CANONICAL_TOOLS.get(tok.lower())
+        if mapped:
+            for item in mapped:
+                if item not in cleaned:
+                    cleaned.append(item)
+    if not cleaned:
+        return list(fallback)
+    # Preserve fallback WebFetch when web-research heuristics apply alongside mapped search_web,
+    # keeping canonical Read/Grep/Glob/WebFetch/WebSearch ordering.
+    for fb_tool in fallback:
+        if fb_tool in WEB_TOOLS and fb_tool not in cleaned:
+            cleaned.append(fb_tool)
+    order = ("Read", "Grep", "Glob", "WebFetch", "WebSearch")
+    return sorted(cleaned, key=lambda t: order.index(t) if t in order else len(order))
+
+
+def _translate_general_tools(raw_fm: str, parsed_tools: object) -> Optional[List[str]]:
+    tokens = _parse_tools_tokens(raw_fm, parsed_tools)
+    if not tokens or not any(tok.lower() in _ANTIGRAVITY_TOOL_MAP for tok in tokens):
+        return None
+    mapped_out: List[str] = []
+    for tok in tokens:
+        repl = _ANTIGRAVITY_TOOL_MAP.get(tok.lower(), [tok])
+        for item in repl:
+            if item not in mapped_out:
+                mapped_out.append(item)
+    return mapped_out
 
 
 def native_agent(raw: str, target: str = "claude") -> str:
@@ -93,18 +135,32 @@ def native_agent(raw: str, target: str = "claude") -> str:
         if m_acc:
             access_val = m_acc.group(1).strip().lower()
 
-    has_existing_tools = bool(re.search(r"(?m)^tools\s*:", fm_part))
+    fm_clean = _ANTIGRAVITY_AGENT_FM_KEYS.sub("", fm_part)
+    has_existing_tools = bool(re.search(r"(?m)^tools\s*:", fm_clean))
     if access_val == "read-only" and has_existing_tools:
-        clean_tools = _filter_readonly_tools(fm_part, parsed_tools, tools or ACCESS_TOOLS["read-only"])
-        stripped_fm = _EXISTING_TOOLS_BLOCK.sub("", fm_part)
+        clean_tools = _filter_readonly_tools(fm_clean, parsed_tools, tools or ACCESS_TOOLS["read-only"])
+        stripped_fm = _EXISTING_TOOLS_BLOCK.sub("", fm_clean)
         if not stripped_fm.endswith(("\n", "\r\n")):
             stripped_fm += newline
         fm_out = f"{stripped_fm}tools: {', '.join(clean_tools)}{newline}{fence_end}"
     elif tools is not None and not has_existing_tools:
-        fm_out = f"{fm_part}tools: {', '.join(tools)}{newline}{fence_end}"
+        if not fm_clean.endswith(("\n", "\r\n")):
+            fm_clean += newline
+        fm_out = f"{fm_clean}tools: {', '.join(tools)}{newline}{fence_end}"
+    elif has_existing_tools:
+        translated = _translate_general_tools(fm_clean, parsed_tools)
+        if translated is not None:
+            stripped_fm = _EXISTING_TOOLS_BLOCK.sub("", fm_clean)
+            if not stripped_fm.endswith(("\n", "\r\n")):
+                stripped_fm += newline
+            fm_out = f"{stripped_fm}tools: {', '.join(translated)}{newline}{fence_end}"
+        else:
+            fm_out = f"{fm_clean}{fence_end}"
     else:
-        fm_out = f"{fm_part}{fence_end}"
-    san_body = ConstitutionalSanitizer.sanitize_for_export(raw[m.end():], target=target)
+        fm_out = f"{fm_clean}{fence_end}"
+    san_body = inject_standalone_agent_baseline(
+        ConstitutionalSanitizer.sanitize_for_export(raw[m.end():], target=target)
+    )
     if not san_body:
         return fm_out
     sep = newline if fm_out.endswith(("\n", "\r\n")) else f"{newline}{newline}"

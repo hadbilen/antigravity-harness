@@ -1,10 +1,10 @@
 ---
 name: retro
+disable-model-invocation: true
 description: >-
-  Read-only engineering retrospective that analyzes repository records (MISTAKES.md, plan outcomes, tasks.md,
-  HANDOFF.md, ADRs, and guard ledgers) to count recurring failure patterns and propose ranked improvements to product,
-  process, and mechanical checks (Rule 10 3-strike promotion). Invoke EXCLUSIVELY when the user explicitly requests
-  /retro or a retrospective. Never edits files.
+  Read-only engineering retrospective over repository records (MISTAKES.md, plan outcomes, tasks.md, HANDOFF.md, ADRs,
+  guard ledgers) to count recurring failures and rank Rule 10 3-strike promotions. Invoke EXCLUSIVELY when the user
+  requests /retro or a retrospective. Never edits files.
 ---
 
 # Retrospective: From Recorded Evidence to Ranked Proposals
@@ -24,8 +24,8 @@ When analyzing a multi-directory or large project history (5+ files, `GEMINI.md`
 
 Inspect the existing artifacts on disk without re-reading raw past transcripts:
 - **`MISTAKES.md`** at the project root (Date & Incident, Root Cause, Impact, Preventive Invariant).
-- **Plan files and `walkthrough.md` / `implementation_plan.md`**, specifically checking the four Outcome labels (`skills/harness/SKILL.md` §4.A): **Deviations**, **Not verified**, **Surprises**, and **Follow-ups**.
-- **`PRODUCT.md`** (if the project originated from a `vibecoder` prototype) and **Architecture Decision Records (`docs/adr/*.md`)**.
+- **Plan files and `walkthrough.md` / `implementation_plan.md`**, specifically checking the four Outcome labels (`~/.gemini/config/skills/harness/SKILL.md` §4.A): **Deviations**, **Not verified**, **Surprises**, and **Follow-ups**.
+- **`PRODUCT.md`** (if the project originated from a `vibecoder` prototype), **Architecture Decision Records (`docs/adr/*.md`)**, and opt-in **`DECISIONS.md`** (when present at the project root, inspecting structured `Proposed By` / `Origin`, `Approved By`, and `Authority` provenance fields).
 - **`tasks.md` and `HANDOFF.md`**, plus the project's verification scripts (`package.json`, `pyproject.toml`, `Makefile`, Continuous Integration (CI) workflows, `agy-guard status`).
 
 ## 3. Project Phase & Observable Trajectory
@@ -37,8 +37,9 @@ Inspect the existing artifacts on disk without re-reading raw past transcripts:
 
 - Group incidents that share an underlying root cause and count exact occurrences, citing the date and `file:line` of each, plus the command/search used to count them.
 - **Three-Strike Promotion Threshold (`GEMINI.md` Rule 10):** A pattern with **3 or more occurrences** is due for promotion. Patterns with 1 or 2 occurrences are listed at the bottom under *Noted (Below Threshold)*, not proposed as new rules.
-- **Recency and Current Codebase Check:** The most recent recorded decision supersedes older habits. Before proposing a fix for a historical pattern, check the current codebase, linter config, and hooks—if a mechanical check or code change already closed the pattern, report it under *Already Resolved*, never as a new proposal.
-- **Commit- and Date-Anchored Claims:** State every historical code or behavior claim with the date and commit SHA (or `file:line` record) at which it held rather than timeless present-tense ("currently", "now") assertions, and mark older claims as superseded when newer evidence overtakes them.
+- **Recency and Current Codebase Check:** The most recent recorded decision supersedes older habits. Before proposing a fix for a historical pattern, check the current codebase, linter config, and hooks: if a mechanical check or code change already closed the pattern, report it under *Already Resolved*, never as a new proposal.
+- **Commit- and Date-Anchored Claims:** Anchor every historical code or behavior claim to the exact date and commit SHA (or `file:line` record) at which it held (avoiding timeless present-tense "currently"/"now" assertions), and mark older claims as superseded when newer evidence overtakes them.
+- **Decision Provenance & Model Calibration Inspection (`docs/adr/` & Opt-In `DECISIONS.md`):** When `DECISIONS.md` or `docs/adr/*.md` carries structured provenance (`Proposed By` / `Origin`, `Approved By`, `Authority`), group `defect:`-tagged `[SUPERSEDED]` and `[REVERTED]` `Model Recommendation` choices by model and effort tier (applying the same `>= 3` occurrence threshold before proposing calibration changes, while excluding `pivot:`-tagged requirement shifts and intentional `User Constraint` mandates); treat pre-provenance historical ADRs cleanly as unlabelled legacy records without flagging missing provenance fields as errors.
 - **Classify each proposal by Kind:**
   - **Product:** A requirement that repeatedly shifts, an acceptance criterion that repeatedly fails, or a `PRODUCT.md` assumption that implementation keeps hitting.
   - **Process:** Planning omissions, missing pre-bump baselines, or skipped verification steps.
@@ -49,7 +50,7 @@ Inspect the existing artifacts on disk without re-reading raw past transcripts:
 
 Classify the target failure mode before choosing where the proposal lives:
 
-- **Mechanical** (a deterministic syntactic/textual pattern, a banned command or Application Programming Interface (API), a file path rule, a required command sequence, or a missing environment variable): propose a **deterministic check** at the cheapest layer—a project linter rule, a seam test, a `hooks.json` check (`guard/agy_hooks.py`), or a CI step. Build the check rather than adding prose. First check whether an existing linter/hook rule already exists but is disabled or unwired.
+- **Mechanical** (a deterministic syntactic/textual pattern, a banned command or Application Programming Interface (API), a file path rule, a required command sequence, or a missing environment variable): propose a **deterministic check** at the cheapest layer (a project linter rule, a seam test, a `hooks.json` check in `~/.local/share/antigravity-harness/runtime/guard/agy_hooks.py`, or a CI step). Build the mechanical check instead of adding prose; first verify whether an existing linter or hook rule already exists but is disabled or unwired.
 - **Judgment** (cross-file design trade-offs, domain modeling, seam adequacy): propose a targeted clause in the relevant on-demand `skills/<name>/SKILL.md` or an inspection bullet in the relevant `agents/<name>.md` auditor.
 - **Always-on Constitution (`GEMINI.md` / `AGENTS.md`):** propose adding to always-on instructions **only** when no mechanical check, skill, or subagent home can carry it, and phrase it as a single compact sentence.
 
@@ -57,7 +58,7 @@ When the user accepts a mechanical check proposal, implement it in a subsequent 
 
 When the user accepts a **Judgment** (`skills/<name>/SKILL.md` or `agents/<name>.md`) or **Always-on Constitution** proposal, verify it in a subsequent `harness` task via the **Propose–Probe–Compose Sandbox Loop** (bounded to at most 3 total probe attempts per `GEMINI.md` Rule 13) before committing:
 1. **Propose:** Draft the candidate clause (or 2 concise candidate phrasings) in `<appDataDir>/brain/<conversation-id>/scratch/` without mutating live `~/.gemini/config/` files (`GEMINI.md` Rules 12 & 15a).
-2. **Probe (Isolated Sandbox Evaluation):** Extract the recorded historical incident from `MISTAKES.md` or plan outcome records as a self-contained prompt fixture paired with a clean control case (without copying literal phrases from the candidate clause per `GEMINI.md` Rule 9 `C9`). Dispatch two isolated read-only subagent runs (`invoke_subagent` using `research`, the target auditor persona, or `self` under a read-only contract, passing the baseline vs. candidate clause inside the parent-authorized `Task Objective` / `Audit Focus` header per `skills/harness/SKILL.md` §5.B so `Prompt Defense Baseline` is respected).
+2. **Probe (Isolated Sandbox Evaluation):** Extract the recorded historical incident from `MISTAKES.md` or plan outcome records as a self-contained prompt fixture paired with a clean control case (without copying literal phrases from the candidate clause per `GEMINI.md` Rule 9 `C9`). Dispatch two isolated read-only subagent runs (`invoke_subagent` using `research`, the target auditor persona, or `self` under a read-only contract, passing the baseline vs. candidate clause inside the parent-authorized `Task Objective` / `Audit Focus` header per `~/.gemini/config/skills/harness/SKILL.md` §5.B so `Prompt Defense Baseline` is respected).
 3. **Compose:** Retain only the shortest candidate clause that produces a verified **behavioral contrast** (catching $\ge 1$ failure mode missed by baseline with $0$ new false positives on the clean control and zero collateral constitutional regressions); if no candidate achieves behavioral contrast within 3 attempts, discard the prose candidate and either reclassify the proposal as a deterministic **Mechanical** check or escalate to the user as `[OPEN QUESTION]`.
 
 ## 6. Report Format

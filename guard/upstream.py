@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import time
 import urllib.error
@@ -42,11 +43,144 @@ KNOWN_BUILTIN_SKILLS: Tuple[str, ...] = (
     "swarm_pane",
     "ui-plugin-navigation",
 )
+DEFAULT_BUILTIN_BUNDLE_CHECKSUM = "builtin:c0a2d240a0b68a3e3fc8607cace71c4d32d74a1ee097cc4dd96cb8dd0ee0cc13"
+DEFAULT_KNOWN_PLACEHOLDER_MODELS: Dict[str, str] = {
+    "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
+    "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
+}
+MAX_COMPACTION_CEILING = 100_000_000
+BUILTIN_CHECKSUM_RE = re.compile(r"^(?:[A-Za-z0-9._-]{1,32}:)?[0-9a-fA-F]{16,128}$")
+_ANSI_ESC_RE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-9;?]*[ -/]*[@-~]|[@-Z\\-_])")
+_CTRL_BIDI_RE = re.compile(r"[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]")
+DEFAULT_MODEL_COMPACTION_CEILINGS: Dict[str, int] = {
+    "gemini-4-neon-xhigh": 512_000,
+    "gemini-4-carbon-high": 512_000,
+    "gemini-4": 512_000,
+    "gemini-3": 512_000,
+    "claude-opus": 180_000,
+    "claude-sonnet": 180_000,
+    "gpt-5": 240_000,
+    "default": 200_000,
+}
 
 
 def short_ref(ref: Any) -> str:
     text = str(ref or "").strip()
     return text[:7] if HEX_SHA_RE.fullmatch(text) else text
+
+
+def _sanitize_checksum_display(value: Any) -> str:
+    text = _ANSI_ESC_RE.sub("", str(value or ""))
+    text = _CTRL_BIDI_RE.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def short_checksum(value: Any, *, peer: Any = "") -> str:
+    text = _sanitize_checksum_display(value)
+    peer_text = _sanitize_checksum_display(peer)
+    if not text:
+        return ""
+    if ":" in text:
+        prefix, rest = text.split(":", 1)
+        safe_pre = prefix[:32]
+        safe_full = f"{safe_pre}:{rest}"
+        cand = f"{safe_pre}:{rest[:12]}" if len(rest) > 12 else safe_full
+        if peer_text and peer_text != text and ":" in peer_text:
+            p_pre, p_rest = peer_text.split(":", 1)
+            p_safe_pre = p_pre[:32]
+            peer_cand = f"{p_safe_pre}:{p_rest[:12]}" if len(p_rest) > 12 else f"{p_safe_pre}:{p_rest}"
+            if cand == peer_cand:
+                return safe_full[:48]
+        return cand
+    cand = text[:12] if len(text) > 12 else text
+    if peer_text and peer_text != text and peer_text[:12] == cand:
+        return text[:48]
+    return cand
+
+
+def _clean_compaction_ceilings(raw: Any) -> Dict[str, int]:
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: Dict[str, int] = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or isinstance(v, bool) or not isinstance(v, int):
+            continue
+        key = k.strip().lower()
+        if key and 32_000 <= v <= MAX_COMPACTION_CEILING:
+            cleaned[key] = v
+    return cleaned
+
+
+def read_builtin_bundle_checksum_checked(builtin_dir: Optional[Path] = None) -> Tuple[str, Optional[str]]:
+    """
+    Safely reads `~/.gemini/antigravity/builtin/.checksum` and returns `(checksum, error)`.
+    Cleanly returns `("", None)` only when the default Antigravity path is absent; returns
+    `("", "<reason>")` on missing explicit env override, symlink, non-regular file, read error,
+    or malformed checksum content.
+    """
+    explicit = os.environ.get("ANTIGRAVITY_BUILTIN_CHECKSUM_FILE", "").strip()
+    if explicit:
+        cs_path = Path(explicit).expanduser()
+    else:
+        if builtin_dir is None:
+            raw_dir = os.environ.get("ANTIGRAVITY_BUILTIN_SKILLS_DIR")
+            base = Path(raw_dir).expanduser() if raw_dir else (Path.home() / ".gemini" / "antigravity" / "builtin" / "skills")
+        else:
+            base = Path(builtin_dir).expanduser()
+        cs_path = (base.parent / ".checksum") if base.name == "skills" else (base / ".checksum")
+    try:
+        path_str = os.fspath(cs_path)
+    except (OSError, TypeError, ValueError) as exc:
+        return "", f"Invalid builtin/.checksum path: {exc}"
+    if "\x00" in path_str:
+        return "", "Invalid NUL byte in builtin/.checksum path"
+    try:
+        exists = os.path.lexists(path_str)
+    except OSError as exc:
+        return "", f"Cannot stat builtin/.checksum ({cs_path}): {exc}"
+    if not exists:
+        if explicit:
+            return "", f"Configured ANTIGRAVITY_BUILTIN_CHECKSUM_FILE does not exist: {cs_path}"
+        return "", None
+    if os.path.islink(path_str):
+        return "", f"Refusing symlinked builtin/.checksum: {cs_path}"
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path_str, flags)
+    except OSError as exc:
+        return "", f"Cannot open builtin/.checksum ({cs_path}): {exc}"
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
+            return "", f"Non-regular builtin/.checksum entry: {cs_path}"
+        fh = os.fdopen(fd, "rb")
+    except OSError as exc:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return "", f"Cannot inspect builtin/.checksum ({cs_path}): {exc}"
+    try:
+        with fh:
+            raw_bytes = fh.read(257)
+    except OSError as exc:
+        return "", f"Cannot read builtin/.checksum ({cs_path}): {exc}"
+    if len(raw_bytes) > 256:
+        return "", f"Oversized builtin/.checksum (>256 bytes): {cs_path}"
+    raw = raw_bytes.decode("utf-8", errors="replace")
+    for line in raw.splitlines():
+        val = line.strip()
+        if val:
+            if not BUILTIN_CHECKSUM_RE.fullmatch(val):
+                return "", f"Malformed builtin/.checksum content in {cs_path}"
+            return val, None
+    return "", f"Empty builtin/.checksum file: {cs_path}"
+
+
+def read_builtin_bundle_checksum(builtin_dir: Optional[Path] = None) -> str:
+    """Safely reads `~/.gemini/antigravity/builtin/.checksum` (bounded non-symlink regular file; '' if absent/invalid)."""
+    return read_builtin_bundle_checksum_checked(builtin_dir)[0]
 
 
 def _valid_subpath(path: str) -> bool:
@@ -126,6 +260,10 @@ def compute_seed_digest(seed: Dict[str, Any]) -> str:
         canonical["approved_customization_models"] = seed.get("approved_customization_models")
     if "known_placeholder_models" in seed:
         canonical["known_placeholder_models"] = seed.get("known_placeholder_models")
+    if "builtin_bundle_checksum" in seed:
+        canonical["builtin_bundle_checksum"] = seed.get("builtin_bundle_checksum")
+    if "model_compaction_ceilings" in seed:
+        canonical["model_compaction_ceilings"] = seed.get("model_compaction_ceilings")
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -165,12 +303,25 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
     seed_newer_than_ack = ack_ts is None or (seed_ts is not None and seed_ts > ack_ts)
     seed_newer_than_audit = state_ts is None or (seed_ts is not None and seed_ts > state_ts)
 
-    # Builtin skill baselines: respect a newer operator --ack unless the shipped seed itself changed afterwards.
+    # Builtin skill & bundle baselines: respect a newer operator --ack unless the shipped seed itself changed afterwards.
     if seed_changed or (not has_prev_digest and seed_newer_than_ack):
         for k in ("builtin_skills_hash", "recorded_builtin_skills"):
             if k in seed and state.get(k) != seed.get(k):
                 state[k] = copy.deepcopy(seed[k])
                 changed = True
+        raw_seed_bundle_cs = seed.get("builtin_bundle_checksum")
+        if isinstance(raw_seed_bundle_cs, str):
+            clean_bundle_cs = raw_seed_bundle_cs.strip()
+            if clean_bundle_cs and BUILTIN_CHECKSUM_RE.fullmatch(clean_bundle_cs) and state.get("builtin_bundle_checksum") != clean_bundle_cs:
+                state["builtin_bundle_checksum"] = clean_bundle_cs
+                changed = True
+    elif (
+        isinstance(seed.get("builtin_bundle_checksum"), str)
+        and BUILTIN_CHECKSUM_RE.fullmatch(seed["builtin_bundle_checksum"].strip())
+        and "builtin_bundle_checksum" not in state
+    ):
+        state["builtin_bundle_checksum"] = seed["builtin_bundle_checksum"].strip()
+        changed = True
 
     # Model & environment baselines: never let an earlier/unrelated ack lock out a newer seed audit.
     if seed_changed or (not has_prev_digest and (seed_newer_than_ack or seed_newer_than_audit)):
@@ -241,6 +392,19 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
             if state.get("known_placeholder_models") != clean_kpm:
                 state["known_placeholder_models"] = clean_kpm
                 changed = True
+        if isinstance(seed.get("model_compaction_ceilings"), dict) and (
+            state.get("model_compaction_ceilings") is None
+            or isinstance(state.get("model_compaction_ceilings"), dict)
+        ):
+            clean_mcc = _clean_compaction_ceilings(seed["model_compaction_ceilings"])
+            if clean_mcc and state.get("model_compaction_ceilings") != clean_mcc:
+                state["model_compaction_ceilings"] = clean_mcc
+                changed = True
+    elif isinstance(seed.get("model_compaction_ceilings"), dict) and "model_compaction_ceilings" not in state:
+        clean_mcc = _clean_compaction_ceilings(seed["model_compaction_ceilings"])
+        if clean_mcc:
+            state["model_compaction_ceilings"] = clean_mcc
+            changed = True
 
     if seed_ts is not None and (state_ts is None or seed_ts > state_ts):
         if seed.get("last_audit_timestamp") and state.get("last_audit_timestamp") != seed.get("last_audit_timestamp"):
@@ -297,12 +461,24 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
                     if cur.get("target_skills") != seed_info.get("target_skills"):
                         cur["target_skills"] = copy.deepcopy(seed_info["target_skills"])
                         changed = True
+            if seed_repos:
+                for retired_name, retired_repo in (("procoder", "azrtydxb/procoder"),):
+                    if retired_name in state_repos and retired_name not in seed_repos:
+                        retired_entry = state_repos.get(retired_name)
+                        if isinstance(retired_entry, dict) and str(retired_entry.get("repo", "")).strip() == retired_repo:
+                            state_repos.pop(retired_name, None)
+                            if isinstance(pending, dict):
+                                pending.pop(retired_name, None)
+                            changed = True
 
     tracked_schema_ok = not isinstance(seed_repos, dict) or isinstance(state.get("tracked_repositories"), dict)
     kpm_schema_ok = state.get("known_placeholder_models") is None or isinstance(
         state.get("known_placeholder_models"), dict
     )
-    if tracked_schema_ok and kpm_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
+    mcc_schema_ok = state.get("model_compaction_ceilings") is None or isinstance(
+        state.get("model_compaction_ceilings"), dict
+    )
+    if tracked_schema_ok and kpm_schema_ok and mcc_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
         state["_reconciled_seed_digest"] = seed_digest
         changed = True
 
@@ -311,7 +487,7 @@ def reconcile_state_with_seed(state: Dict[str, Any], seed: Dict[str, Any]) -> Tu
 
 class UpstreamAuditorBridge:
     """
-    Proactively checks the 9 tracked community repositories and active model status
+    Proactively checks the 8 tracked community repositories and active model status
     without requiring LLM token expenditure.
     """
 
@@ -396,10 +572,9 @@ class UpstreamAuditorBridge:
                 "gemini-4-neon-xhigh",
                 "gemini-4-carbon-high",
             ],
-            "known_placeholder_models": {
-                "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
-                "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
-            },
+            "known_placeholder_models": dict(DEFAULT_KNOWN_PLACEHOLDER_MODELS),
+            "model_compaction_ceilings": dict(DEFAULT_MODEL_COMPACTION_CEILINGS),
+            "builtin_bundle_checksum": DEFAULT_BUILTIN_BUNDLE_CHECKSUM,
             "recorded_builtin_skills": list(KNOWN_BUILTIN_SKILLS),
             "tracked_repositories": {
                 "anti-slop": {
@@ -419,12 +594,6 @@ class UpstreamAuditorBridge:
                     "branch": "main",
                     "last_synced_commit": "1667149",
                     "target_skills": ["skills/harness/references/unlazy.md"],
-                },
-                "procoder": {
-                    "repo": "azrtydxb/procoder",
-                    "branch": "main",
-                    "last_synced_commit": "c0032ee",
-                    "target_skills": ["procoder"],
                 },
                 "silk-design": {
                     "repo": "bendrape1-byte/silk-design",
@@ -690,11 +859,35 @@ class UpstreamAuditorBridge:
         if kpm_raw is not None and not isinstance(kpm_raw, dict):
             schema_mismatch = True
             warnings.append(f"Upstream state field 'known_placeholder_models' in {self.state_file} is not a JSON object.")
+        mcc_raw = state.get("model_compaction_ceilings")
+        if mcc_raw is not None and not isinstance(mcc_raw, dict):
+            schema_mismatch = True
+            warnings.append(f"Upstream state field 'model_compaction_ceilings' in {self.state_file} is not a JSON object.")
+        elif isinstance(mcc_raw, dict) and mcc_raw and len(_clean_compaction_ceilings(mcc_raw)) < len(mcc_raw):
+            schema_mismatch = True
+            warnings.append(
+                f"Upstream state field 'model_compaction_ceilings' in {self.state_file} contains invalid or out-of-range entries."
+            )
+        raw_rec_bundle = state.get("builtin_bundle_checksum")
+        if raw_rec_bundle is not None and not isinstance(raw_rec_bundle, str):
+            schema_mismatch = True
+            warnings.append(f"Upstream state field 'builtin_bundle_checksum' in {self.state_file} is not a string.")
+        recorded_bundle_cs = raw_rec_bundle.strip() if isinstance(raw_rec_bundle, str) else ""
+        current_bundle_cs, bundle_cs_err = read_builtin_bundle_checksum_checked()
+        if bundle_cs_err:
+            warnings.append(f"Antigravity builtin/.checksum error: {bundle_cs_err}")
+        builtin_bundle_drift = bool(recorded_bundle_cs and current_bundle_cs and current_bundle_cs != recorded_bundle_cs)
+        if builtin_bundle_drift:
+            warnings.append(
+                f"Delta detected in Antigravity builtin bundle (builtin/.checksum: "
+                f"{short_checksum(recorded_bundle_cs, peer=current_bundle_cs)} -> "
+                f"{short_checksum(current_bundle_cs, peer=recorded_bundle_cs)})."
+            )
         if audit_failed:
             warnings.append(f"Last upstream repository check failed in {self.state_file}.")
         if corrupt:
             status = "FAIL"
-        elif audit_failed or schema_mismatch or bool(self.last_seed_error):
+        elif audit_failed or schema_mismatch or bool(self.last_seed_error) or builtin_bundle_drift or bool(bundle_cs_err):
             status = "WARN"
         else:
             status = "OK"
@@ -706,6 +899,8 @@ class UpstreamAuditorBridge:
             "last_checked_iso": state.get("last_checked_iso") or state.get("last_skills_audit_timestamp"),
             "active_model": model_info["active_model"],
             "tracked_count": tracked_count,
+            "builtin_bundle_checksum": (current_bundle_cs or recorded_bundle_cs) if not bundle_cs_err else "",
+            "builtin_bundle_drift": builtin_bundle_drift,
             "warnings": warnings,
         }
 
@@ -716,9 +911,32 @@ class UpstreamAuditorBridge:
         acknowledged_model: Optional[str] = None,
     ) -> tuple[bool, str]:
         """Records the current model and upstream state as reviewed in upstream_state.json."""
-        import hashlib
-        from datetime import datetime, timezone
-        from guard.paths import atomic_write_json, state_dir
+        from guard.paths import atomic_write_json, file_lock, state_dir
+
+        dest = self.state_file
+        if "UPSTREAM_STATE_FILE" not in os.environ or dest.name == "upstream_state.seed.json":
+            dest = (state_dir() / "upstream_state.json").resolve()
+            self.state_file = dest
+        try:
+            with file_lock(dest):
+                return self._acknowledge_drift_locked(
+                    dest,
+                    model_name=model_name,
+                    acknowledged_model=acknowledged_model,
+                    atomic_write_json_fn=atomic_write_json,
+                )
+        except (OSError, TimeoutError) as e:
+            return False, f"Could not lock upstream state {dest}: {e}"
+
+    def _acknowledge_drift_locked(
+        self,
+        dest: Path,
+        *,
+        model_name: Optional[str],
+        acknowledged_model: Optional[str],
+        atomic_write_json_fn: Any,
+    ) -> tuple[bool, str]:
+        atomic_write_json = atomic_write_json_fn
 
         state = self.load_state()
         if self.last_load_error:
@@ -810,6 +1028,19 @@ class UpstreamAuditorBridge:
             except OSError as e:
                 return False, f"Could not hash builtin skills directory {builtin_dir}: {e}"
 
+        current_bundle_cs, bundle_cs_err = read_builtin_bundle_checksum_checked(builtin_dir)
+        if bundle_cs_err:
+            return False, f"Could not verify builtin/.checksum: {bundle_cs_err}"
+        recorded_bundle_cs = str(state.get("builtin_bundle_checksum", "") or "").strip()
+        if recorded_bundle_cs and current_bundle_cs and current_bundle_cs != recorded_bundle_cs:
+            reasons.append(
+                f"Delta detected in Antigravity builtin bundle (builtin/.checksum: "
+                f"{short_checksum(recorded_bundle_cs, peer=current_bundle_cs)} -> "
+                f"{short_checksum(current_bundle_cs, peer=recorded_bundle_cs)}; inspect builtin/plugins & sidecars)"
+            )
+        if current_bundle_cs:
+            state["builtin_bundle_checksum"] = current_bundle_cs
+
         tracked = state.get("tracked_repositories") or {}
         pending = state.setdefault("pending_repo_updates", {})
         if isinstance(pending, dict) and isinstance(tracked, dict):
@@ -835,10 +1066,6 @@ class UpstreamAuditorBridge:
         if seed:
             state["_reconciled_seed_digest"] = compute_seed_digest(seed)
 
-        dest = self.state_file
-        if "UPSTREAM_STATE_FILE" not in os.environ or dest.name == "upstream_state.seed.json":
-            dest = (state_dir() / "upstream_state.json").resolve()
-            self.state_file = dest
         try:
             atomic_write_json(dest, state)
             return True, f"Acknowledged upstream state in {dest} (model: {state.get('last_audited_model') or 'unchanged'})."

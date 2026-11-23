@@ -12,7 +12,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 from porter.emitters.common import (
-    Plan, commit, index_section, plan_support_tree, plan_templates, sanitized_body, skill_body, support_executables,
+    Plan,
+    commit,
+    index_section,
+    inject_standalone_agent_baseline,
+    plan_support_tree,
+    plan_templates,
+    sanitized_body,
+    skill_body,
+    support_executables,
 )
 from porter.frontmatter import dump_frontmatter
 from porter.models import UniversalManifest
@@ -155,7 +163,10 @@ class CursorEmitter:
             name = agent.get("name")
             if not name:
                 continue
-            body = ConstitutionalSanitizer.sanitize_for_export(skill_body(agent.get("raw", "")), target=cls.TARGET)
+            body = inject_standalone_agent_baseline(
+                ConstitutionalSanitizer.sanitize_for_export(skill_body(agent.get("raw", "")), target=cls.TARGET)
+            )
+            body = _rewrite_cursor_skill_paths(body, "", set(), all_skill_paths, cls.SKILLS_DIR)
             plan[rules / f"agent-{name}.mdc"] = cls._mdc(
                 {"description": " ".join(str(agent.get("description", "")).split()), "globs": "", "alwaysApply": False},
                 f"Auditor Role: {name}", body,

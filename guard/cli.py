@@ -34,16 +34,29 @@ from guard.doctor import diagnose, recover_or_load_registry
 from guard.environment import (
     ANTIGRAVITY_RUNTIME_ENTRIES,
     CONSOLIDATED_SKILL_SLUGS,
+    CONSTITUTION_RULE_REL,
     VALID_POLICIES,
     AgentEnvironment,
     EnvironmentRegistry,
     RegistryError,
+    has_constitution_file,
+    is_harness_constitution_file,
     migrate_harness_mcp_config,
+    render_constitution_rule,
 )
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.lease import MAX_LEASE_SECONDS, MIN_LEASE_SECONDS, LeaseManager
 from guard.notifier import GuardNotifier, NotificationSeverity, load_settings, save_settings, settings_file
-from guard.paths import atomic_write_json, config_dir, configured_config_dir, copy_entry, data_dir, read_json, state_dir
+from guard.paths import (
+    atomic_write_json,
+    atomic_write_text,
+    config_dir,
+    configured_config_dir,
+    copy_entry,
+    data_dir,
+    read_json,
+    state_dir,
+)
 from guard.porter_bridge import PorterBridge
 from guard.provenance import RunProvenanceTracker
 from guard.snapshot import SnapshotEngine
@@ -376,7 +389,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
             print(f"[WARN] Could not parse {receipt_path} ({exc}); falling back to canonical harness entries.", file=sys.stderr)
 
     if not tracked_rel:
-        tracked_rel = ["GEMINI.md", "DESIGN.md", "MISTAKES.md", ".harness/manifest.json"]
+        tracked_rel = ["rules/antigravity-constitution.md", "GEMINI.md", "DESIGN.md", "MISTAKES.md", ".harness/manifest.json"]
         opt_source = _resolve_init_source(getattr(args, "source", None))
         if opt_source is not None:
             if (opt_source / "agents").is_dir():
@@ -449,7 +462,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
                 cleanup_failed = True
 
     if not dry_run and target_dir.is_dir() and not os.path.islink(target_dir):
-        for sub_name in (".harness", "agents", "skills", "templates"):
+        for sub_name in (".harness", "agents", "rules", "skills", "templates"):
             sub_dir = target_dir / sub_name
             if sub_dir.is_dir() and not os.path.islink(sub_dir):
                 try:
@@ -513,6 +526,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     if source_dir is None:
         hint = getattr(args, "source", None) or os.environ.get("ANTIGRAVITY_SHARE_DIR") or "/usr/share/antigravity-harness"
         print(f"[ERROR] Governance source assets (GEMINI.md, skills/) not found at {hint}.", file=sys.stderr)
+        return 1
+    if target_dir.resolve() == source_dir.resolve():
+        print(f"[ERROR] Refusing to initialize governance directly inside the source checkout: {target_dir}", file=sys.stderr)
         return 1
 
     is_win = platform.system().lower() == "windows"
@@ -604,6 +620,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         for gp in env.get_governance_paths(existing_only=True):
             if not os.path.islink(gp):
                 registry.os_adapter.unlock(Path(gp), recursive=True)
+        for legacy_name in ("GEMINI.md", "MISTAKES.md"):
+            legacy_path = target_dir / legacy_name
+            if os.path.lexists(legacy_path) and not os.path.islink(legacy_path):
+                registry.os_adapter.unlock(legacy_path, recursive=False)
 
     target_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -698,10 +718,50 @@ def cmd_init(args: argparse.Namespace) -> int:
             print(f"[WARN] Could not parse {receipt_path} ({exc}); preserving unrecorded custom entries.", file=sys.stderr)
 
     try:
-        for gname in ("GEMINI.md", "DESIGN.md", "MISTAKES.md"):
+        for gname in ("DESIGN.md",):
             gsrc = source_dir / gname
             if gsrc.is_file():
                 _place_copy(gsrc, target_dir / gname)
+
+        gemini_src = source_dir / "GEMINI.md"
+        if gemini_src.is_file():
+            target_rules = target_dir / "rules"
+            if os.path.lexists(target_rules) and (os.path.islink(target_rules) or not target_rules.is_dir()):
+                _backup_existing(target_rules)
+            rule_dest = target_dir / CONSTITUTION_RULE_REL
+            rule_text = render_constitution_rule(gemini_src, mode="copy")
+            rule_bytes = rule_text.encode("utf-8")
+            same_rule = False
+            if os.path.lexists(rule_dest) and not os.path.islink(rule_dest) and rule_dest.is_file():
+                try:
+                    same_rule = rule_dest.read_bytes() == rule_bytes
+                except OSError:
+                    same_rule = False
+            if same_rule:
+                installed_paths.append(str(rule_dest))
+            else:
+                had_existing_rule = _backup_existing(rule_dest)
+                atomic_write_text(rule_dest, rule_text, mode=0o644)
+                installed_paths.append(str(rule_dest))
+                if not had_existing_rule:
+                    placed_new.append(rule_dest)
+            legacy_gemini = target_dir / "GEMINI.md"
+            if os.path.lexists(legacy_gemini) and (
+                "GEMINI.md" in prior_installed
+                or is_harness_constitution_file(legacy_gemini, source_root=source_dir)
+            ):
+                _backup_existing(legacy_gemini)
+
+        legacy_mistakes = target_dir / "MISTAKES.md"
+        if os.path.lexists(legacy_mistakes):
+            is_repo_mistakes_link = False
+            if os.path.islink(legacy_mistakes):
+                try:
+                    is_repo_mistakes_link = Path(os.path.realpath(legacy_mistakes)) == (source_dir / "MISTAKES.md").resolve()
+                except OSError:
+                    is_repo_mistakes_link = False
+            if "MISTAKES.md" in prior_installed or is_repo_mistakes_link:
+                _backup_existing(legacy_mistakes)
 
         msrc = source_dir / ".harness" / "manifest.json"
         if msrc.is_file():
@@ -858,7 +918,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
 
         installed_rel = [
-            str(Path(p).relative_to(target_dir)) if Path(p).is_relative_to(target_dir) else str(p)
+            Path(p).relative_to(target_dir).as_posix() if Path(p).is_relative_to(target_dir) else str(p)
             for p in installed_paths
         ]
         atomic_write_json(
@@ -1522,16 +1582,16 @@ def cmd_drift(args: argparse.Namespace) -> int:
 
 def _default_audit_root() -> Path:
     repo_root = Path(__file__).resolve().parent.parent
-    if (repo_root / "skills").is_dir() and (repo_root / "GEMINI.md").is_file():
+    if (repo_root / "skills").is_dir() and has_constitution_file(repo_root):
         return repo_root
     cfg = config_dir()
-    if (cfg / "skills").is_dir() and (cfg / "GEMINI.md").is_file():
+    if (cfg / "skills").is_dir() and has_constitution_file(cfg):
         return cfg
     for share_cand in (
         repo_root.parent.parent / "share" / "antigravity-harness",
         Path("/usr/share/antigravity-harness"),
     ):
-        if (share_cand / "skills").is_dir() and (share_cand / "GEMINI.md").is_file():
+        if (share_cand / "skills").is_dir() and has_constitution_file(share_cand):
             return share_cand.resolve()
     return cfg
 

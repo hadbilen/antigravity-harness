@@ -19,15 +19,23 @@ reported as an issue of the member they happened on, never swallowed.
 
 from __future__ import annotations
 
+import bz2
 import lzma
 import os
+import posixpath
 import re
 import stat
+import struct
 import zipfile
 import zlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+try:  # Python 3.14+ optional stdlib zstd
+    from compression import zstd as _stdlib_zstd  # type: ignore[import-not-found]
+except ImportError:
+    _stdlib_zstd = None  # type: ignore[assignment]
 
 from porter.models import SuitabilityIssue
 
@@ -39,6 +47,7 @@ RATIO_MIN_BYTES = 64 * 1024
 # The archive file itself cannot legitimately be much larger than its uncompressed limit.
 MAX_ARCHIVE_BYTES = MAX_TOTAL_UNCOMPRESSED + 1024 * 1024
 MAX_ANALYZED_MEMBER_BYTES = 2 * 1024 * 1024
+MAX_LZMA_DICT_BYTES = 16 * 1024 * 1024
 TEXT_SUFFIXES = (".md", ".mdc", ".txt", ".json", ".yml", ".yaml", ".toml", ".rules", ".prompt", ".xml")
 RULE_BASENAMES = (".cursorrules", ".windsurfrules", ".clinerules", ".continuerules")
 BENIGN_ASSET_SUFFIXES = (
@@ -214,7 +223,7 @@ def _member_hazards(info: zipfile.ZipInfo) -> List[ArchiveHazard]:
             "COMPRESSION_RATIO", name,
             f"compression ratio {_ratio(info.file_size, info.compress_size):.0f}:1 exceeds {MAX_RATIO:.0f}:1"))
     lower_norm = name.replace("\\", "/").lower().rstrip("/")
-    rel_clean = re.sub(r"^(?:\./)+", "", lower_norm)
+    rel_clean = _norm_member_relpath(name)
     base_lower = _normalized_basename(name)
     if lower_norm.endswith(NESTED_ARCHIVE_SUFFIXES):
         hazards.append(ArchiveHazard("NESTED_ARCHIVE", name, "nested archive is not inspected; its content is unknown"))
@@ -240,6 +249,81 @@ def _member_hazards(info: zipfile.ZipInfo) -> List[ArchiveHazard]:
     return hazards
 
 
+def _norm_member_relpath(name: str) -> str:
+    cleaned = name.replace("\\", "/").strip().rstrip("/")
+    norm = posixpath.normpath(cleaned.lstrip("/")) if cleaned else ""
+    return "" if norm == "." else norm.lower()
+
+
+_LOCAL_HEADER_STRUCT = struct.Struct("<4s2B4H3I2H")
+_ZIP_ZSTANDARD_METHOD = getattr(zipfile, "ZIP_ZSTANDARD", 93)
+
+
+def _open_member_raw_stream(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> tuple[Any, bool, int]:
+    """
+    Locates the exact start of a ZIP member's compressed payload via the PKWARE local file header
+    using `zf.fp` directly (no path re-open TOCTOU and no CPython private `ZipExtFile._left`).
+    """
+    if info.flag_bits & 0x1:
+        raise RuntimeError(f"File {info.filename!r} is encrypted")
+    if info.flag_bits & 0x20:
+        raise NotImplementedError("compressed patched data (flag bit 5)")
+    if info.flag_bits & 0x40:
+        raise NotImplementedError("strong encryption (flag bit 6)")
+
+    if zf.fp is not None:
+        raw_fp: Any = zf.fp
+        should_close = False
+    elif isinstance(zf.filename, (str, os.PathLike)) and os.path.isfile(zf.filename):
+        raw_fp = open(zf.filename, "rb")
+        should_close = True
+    else:
+        raise ValueError("ZIP archive stream is closed")
+
+    try:
+        raw_fp.seek(info.header_offset)
+        hdr_bytes = raw_fp.read(_LOCAL_HEADER_STRUCT.size)
+        if len(hdr_bytes) != _LOCAL_HEADER_STRUCT.size:
+            raise zipfile.BadZipFile("Truncated file header")
+        hdr = _LOCAL_HEADER_STRUCT.unpack(hdr_bytes)
+        if hdr[0] != b"PK\x03\x04":
+            raise zipfile.BadZipFile("Bad magic number for file header")
+        local_flags = hdr[3]
+        local_compress_type = hdr[4]
+        if local_flags & 0x1:
+            raise RuntimeError(f"File {info.filename!r} is encrypted")
+        if local_flags & 0x20:
+            raise NotImplementedError("compressed patched data (flag bit 5)")
+        if local_flags & 0x40:
+            raise NotImplementedError("strong encryption (flag bit 6)")
+        if local_compress_type != info.compress_type:
+            raise zipfile.BadZipFile(
+                f"Compression method mismatch in local header ({local_compress_type}) vs central directory ({info.compress_type})"
+            )
+        fname_len = hdr[10]
+        extra_len = hdr[11]
+        fname_bytes = raw_fp.read(fname_len)
+        if len(fname_bytes) != fname_len:
+            raise zipfile.BadZipFile("Truncated local filename")
+        if extra_len:
+            raw_fp.seek(extra_len, os.SEEK_CUR)
+        if local_flags & 0x800:
+            local_name = fname_bytes.decode("utf-8")
+        else:
+            local_name = fname_bytes.decode(getattr(zf, "metadata_encoding", None) or "cp437")
+        expected_name = getattr(info, "orig_filename", info.filename)
+        if local_name != expected_name:
+            raise zipfile.BadZipFile(
+                f"File name in directory {expected_name!r} and header {local_name!r} differ."
+            )
+    except Exception:
+        if should_close:
+            raw_fp.close()
+        raise
+
+    return raw_fp, should_close, max(0, int(info.compress_size))
+
+
 def _stream_verify_member(
     zf: zipfile.ZipFile,
     info: zipfile.ZipInfo,
@@ -250,44 +334,169 @@ def _stream_verify_member(
     archive_size: int = 0,
 ) -> tuple[Optional[bytes], int, List[ArchiveHazard]]:
     """
-    Streams a ZIP member in bounded chunks to verify real decompressed bytes, ratio, and archive budget
+    Streams a ZIP member in strictly bounded 64 KiB chunks using public stdlib decompressors
+    (`zlib`, `bz2`, `lzma`, optional `compression.zstd`) so memory stays bounded on Python 3.10–3.14
     even when central-directory `file_size` or `compress_size` headers are spoofed.
     """
+    chunk_size = 65536
     chunks: List[bytes] = []
     actual_size = 0
+    running_crc = 0
     stream_hazards: List[ArchiveHazard] = []
     first_chunk = b""
     declared_size = info.file_size
     effective_comp = min(info.compress_size, archive_size) if archive_size > 0 else info.compress_size
-    unbounded_probe = max(declared_size, archive_budget, member_limit) + 65537
-    with zf.open(info, "r") as fh:
-        if hasattr(fh, "_left"):
-            fh._left = unbounded_probe
-        while True:
-            buf = fh.read(65536)
-            if not buf:
-                break
-            if not first_chunk:
-                first_chunk = buf[:8]
-            actual_size += len(buf)
-            if actual_size > archive_budget:
+
+    def _consume(buf: bytes) -> bool:
+        nonlocal actual_size, first_chunk, running_crc
+        if not buf:
+            return True
+        if not first_chunk:
+            first_chunk = buf[:8]
+        actual_size += len(buf)
+        running_crc = zlib.crc32(buf, running_crc) & 0xFFFFFFFF
+        if actual_size > archive_budget:
+            stream_hazards.append(ArchiveHazard(
+                "OVERSIZE", info.filename,
+                f"real decompressed content exceeds cumulative archive limit of {MAX_TOTAL_UNCOMPRESSED} bytes"))
+            return False
+        if actual_size >= RATIO_MIN_BYTES and _ratio(actual_size, effective_comp) > MAX_RATIO:
+            stream_hazards.append(ArchiveHazard(
+                "COMPRESSION_RATIO", info.filename,
+                f"real compression ratio {_ratio(actual_size, effective_comp):.0f}:1 exceeds {MAX_RATIO:.0f}:1"))
+            return False
+        if capture_bytes and actual_size > member_limit:
+            stream_hazards.append(ArchiveHazard(
+                "MEMBER_TOO_LARGE", info.filename,
+                f"real decompressed size exceeds analysis bound of {member_limit} bytes; not analyzed"))
+            return False
+        if capture_bytes:
+            chunks.append(buf)
+        return True
+
+    raw_fp, should_close, comp_remaining = _open_member_raw_stream(zf, info)
+    trailing_compressed = 0
+    try:
+        ctype = info.compress_type
+        def _drain_max_length_decompressor(
+            decomp: Any,
+            label: str,
+            *,
+            allow_eof_without_marker: bool = False,
+        ) -> int:
+            nonlocal comp_remaining
+            while not decomp.eof:
+                if decomp.needs_input:
+                    if comp_remaining <= 0:
+                        if allow_eof_without_marker:
+                            break
+                        raise zipfile.BadZipFile(f"Truncated {label} member data")
+                    in_buf = raw_fp.read(min(chunk_size, comp_remaining))
+                    if not in_buf:
+                        raise zipfile.BadZipFile(f"Truncated {label} member data")
+                    comp_remaining -= len(in_buf)
+                else:
+                    in_buf = b""
+                out = decomp.decompress(in_buf, max_length=chunk_size)
+                if out:
+                    if not _consume(out):
+                        break
+                elif allow_eof_without_marker and comp_remaining <= 0 and decomp.needs_input:
+                    break
+            return comp_remaining + len(decomp.unused_data)
+
+        if ctype == zipfile.ZIP_STORED:
+            while comp_remaining > 0:
+                buf = raw_fp.read(min(chunk_size, comp_remaining))
+                if not buf:
+                    raise zipfile.BadZipFile("Truncated stored member data")
+                comp_remaining -= len(buf)
+                if not _consume(buf):
+                    break
+            trailing_compressed = comp_remaining
+        elif ctype == zipfile.ZIP_DEFLATED:
+            decomp_z = zlib.decompressobj(-zlib.MAX_WBITS)
+            while not decomp_z.eof:
+                if decomp_z.unconsumed_tail:
+                    out = decomp_z.decompress(decomp_z.unconsumed_tail, chunk_size)
+                elif comp_remaining > 0:
+                    in_buf = raw_fp.read(min(chunk_size, comp_remaining))
+                    if not in_buf:
+                        raise zipfile.BadZipFile("Truncated deflated member data")
+                    comp_remaining -= len(in_buf)
+                    out = decomp_z.decompress(in_buf, chunk_size)
+                else:
+                    flushed = decomp_z.flush(chunk_size)
+                    if flushed:
+                        _consume(flushed)
+                    break
+                if out and not _consume(out):
+                    break
+            if not stream_hazards:
+                while True:
+                    flushed = decomp_z.flush(chunk_size)
+                    if not flushed:
+                        break
+                    if not _consume(flushed):
+                        break
+                if not stream_hazards and not decomp_z.eof:
+                    raise zipfile.BadZipFile("Truncated deflated member data (missing EOB)")
+            trailing_compressed = comp_remaining + len(decomp_z.unused_data)
+        elif ctype == zipfile.ZIP_BZIP2:
+            trailing_compressed = _drain_max_length_decompressor(bz2.BZ2Decompressor(), "bzip2")
+        elif ctype == zipfile.ZIP_LZMA:
+            if comp_remaining < 4:
+                raise zipfile.BadZipFile("Truncated LZMA header")
+            lzma_hdr = raw_fp.read(4)
+            if len(lzma_hdr) != 4:
+                raise zipfile.BadZipFile("Truncated LZMA header")
+            comp_remaining -= 4
+            _ver, props_len = struct.unpack("<HH", lzma_hdr)
+            if props_len != 5 or comp_remaining < props_len:
+                raise zipfile.BadZipFile("Invalid LZMA properties header")
+            props = raw_fp.read(props_len)
+            if len(props) != props_len:
+                raise zipfile.BadZipFile("Truncated LZMA properties")
+            comp_remaining -= props_len
+            p0 = props[0]
+            if p0 >= 225:
+                raise lzma.LZMAError("Invalid LZMA1 properties byte")
+            lc = p0 % 9
+            rem = p0 // 9
+            lp = rem % 5
+            pb = rem // 5
+            dict_size = struct.unpack("<I", props[1:5])[0]
+            if dict_size > MAX_LZMA_DICT_BYTES:
                 stream_hazards.append(ArchiveHazard(
                     "OVERSIZE", info.filename,
-                    f"real decompressed content exceeds cumulative archive limit of {MAX_TOTAL_UNCOMPRESSED} bytes"))
-                break
-            if actual_size >= RATIO_MIN_BYTES and _ratio(actual_size, effective_comp) > MAX_RATIO:
-                stream_hazards.append(ArchiveHazard(
-                    "COMPRESSION_RATIO", info.filename,
-                    f"real compression ratio {_ratio(actual_size, effective_comp):.0f}:1 exceeds {MAX_RATIO:.0f}:1"))
-                break
-            if capture_bytes and actual_size > member_limit:
-                stream_hazards.append(ArchiveHazard(
-                    "MEMBER_TOO_LARGE", info.filename,
-                    f"real decompressed size exceeds analysis bound of {member_limit} bytes; not analyzed"))
-                break
-            if capture_bytes:
-                chunks.append(buf)
-        trailing_compressed = int(getattr(fh, "_compress_left", 0) or 0)
+                    f"LZMA dictionary size {dict_size} exceeds safety cap of {MAX_LZMA_DICT_BYTES} bytes"))
+                return None, actual_size, stream_hazards
+            decomp_lz = lzma.LZMADecompressor(
+                format=lzma.FORMAT_RAW,
+                filters=[{"id": lzma.FILTER_LZMA1, "lc": lc, "lp": lp, "pb": pb, "dict_size": dict_size}],
+            )
+            trailing_compressed = _drain_max_length_decompressor(
+                decomp_lz, "LZMA", allow_eof_without_marker=True
+            )
+        elif ctype == _ZIP_ZSTANDARD_METHOD and _stdlib_zstd is not None:
+            dparam = getattr(_stdlib_zstd, "DParam", None)
+            zstd_opts = (
+                {dparam.window_log_max: 24}
+                if dparam is not None and hasattr(dparam, "window_log_max")
+                else None
+            )
+            decomp_zs = (
+                _stdlib_zstd.ZstdDecompressor(options=zstd_opts)
+                if zstd_opts is not None
+                else _stdlib_zstd.ZstdDecompressor()
+            )
+            trailing_compressed = _drain_max_length_decompressor(decomp_zs, "zstd")
+        else:
+            raise NotImplementedError(f"unsupported compression type {ctype}")
+    finally:
+        if should_close:
+            raw_fp.close()
+
     if first_chunk.startswith((b"#!", b"\xef\xbb\xbf#!")):
         stream_hazards.append(ArchiveHazard(
             "EXECUTABLE_MEMBER", info.filename, "member begins with a script shebang (#!)"))
@@ -297,10 +506,13 @@ def _stream_verify_member(
     elif first_chunk.startswith(_NESTED_ARCHIVE_MAGICS):
         stream_hazards.append(ArchiveHazard(
             "NESTED_ARCHIVE", info.filename, "member contains nested archive magic bytes"))
-    if not stream_hazards and (actual_size != declared_size or trailing_compressed > 0):
-        stream_hazards.append(ArchiveHazard(
-            "DECOMPRESSED_MISMATCH", info.filename,
-            f"decompressed stream yielded {actual_size} bytes vs declared {declared_size} bytes"))
+    if not stream_hazards:
+        if actual_size != declared_size or trailing_compressed > 0:
+            stream_hazards.append(ArchiveHazard(
+                "DECOMPRESSED_MISMATCH", info.filename,
+                f"decompressed stream yielded {actual_size} bytes vs declared {declared_size} bytes"))
+        elif hasattr(info, "CRC") and running_crc != (info.CRC & 0xFFFFFFFF):
+            raise zipfile.BadZipFile(f"Bad CRC-32 for file {info.filename!r}")
     payload = b"".join(chunks) if (capture_bytes and not stream_hazards) else None
     return payload, actual_size, stream_hazards
 
@@ -313,21 +525,34 @@ def inspect_zip(path: Path, harness_root: Optional[Path] = None, analyzer=None) 
     path = Path(path)
     report = ArchiveReport(archive=str(path))
     try:
-        archive_size = os.path.getsize(path)
+        archive_fp = open(path, "rb")
     except OSError as e:
         report.hazards.append(ArchiveHazard("INVALID_ARCHIVE", "", f"cannot read archive: {e}"))
         return report
+    try:
+        st = os.fstat(archive_fp.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            archive_fp.close()
+            report.hazards.append(ArchiveHazard("INVALID_ARCHIVE", "", "archive path is not a regular file"))
+            return report
+        archive_size = st.st_size
+    except OSError as e:
+        archive_fp.close()
+        report.hazards.append(ArchiveHazard("INVALID_ARCHIVE", "", f"cannot stat archive: {e}"))
+        return report
     if archive_size > MAX_ARCHIVE_BYTES:
+        archive_fp.close()
         report.hazards.append(ArchiveHazard(
             "OVERSIZE", "", f"archive file is {archive_size} bytes (limit {MAX_ARCHIVE_BYTES}); not opened"))
         return report
     try:
-        zf = zipfile.ZipFile(path, "r")
+        zf = zipfile.ZipFile(archive_fp, "r")
     except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, ValueError) as e:
+        archive_fp.close()
         report.hazards.append(ArchiveHazard("INVALID_ARCHIVE", "", f"not a readable ZIP archive: {e}"))
         return report
 
-    with zf:
+    with archive_fp, zf:
         infos = zf.infolist()
         report.member_count = len(infos)
         report.total_uncompressed = sum(i.file_size for i in infos)
@@ -354,19 +579,34 @@ def inspect_zip(path: Path, harness_root: Optional[Path] = None, analyzer=None) 
         offset_hazards: Dict[int, ArchiveHazard] = {}
         for idx, info in sorted_by_offset:
             hdr_off = int(getattr(info, "header_offset", 0) or 0)
-            min_end = hdr_off + 30 + int(info.compress_size or 0)
-            if hdr_off < prev_end_offset or min_end > archive_size:
+            fname_len = len(info.filename.encode("utf-8", errors="replace"))
+            extra_len = 0
+            hdr_valid = False
+            if 0 <= hdr_off <= archive_size - _LOCAL_HEADER_STRUCT.size and zf.fp is not None:
+                try:
+                    zf.fp.seek(hdr_off)
+                    hdr_raw = zf.fp.read(_LOCAL_HEADER_STRUCT.size)
+                    if len(hdr_raw) == _LOCAL_HEADER_STRUCT.size:
+                        hdr_fields = _LOCAL_HEADER_STRUCT.unpack(hdr_raw)
+                        if hdr_fields[0] == b"PK\x03\x04":
+                            fname_len = hdr_fields[10]
+                            extra_len = hdr_fields[11]
+                            hdr_valid = True
+                except OSError:
+                    hdr_valid = False
+            data_end = hdr_off + _LOCAL_HEADER_STRUCT.size + fname_len + extra_len + int(info.compress_size or 0)
+            if not hdr_valid or hdr_off < prev_end_offset or data_end > archive_size:
                 offset_hazards[idx] = ArchiveHazard(
                     "OVERLAPPING_OR_SPOOFED_OFFSET",
                     info.filename,
                     "member local header offset overlaps another entry or exceeds archive file bounds",
                 )
-            prev_end_offset = max(prev_end_offset, min(min_end, archive_size))
+            prev_end_offset = max(prev_end_offset, min(data_end, archive_size))
         for idx, info in enumerate(infos):
             hazards = _member_hazards(info)
             if idx in offset_hazards:
                 hazards.append(offset_hazards[idx])
-            key = info.filename.replace("\\", "/").rstrip("/").lower()
+            key = _norm_member_relpath(info.filename)
             if key in seen:
                 hazards.append(ArchiveHazard("DUPLICATE_NAME", info.filename, "member name occurs more than once (case-insensitive)"))
             seen[key] = idx

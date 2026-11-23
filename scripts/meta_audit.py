@@ -42,19 +42,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-MODE_SKILLS = ("chisle", "marathon", "procoder", "unlazy", "vibecoder")
+MODE_SKILLS = ("chisle", "marathon", "unlazy", "vibecoder")
 KNOWN_EXTERNAL_MD = {
     "AGENTS.md", "CLAUDE.md", "CODEX.md", "CONVENTIONS.md", "RULES.md", "GATES.md", "HANDOFF.md",
     "tasks.md", "plan.md", "PLAN.md", "implementation_plan.md", "walkthrough.md", "SKILL.md",
     "MISTAKES.md", "GEMINI.md", "DESIGN.md", "README.md", "CHANGELOG.md", "SECURITY.md",
-    "ARCHITECTURE.md", "SECURITY_POSTURE.md", "REPOSTATE.md",
+    "ARCHITECTURE.md", "SECURITY_POSTURE.md", "REPOSTATE.md", "DECISIONS.md",
     "CONTRIBUTING.md", "task.md", "spec.md", "todo.md", "backlog.md", "sprint.md", "ADR.md",
-    "RELEASE.md", "template.md", "GLOSSARY.md", "PRODUCT.md",  # files the skills create inside the user's project
+    "RELEASE.md", "template.md", "GLOSSARY.md", "PRODUCT.md", "antigravity-constitution.md",  # files created in user/config dirs
 }
 # `.claude` holds local agent worktrees (full repository copies) and is never harness content.
 SKIP_DIRS = {".git", "node_modules", "export", "__pycache__", "dist", "build", ".harness", ".claude"}
 # Custom subagents in Antigravity 2.0 are read-only (no shell execution tool in custom agent profiles).
 AGENT_ACCESS_LEVELS = ("read-only",)
+VERIFIED_READONLY_AGENT_TOOLS = frozenset({"read_file", "search_web"})
+VALID_RULE_TRIGGERS = frozenset({"always_on", "model_decision", "glob", "manual"})
 DEPRECATED_V1_TOOLS = {
     "view_file": "read_file",
     "grep_search": "run_command (ripgrep / grep / code_map.py)",
@@ -348,6 +350,12 @@ class MetaAuditEngine:
                     )
                     continue
                 entries.append((p, p.stem))
+        templates_dir = self.repo_root / "templates"
+        if templates_dir.is_dir():
+            for p in sorted(templates_dir.glob("*.SKILL.template.md")):
+                if p.is_file():
+                    expected_slug = p.name[: -len(".SKILL.template.md")]
+                    entries.append((p, expected_slug))
 
         for path, expected in entries:
             data, err = _load_yaml_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
@@ -364,9 +372,69 @@ class MetaAuditEngine:
             if not isinstance(desc, str) or not desc.strip():
                 self._add("WARNING", name, target, "Frontmatter has missing or empty 'description' field",
                           "Provide a descriptive summary of when to use it.")
-            if path.parent.name == "agents" and "access" not in data:
-                self._add("WARNING", name, target, "Agent frontmatter is missing 'access' field",
-                          f"Add 'access' ({', '.join(AGENT_ACCESS_LEVELS)}).")
+            if "disable-model-invocation" in data and not isinstance(data.get("disable-model-invocation"), bool):
+                self._add(
+                    "CRITICAL",
+                    name,
+                    target,
+                    f"Frontmatter 'disable-model-invocation' must be a YAML boolean (`true`/`false`), got {data.get('disable-model-invocation')!r}",
+                    "Set `disable-model-invocation: true` or `false` (unquoted boolean).",
+                )
+            if path.parent.name == "agents":
+                if "access" not in data:
+                    self._add("WARNING", name, target, "Agent frontmatter is missing 'access' field",
+                              f"Add 'access' ({', '.join(AGENT_ACCESS_LEVELS)}).")
+                elif str(data["access"]).strip() not in AGENT_ACCESS_LEVELS:
+                    self._add("WARNING", name, target, f"Unsupported 'access' value '{data['access']}' (Antigravity 2.0 custom subagents must be read-only)",
+                              f"Use one of: {', '.join(AGENT_ACCESS_LEVELS)}.")
+                if data.get("mainAgent") is not False:
+                    self._add(
+                        "WARNING",
+                        name,
+                        target,
+                        "Agent frontmatter must set 'mainAgent: false' so read-only auditors do not appear as primary session agents",
+                        "Add 'mainAgent: false' to the agent YAML frontmatter.",
+                    )
+                if data.get("subagent") is not True:
+                    self._add(
+                        "WARNING",
+                        name,
+                        target,
+                        "Agent frontmatter must set 'subagent: true' for Antigravity subagent discovery",
+                        "Add 'subagent: true' to the agent YAML frontmatter.",
+                    )
+                if data.get("inheritMcp") is not False:
+                    self._add(
+                        "WARNING",
+                        name,
+                        target,
+                        "Agent frontmatter must set 'inheritMcp: false' so read-only auditors do not inherit mutating MCP tools",
+                        "Add 'inheritMcp: false' to the agent YAML frontmatter.",
+                    )
+                if "tools" not in data:
+                    self._add(
+                        "WARNING",
+                        name,
+                        target,
+                        "Agent frontmatter is missing required read-only 'tools' allowlist",
+                        f"Add `tools: [read_file]` (allowed: {sorted(VERIFIED_READONLY_AGENT_TOOLS)}).",
+                    )
+                else:
+                    raw_tools = data.get("tools")
+                    tool_items = raw_tools if isinstance(raw_tools, list) else [raw_tools]
+                    bad_tools = [
+                        str(t) for t in tool_items
+                        if not isinstance(t, str) or t.strip() not in VERIFIED_READONLY_AGENT_TOOLS
+                    ]
+                    if not tool_items or bad_tools:
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            target,
+                            f"Agent frontmatter 'tools' contains unmapped or disallowed tool(s): {bad_tools or raw_tools} "
+                            f"(verified read-only Antigravity tools: {sorted(VERIFIED_READONLY_AGENT_TOOLS)})",
+                            "Use only verified native read-only tool names (`read_file`, `search_web`) to avoid hangs or write exposure.",
+                        )
             elif "access" in data and str(data["access"]).strip() not in AGENT_ACCESS_LEVELS:
                 self._add("WARNING", name, target, f"Unsupported 'access' value '{data['access']}' (Antigravity 2.0 custom subagents must be read-only)",
                           f"Use one of: {', '.join(AGENT_ACCESS_LEVELS)}.")
@@ -400,6 +468,49 @@ class MetaAuditEngine:
                         f"{ref_target}:{lineno}",
                         f"Deprecated Antigravity 1.x tool `{old_tool}` referenced in skill reference file",
                         f"Replace `{old_tool}` with `{DEPRECATED_V1_TOOLS[old_tool]}`.",
+                    )
+
+        for rules_dir in (self.repo_root / ".agents" / "rules", self.repo_root / "rules"):
+            if not rules_dir.is_dir():
+                continue
+            for rule_md in sorted(rules_dir.glob("*.md")):
+                if not rule_md.is_file():
+                    continue
+                r_target = self._rel(rule_md)
+                r_data, r_err = _load_yaml_frontmatter(rule_md.read_text(encoding="utf-8", errors="replace"))
+                if r_err or not isinstance(r_data, dict):
+                    self._add(
+                        "CRITICAL",
+                        name,
+                        r_target,
+                        f"Rule file frontmatter error: {r_err or 'not a mapping'} (Antigravity silently discards rules without valid frontmatter)",
+                        "Add valid YAML frontmatter with a supported `trigger` (`always_on`, `model_decision`, `glob`, or `manual`).",
+                    )
+                    continue
+                trig = str(r_data.get("trigger") or "").strip()
+                if trig not in VALID_RULE_TRIGGERS:
+                    self._add(
+                        "CRITICAL",
+                        name,
+                        r_target,
+                        f"Rule file declares unsupported trigger {trig!r} (Antigravity silently discards unrecognized triggers)",
+                        f"Set `trigger` to one of: {', '.join(sorted(VALID_RULE_TRIGGERS))}.",
+                    )
+                elif trig == "model_decision" and not str(r_data.get("description") or "").strip():
+                    self._add(
+                        "WARNING",
+                        name,
+                        r_target,
+                        "Rule file with `trigger: model_decision` is missing required `description`",
+                        "Add a concise `description` string.",
+                    )
+                elif trig == "glob" and not str(r_data.get("globs") or r_data.get("glob") or "").strip():
+                    self._add(
+                        "WARNING",
+                        name,
+                        r_target,
+                        "Rule file with `trigger: glob` is missing required `globs`",
+                        "Add a comma-separated `globs` string.",
                     )
 
         self._check_test_hermetic_imports(name)
@@ -561,35 +672,58 @@ class MetaAuditEngine:
             )
             return (explicit | suffixed) - _BUILTIN_OR_IGNORED_SUBAGENTS
 
-        gemini_md = self.repo_root / "GEMINI.md"
-        if gemini_md.is_file():
-            content = gemini_md.read_text(encoding="utf-8", errors="ignore")
+        constitution_md = self.repo_root / "GEMINI.md"
+        if not constitution_md.is_file():
+            alt_rule = self.repo_root / "rules" / "antigravity-constitution.md"
+            if alt_rule.is_file():
+                constitution_md = alt_rule
+        resolved_const_text: Optional[str] = None
+        if constitution_md.is_file():
+            const_rel = self._rel(constitution_md)
+            if constitution_md.name == "antigravity-constitution.md":
+                from porter.manifest import _read_constitution_text
+
+                resolved_const_text = _read_constitution_text(self.repo_root)
+                if resolved_const_text is None:
+                    self._add(
+                        "CRITICAL",
+                        name,
+                        const_rel,
+                        f"{const_rel} linked `@[...](...)` target is missing, symlinked, or outside allowed roots.",
+                        "Re-run `python3 install.py` or fix the constitution rule target.",
+                    )
+                    content = ""
+                else:
+                    content = resolved_const_text
+            else:
+                content = constitution_md.read_text(encoding="utf-8", errors="ignore")
+                resolved_const_text = content
             gemini_bytes = len(content.encode("utf-8"))
             if gemini_bytes > 24000:
                 self._add(
                     "CRITICAL",
                     name,
-                    "GEMINI.md",
-                    f"GEMINI.md is {gemini_bytes} UTF-8 bytes, exceeding Antigravity's 24,000-byte per-file rule cap.",
+                    const_rel,
+                    f"{const_rel} is {gemini_bytes} UTF-8 bytes, exceeding Antigravity's 24,000-byte per-file rule cap.",
                     "Condense verbose guidance or offload procedures into skills/ while maintaining <= 20,000 bytes.",
                 )
             elif gemini_bytes > 20000:
                 self._add(
                     "WARNING",
                     name,
-                    "GEMINI.md",
-                    f"GEMINI.md is {gemini_bytes} UTF-8 bytes, exceeding the 20,000-byte operational ceiling below Antigravity's 24,000-byte cap.",
+                    const_rel,
+                    f"{const_rel} is {gemini_bytes} UTF-8 bytes, exceeding the 20,000-byte operational ceiling below Antigravity's 24,000-byte cap.",
                     "Trim redundant wording to preserve headroom under the 24,000-byte per-file rule cap.",
                 )
             g_no_code = re.sub(r"```.*?```", "", content, flags=re.DOTALL)
             for agent in sorted(_extract_subagents(g_no_code)):
                 if agent not in available_agents:
-                    self._add("CRITICAL", name, "GEMINI.md",
-                              f"GEMINI.md mandates dispatch of `{agent}` subagent, but agents/{agent}.md is missing.",
+                    self._add("CRITICAL", name, const_rel,
+                              f"{const_rel} mandates dispatch of `{agent}` subagent, but agents/{agent}.md is missing.",
                               f"Create agents/{agent}.md or update the reference.")
             for tmpl in re.findall(r"templates/([a-zA-Z0-9_.-]+)", content):
                 if not (self.repo_root / "templates" / tmpl).exists():
-                    self._add("CRITICAL", name, "GEMINI.md", f"GEMINI.md references 'templates/{tmpl}', which does not exist.",
+                    self._add("CRITICAL", name, const_rel, f"{const_rel} references 'templates/{tmpl}', which does not exist.",
                               f"Create templates/{tmpl} or update the path.")
 
         if available_agents or agents_dir.is_dir():
@@ -604,6 +738,9 @@ class MetaAuditEngine:
                 )
             if agents_dir.is_dir():
                 subagent_scan_files.extend(sorted(agents_dir.glob("*.md")))
+            ws_rules_dir = self.repo_root / ".agents" / "rules"
+            if ws_rules_dir.is_dir():
+                subagent_scan_files.extend(sorted(ws_rules_dir.glob("*.md")))
             for doc_md in subagent_scan_files:
                 s_text = re.sub(r"```.*?```", "", self._read_text(doc_md), flags=re.DOTALL)
                 s_target = self._rel(doc_md)
@@ -616,9 +753,11 @@ class MetaAuditEngine:
                                   f"Create agents/{agent}.md or update the reference.")
 
         top_dirs = {"skills", "agents", "scripts", "guard", "porter", "templates", "installers", "tests", "bin", "references", "assets"}
-        config_mapped_heads = {"GEMINI.md", "DESIGN.md", "MISTAKES.md", "skills", "agents", "templates", "scripts", "guard", "porter"}
+        config_mapped_heads = {"GEMINI.md", "DESIGN.md", "rules", "skills", "agents", "templates", "scripts", "guard", "porter"}
         code_dirs = {"scripts", "guard", "porter", "tests"}
-        is_split_layout = not (self.repo_root / "scripts").is_dir() and (self.repo_root / "GEMINI.md").is_file()
+        is_split_layout = not (self.repo_root / "scripts").is_dir() and (
+            (self.repo_root / "GEMINI.md").is_file() or (self.repo_root / "rules" / "antigravity-constitution.md").is_file()
+        )
         runtime_roots: List[Path] = []
         if is_split_layout:
             try:
@@ -871,29 +1010,37 @@ class MetaAuditEngine:
                     "Fix JSON syntax in hooks.json.",
                 )
 
-        gemini_md = self.repo_root / "GEMINI.md"
-        if gemini_md.is_file():
-            try:
-                gemini_raw = gemini_md.read_bytes()
-            except OSError:
-                gemini_raw = b""
+        if constitution_md.is_file() and resolved_const_text is not None:
+            const_rel_b = self._rel(constitution_md)
+            gemini_raw = resolved_const_text.encode("utf-8")
             if len(gemini_raw) > 6500:
                 self._add(
                     "WARNING",
                     name,
-                    "GEMINI.md",
-                    f"GEMINI.md exceeds ADR-0009 6,500-byte ceiling ({len(gemini_raw)} bytes)",
-                    "Trim GEMINI.md back within the <= 6,500 UTF-8 byte budget.",
+                    const_rel_b,
+                    f"{const_rel_b} exceeds ADR-0009 6,500-byte ceiling ({len(gemini_raw)} bytes)",
+                    f"Trim {const_rel_b} back within the <= 6,500 UTF-8 byte budget.",
                 )
-            for gline in gemini_raw.decode("utf-8", errors="replace").splitlines():
-                if re.match(r"^\s*15\.\s+\*\*", gline):
+        for r15_doc in (constitution_md, self.repo_root / ".agents" / "rules" / "harness-maintainer.md"):
+            if not r15_doc.is_file():
+                continue
+            r15_rel = self._rel(r15_doc)
+            if r15_doc == constitution_md and resolved_const_text is not None:
+                r15_text = resolved_const_text
+            else:
+                try:
+                    r15_text = r15_doc.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+            for gline in r15_text.splitlines():
+                if re.match(r"^\s*(?:[*+-]\s+\*\*)?15\.\s+", gline):
                     r15_bytes = len(gline.encode("utf-8"))
                     if r15_bytes > 550:
                         self._add(
                             "WARNING",
                             name,
-                            "GEMINI.md",
-                            f"GEMINI.md Rule 15 exceeds ADR-0009 550-byte ceiling ({r15_bytes} bytes)",
+                            r15_rel,
+                            f"{r15_rel} Rule 15 exceeds ADR-0009 550-byte ceiling ({r15_bytes} bytes)",
                             "Keep Rule 15 compact (<= 550 UTF-8 bytes) and move details to skills.",
                         )
                     break
@@ -932,6 +1079,14 @@ class MetaAuditEngine:
         basenames = self._collect_basenames(self.repo_root)
         for rt in runtime_roots:
             basenames |= self._collect_basenames(rt)
+        def _config_path_candidates(rel_cfg: str) -> List[Path]:
+            cands = [self.repo_root / rel_cfg] + [rt / rel_cfg for rt in runtime_roots]
+            if rel_cfg == "rules/antigravity-constitution.md":
+                cands.append(self.repo_root / "GEMINI.md")
+            elif rel_cfg == "GEMINI.md":
+                cands.append(self.repo_root / "rules" / "antigravity-constitution.md")
+            return cands
+
         for md in self._markdown_files():
             text = self._read_text(md)
             target = self._rel(md)
@@ -963,8 +1118,7 @@ class MetaAuditEngine:
                         rel_cfg_line = m_cfg.group(1).rstrip(".,:;)`'\"")
                         cfg_head_line = rel_cfg_line.split("/", 1)[0]
                         if rel_cfg_line and cfg_head_line in config_mapped_heads and "." in rel_cfg_line.rsplit("/", 1)[-1]:
-                            cfg_candidates = [self.repo_root / rel_cfg_line] + [rt / rel_cfg_line for rt in runtime_roots]
-                            if not any(c.exists() for c in cfg_candidates):
+                            if not any(c.exists() for c in _config_path_candidates(rel_cfg_line)):
                                 self._add(
                                     "WARNING",
                                     name,
@@ -1043,7 +1197,7 @@ class MetaAuditEngine:
                 sec_atom = r"§\d+(?:\.[A-Za-z0-9]+)?(?:`?\s*\([^§)\n]{1,60}\))?"
                 sec_chain_pat = rf"{sec_atom}(?:\s*(?:,|&|and|/|[–-])\s*`?{sec_atom})*"
                 doc_sec_re = re.compile(
-                    rf"(?:`([A-Za-z0-9_./-]+\.md)`|(?<![/\w.-])([A-Za-z0-9_./-]+\.md)|\[[^\]]+\]\((?:\./)?([A-Za-z0-9_./-]+\.md)(?:#[^)\s]*)?(?:\s+\"[^\"]*\"|\s+'[^']*')?\)|`([a-z][a-z0-9-]*)`)(?:\]\([^)]+\))?\s*(?:\(\s*)?`?({sec_chain_pat})"
+                    rf"(?:`(?:~/\.gemini/config/)?([A-Za-z0-9_./-]+\.md)`|(?<![/\w.-])(?:~/\.gemini/config/)?([A-Za-z0-9_./-]+\.md)|\[[^\]]+\]\((?:\./)?([A-Za-z0-9_./-]+\.md)(?:#[^)\s]*)?(?:\s+\"[^\"]*\"|\s+'[^']*')?\)|`([a-z][a-z0-9-]*)`)(?:\]\([^)]+\))?\s*(?:\(\s*)?`?({sec_chain_pat})"
                 )
                 in_fence_sec = False
                 for lineno_s, line_s in enumerate(text.splitlines(), 1):
@@ -1106,8 +1260,7 @@ class MetaAuditEngine:
                     rel_cfg = clean[len("~/.gemini/config/"):].rstrip("/")
                     cfg_head = rel_cfg.split("/", 1)[0]
                     if rel_cfg and cfg_head in config_mapped_heads and "." in rel_cfg.rsplit("/", 1)[-1]:
-                        candidates = [self.repo_root / rel_cfg] + [rt / rel_cfg for rt in runtime_roots]
-                        if not any(c.exists() for c in candidates):
+                        if not any(c.exists() for c in _config_path_candidates(rel_cfg)):
                             self._add("WARNING", name, target,
                                       f"Referenced config path `{clean}` does not exist in repository (`{rel_cfg}`)",
                                       "Update the config path or restore the file in the repository.")
@@ -1130,7 +1283,77 @@ class MetaAuditEngine:
                     self._add("WARNING", name, target, f"Referenced file `{clean}` does not exist anywhere in the repository",
                               "Reference the real file path (e.g. skills/<name>/SKILL.md).")
 
+        self._check_installed_layout_skill_paths(name, is_split_layout=is_split_p2, managed_skills=managed_skills_p2)
         self._check_slash_commands(name)
+
+    _INSTALLED_BARE_SKILL_PATH_RE = re.compile(
+        r"(?<![A-Za-z0-9_./~-])("
+        r"templates/[A-Za-z0-9_.-]+\.md|"
+        r"skills/[a-z0-9][a-z0-9_-]*/[A-Za-z0-9_./-]+|"
+        r"agents/[a-z0-9][a-z0-9_-]*\.md|"
+        r"porter/[A-Za-z0-9_./-]+\.py|"
+        r"guard/(?:agy_hooks\.py|hooks/[A-Za-z0-9_.-]+\.py|[a-z_]+\.py)|"
+        r"scripts/(?:meta_audit|code_map|verify_invariants|check_ui_slop|check_synthetic_markers|contrast-check|contrast-mcp|media_qc|upstream_watcher)\.(?:py|sh)"
+        r")"
+    )
+
+    def _check_installed_layout_skill_paths(
+        self,
+        name: str,
+        *,
+        is_split_layout: bool = False,
+        managed_skills: Optional[Set[str]] = None,
+    ) -> None:
+        """Verifies globally installed skills, agents, and constitution avoid bare repo-relative harness paths."""
+        scan_files: List[Path] = []
+        skills_dir = self.repo_root / "skills"
+        if skills_dir.is_dir():
+            for md in sorted(skills_dir.rglob("*.md")):
+                if not md.is_file() or SKIP_DIRS.intersection(md.relative_to(self.repo_root).parts):
+                    continue
+                rel_parts = md.relative_to(skills_dir).parts
+                if is_split_layout and managed_skills is not None and rel_parts and rel_parts[0] not in managed_skills:
+                    continue
+                scan_files.append(md)
+        agents_dir = self.repo_root / "agents"
+        if agents_dir.is_dir():
+            for md in sorted(agents_dir.glob("*.md")):
+                if md.is_file():
+                    scan_files.append(md)
+        for const_rel in ("GEMINI.md", "rules/antigravity-constitution.md"):
+            cp = self.repo_root / const_rel
+            if cp.is_file():
+                scan_files.append(cp)
+
+        for md in scan_files:
+            raw = self._read_text(md)
+            lines = raw.splitlines()
+            in_fm = False
+            in_fence = False
+            target = self._rel(md)
+            for lineno, line in enumerate(lines, 1):
+                stripped = line.lstrip()
+                if lineno == 1 and stripped.startswith("---"):
+                    in_fm = True
+                    continue
+                if in_fm:
+                    if stripped.startswith("---"):
+                        in_fm = False
+                    continue
+                if stripped.startswith(("```", "~~~")):
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    continue
+                for m in self._INSTALLED_BARE_SKILL_PATH_RE.finditer(line):
+                    bare_path = m.group(1)
+                    self._add(
+                        "WARNING",
+                        name,
+                        f"{target}:{lineno}",
+                        f"Repo-relative harness path `{bare_path}` inside installed governance file will not resolve in external workspaces",
+                        "Prefix with `~/.gemini/config/` (skills/agents/templates), `~/.local/share/antigravity-harness/runtime/` (guard/porter/scripts), an `agy-guard` CLI command, or a relative `./` link.",
+                    )
 
     _SECTION_DECLARES = re.compile(r"(?i)invocation|trigger|slash|command")
     _LINE_DECLARES = re.compile(r"(?i)slash commands?|triggers?:|invoke with")
@@ -1158,8 +1381,13 @@ class MetaAuditEngine:
     def _check_slash_commands(self, name: str) -> None:
         """Instructions must not point the agent or the user at slash commands no skill provides in frontmatter."""
         declared = self._declared_slash_commands()
-        sources = [self.repo_root / "GEMINI.md"] + sorted((self.repo_root / "agents").glob("*.md")) \
-            + sorted((self.repo_root / "templates").glob("*.md")) + sorted((self.repo_root / "skills").rglob("*.md"))
+        sources = (
+            [self.repo_root / "GEMINI.md", self.repo_root / "rules" / "antigravity-constitution.md"]
+            + sorted((self.repo_root / ".agents" / "rules").glob("*.md"))
+            + sorted((self.repo_root / "agents").glob("*.md"))
+            + sorted((self.repo_root / "templates").glob("*.md"))
+            + sorted((self.repo_root / "skills").rglob("*.md"))
+        )
         for md in sources:
             if not md.is_file() or SKIP_DIRS.intersection(md.relative_to(self.repo_root).parts):
                 continue
@@ -1241,10 +1469,17 @@ class MetaAuditEngine:
                           "Add a '## Mutual Exclusion' section naming the trigger, the deactivation and 'harness'.")
 
         thresholds = {}
-        for rel in ("GEMINI.md", "skills/harness/SKILL.md", "skills/harness/references/unlazy.md", "skills/unlazy/SKILL.md"):
+        from porter.manifest import _read_constitution_text
+
+        for rel in ("GEMINI.md", "rules/antigravity-constitution.md", "skills/harness/SKILL.md", "skills/harness/references/unlazy.md", "skills/unlazy/SKILL.md"):
             p = self.repo_root / rel
             if p.is_file():
-                m = re.search(r"(?is)tier\s*3[^\n]*?\n?.{0,300}?(?:>\s*(\d+)\s*files|\b(\d+)\+\s*files)", self._read_text(p))
+                doc_txt = (
+                    (_read_constitution_text(self.repo_root) or "")
+                    if rel == "rules/antigravity-constitution.md"
+                    else self._read_text(p)
+                )
+                m = re.search(r"(?is)tier\s*3[^\n]*?\n?.{0,300}?(?:>\s*(\d+)\s*files|\b(\d+)\+\s*files)", doc_txt)
                 if m:
                     thresholds[rel] = int(m.group(1) or m.group(2)) + (0 if m.group(1) else -1)
         for md in self._markdown_files():
@@ -1339,8 +1574,9 @@ class MetaAuditEngine:
                     for rel in skill.get("executables", []) if os.name != "nt" else []:
                         if (base / rel).is_file() and not os.access(base / rel, os.X_OK):
                             losses.append(f"{skill['name']}/{rel} (executable bit)")
-                for tmpl in getattr(manifest, "templates", {}) or {}:
-                    if not (out / "templates" / tmpl).is_file():
+                for tmpl, tmpl_raw in (getattr(manifest, "templates", {}) or {}).items():
+                    tp = out / "templates" / tmpl
+                    if not tp.is_file() or (isinstance(tmpl_raw, str) and tp.read_text(encoding="utf-8") != tmpl_raw):
                         losses.append(f"templates/{tmpl}")
                 for agent in manifest.agents:
                     p = out / emitter.AGENTS_DIR / f"{agent['name']}.md"
@@ -1408,6 +1644,11 @@ class MetaAuditEngine:
                 if str(sub_rel).lower().endswith(".md") and isinstance(sub_val, str):
                     sources.append((f"skills/{s['name']}/{sub_rel}", sub_val))
         sources += [(f"agents/{a['name']}.md", a["raw"]) for a in manifest.agents]
+        sources += [
+            (f"templates/{t_name}", t_raw)
+            for t_name, t_raw in sorted((getattr(manifest, "templates", {}) or {}).items())
+            if str(t_name).lower().endswith(".md") and isinstance(t_raw, str)
+        ]
         for rel, text in sources:
             hits = find_directives(text)
             if hits:
@@ -1516,6 +1757,64 @@ class MetaAuditEngine:
                         f"package_linux.py is missing required packaging artifact `{req_tok}`",
                         f"Stage `{req_tok}` in LinuxPackager._prepare_payload.",
                     )
+
+        # Cross-check CONSOLIDATED_SKILL_SLUGS vs top-level skills & porter/analyzer.py, and upstream seed parity
+        if (self.repo_root / "guard" / "environment.py").is_file() and (self.repo_root / "porter" / "analyzer.py").is_file():
+            try:
+                from guard.environment import CONSOLIDATED_SKILL_SLUGS
+                from porter.analyzer import SuitabilityAnalyzer
+
+                analyzer = SuitabilityAnalyzer(self.repo_root)
+                skills_root = self.repo_root / "skills"
+                for slug in CONSOLIDATED_SKILL_SLUGS:
+                    if (skills_root / slug / "SKILL.md").is_file():
+                        self._add(
+                            "CRITICAL",
+                            name,
+                            f"skills/{slug}/SKILL.md",
+                            f"Consolidated/archived slug '{slug}' still exists as a top-level global skill",
+                            f"Remove `skills/{slug}/` or remove '{slug}' from `CONSOLIDATED_SKILL_SLUGS`.",
+                        )
+                    if slug not in analyzer.known_skills:
+                        self._add(
+                            "WARNING",
+                            name,
+                            "porter/analyzer.py",
+                            f"CONSOLIDATED_SKILL_SLUGS entry '{slug}' is missing from SuitabilityAnalyzer.known_skills",
+                            f"Register '{slug}' in `porter/analyzer.py` so `porter inspect` matches `porter import`.",
+                        )
+            except Exception as exc:
+                self._add(
+                    "CRITICAL",
+                    name,
+                    "porter/analyzer.py",
+                    f"CONSOLIDATED_SKILL_SLUGS parity check failed ({type(exc).__name__}): {exc}",
+                    "Fix import or syntax errors in `guard/environment.py` / `porter/analyzer.py`.",
+                )
+
+        seed_path = self.repo_root / "skills" / "upstream-auditor" / "upstream_state.seed.json"
+        if seed_path.is_file() and (self.repo_root / "guard" / "upstream.py").is_file():
+            try:
+                seed_obj = json.loads(seed_path.read_text(encoding="utf-8"))
+                from guard.upstream import DEFAULT_MODEL_COMPACTION_CEILINGS
+
+                seed_mcc = seed_obj.get("model_compaction_ceilings")
+                if isinstance(seed_mcc, dict) and seed_mcc != DEFAULT_MODEL_COMPACTION_CEILINGS:
+                    self._add(
+                        "WARNING",
+                        name,
+                        "guard/upstream.py",
+                        "`DEFAULT_MODEL_COMPACTION_CEILINGS` in `guard/upstream.py` diverges from `upstream_state.seed.json`",
+                        "Keep `DEFAULT_MODEL_COMPACTION_CEILINGS` synchronized with `skills/upstream-auditor/upstream_state.seed.json`.",
+                    )
+            except Exception as exc:
+                self._add(
+                    "CRITICAL",
+                    name,
+                    "skills/upstream-auditor/upstream_state.seed.json",
+                    f"Upstream compaction-ceiling parity check failed ({type(exc).__name__}): {exc}",
+                    "Ensure `upstream_state.seed.json` is valid JSON and `guard/upstream.py` imports cleanly.",
+                )
 
     def _count_tests(self) -> int:
         tests = self.repo_root / "tests"

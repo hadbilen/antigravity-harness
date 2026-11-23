@@ -170,24 +170,27 @@ def is_test_path(rel_path: str) -> bool:
     return any(p.search(rel) for p in TEST_FILE_PATTERNS)
 
 
-def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tuple[str, str, str]]:
-    """Checks the git diff (against base_ref, or HEAD, or HEAD~1, plus untracked files) for invariant violations."""
-    violations: List[Tuple[str, str, str]] = []
+def _collect_git_diff_with_ref(base_ref: str = "", base_path: Optional[Path] = None) -> Tuple[Optional[str], str, List[str]]:
+    """Returns `(diff_output, inspected_ref, errors)` for git diff inspection."""
     repo_dir = Path(base_path).resolve() if base_path is not None else REPO_ROOT
     cwd = str(repo_dir)
     diff_output: Optional[str] = None
+    inspected_ref = ""
     errors: List[str] = []
-
     if base_ref:
-        candidates = [
+        for cmd in (
             ["git", "-c", "core.quotePath=false", "diff", base_ref, "--unified=0"],
             ["git", "-c", "core.quotePath=false", "diff", f"{base_ref}...HEAD", "--unified=0"],
-        ]
-        for cmd in candidates:
+        ):
             try:
                 diff_output = subprocess.check_output(
-                    cmd, stderr=subprocess.PIPE, text=True, cwd=cwd, timeout=_GIT_SUBPROCESS_TIMEOUT
+                    cmd,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=cwd,
+                    timeout=_GIT_SUBPROCESS_TIMEOUT,
                 )
+                inspected_ref = base_ref
                 break
             except (OSError, subprocess.SubprocessError) as e:
                 errors.append(f"{' '.join(cmd)}: {getattr(e, 'stderr', '') or e}")
@@ -202,6 +205,7 @@ def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tup
             )
             if head_diff.strip():
                 diff_output = head_diff
+                inspected_ref = "HEAD"
             else:
                 try:
                     diff_output = subprocess.check_output(
@@ -211,8 +215,10 @@ def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tup
                         cwd=cwd,
                         timeout=_GIT_SUBPROCESS_TIMEOUT,
                     )
+                    inspected_ref = "HEAD~1"
                 except (OSError, subprocess.SubprocessError):
                     diff_output = head_diff
+                    inspected_ref = "HEAD"
         except (OSError, subprocess.SubprocessError) as e:
             errors.append(f"git diff HEAD --unified=0: {getattr(e, 'stderr', '') or e}")
             try:
@@ -231,8 +237,18 @@ def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tup
                     timeout=_GIT_SUBPROCESS_TIMEOUT,
                 )
                 diff_output = f"{staged}\n{unstaged}"
+                inspected_ref = ""
             except (OSError, subprocess.SubprocessError) as e2:
                 errors.append(f"git diff --cached/--unified=0: {getattr(e2, 'stderr', '') or e2}")
+    return diff_output, inspected_ref, errors
+
+
+def check_diff_with_ref(base_ref: str = "", base_path: Optional[Path] = None) -> Tuple[List[Tuple[str, str, str]], str]:
+    """Checks the git diff (against base_ref, or HEAD, or HEAD~1, plus untracked files) and returns `(violations, inspected_ref)`."""
+    violations: List[Tuple[str, str, str]] = []
+    repo_dir = Path(base_path).resolve() if base_path is not None else REPO_ROOT
+    cwd = str(repo_dir)
+    diff_output, inspected_ref, errors = _collect_git_diff_with_ref(base_ref=base_ref, base_path=repo_dir)
 
     if diff_output is None:
         raise CheckUnavailable("could not compute a git diff: " + " | ".join(errors))
@@ -376,7 +392,7 @@ def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tup
                     violations.append((current_file, line, desc))
 
     seen_findings = set()
-    for finding in inspect_git_diff(diff_output, workspace=repo_dir):
+    for finding in inspect_git_diff(diff_output, workspace=repo_dir, base_ref=inspected_ref):
         m_path = re.search(r"in `([^`]+)`", finding)
         f_rel = m_path.group(1) if m_path else "<diff>"
         if not is_grader_self_test(f_rel) and finding not in seen_findings:
@@ -386,7 +402,12 @@ def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tup
     if unreadable_untracked:
         raise CheckUnavailable("cannot inspect in-scope untracked file(s): " + "; ".join(unreadable_untracked))
 
-    return violations
+    return violations, inspected_ref
+
+
+def check_diff(base_ref: str = "", base_path: Optional[Path] = None) -> List[Tuple[str, str, str]]:
+    """Checks the git diff (against base_ref, or HEAD, or HEAD~1, plus untracked files) for invariant violations."""
+    return check_diff_with_ref(base_ref=base_ref, base_path=base_path)[0]
 
 
 def scan_directory(base_path: Path) -> List[Tuple[str, str, str]]:
@@ -502,7 +523,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--diff", action="store_true", help="Inspect git diff")
     parser.add_argument("--all", action="store_true", help="Inspect entire repository tree")
     parser.add_argument("--test-boundary", action="store_true", help="Explicitly verify test & config trust boundary")
-    parser.add_argument("--mode", choices=["bugfix", "tdd"], default="bugfix", help="Test boundary mode (bugfix/tdd)")
+    parser.add_argument(
+        "--mode",
+        choices=["bugfix", "tdd"],
+        default=None,
+        help="Test boundary mode (bugfix/tdd; defaults to 'tdd' for --diff and 'bugfix' for --test-boundary/--base-ref)",
+    )
     parser.add_argument("--path", "--root", dest="path", type=str, default=".", help="Base path to inspect")
     parser.add_argument("--base-ref", default="", help="Git ref for the diff and the test boundary (e.g. origin/main)")
     parser.add_argument("--authorize", action="append", default=[], help="Relative test path authorized for contract modification (repeatable)")
@@ -514,42 +540,71 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print("=" * 64)
 
     violations = []
+    inspected_ref = ""
     try:
         if args.all:
             print(f"[MODE] Full Repository Scan: {base_path}")
             violations = scan_directory(base_path)
         else:
             print("[MODE] Git Diff Invariant Check")
-            violations = check_diff(args.base_ref, base_path=base_path)
+            violations, inspected_ref = check_diff_with_ref(args.base_ref, base_path=base_path)
     except CheckUnavailable as e:
         print(f"\n[ERROR] Invariant check could not run: {e}")
         return 2
 
-    if args.test_boundary or args.base_ref:
+    explicit_boundary = bool(args.test_boundary or args.base_ref)
+    run_default_diff_boundary = (not args.all) and (not explicit_boundary)
+    boundary_verified = False
+
+    if explicit_boundary or run_default_diff_boundary:
         if str(REPO_ROOT) not in sys.path:
             sys.path.insert(0, str(REPO_ROOT))
         try:
+            from guard.agy_hooks import _is_git_unborn_head
             from guard.test_boundary import TestBoundaryGuard
 
             tb_guard = TestBoundaryGuard(workspace_dir=base_path)
-            tb_report = tb_guard.verify(
-                mode=args.mode,
-                base_ref=args.base_ref or None,
-                authorized_modifications=set(args.authorize or []),
+            has_snap = os.path.lexists(tb_guard._snapshot_source(None))
+            skip_unborn_head = (
+                run_default_diff_boundary
+                and not has_snap
+                and _is_git_unborn_head(base_path)
             )
+            if skip_unborn_head:
+                print("[TEST-BOUNDARY] Skipped (unborn HEAD — no committed git baseline yet).")
+            else:
+                effective_mode = args.mode or ("tdd" if run_default_diff_boundary else "bugfix")
+                if args.base_ref:
+                    effective_ref: Optional[str] = args.base_ref
+                elif run_default_diff_boundary and not has_snap:
+                    effective_ref = inspected_ref or "HEAD"
+                else:
+                    effective_ref = None
+                authorized_set = set(args.authorize or [])
+                if run_default_diff_boundary or args.base_ref:
+                    authorized_set |= set(TestBoundaryGuard.load_authorized_from_tasks_md(base_path))
+                tb_report = tb_guard.verify(
+                    mode=effective_mode,
+                    base_ref=effective_ref,
+                    authorized_modifications=authorized_set,
+                )
+                print(f"[TEST-BOUNDARY] {tb_report.summary()} (baseline: {tb_report.baseline_source or 'n/a'})")
+                if tb_report.violations and tb_report.violations[0].startswith("BASELINE"):
+                    print(f"\n[ERROR] {tb_report.violations[0]}")
+                    return 2
+                boundary_verified = True
+                for v in tb_report.violations:
+                    violations.append(("test-boundary", tb_report.summary(), v))
         except Exception as e:
             print(f"\n[ERROR] Test boundary check could not run: {e}")
             return 2
-        print(f"[TEST-BOUNDARY] {tb_report.summary()} (baseline: {tb_report.baseline_source or 'n/a'})")
-        if tb_report.violations and tb_report.violations[0].startswith("BASELINE"):
-            print(f"\n[ERROR] {tb_report.violations[0]}")
-            return 2
-        for v in tb_report.violations:
-            violations.append(("test-boundary", tb_report.summary(), v))
 
     if not violations:
         print("\n✅ [PASS] All deterministic invariants satisfied.")
-        print("   - Zero test weakening / skip mutations detected.")
+        if boundary_verified:
+            print("   - Zero test weakening, skip, or unauthorized expectation mutations detected (TestBoundaryGuard verified).")
+        else:
+            print("   - Static scan clean (skip markers, commented assertions, C9, supply-chain); run with --diff or --test-boundary to check test expectation mutations against a baseline.")
         print("   - Zero conversational sycophancy or supply-chain violations.")
         print("=" * 64)
         return 0

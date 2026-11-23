@@ -91,7 +91,6 @@ class LinuxPackager:
             "porter.py",
             "GEMINI.md",
             "DESIGN.md",
-            "MISTAKES.md",
             "README.md",
             "LICENSE",
             "THIRD_PARTY_NOTICES.md",
@@ -159,7 +158,7 @@ class LinuxPackager:
             shutil.copy2(icon_src, icons_dir / "antigravity-guard.svg")
 
         # 4. Governance Docs, Hooks, Manifest & Templates
-        for name in ("GEMINI.md", "DESIGN.md", "MISTAKES.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "hooks.json"):
+        for name in ("GEMINI.md", "DESIGN.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "hooks.json"):
             shutil.copy2(self.repo_root / name, docs_dir / name)
 
         staged_hooks = docs_dir / "hooks.json"

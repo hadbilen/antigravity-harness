@@ -23,7 +23,7 @@ NEVER propose speculative fixes, wrap code in superficial try/catch blocks, or m
 Label the failure with one or more of: **`CODE`** (application logic is wrong), **`ENVIRONMENT`** (tool/runtime/path/dependency/configuration), **`TOOL`** (an agent tool call failed, timed out or was rejected), **`EXTERNAL`** (a remote service or network endpoint), **`UNKNOWN`** (evidence is insufficient: reproduce and gather traces before changing anything). A failure can carry several labels (code that relies on an Application Programming Interface (API) the installed runtime lacks is `CODE` + `ENVIRONMENT`): fix each part where it lives. Never modify working application code to get around an environment, tool or external failure.
 
 ### Phase 1: Establish a Reproducible Feedback Loop
-* Formulate a single, deterministic command, script, or test case that triggers the failure reliably. Where a test can express the defect, that test is the loop: it becomes the regression test of Phase 5, failing (RED) now and following `skills/harness/references/test-design.md`.
+* Formulate a single, deterministic command, script, or test case that triggers the failure reliably. Where a test can express the defect, that test is the loop: it becomes the regression test of Phase 5, failing (RED) now and following `~/.gemini/config/skills/harness/references/test-design.md`.
 * Run the command and verify that it consistently fails (RED).
 * If the defect is interactive or non-deterministic, capture the exact inputs, environment, and state progression before touching code. For a test that passes and fails on the same code, follow **Flaky and Non-Deterministic Tests** below.
 
@@ -46,8 +46,8 @@ Label the failure with one or more of: **`CODE`** (application logic is wrong), 
 ### Phase 5: Fix Root Cause & Prove Green
 * Apply the minimal, cleanest fix addressing the true root cause, not merely suppressing the symptom.
 * Run the feedback loop from Phase 1 and prove that it passes (GREEN).
-* Add a regression test at the contract seam (`skills/harness/references/test-design.md`) and watch it fail before or without the fix (if you forced the RED state by mutating code or a fixture, run `diff` against a pristine copy to prove the mutation landed before trusting the failure), then watch it pass with the fix.
-* When a defect of the same shape has recurred, or the root cause is a hazard the code makes easy to repeat, apply `skills/harness/references/mistake-proofing.md`: close the structural hazard and grep the codebase for sibling occurrences of the same pattern.
+* Add a regression test at the contract seam (`~/.gemini/config/skills/harness/references/test-design.md`) and watch it fail before or without the fix (if you forced the RED state by mutating code or a fixture, run `diff` against a pristine copy to prove the mutation landed before trusting the failure), then watch it pass with the fix.
+* When a defect of the same shape has recurred, or the root cause is a hazard the code makes easy to repeat, apply `~/.gemini/config/skills/harness/references/mistake-proofing.md`: close the structural hazard and grep the codebase for sibling occurrences of the same pattern.
 
 ### Phase 6: Clean Up & Verify Entire Scope
 * Remove all temporary debug logging, scratch files, and instrumentation.
@@ -95,9 +95,9 @@ A test that passes and fails on the same code has a concrete cause; it is a defe
 ---
 
 ## Performance Problems (Measured Optimization Path)
-Unexpected performance regressions and measured slowdowns follow this defect path; for **proactive, controlled optimization of an already working system** across execution speed, memory (`RAM`) footprint, disk/artifact size, or network download/upload bandwidth and round-trip latency (frame rates, scripts, startup latency, bundles, networked services, or compiled executables across operating systems) and the 3-Zone Sweet-Spot Honesty Gate, load `skills/sweetspot/SKILL.md` (`/sweetspot`, `/optimize`, `--all`, `--time`, `--memory`, `--disk`, `--net`). Optimization is governed by a repeatable measurement rather than a binary assertion:
+Unexpected performance regressions and measured slowdowns follow this defect path; for **proactive, controlled optimization of an already working system** across execution speed, memory (`RAM`) footprint, disk/artifact size, or network download/upload bandwidth and round-trip latency (frame rates, scripts, startup latency, bundles, networked services, or compiled executables across operating systems) and the 3-Zone Sweet-Spot Honesty Gate, load `~/.gemini/config/skills/sweetspot/SKILL.md` (`/sweetspot`, `/optimize`, `--all`, `--time`, `--memory`, `--disk`, `--net`). Optimization is governed by a repeatable measurement rather than a binary assertion:
 1. **Measure first:** Establish a repeatable benchmark command and record its baseline metric (wall time, memory allocation, Input/Output (I/O) calls, or query count). Without a measured bottleneck, apply Constitution Rule 8's Null-Action Invariant.
-2. **Locate, then change one variable at a time:** Profile to locate the hot spot (language profiler, query plan, allocation trace) and change a single variable at that hot spot while keeping public signatures and seam behavior identical (Rule 9). If an optimization would alter the system's domain, feature contract, or architecture, stop and request explicit user approval (`skills/sweetspot/SKILL.md` Zone 2).
+2. **Locate, then change one variable at a time:** Profile to locate the hot spot (language profiler, query plan, allocation trace) and change a single variable at that hot spot while keeping public signatures and seam behavior identical (Rule 9). If an optimization would alter the system's domain, feature contract, or architecture, stop and request explicit user approval (`~/.gemini/config/skills/sweetspot/SKILL.md` Zone 2).
 3. **Simplicity Criterion & Append-Only Experiment Ledger:** Track every optimization attempt in an append-only table (`Attempt | Zone | Hypothesis & Target (file:line) | Diff Summary | Baseline | Measured | Status: KEEP/REVERT`). Apply the **Simplicity Criterion**:
    * A change that adds complexity for zero or noise-level gain (`< 1%`) is immediately reverted (`REVERT`).
    * A change that achieves equal or better performance while deleting code or simplifying state is kept (`KEEP`).

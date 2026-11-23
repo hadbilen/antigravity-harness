@@ -26,6 +26,7 @@ import queue
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 try:
     import fcntl
@@ -161,6 +163,29 @@ def get_builtin_skills_list():
         return sorted([d for d in os.listdir(BUILTIN_DIR) if os.path.isdir(os.path.join(BUILTIN_DIR, d))])
     except Exception:
         return []
+
+
+from guard.upstream import (
+    BUILTIN_CHECKSUM_RE as _BUILTIN_CHECKSUM_RE,
+    MAX_COMPACTION_CEILING,
+    _clean_compaction_ceilings,
+    compute_seed_digest as _compute_seed_digest,
+    read_builtin_bundle_checksum_checked as _guard_read_builtin_bundle_checksum_checked,
+    short_checksum as _short_checksum,
+)
+
+
+def read_builtin_bundle_checksum_checked():
+    """
+    Safely reads `~/.gemini/antigravity/builtin/.checksum` and returns `(checksum, error)`.
+    Thin wrapper over `guard.upstream.read_builtin_bundle_checksum_checked` preserving module-level `BUILTIN_DIR`.
+    """
+    return _guard_read_builtin_bundle_checksum_checked(Path(BUILTIN_DIR))
+
+
+def read_builtin_bundle_checksum() -> str:
+    """Safely reads `~/.gemini/antigravity/builtin/.checksum` (non-symlink regular file; '' if absent/invalid)."""
+    return read_builtin_bundle_checksum_checked()[0]
 
 
 def compute_builtin_hash():
@@ -394,7 +419,11 @@ def load_shipped_seed():
         if os.path.isfile(candidate):
             try:
                 return _read_json_object(candidate), candidate
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                print(
+                    f"[WARN] upstream_watcher skipped unreadable/corrupt seed {candidate}: {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
                 continue
     return None, ""
 
@@ -413,24 +442,6 @@ def load_seed():
             except (OSError, ValueError):
                 continue
     return None, ""
-
-
-def _compute_seed_digest(seed: dict) -> str:
-    canonical = {
-        "last_audited_model": seed.get("last_audited_model"),
-        "last_model_slug": seed.get("last_model_slug"),
-        "last_pbtxt_model": seed.get("last_pbtxt_model"),
-        "environment_Target": seed.get("environment_Target"),
-        "builtin_skills_hash": seed.get("builtin_skills_hash"),
-        "recorded_builtin_skills": seed.get("recorded_builtin_skills"),
-        "tracked_repositories": seed.get("tracked_repositories"),
-    }
-    if "approved_customization_models" in seed:
-        canonical["approved_customization_models"] = seed.get("approved_customization_models")
-    if "known_placeholder_models" in seed:
-        canonical["known_placeholder_models"] = seed.get("known_placeholder_models")
-    raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def quarantine_corrupt_state() -> str:
@@ -498,18 +509,42 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
             if state.get("known_placeholder_models") != clean_kpm:
                 state["known_placeholder_models"] = clean_kpm
                 changed = True
+        if isinstance(seed.get("model_compaction_ceilings"), dict) and (
+            state.get("model_compaction_ceilings") is None
+            or isinstance(state.get("model_compaction_ceilings"), dict)
+        ):
+            clean_mcc = _clean_compaction_ceilings(seed["model_compaction_ceilings"])
+            if clean_mcc and state.get("model_compaction_ceilings") != clean_mcc:
+                state["model_compaction_ceilings"] = clean_mcc
+                changed = True
     elif isinstance(seed.get("known_placeholder_models"), dict) and "known_placeholder_models" not in state:
         state["known_placeholder_models"] = _clean_known_placeholder_map(seed["known_placeholder_models"])
         changed = True
+    if isinstance(seed.get("model_compaction_ceilings"), dict) and "model_compaction_ceilings" not in state:
+        clean_mcc = _clean_compaction_ceilings(seed["model_compaction_ceilings"])
+        if clean_mcc:
+            state["model_compaction_ceilings"] = clean_mcc
+            changed = True
+    raw_seed_bundle_cs = seed.get("builtin_bundle_checksum")
+    if isinstance(raw_seed_bundle_cs, str) and _BUILTIN_CHECKSUM_RE.fullmatch(raw_seed_bundle_cs.strip()):
+        seed_bundle_cs = raw_seed_bundle_cs.strip()
+        if (seed_changed or (not has_prev_digest and seed_newer_than_ack) or "builtin_bundle_checksum" not in state) and state.get("builtin_bundle_checksum") != seed_bundle_cs:
+            state["builtin_bundle_checksum"] = seed_bundle_cs
+            changed = True
+    kpm_schema_ok = state.get("known_placeholder_models") is None or isinstance(state.get("known_placeholder_models"), dict)
+    mcc_schema_ok = state.get("model_compaction_ceilings") is None or isinstance(state.get("model_compaction_ceilings"), dict)
+    tracked_schema_ok = not seed_tracked or raw_state_tracked is None or isinstance(raw_state_tracked, dict)
     if not seed_tracked and not seed_newer and not seed_changed:
-        if state.get("_reconciled_seed_digest") != seed_digest:
+        if tracked_schema_ok and kpm_schema_ok and mcc_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
             state["_reconciled_seed_digest"] = seed_digest
             return True
         return changed
 
     state_tracked = dict(raw_state_tracked) if isinstance(raw_state_tracked, dict) else {}
     tracked_changed = False
-    can_sync_commits = seed_changed or (not has_prev_digest and (seed_newer or seed_ts is None or state_ts is None))
+    can_sync_commits = seed_changed or (
+        not has_prev_digest and (seed_ts is None or state_ts is None or seed_ts >= state_ts)
+    )
 
     for name, seed_info in seed_tracked.items():
         if not isinstance(seed_info, dict):
@@ -538,6 +573,14 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
                 merged["last_synced_commit"] = seed_info["last_synced_commit"]
                 tracked_changed = True
         state_tracked[name] = merged
+
+    if seed_tracked:
+        for retired_name, retired_repo in (("procoder", "azrtydxb/procoder"),):
+            if retired_name in state_tracked and retired_name not in seed_tracked:
+                retired_entry = state_tracked.get(retired_name)
+                if isinstance(retired_entry, dict) and str(retired_entry.get("repo", "")).strip() == retired_repo:
+                    state_tracked.pop(retired_name, None)
+                    tracked_changed = True
 
     if seed_newer or seed_changed:
         raw_audit_ts = seed.get("last_audit_timestamp")
@@ -600,7 +643,10 @@ def _reconcile_with_seed(state: dict, seed: dict) -> bool:
                     pending.pop(name, None)
             state["pending_repo_updates"] = pending
 
-    if state.get("_reconciled_seed_digest") != seed_digest:
+    tracked_schema_ok = not seed_tracked or isinstance(state.get("tracked_repositories"), dict)
+    kpm_schema_ok = state.get("known_placeholder_models") is None or isinstance(state.get("known_placeholder_models"), dict)
+    mcc_schema_ok = state.get("model_compaction_ceilings") is None or isinstance(state.get("model_compaction_ceilings"), dict)
+    if tracked_schema_ok and kpm_schema_ok and mcc_schema_ok and state.get("_reconciled_seed_digest") != seed_digest:
         state["_reconciled_seed_digest"] = seed_digest
         changed = True
     return changed
@@ -892,6 +938,19 @@ def collect_reasons(
             reasons.append(f"Delta in builtin skills ({'; '.join(details)})")
         else:
             reasons.append("Delta detected in Antigravity builtin environment (builtin/skills)")
+
+    current_bundle_cs, bundle_cs_err = read_builtin_bundle_checksum_checked()
+    raw_rec_bundle = state.get("builtin_bundle_checksum")
+    recorded_bundle_cs = raw_rec_bundle.strip() if isinstance(raw_rec_bundle, str) else ""
+    if bundle_cs_err:
+        reasons.append(f"Antigravity builtin/.checksum error ({_sanitize_notice_fragment(bundle_cs_err)})")
+    elif recorded_bundle_cs and current_bundle_cs and current_bundle_cs != recorded_bundle_cs:
+        reasons.append(
+            f"Delta detected in Antigravity builtin bundle (builtin/.checksum: "
+            f"{_sanitize_notice_fragment(_short_checksum(recorded_bundle_cs, peer=current_bundle_cs))} -> "
+            f"{_sanitize_notice_fragment(_short_checksum(current_bundle_cs, peer=recorded_bundle_cs))}; "
+            "inspect builtin/plugins & sidecars)"
+        )
 
     recorded_model = str(state.get("last_audited_model", "") or "")
     recorded_pbtxt = str(state.get("last_pbtxt_model", "") or "").strip()
@@ -1217,10 +1276,17 @@ def cmd_status(model: str = "") -> int:
     elif status_pbtxt:
         print(f"  pbtxt model         : {_sanitize_notice_fragment(status_pbtxt)}")
     reasons = collect_reasons(state, concrete_model, raw_payload_model=status_pbtxt, seed=seed_data)
+    schema_warnings = []
+    for field_name in ("known_placeholder_models", "model_compaction_ceilings"):
+        raw_val = state.get(field_name)
+        if raw_val is not None and not isinstance(raw_val, dict):
+            schema_warnings.append(f"Upstream state field '{field_name}' is not a JSON object.")
+    for sw in schema_warnings:
+        print(f"\n[WARN] {sw}")
     if audit_failed:
         print("\n[WARN] Last upstream repository check failed (HTTP rate-limit or network error); synchronization is unverified.")
     if not reasons:
-        if audit_failed:
+        if audit_failed or schema_warnings:
             return 1
         print("\nNo upstream changes detected.")
         return 0
@@ -1230,54 +1296,70 @@ def cmd_status(model: str = "") -> int:
         print(f"  - [{'new' if reason in active else 'acknowledged'}] {reason}")
     if active:
         print(f"\nReview with /audit-upstream; silence with: {ack_command()}")
-    return 1 if audit_failed else 0
+    return 1 if (audit_failed or schema_warnings) else 0
 
 
 def cmd_ack(model: str = "") -> int:
-    state, source = load_state(write=True)
-    if state is None:
-        print(f"[ERROR] Upstream ledger unavailable: {source}", file=sys.stderr)
-        return 1
-    if "corrupt ledger moved to" in str(source):
-        print(f"[WARN] Upstream ledger recovered from corruption: {source}", file=sys.stderr)
-    raw_arg_model = model.strip() if isinstance(model, str) else ""
-    raw_pbtxt = get_pbtxt_model(include_placeholder=True)
-    ack_pbtxt = raw_arg_model if is_placeholder_model(raw_arg_model) else raw_pbtxt
-    seed_data, _ = load_seed()
-    shipped_seed_ack, _ = load_shipped_seed()
-    model = (
-        _clean_concrete_model(raw_arg_model)
-        or ("" if is_placeholder_model(raw_arg_model) else _clean_concrete_model(state.get("last_seen_model", "")))
-        or _clean_concrete_model(ack_pbtxt)
-        or _lookup_known_placeholder(ack_pbtxt, state, seed_data)
-    )
-    reasons = collect_reasons(state, model, raw_payload_model=ack_pbtxt, seed=seed_data)
+    with _state_file_lock():
+        state, source = load_state(write=True)
+        if state is None:
+            print(f"[ERROR] Upstream ledger unavailable: {source}", file=sys.stderr)
+            return 1
+        if "corrupt ledger moved to" in str(source):
+            print(f"[WARN] Upstream ledger recovered from corruption: {source}", file=sys.stderr)
+        raw_arg_model = model.strip() if isinstance(model, str) else ""
+        raw_pbtxt = get_pbtxt_model(include_placeholder=True)
+        ack_pbtxt = raw_arg_model if is_placeholder_model(raw_arg_model) else raw_pbtxt
+        seed_data, _ = load_seed()
+        shipped_seed_ack, _ = load_shipped_seed()
+        model = (
+            _clean_concrete_model(raw_arg_model)
+            or ("" if is_placeholder_model(raw_arg_model) else _clean_concrete_model(state.get("last_seen_model", "")))
+            or _clean_concrete_model(ack_pbtxt)
+            or _lookup_known_placeholder(ack_pbtxt, state, seed_data)
+        )
+        reasons = collect_reasons(state, model, raw_payload_model=ack_pbtxt, seed=seed_data)
 
-    current_hash = compute_builtin_hash()
-    if current_hash:
-        state["builtin_skills_hash"] = current_hash
-        state["recorded_builtin_skills"] = get_builtin_skills_list()
-    pbtxt_model = "" if is_placeholder_model(ack_pbtxt) else ack_pbtxt
-    if ack_pbtxt:
-        state["last_pbtxt_model"] = ack_pbtxt
-    if model and normalize_model_name(model) != "auto":
-        state["last_audited_model"] = model
-        if "current_model" in state:
-            state["current_model"] = model
-        state["last_model_slug"] = model_slug(model)
-    state["acknowledged_reasons"] = sorted({reason_fingerprint(r) for r in reasons})
-    state["acknowledged_signature"] = reasons_signature(reasons) if reasons else ""
-    state["last_ack_timestamp"] = _now().isoformat()
-    digest_src = shipped_seed_ack if isinstance(shipped_seed_ack, dict) else seed_data
-    if isinstance(digest_src, dict):
-        state["_reconciled_seed_digest"] = _compute_seed_digest(digest_src)
-    if not save_state(state):
-        print(f"[ERROR] Could not write {STATE_FILE}", file=sys.stderr)
-        return 1
+        current_hash = compute_builtin_hash()
+        if current_hash:
+            state["builtin_skills_hash"] = current_hash
+            state["recorded_builtin_skills"] = get_builtin_skills_list()
+        current_bundle_cs, bundle_cs_err = read_builtin_bundle_checksum_checked()
+        if bundle_cs_err:
+            print(f"[ERROR] Could not verify builtin/.checksum: {_sanitize_notice_fragment(bundle_cs_err)}", file=sys.stderr)
+            return 1
+        if current_bundle_cs:
+            state["builtin_bundle_checksum"] = current_bundle_cs
+        pbtxt_model = "" if is_placeholder_model(ack_pbtxt) else ack_pbtxt
+        if ack_pbtxt:
+            state["last_pbtxt_model"] = ack_pbtxt
+        if model and normalize_model_name(model) != "auto":
+            state["last_audited_model"] = model
+            if "current_model" in state:
+                state["current_model"] = model
+            state["last_model_slug"] = model_slug(model)
+        state["acknowledged_reasons"] = sorted({reason_fingerprint(r) for r in reasons})
+        state["acknowledged_signature"] = reasons_signature(reasons) if reasons else ""
+        state["last_ack_timestamp"] = _now().isoformat()
+        digest_src = shipped_seed_ack if isinstance(shipped_seed_ack, dict) else seed_data
+        kpm_ok = state.get("known_placeholder_models") is None or isinstance(state.get("known_placeholder_models"), dict)
+        mcc_ok = state.get("model_compaction_ceilings") is None or isinstance(state.get("model_compaction_ceilings"), dict)
+        if isinstance(digest_src, dict) and kpm_ok and mcc_ok:
+            state["_reconciled_seed_digest"] = _compute_seed_digest(digest_src)
+        if not save_state(state):
+            print(f"[ERROR] Could not write {STATE_FILE}", file=sys.stderr)
+            return 1
     print(f"[OK] Acknowledged {len(reasons)} finding(s) in {STATE_FILE}")
     for reason in reasons:
         print(f"  - {reason}")
     print(f"  builtin skills hash : {state.get('builtin_skills_hash') or '(builtin directory not found)'}")
+    raw_ack_bundle = state.get("builtin_bundle_checksum")
+    safe_ack_bundle = (
+        _sanitize_notice_fragment(_short_checksum(raw_ack_bundle))
+        if isinstance(raw_ack_bundle, str) and raw_ack_bundle.strip()
+        else "(builtin/.checksum not found)"
+    )
+    print(f"  builtin bundle hash : {safe_ack_bundle}")
     print(f"  model               : {state.get('last_audited_model') or '(unknown; pass --model NAME)'}")
     if pbtxt_model:
         print(f"  pbtxt model         : {_sanitize_notice_fragment(pbtxt_model)}")

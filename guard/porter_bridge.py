@@ -22,7 +22,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from guard.environment import EnvironmentLocker, EnvironmentRegistry
+from guard.environment import CONSOLIDATED_SKILL_SLUGS, EnvironmentLocker, EnvironmentRegistry
 from guard.integrity import FileIntegrityMonitor
 from guard.os_adapter import OSProtectionAdapter
 from guard.paths import config_dir
@@ -234,7 +234,11 @@ class PorterBridge:
             meta: Dict[str, Any] = {
                 "name": name,
                 "description": clean_desc,
+                "mainAgent": False,
+                "subagent": True,
+                "inheritMcp": False,
                 "access": "read-only",
+                "tools": ["read_file"],
             }
         else:
             meta = {"name": name}
@@ -242,10 +246,21 @@ class PorterBridge:
                 if k not in ("name", "description", "access", "tools", "EnableWriteTools", "EnableSubagentTools"):
                     meta[k] = v
             meta["description"] = clean_desc
+            if target_type == "rule":
+                valid_triggers = {"always_on", "model_decision", "glob", "manual"}
+                cur_trig = str(meta.get("trigger") or "").strip().lower()
+                if cur_trig not in valid_triggers:
+                    meta["trigger"] = "model_decision"
         header = dump_frontmatter(meta)
         sanitized = f"{header}\n{body.lstrip()}"
 
         if target_type == "skill":
+            if name in CONSOLIDATED_SKILL_SLUGS and not force:
+                return (
+                    False,
+                    f"Ingestion rejected: skill '{name}' overlaps a consolidated ADR-0009 / archived ADR-0014 skill slug "
+                    "(use the parent reference module or opt-in templates/procoder.SKILL.template.md, or pass force=True to override).",
+                )
             dest_dir = self.target_dir / "skills" / name
             dest_file = dest_dir / "SKILL.md"
         elif target_type in ("subagent", "agent"):

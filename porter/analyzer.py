@@ -40,6 +40,12 @@ _CONSOLIDATED_SKILL_DESCRIPTIONS: Dict[str, Tuple[str, str]] = {
     "visualizer": ("technical-writing", "Architecture, flow, state-machine, and journey diagrams via Mermaid or generative_ui (consolidated into technical-writing)"),
     "security-review": ("audit", "Pre-deployment security verification checklist for secrets, headers, and transport boundaries (consolidated into audit)"),
 }
+_ARCHIVED_SKILL_TEMPLATES: Dict[str, Tuple[str, str]] = {
+    "procoder": (
+        "procoder.SKILL.template.md",
+        "Project-local .procoder/ sprint, backlog, and commit-gate workflow (archived as opt-in templates/procoder.SKILL.template.md per ADR-0014)",
+    ),
+}
 
 
 class SuitabilityAnalyzer:
@@ -68,6 +74,10 @@ class SuitabilityAnalyzer:
                     skills[item.name.lower()] = desc
             for slug, (parent, desc) in _CONSOLIDATED_SKILL_DESCRIPTIONS.items():
                 if slug not in skills and (skills_dir / parent / "SKILL.md").is_file():
+                    skills[slug] = desc
+            templates_dir = self.harness_root / "templates"
+            for slug, (tmpl_name, desc) in _ARCHIVED_SKILL_TEMPLATES.items():
+                if slug not in skills and (templates_dir / tmpl_name).is_file():
                     skills[slug] = desc
         return skills
 

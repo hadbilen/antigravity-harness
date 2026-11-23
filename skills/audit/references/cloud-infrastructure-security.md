@@ -1,4 +1,4 @@
-> Reference for the `audit` skill (`skills/audit/references/security-review.md`; loaded on demand for cloud, IAM, logging and CI/CD work).
+> Reference for the `audit` skill (`~/.gemini/config/skills/audit/references/security-review.md`; loaded on demand for cloud, IAM, logging and CI/CD work).
 
 # Cloud & Infrastructure Security Skill
 

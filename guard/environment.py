@@ -33,6 +33,44 @@ from guard.paths import (
 
 VALID_POLICIES = ("enforced", "monitored", "disabled")
 _LAUNCHER_MARKER = "antigravity-harness launcher"
+CONSTITUTION_RULE_REL = "rules/antigravity-constitution.md"
+CONSTITUTION_RULE_FRONTMATTER = (
+    "---\n"
+    "trigger: always_on\n"
+    'description: "Antigravity Global Engineering & Behavioral Constitution (always-on invariants)."\n'
+    "---\n\n"
+)
+
+
+def render_constitution_rule(gemini_src: Path, *, mode: str = "copy") -> str:
+    """Renders GEMINI.md as an Antigravity rules/*.md file with trigger: always_on frontmatter."""
+    if mode == "link":
+        return f"{CONSTITUTION_RULE_FRONTMATTER}@[Antigravity Constitution]({gemini_src.resolve().as_posix()})\n"
+    body = gemini_src.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return f"{CONSTITUTION_RULE_FRONTMATTER}{body.rstrip()}\n"
+
+
+def is_harness_constitution_file(path: Path, source_root: Optional[Path] = None) -> bool:
+    """True when `path` appears to be an earlier Antigravity Harness GEMINI.md installation."""
+    if os.path.islink(path):
+        if source_root is not None:
+            try:
+                return Path(os.path.realpath(path)) == (source_root / "GEMINI.md").resolve()
+            except OSError:
+                return False
+        return False
+    if not path.is_file():
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="ignore")[:256]
+    except OSError:
+        return False
+    return "# Antigravity Global Engineering & Behavioral Constitution" in head
+
+
+def has_constitution_file(root: Path) -> bool:
+    """True when `root` contains either legacy `GEMINI.md` or migrated `rules/antigravity-constitution.md`."""
+    return (root / "GEMINI.md").is_file() or (root / CONSTITUTION_RULE_REL).is_file()
 
 # Governance seams of the Antigravity global customization root. Runtime state written by
 # the Antigravity application itself (config.json, projects/, sidecars/, plugins/, cache)
@@ -41,7 +79,6 @@ ANTIGRAVITY_GOVERNANCE_SEAMS = [
     "GEMINI.md",
     "AGENTS.md",
     "DESIGN.md",
-    "MISTAKES.md",
     "hooks.json",
     "mcp_config.json",
     "skills",
@@ -314,6 +351,7 @@ class EnvironmentRegistry:
             existing.enabled = True
             existing.policy = "enforced"
             existing.protect_root = default_global.protect_root
+            existing.governance_paths = [s for s in existing.governance_paths if s != "MISTAKES.md"]
             for seam in ANTIGRAVITY_GOVERNANCE_SEAMS:
                 if seam not in existing.governance_paths:
                     existing.governance_paths.append(seam)
@@ -655,6 +693,7 @@ CONSOLIDATED_SKILL_SLUGS: Tuple[str, ...] = (
     "test-design",
     "visualizer",
     "security-review",
+    "procoder",
 )
 
 RELOCATED_SKILL_SCRIPTS: Dict[str, str] = {

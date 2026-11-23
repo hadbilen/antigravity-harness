@@ -199,13 +199,14 @@ class GuardNotifier:
         key: Optional[str] = None,
         cooldown_seconds: Optional[int] = None,
         force: bool = False,
+        record_audit: bool = True,
     ) -> bool:
         """
         Dispatches a notification if the severity rules and cooldown allow it.
         Returns True if the notification was delivered to a native notifier or the terminal.
         """
         if not self._allowed(severity):
-            if severity != NotificationSeverity.INFO:
+            if record_audit and severity != NotificationSeverity.INFO:
                 # Not shown (notifications are disabled or quiet), but never lost: security
                 # events always reach the persistent audit trail.
                 self._audit(severity, title, message, delivered="suppressed")
@@ -214,7 +215,7 @@ class GuardNotifier:
             return False
 
         dispatched, _ = self._dispatch_native(title, message, severity)
-        if severity != NotificationSeverity.INFO:
+        if record_audit and severity != NotificationSeverity.INFO:
             self._audit(severity, title, message, delivered="desktop" if dispatched else "terminal")
         if not dispatched:
             bell = "\a" if severity == NotificationSeverity.CRITICAL else ""

@@ -2,11 +2,11 @@
 
 > Anti Slop: Rules for AI Coding Agents. Copy & Text skill
 
-> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the copy and text concern: headlines, CTAs, tone, value propositions, and the patterns that make AI-written prose easy to spot. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly writing or auditing marketing copy, product copy, landing-page text, or de-AI prose rewrites.
+> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill deep-dives the copy and text concern: headlines, CTAs, tone, value propositions, and the patterns that make AI-written prose easy to spot. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly writing or auditing marketing copy, product copy, landing-page text, or de-AI prose rewrites.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`skills/antislop/SKILL.md`) when explicitly writing or auditing marketing prose, landing-page copy, or de-AI text rewrites (do not co-load automatically on routine UI layout edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate) and the hard bans (R-02, R-15, R-16, R-17, R-18, R-36, R-38). This skill holds copy-specific depth that the core does not.
+- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when explicitly writing or auditing marketing prose, landing-page copy, or de-AI text rewrites (do not co-load automatically on routine UI layout edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate) and the hard bans (R-02, R-15, R-16, R-17, R-18, R-36, R-38). This skill holds copy-specific depth that the core does not.
 - Every pattern has the same shape: **The pattern**, **Why it reads as AI**, **Before** (the slop), **After** (the fix), with the governing core rule cited as R-XX.
 - Two rules apply to everything below:
   - **Never invent facts** (R-17, R-36, R-38). A rewrite adds no fact, name, number, date, quote, or citation that is not in the source text or supplied by the user. Specificity comes from the source or the user, not from the rewrite. If a sentence needs real detail to work, ask for it or write the plain version without it.

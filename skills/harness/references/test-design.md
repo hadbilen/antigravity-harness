@@ -20,13 +20,13 @@ These rules govern the tests you write now. Existing tests are frozen (`GEMINI.m
 5. **Run the whole suite** and inspect the output.
 6. Repeat, one vertical slice at a time. Do not write all tests first and all implementation afterwards: bulk pre-written tests describe imagined behavior and lock in internal structure before the implementation has taught you anything.
 
-A regression test for a bug fix reproduces the reported symptom and fails on the unfixed code (`skills/diagnosing-bugs/SKILL.md` Phase 1 & Phase 5). Restructuring belongs after green, as a separate step (`skills/refactoring/SKILL.md`).
+A regression test for a bug fix reproduces the reported symptom and fails on the unfixed code (`~/.gemini/config/skills/diagnosing-bugs/SKILL.md` Phase 1 & Phase 5). Restructuring belongs after green, as a separate step (`~/.gemini/config/skills/refactoring/SKILL.md`).
 
 ## 3. Seams: Where Tests Go
 
 A seam is the public boundary where behavior is observed without reaching inside. Tests live at seams, never against volatile private internals (`GEMINI.md` Rule 9): internal helpers may change completely while the seam test remains untouched. A test that breaks during a behavior-preserving refactor was coupled to private implementation details.
 
-Put testing effort on critical paths, state transitions, and complex branching logic. For Tier 2 and Tier 3 changes, list the target seams under test in the implementation plan (`skills/harness/SKILL.md` §4.A & §4.E).
+Put testing effort on critical paths, state transitions, and complex branching logic. For Tier 2 and Tier 3 changes, list the target seams under test in the implementation plan (`~/.gemini/config/skills/harness/SKILL.md` §4.A & §4.E).
 
 ## 4. Name the Break Before Writing the Body
 

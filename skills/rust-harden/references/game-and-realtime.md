@@ -1,6 +1,6 @@
 # Game Loops, Graphics (Vulkan/GPU) & Real-Time Audio Hardening
 
-For `skills/rust-harden/SKILL.md`. Load this module when hardening Rust games, fixed-timestep simulations, Vulkan / `wgpu` / graphics renderers, real-time audio digital signal processing (`DSP`) callbacks, or latency-sensitive interactive engines. Co-load `skills/game-engineering/SKILL.md` for loop architecture and `templates/vulkan.SKILL.template.md` (copied to `.agents/skills/vulkan/SKILL.md`) for Vulkan `1.3`/`1.4` pipelines.
+For `~/.gemini/config/skills/rust-harden/SKILL.md`. Load this module when hardening Rust games, fixed-timestep simulations, Vulkan / `wgpu` / graphics renderers, real-time audio digital signal processing (`DSP`) callbacks, or latency-sensitive interactive engines. Co-load `~/.gemini/config/skills/game-engineering/SKILL.md` for loop architecture and `~/.gemini/config/templates/vulkan.SKILL.template.md` (copied to `.agents/skills/vulkan/SKILL.md`) for Vulkan `1.3`/`1.4` pipelines.
 
 ## 1. Per-Frame Heap Allocation & Cache Hygiene (`1,000`-Tick Allocation Check)
 
@@ -41,16 +41,16 @@ A single `NaN` or `Inf` entering physics transforms, camera matrices, spatial ha
 
 Untrusted multiplayer packets, community mods, replays, and local save files must never trigger panics or Out-Of-Memory (`OOM`) aborts via forged length prefixes:
 
-1. **Header & Ceiling Validation Before Allocation:** Require an explicit magic tag, fixed endianness (e.g., little-endian), `schema_version` (`skills/game-engineering/SKILL.md`), and payload integrity checksum (`CRC32` / `BLAKE3`). Enforce hard ceilings on packet bytes, entity/chunk counts (`MAX_PACKET_BYTES`, `MAX_ENTITIES`), recursion depth (`MAX_NESTING_DEPTH`, e.g. `<= 32`), and decompressed payload size (`MAX_DECOMPRESSED_BYTES`), verify `count.checked_mul(min_elem_bytes) <= remaining_bytes` before allocation (blocking small-packet allocation amplification), validate counts with `usize::try_from` / `checked_mul`, and allocate via `Vec::try_reserve_exact` (or bounded codec limits such as `bincode` `with_limit`).
+1. **Header & Ceiling Validation Before Allocation:** Require an explicit magic tag, fixed endianness (e.g., little-endian), `schema_version` (`~/.gemini/config/skills/game-engineering/SKILL.md`), and payload integrity checksum (`CRC32` / `BLAKE3`). Enforce hard ceilings on packet bytes, entity/chunk counts (`MAX_PACKET_BYTES`, `MAX_ENTITIES`), recursion depth (`MAX_NESTING_DEPTH`, e.g. `<= 32`), and decompressed payload size (`MAX_DECOMPRESSED_BYTES`), verify `count.checked_mul(min_elem_bytes) <= remaining_bytes` before allocation (blocking small-packet allocation amplification), validate counts with `usize::try_from` / `checked_mul`, and allocate via `Vec::try_reserve_exact` (or bounded codec limits such as `bincode` `with_limit`).
 2. **Fail-Closed Quarantine & Atomic Save Commits:** Return typed `Err(DecodeError::...)` on truncated, checksum-mismatched, unknown-version, or non-finite (`NaN`/`Inf`) payloads; write saves via atomic temp file + `fsync` + rename so power loss or crashes leave prior backups intact, and quarantine corrupt save slots cleanly without crashing the engine.
 
 ## 7. Verification Gate for Game & Real-Time Crates
 
-Run deterministic checks alongside `skills/rust-harden/SKILL.md` §5:
+Run deterministic checks alongside `~/.gemini/config/skills/rust-harden/SKILL.md` §5:
 ```bash
 cargo check --all-targets
 cargo clippy --lib --bins -- -D warnings -D clippy::large_enum_variant -D clippy::unwrap_used -D clippy::expect_used -D clippy::indexing_slicing
 cargo test
 ```
 * Execute the headless `1,000`-tick zero-allocation test and fixed-seed replay determinism test (two runs from identical seed and input stream produce byte-identical state hashes).
-* Run `cargo +nightly miri test` over custom generational arenas, `unsafe` FFI/render wrappers, and lock-free `SPSC` ring buffers (`loom` for custom atomic SPSC primitives), and execute `templates/vulkan.SKILL.template.md` Stage 3 (`spirv-val`, `VK_LAYER_KHRONOS_validation` with Sync Validation, and headless Lavapipe) for Vulkan targets.
+* Run `cargo +nightly miri test` over custom generational arenas, `unsafe` FFI/render wrappers, and lock-free `SPSC` ring buffers (`loom` for custom atomic SPSC primitives), and execute `~/.gemini/config/templates/vulkan.SKILL.template.md` Stage 3 (`spirv-val`, `VK_LAYER_KHRONOS_validation` with Sync Validation, and headless Lavapipe) for Vulkan targets.

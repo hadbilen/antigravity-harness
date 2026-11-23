@@ -15,7 +15,7 @@ Optimizing an already working, stable system requires stricter discipline than f
 
 ## 1. Core Invariants
 
-1. **Working Baseline Prerequisite:** Apply `sweetspot` only to systems whose functional behavior is currently working and stable. If tests are failing or the system crashes, route to `skills/diagnosing-bugs/SKILL.md` first.
+1. **Working Baseline Prerequisite:** Apply `sweetspot` only to systems whose functional behavior is currently working and stable. If tests are failing or the system crashes, route to `~/.gemini/config/skills/diagnosing-bugs/SKILL.md` first.
 2. **Behavior & Data Preservation (`GEMINI.md` Rule 9):** A controlled optimization leaves every observable contract identical: return values, output formatting, error boundaries, determinism, side effects, wire protocol compatibility, and stored data fidelity. Never delete user data, audit logs, or required assets to claim a memory, disk, or network reduction.
 3. **Measure Before and After (`GEMINI.md` Rule 8):** Intuition about where time, memory, disk space, or network bandwidth is spent holds zero evidentiary weight. Every optimization claim requires a repeatable before-and-after measurement on the target machine (using deterministic loopback harnesses or exact payload/request counters for network boundaries, never noisy external internet jitter).
 4. **Holistic Multi-Axis Default, Explicit Axis Flags & Trade-Off Discipline:**
@@ -33,7 +33,7 @@ Optimizing an already working, stable system requires stricter discipline than f
 | `--disk` | `--size` | **Axis 3 — Disk, Bundle & Storage Footprint** (binary, bundle, database size) | `Time`, `Memory`, and (if networked) `Network` |
 | `--net` | `--network` | **Axis 4 — Network I/O** (download/upload payload bytes, request count, `RTT` latency) | `Time`, `Memory`, and `Disk` |
 5. **Domain Co-Loading & White-Box vs. Black-Box Tool Routing:**
-   * **Real-Time Game & Simulation Co-Loading:** When the target is a game, interactive canvas application, or real-time simulation loop, co-load `skills/game-engineering/SKILL.md` before Step 1 profiling so fixed-timestep determinism, zero per-frame allocation, and headless tick verification govern every measurement and edit.
+   * **Real-Time Game & Simulation Co-Loading:** When the target is a game, interactive canvas application, or real-time simulation loop, co-load `~/.gemini/config/skills/game-engineering/SKILL.md` before Step 1 profiling so fixed-timestep determinism, zero per-frame allocation, and headless tick verification govern every measurement and edit.
    * **Source Code (`code_map.py`) vs. Shipped Artifact (`reverse-engineer-anything`) Boundary:** When source code is available (white-box analysis), map multi-file call graphs and dataflow using `agy-guard code-map` and native language profilers; never invoke the `reverse-engineer-anything` plugin for ordinary source-repository analysis. Route to `reverse-engineer-anything` (`inspect_artifact`, `inspect_binary_layout`, `analyze_javascript_application`, or `analyze_web_bundle`) **only** when inspecting a shipped binary, compiled executable without source, mobile package, Electron archive, or stripped bundle where standard source tools and `stat`/`size` cannot explain internal section or payload bloat.
 6. **Honest Sweet-Spot Declaration:** Finding that no meaningful optimization is possible within the current scope—or that further gain requires changing the system's identity or trading away another resource—is a first-class, successful engineering outcome, never a failure to hide.
 
@@ -46,7 +46,7 @@ Before proposing or writing any optimization edit:
 1. **Map the Multi-File Hot-Path, Network Boundaries & Dependency Graph (`agy-guard code-map`):**
    * Never optimize the first inspected file in isolation when a software project or game spans multiple connected files and modules (such as entrypoint, game loop, physics, entity management, rendering, network transport, data loaders, and asset pipelines).
    * Starting from the application entrypoint or main update loop, map the connected call graph, dataflow, and blast radius across all participating files using `agy-guard code-map profile <symbol>`, `callers <symbol>`, `flow <symbol>`, and `blast-radius <symbol>` (or `python3 ~/.local/share/antigravity-harness/runtime/scripts/code_map.py`). Identify cross-file bottlenecks—such as producer modules allocating transient objects consumed by downstream loop modules, redundant serialization across module boundaries, or sequential network call chains—before choosing optimization targets.
-2. **Pin Observable Behavior (`skills/refactoring/SKILL.md` §3):**
+2. **Pin Observable Behavior (`~/.gemini/config/skills/refactoring/SKILL.md` §3):**
    * Run the existing test suite covering the target path across all coupled modules.
    * If the hot path lacks seam tests, write characterization tests that lock exact current outputs across representative and boundary inputs before touching production code.
 3. **Establish a Repeatable Multi-Axis Benchmark Sensor (Holistic 3/4-Axis Default or Primary + Guardrail Axes):**
@@ -57,7 +57,7 @@ Before proposing or writing any optimization edit:
        * *Command-Line Interface (`CLI`) Tools & Executables:* Cold-start versus warm-start launch latency (`time`, `hyperfine`, `python3 -X importtime`) and dynamic library load count.
      * **Axis 2 — Memory Footprint (`RAM`):**
        * *Peak & Retained Memory:* Peak Resident Set Size (`RSS` via `/usr/bin/time -v` or `ps`) and peak heap allocation (`tracemalloc`, `go test -benchmem`, `valgrind --tool=massif`, or runtime heap snapshots).
-       * *Hot-Loop & Per-Request Allocation Churn:* Allocation count and bytes allocated per frame, tick, or request (`skills/game-engineering/SKILL.md`), verifying that retained heap plateaus across repeated iterations rather than growing unboundedly.
+       * *Hot-Loop & Per-Request Allocation Churn:* Allocation count and bytes allocated per frame, tick, or request (`~/.gemini/config/skills/game-engineering/SKILL.md`), verifying that retained heap plateaus across repeated iterations rather than growing unboundedly.
      * **Axis 3 — Disk, Bundle & Storage Footprint (Space):**
        * *Compiled Executables & Libraries:* On-disk binary size (`stat`, `size`, `bloaty`) and section breakdown (`.text`, `.rodata`, `.data`, debug symbols) across the target Operating System (`OS`); if inspecting a stripped or packaged binary artifact whose internal bloat cannot be resolved from source or `size`, use `reverse-engineer-anything` (`inspect_binary_layout` or `inspect_artifact`).
        * *Application Bundles, Packages & Containers:* Bundled asset and script/stylesheet payload sizes (uncompressed and compressed via `gzip` or `brotli`), dependency tree weight, and container image layer sizes (or `analyze_web_bundle` / `analyze_javascript_application` when analyzing packaged web or Electron artifacts).
@@ -96,7 +96,7 @@ When Zone 1 opportunities exist, prefer structural, readable wins in this order:
 * **Batching & Streaming:** Replace `N+1` sequential queries or network/disk calls with batched reads/writes; use iterators or streaming buffers instead of materializing multi-megabyte intermediate lists in memory when only aggregates are needed.
 * **Cold-Start Import Hygiene (Python / Node.js):** Defer heavy, non-essential module imports (`pandas`, plotting libraries, cloud software development kits, optional subcommands) inside the specific functions that use them so `CLI` startup and `--help` remain instantaneous.
 
-### B. Execution Speed & Allocation Churn: Real-Time Games & Interactive Simulations (`skills/game-engineering/SKILL.md`)
+### B. Execution Speed & Allocation Churn: Real-Time Games & Interactive Simulations (`~/.gemini/config/skills/game-engineering/SKILL.md`)
 * **Zero Per-Frame Heap Allocation:** Eliminate `.map()`, `.filter()`, object spreads, and temporary vector instantiations inside 60–120 Hz `update` and `render` loops; reuse pre-allocated scratch buffers across coupled loop modules.
 * **Object Pooling & Broad-Phase Culling:** Pool transient entities (particles, projectiles, damage text) across entity producer and consumer modules, and apply spatial grid / bounding-box culling before narrow-phase collision math.
 * **Render State Batching:** Group draw calls by texture/material/fillStyle and bridge state to Document Object Model (`DOM`) overlays only on discrete events rather than every animation frame.
@@ -128,11 +128,11 @@ When Zone 1 opportunities exist, prefer structural, readable wins in this order:
 
 ## 5. Step 4: Single-Hypothesis Atomic Slices & Append-Only Experiment Ledger
 
-Execute approved optimizations under strict experimental control (`skills/diagnosing-bugs/SKILL.md` alignment):
+Execute approved optimizations under strict experimental control (`~/.gemini/config/skills/diagnosing-bugs/SKILL.md` alignment):
 
 1. **Single-Hypothesis Isolation (Including Coupled Cross-File Atomic Slices):** Apply one optimization hypothesis at a time. When a single bottleneck spans multiple coupled files (for example, introducing an object pool across loop modules or coalescing sequential client fetches with a shared connection pool), update the **minimal coupled cross-file atomic slice** required by that single hypothesis in one measured attempt, and record all touched `file:line` coordinates in the ledger. Never bundle unrelated performance, memory, size, or network hypotheses into a single unmeasured diff.
 2. **Re-Run Pinning Tests & Multi-Axis Benchmark:** Immediately run the characterization/unit test suite (must exit `0` with zero modified assertions per `GEMINI.md` Rule 9) and re-run the exact Step 1 benchmark command under identical load conditions to verify both primary gain and guardrail axes.
-3. **Append-Only Experiment Ledger & Simplicity Criterion:** Record every attempt in the canonical 7-column ledger shared with `skills/diagnosing-bugs/SKILL.md`:
+3. **Append-Only Experiment Ledger & Simplicity Criterion:** Record every attempt in the canonical 7-column ledger shared with `~/.gemini/config/skills/diagnosing-bugs/SKILL.md`:
 
 ```markdown
 | Attempt | Zone | Hypothesis & Target (`file:line`) | Diff Summary | Baseline | Measured | Status: KEEP/REVERT |

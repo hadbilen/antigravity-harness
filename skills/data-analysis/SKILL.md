@@ -32,20 +32,20 @@ Target leakage produces high validation scores that collapse in production:
 
 ## 3. Baseline First & Statistical Honesty
 
-- **Trivial Baseline Before Complexity:** Before training a complex model or deep pipeline, evaluate a deterministic heuristic (mean, median, last-seen value, majority class, or single-feature linear model) on the exact same split and metric. Report complex model gains strictly as a delta against that baseline (`skills/harness/SKILL.md` §1 Efficiency Ladder).
+- **Trivial Baseline Before Complexity:** Before training a complex model or deep pipeline, evaluate a deterministic heuristic (mean, median, last-seen value, majority class, or single-feature linear model) on the exact same split and metric. Report complex model gains strictly as a delta against that baseline (`~/.gemini/config/skills/harness/SKILL.md` §1 Efficiency Ladder).
 - **Metric Alignment with Class Balance:** Never report raw accuracy alone on imbalanced datasets; pair precision, recall, calibration, or cost-weighted metrics with confusion counts.
 - **Effect Size and Uncertainty:** When reporting statistical comparisons or hypothesis tests, always pair p-values with the concrete effect size, sample size (`n`), and confidence interval or spread (standard deviation or interquartile range). Separate observed correlation from causal claims (`GEMINI.md` Rule 8).
 
 ## 4. Notebook (`.ipynb`) Reproducibility & Code Hygiene
 
 - **Clean Top-to-Bottom Execution:** Every notebook must run cleanly from cell 1 to the final cell in a fresh process (`jupyter nbconvert --to notebook --execute` or script equivalent) with monotonically increasing execution counts (`1..N`) and zero hidden state from deleted or out-of-order cells.
-- **Pin Seeds and Environment:** Set explicit random seeds at the top of the notebook or script and read dependency versions from the lockfile (`skills/harness/SKILL.md` §2).
-- **Extract Reusable Logic:** When a transformation or plotting helper is reused across 3 or more cells (`skills/harness/SKILL.md` §1), extract it into a pure Python module and cover its edge cases (`NaN`, empty input, single-row input, duplicate keys) with unit tests (`skills/harness/references/test-design.md`).
+- **Pin Seeds and Environment:** Set explicit random seeds at the top of the notebook or script and read dependency versions from the lockfile (`~/.gemini/config/skills/harness/SKILL.md` §2).
+- **Extract Reusable Logic:** When a transformation or plotting helper is reused across 3 or more cells (`~/.gemini/config/skills/harness/SKILL.md` §1), extract it into a pure Python module and cover its edge cases (`NaN`, empty input, single-row input, duplicate keys) with unit tests (`~/.gemini/config/skills/harness/references/test-design.md`).
 
 ## 5. Honest Charting & Render-and-Inspect Gate
 
 - **Truthful Axes and Labels:** Bar charts must start at a zero baseline. Every chart must state the unit of measurement on both axes, the sample size (`n = ...`), and the time window or cohort shown.
-- **Render-and-Inspect (`skills/harness/SKILL.md` §3B Step 4b):** After generating any chart image (`.png`, `.svg`) or tabular report (`.pdf`, `.html`, `.csv`), inspect the output via `read_file` or a summary check to confirm labels are not clipped, legends do not overlap data points, and plotted numbers match the computed summary table.
+- **Render-and-Inspect (`~/.gemini/config/skills/harness/SKILL.md` §3B Step 4b):** After generating any chart image (`.png`, `.svg`) or tabular report (`.pdf`, `.html`, `.csv`), inspect the output via `read_file` or a summary check to confirm labels are not clipped, legends do not overlap data points, and plotted numbers match the computed summary table.
 
 ## 6. Delivery Checklist
 

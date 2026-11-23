@@ -42,8 +42,15 @@ SKIP_DIRS = {
 MAX_CODE_FILE_BYTES = 10 * 1024 * 1024
 DEFAULT_TRACE_TIMEOUT_SEC = 30.0
 
+JS_TS_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
 C_CPP_EXTENSIONS = {".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx"}
-CODE_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs"} | C_CPP_EXTENSIONS
+CODE_EXTENSIONS = {".py", ".go", ".rs"} | JS_TS_EXTENSIONS | C_CPP_EXTENSIONS
+UNSUPPORTED_CODE_EXTENSIONS = {
+    ".kt", ".kts", ".java", ".qml", ".swift", ".cs", ".rb", ".php", ".scala",
+    ".dart", ".lua", ".zig", ".ex", ".exs", ".erl", ".hs", ".ml", ".mli",
+    ".clj", ".cljs", ".groovy", ".vue", ".svelte", ".astro", ".m", ".mm",
+    ".proto", ".graphql", ".gql", ".sol", ".gd", ".wgsl",
+}
 TEXT_EXTENSIONS = CODE_EXTENSIONS | {".md", ".txt", ".log", ".json", ".toml", ".yaml", ".yml", ".sql", ".sh"}
 
 
@@ -81,6 +88,8 @@ class CodeIndex:
     definitions: List[SymbolDef] = field(default_factory=list)
     calls: List[CallSite] = field(default_factory=list)
     parse_errors: List[Dict[str, Any]] = field(default_factory=list)
+    unsupported_files: List[str] = field(default_factory=list)
+    non_call_refs: List[Dict[str, Any]] = field(default_factory=list)
 
 
 def _iter_files(
@@ -88,9 +97,20 @@ def _iter_files(
     allowed_suffixes: Optional[Set[str]] = None,
     errors: Optional[List[Dict[str, Any]]] = None,
     base_dir: Optional[Path] = None,
+    unsupported_suffixes: Optional[Set[str]] = None,
+    unsupported_files: Optional[List[str]] = None,
 ) -> List[Path]:
     collected: List[Path] = []
     seen: Set[Path] = set()
+    seen_unsupported: Set[str] = set()
+
+    def _record_unsupported(path_obj: Path) -> None:
+        if unsupported_files is None:
+            return
+        rel_u = _rel_path(path_obj, base_dir)
+        if rel_u not in seen_unsupported:
+            seen_unsupported.add(rel_u)
+            unsupported_files.append(rel_u)
 
     def _on_walk_error(exc: OSError) -> None:
         if errors is not None:
@@ -126,9 +146,13 @@ def _iter_files(
             continue
         resolved = p.resolve()
         if resolved.is_file():
-            if (allowed_suffixes is None or resolved.suffix.lower() in allowed_suffixes) and resolved not in seen:
-                seen.add(resolved)
-                collected.append(resolved)
+            suf = resolved.suffix.lower()
+            if allowed_suffixes is None or suf in allowed_suffixes:
+                if resolved not in seen:
+                    seen.add(resolved)
+                    collected.append(resolved)
+            elif unsupported_files is not None:
+                _record_unsupported(resolved)
         elif resolved.is_dir():
             walk_boundary = resolved_base if resolved_base is not None else resolved
             for root, dirs, files in os.walk(resolved, onerror=_on_walk_error, followlinks=False):
@@ -148,7 +172,20 @@ def _iter_files(
                     raw_fpath = root_path / fname
                     if raw_fpath.is_symlink():
                         continue
-                    if allowed_suffixes is not None and raw_fpath.suffix.lower() not in allowed_suffixes:
+                    suf = raw_fpath.suffix.lower()
+                    if allowed_suffixes is not None and suf not in allowed_suffixes:
+                        if unsupported_suffixes is not None and suf in unsupported_suffixes:
+                            try:
+                                fpath_u = raw_fpath.resolve()
+                                if fpath_u == walk_boundary or walk_boundary in fpath_u.parents:
+                                    _record_unsupported(fpath_u)
+                            except OSError as exc:
+                                if errors is not None:
+                                    errors.append({
+                                        "file": _rel_path(raw_fpath, base_dir),
+                                        "line": 1,
+                                        "message": f"{type(exc).__name__}: {exc}",
+                                    })
                         continue
                     try:
                         st = raw_fpath.stat()
@@ -273,6 +310,7 @@ class _PythonFileVisitor(ast.NodeVisitor):
         self.scope_stack: List[str] = []
         self.definitions: List[SymbolDef] = []
         self.calls: List[CallSite] = []
+        self.non_call_refs: List[Dict[str, Any]] = []
         # scope_name -> var_name -> list of "line N: expr"
         self.scope_assignments: Dict[str, Dict[str, List[str]]] = {"<module>": {}}
         # scope_name -> var_name -> list of "line N: usage"
@@ -280,6 +318,44 @@ class _PythonFileVisitor(ast.NodeVisitor):
         self._current_assigned_target: Optional[str] = None
         self._in_return: bool = False
         self._func_callees_stack: List[List[str]] = []
+        self._call_func_ids: Set[int] = set()
+        self._suppress_non_call_refs: int = 0
+        self._seen_non_call_refs: Set[Tuple[str, str, int, str]] = set()
+
+    def _record_non_call_ref(self, sym: str, qualified_hint: str, lineno: int) -> None:
+        if not sym or self._suppress_non_call_refs > 0:
+            return
+        scope = self.current_scope
+        key = (sym, qualified_hint, lineno, scope)
+        if key in self._seen_non_call_refs:
+            return
+        self._seen_non_call_refs.add(key)
+        self.non_call_refs.append({
+            "symbol": sym,
+            "qualified_hint": qualified_hint,
+            "file": self.rel_file,
+            "line": lineno,
+            "enclosing_scope": scope,
+            "kind": "non_call_reference",
+        })
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Load) and id(node) not in self._call_func_ids:
+            self._record_non_call_ref(node.id, node.id, node.lineno)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        is_call_target = id(node) in self._call_func_ids
+        if isinstance(node.ctx, ast.Load) and not is_call_target:
+            self._record_non_call_ref(node.attr, _unparse_safe(node), node.lineno)
+        # Do not treat the receiver of `obj.method(...)` or `pkg.attr` as a standalone callback ref
+        if isinstance(node.value, ast.Name):
+            self._suppress_non_call_refs += 1
+            try:
+                self.visit(node.value)
+            finally:
+                self._suppress_non_call_refs -= 1
+        else:
+            self.visit(node.value)
 
     @property
     def current_scope(self) -> str:
@@ -315,10 +391,21 @@ class _PythonFileVisitor(ast.NodeVisitor):
                 bases=bases,
             )
         )
+        for dec in node.decorator_list:
+            self.visit(dec)
+        self._suppress_non_call_refs += 1
+        try:
+            for base in node.bases:
+                self.visit(base)
+            for kw in node.keywords:
+                self.visit(kw.value)
+        finally:
+            self._suppress_non_call_refs -= 1
         self.scope_stack.append(node.name)
         self.scope_assignments.setdefault(self.current_scope, {})
         self.scope_usages.setdefault(self.current_scope, {})
-        self.generic_visit(node)
+        for stmt in node.body:
+            self.visit(stmt)
         self.scope_stack.pop()
 
     def _visit_function(self, node: ast.AST, is_async: bool) -> None:
@@ -347,6 +434,24 @@ class _PythonFileVisitor(ast.NodeVisitor):
             )
         )
 
+        for dec in node.decorator_list:
+            self.visit(dec)
+        for default_node in list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]:
+            self.visit(default_node)
+        self._suppress_non_call_refs += 1
+        try:
+            for arg in list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs):
+                if arg.annotation is not None:
+                    self.visit(arg.annotation)
+            if node.args.vararg and node.args.vararg.annotation is not None:
+                self.visit(node.args.vararg.annotation)
+            if node.args.kwarg and node.args.kwarg.annotation is not None:
+                self.visit(node.args.kwarg.annotation)
+            if node.returns is not None:
+                self.visit(node.returns)
+        finally:
+            self._suppress_non_call_refs -= 1
+
         self.scope_stack.append(node.name)
         self._func_callees_stack.append(callees)
         scope = self.current_scope
@@ -363,7 +468,8 @@ class _PythonFileVisitor(ast.NodeVisitor):
                 f"L{node.lineno}: kwarg `**{node.args.kwarg.arg}`"
             )
 
-        self.generic_visit(node)
+        for stmt in node.body:
+            self.visit(stmt)
         self._func_callees_stack.pop()
         self.scope_stack.pop()
 
@@ -471,7 +577,12 @@ class _PythonFileVisitor(ast.NodeVisitor):
             self.visit(a)
         for kw in node.keywords:
             self.visit(kw.value)
-        self.visit(node.func)
+        func_id = id(node.func)
+        self._call_func_ids.add(func_id)
+        try:
+            self.visit(node.func)
+        finally:
+            self._call_func_ids.discard(func_id)
         self._current_assigned_target = prev_target
         self._in_return = prev_return
 
@@ -533,6 +644,26 @@ _RUST_CALL_RE = re.compile(
 _GENERIC_DEF_RE = re.compile(
     r"(?<![#A-Za-z0-9_])(?:function|func|fn|class|def)\s+([A-Za-z_]\w*)",
 )
+_JS_ARROW_DEF_RE = re.compile(
+    r"(?<![A-Za-z0-9_$])(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::[^=\n]+)?=\s*(?:async\s*)?(?:\([^)]*\)\s*(?::[^=\n]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|function\b)"
+)
+_JS_VAR_DECL_RE = re.compile(
+    r"(?<![A-Za-z0-9_$])(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::[^=\n]+)?="
+)
+_JS_NON_EXEC_DECL_LINE_RE = re.compile(
+    r"^\s*(?:import\b|export\s+(?:\{|type\b|\*\s+from\b)|type\s+[A-Za-z_$]\w*\s*=|interface\s+[A-Za-z_$]\w*\b)"
+)
+_JS_IDENT_RE = re.compile(r"(?<![A-Za-z0-9_$])([A-Za-z_$][A-Za-z0-9_$]*)(?![A-Za-z0-9_$])")
+_JS_TS_NON_REF_KEYWORDS = frozenset({
+    "abstract", "any", "as", "async", "await", "bigint", "boolean", "break", "case", "catch",
+    "class", "const", "continue", "debugger", "declare", "default", "delete", "do", "else",
+    "enum", "export", "extends", "false", "finally", "for", "from", "function", "get", "if",
+    "implements", "import", "in", "infer", "instanceof", "interface", "is", "keyof", "let",
+    "module", "namespace", "never", "new", "null", "number", "object", "of", "override",
+    "private", "protected", "public", "readonly", "return", "satisfies", "set", "static",
+    "string", "super", "switch", "symbol", "this", "throw", "true", "try", "type", "typeof",
+    "undefined", "unique", "unknown", "var", "void", "while", "with", "yield",
+})
 _GENERIC_CALL_RE = re.compile(
     r"\b([A-Za-z_]\w*)\s*\(",
 )
@@ -1527,6 +1658,52 @@ def _index_rust_scrubbed(scrubbed: str, raw_lines: List[str], rel_file: str, ind
             )
 
 
+_SYS_CALLBACK_REF_RE = re.compile(
+    r"(?:[(,=]\s*(?:&|\*)?\s*(?:([A-Za-z_][A-Za-z0-9_]*)(?:::|\.))?([A-Za-z_][A-Za-z0-9_]*)\s*(?=[,);\]\}]))"
+)
+_SYS_NON_REF_KEYWORDS = frozenset({
+    "if", "else", "for", "while", "switch", "case", "default", "return", "break", "continue",
+    "true", "false", "null", "NULL", "nullptr", "nil", "none", "None", "Some", "Ok", "Err",
+    "self", "Self", "this", "super", "crate", "pub", "fn", "let", "mut", "const", "static",
+    "struct", "enum", "impl", "trait", "type", "where", "use", "mod", "match", "loop",
+    "async", "await", "move", "ref", "unsafe", "extern", "void", "int", "char", "short",
+    "long", "float", "double", "bool", "size_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    "int8_t", "int16_t", "int32_t", "int64_t", "i8", "i16", "i32", "i64", "isize",
+    "u8", "u16", "u32", "u64", "usize", "f32", "f64", "str", "String", "Vec", "Option", "Result",
+    "func", "var", "package", "import", "defer", "go", "chan", "select", "range", "map", "interface",
+    "sizeof", "typeof", "new", "delete", "class", "namespace", "template", "typename",
+})
+
+
+def _collect_scrubbed_callback_refs(scrubbed: str, rel_file: str, index: CodeIndex) -> None:
+    """Records callback / function-pointer value references in C/C++/Rust/Go scrubbed text."""
+    def_lines = {(d.file, d.line, d.name) for d in index.definitions if d.file == rel_file}
+    call_lines = {(c.file, c.line, c.callee) for c in index.calls if c.file == rel_file}
+    seen: Set[Tuple[str, str, int]] = set()
+    for lineno, line in enumerate(scrubbed.splitlines(), start=1):
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith(("#", "import ", "package ", "use ", "extern ")):
+            continue
+        for m in _SYS_CALLBACK_REF_RE.finditer(line):
+            qual_pre, sym = m.group(1), m.group(2)
+            if sym in _SYS_NON_REF_KEYWORDS or sym.isupper() or len(sym) <= 1:
+                continue
+            if (rel_file, lineno, sym) in def_lines or (rel_file, lineno, sym) in call_lines:
+                continue
+            qual_hint = f"{qual_pre}.{sym}" if qual_pre else sym
+            rk = (sym, qual_hint, lineno)
+            if rk not in seen:
+                seen.add(rk)
+                index.non_call_refs.append({
+                    "symbol": sym,
+                    "qualified_hint": qual_hint,
+                    "file": rel_file,
+                    "line": lineno,
+                    "enclosing_scope": "<module>",
+                    "kind": "non_call_reference",
+                })
+
+
 def _index_non_python_file(path: Path, rel_file: str, index: CodeIndex) -> None:
     try:
         st = path.stat()
@@ -1549,19 +1726,27 @@ def _index_non_python_file(path: Path, rel_file: str, index: CodeIndex) -> None:
     if suffix in C_CPP_EXTENSIONS:
         stmt_c, pp_dirs = _scrub_c_cpp_source(text)
         _index_c_cpp_scrubbed(stmt_c, pp_dirs, text.splitlines(), rel_file, index)
+        _collect_scrubbed_callback_refs(stmt_c, rel_file, index)
         return
     if suffix == ".rs":
         scrubbed_rs = _scrub_rust_source(text)
         _index_rust_scrubbed(scrubbed_rs, text.splitlines(), rel_file, index)
+        _collect_scrubbed_callback_refs(scrubbed_rs, rel_file, index)
         return
     # Replace comments and string contents with spaces while preserving newlines for exact line numbers
     scrubbed = _scrub_preserving_newlines(_COMMENT_STRING_RE, text)
+    is_js_ts = suffix in JS_TS_EXTENSIONS
+    if suffix == ".go":
+        _collect_scrubbed_callback_refs(scrubbed, rel_file, index)
     current_scope = "<module>"
     current_def: Optional[SymbolDef] = None
+    seen_non_call: Set[Tuple[str, str, int, str]] = set()
     for lineno, line in enumerate(scrubbed.splitlines(), start=1):
         def_match = _GENERIC_DEF_RE.search(line)
-        if def_match:
-            sym = def_match.group(1)
+        arrow_match = _JS_ARROW_DEF_RE.search(line) if (is_js_ts and not def_match) else None
+        active_def_match = def_match or arrow_match
+        if active_def_match:
+            sym = active_def_match.group(1)
             current_scope = sym
             current_def = SymbolDef(
                 name=sym,
@@ -1573,12 +1758,14 @@ def _index_non_python_file(path: Path, rel_file: str, index: CodeIndex) -> None:
                 signature=line.strip().rstrip("{").strip(),
             )
             index.definitions.append(current_def)
+        call_name_starts: Set[int] = set()
         for call_match in _GENERIC_CALL_RE.finditer(line):
             callee = call_match.group(1)
             if callee in _NON_CALL_KEYWORDS:
                 continue
             if def_match and callee == def_match.group(1):
                 continue
+            call_name_starts.add(call_match.start(1))
             if current_def is not None and callee not in current_def.callees:
                 current_def.callees.append(callee)
             index.calls.append(
@@ -1590,14 +1777,69 @@ def _index_non_python_file(path: Path, rel_file: str, index: CodeIndex) -> None:
                     enclosing_scope=current_scope,
                 )
             )
+        if is_js_ts and not _JS_NON_EXEC_DECL_LINE_RE.match(line):
+            skip_spans: List[Tuple[int, int]] = []
+            if def_match:
+                skip_spans.append((def_match.start(1), def_match.end(1)))
+                p_open = line.find("(", def_match.end(1))
+                p_close = line.find(")", p_open + 1) if p_open >= 0 else -1
+                if p_open >= 0 and p_close > p_open:
+                    skip_spans.append((p_open, p_close + 1))
+            elif arrow_match:
+                skip_spans.append((arrow_match.start(1), arrow_match.end(1)))
+                arrow_pos = line.find("=>", arrow_match.end(1))
+                eq_pos = line.find("=", arrow_match.end(1))
+                if eq_pos >= 0 and arrow_pos > eq_pos:
+                    skip_spans.append((eq_pos + 1, arrow_pos))
+            else:
+                for var_m in _JS_VAR_DECL_RE.finditer(line):
+                    skip_spans.append((var_m.start(1), var_m.end(1)))
+            for id_m in _JS_IDENT_RE.finditer(line):
+                tok = id_m.group(1)
+                start_i, end_i = id_m.start(1), id_m.end(1)
+                if tok in _JS_TS_NON_REF_KEYWORDS or start_i in call_name_starts:
+                    continue
+                if any(sp_s <= start_i < sp_e for sp_s, sp_e in skip_spans):
+                    continue
+                tail = line[end_i:]
+                if re.match(r"^\s*\(", tail):
+                    continue
+                if re.match(r"^\s*\.\s*[A-Za-z_$]", tail):
+                    continue
+                if re.match(r"^\s*:(?!:)", tail) and "?" not in line[:start_i]:
+                    continue
+                prefix = line[:start_i]
+                recv_m = re.search(r"([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*$", prefix)
+                qual_hint = f"{recv_m.group(1)}.{tok}" if recv_m else tok
+                ref_key = (tok, qual_hint, lineno, current_scope)
+                if ref_key not in seen_non_call:
+                    seen_non_call.add(ref_key)
+                    index.non_call_refs.append({
+                        "symbol": tok,
+                        "qualified_hint": qual_hint,
+                        "file": rel_file,
+                        "line": lineno,
+                        "enclosing_scope": current_scope,
+                        "kind": "non_call_reference",
+                    })
 
 
-_PYTHON_FILE_INDEX_CACHE: Dict[Tuple[str, str, int, int], Tuple[List[SymbolDef], List[CallSite]]] = {}
+_PYTHON_FILE_INDEX_CACHE: Dict[
+    Tuple[str, str, int, int],
+    Tuple[List[SymbolDef], List[CallSite], List[Dict[str, Any]]],
+] = {}
 
 
 def build_code_index(paths: Sequence[Path], base_dir: Optional[Path] = None) -> CodeIndex:
     index = CodeIndex()
-    files = _iter_files(paths, allowed_suffixes=CODE_EXTENSIONS, errors=index.parse_errors, base_dir=base_dir)
+    files = _iter_files(
+        paths,
+        allowed_suffixes=CODE_EXTENSIONS,
+        errors=index.parse_errors,
+        base_dir=base_dir,
+        unsupported_suffixes=UNSUPPORTED_CODE_EXTENSIONS,
+        unsupported_files=index.unsupported_files,
+    )
     if len(_PYTHON_FILE_INDEX_CACHE) > 2048:
         _PYTHON_FILE_INDEX_CACHE.clear()
     for fpath in files:
@@ -1618,9 +1860,10 @@ def build_code_index(paths: Sequence[Path], base_dir: Optional[Path] = None) -> 
                 })
                 continue
             if cache_key is not None and cache_key in _PYTHON_FILE_INDEX_CACHE:
-                cached_defs, cached_calls = _PYTHON_FILE_INDEX_CACHE[cache_key]
+                cached_defs, cached_calls, cached_refs = _PYTHON_FILE_INDEX_CACHE[cache_key]
                 index.definitions.extend(cached_defs)
                 index.calls.extend(cached_calls)
+                index.non_call_refs.extend(cached_refs)
                 continue
             try:
                 source = fpath.read_text(encoding="utf-8-sig")
@@ -1643,9 +1886,10 @@ def build_code_index(paths: Sequence[Path], base_dir: Optional[Path] = None) -> 
             visitor.visit(tree)
             visitor.finalize_forward_flows()
             if cache_key is not None:
-                _PYTHON_FILE_INDEX_CACHE[cache_key] = (visitor.definitions, visitor.calls)
+                _PYTHON_FILE_INDEX_CACHE[cache_key] = (visitor.definitions, visitor.calls, visitor.non_call_refs)
             index.definitions.extend(visitor.definitions)
             index.calls.extend(visitor.calls)
+            index.non_call_refs.extend(visitor.non_call_refs)
         else:
             _index_non_python_file(fpath, rel_file, index)
     return index
@@ -1663,12 +1907,20 @@ def _matches_symbol(candidate_short: str, candidate_qual: str, target: str) -> b
 
 
 class CallerList(list):
-    """List of call-site dicts carrying parse_errors and completeness metadata."""
+    """List of call-site dicts carrying parse_errors, unsupported_files, non_call_references, and completeness metadata."""
 
-    def __init__(self, items: Sequence[Dict[str, Any]], parse_errors: Optional[List[Dict[str, Any]]] = None) -> None:
+    def __init__(
+        self,
+        items: Sequence[Dict[str, Any]],
+        parse_errors: Optional[List[Dict[str, Any]]] = None,
+        unsupported_files: Optional[List[str]] = None,
+        non_call_references: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         super().__init__(items)
         self.parse_errors: List[Dict[str, Any]] = list(parse_errors or ())
-        self.complete: bool = not self.parse_errors
+        self.unsupported_files: List[str] = list(unsupported_files or ())
+        self.non_call_references: List[Dict[str, Any]] = list(non_call_references or ())
+        self.complete: bool = not (self.parse_errors or self.unsupported_files or self.non_call_references)
 
 
 def find_callers(symbol: str, paths: Sequence[Path], base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -1677,7 +1929,16 @@ def find_callers(symbol: str, paths: Sequence[Path], base_dir: Optional[Path] = 
     for call in index.calls:
         if _matches_symbol(call.callee, call.qualified_hint, symbol):
             results.append(asdict(call))
-    return CallerList(results, parse_errors=index.parse_errors)
+    non_call_refs = [
+        r for r in index.non_call_refs
+        if _matches_symbol(r["symbol"], r["qualified_hint"], symbol)
+    ]
+    return CallerList(
+        results,
+        parse_errors=index.parse_errors,
+        unsupported_files=index.unsupported_files,
+        non_call_references=non_call_refs,
+    )
 
 
 def profile_symbol(symbol: str, paths: Sequence[Path], base_dir: Optional[Path] = None) -> Dict[str, Any]:
@@ -1690,16 +1951,24 @@ def profile_symbol(symbol: str, paths: Sequence[Path], base_dir: Optional[Path] 
         asdict(c) for c in index.calls
         if _matches_symbol(c.callee, c.qualified_hint, symbol)
     ]
+    non_call_refs = [
+        r for r in index.non_call_refs
+        if _matches_symbol(r["symbol"], r["qualified_hint"], symbol)
+    ]
     subclasses = [
         {"name": d.qualified_name, "file": d.file, "line": d.line}
         for d in index.definitions
         if d.kind == "class" and any(b == symbol or b.endswith(f".{symbol}") for b in d.bases)
     ]
+    is_complete = not (index.parse_errors or index.unsupported_files or non_call_refs)
     return {
         "symbol": symbol,
+        "complete": is_complete,
         "definitions": defs,
         "caller_count": len(callers),
         "callers": callers,
+        "non_call_references": non_call_refs,
+        "unsupported_files": index.unsupported_files,
         "subclasses": subclasses,
         "parse_errors": index.parse_errors,
     }
@@ -1728,11 +1997,18 @@ def trace_data_flow(symbol: str, paths: Sequence[Path], base_dir: Optional[Path]
             "returned_directly": call.returned_directly,
             "subsequent_uses": call.forward_uses,
         })
+    matched_refs = [
+        ref for ref in index.non_call_refs
+        if _matches_symbol(ref["symbol"], ref["qualified_hint"], symbol)
+    ]
     return {
         "symbol": symbol,
+        "complete": not (index.parse_errors or index.unsupported_files or matched_refs),
         "call_site_count": len(backflow),
         "backflow": backflow,
         "forwardflow": forwardflow,
+        "non_call_references": matched_refs,
+        "unsupported_files": index.unsupported_files,
         "parse_errors": index.parse_errors,
     }
 
@@ -1788,30 +2064,55 @@ def compute_blast_radius(
                     visited_symbols.add(caller_scope)
                     queue.append((caller_scope, depth + 1))
 
+    matched_refs: List[Dict[str, Any]] = []
+    seen_ref_keys: Set[Tuple[str, int, str, str]] = set()
+    for ref in index.non_call_refs:
+        for sym_cand in visited_symbols:
+            if _matches_symbol(ref["symbol"], ref["qualified_hint"], sym_cand):
+                rk = (ref["file"], ref["line"], ref["enclosing_scope"], ref["qualified_hint"])
+                if rk not in seen_ref_keys:
+                    seen_ref_keys.add(rk)
+                    matched_refs.append(ref)
+                    affected_files.add(ref["file"])
+                break
+
     sorted_files = sorted(affected_files)
     test_files = [
         f for f in sorted_files
         if "test" in Path(f).name.lower() or "/tests/" in f"/{f}/" or "/__tests__/" in f"/{f}/"
     ]
     count = len(sorted_files)
+    incomplete_reasons: List[str] = []
+    if index.parse_errors:
+        incomplete_reasons.append(f"{len(index.parse_errors)} parse error(s)")
+    if index.unsupported_files:
+        exts = sorted({Path(f).suffix.lower() for f in index.unsupported_files if Path(f).suffix})
+        ext_hint = f" ({', '.join(exts[:6])})" if exts else ""
+        incomplete_reasons.append(f"{len(index.unsupported_files)} unsupported source file(s){ext_hint}")
+    if matched_refs:
+        incomplete_reasons.append(f"{len(matched_refs)} non-call/callback reference(s)")
+    is_complete = not incomplete_reasons
+
     if count > 8:
-        tier = "Tier 3"
-    elif index.parse_errors:
-        tier = f"INCOMPLETE ({len(index.parse_errors)} parse error(s); escalate past Tier 1)"
+        tier = "Tier 3" if is_complete else f"Tier 3 / INCOMPLETE ({'; '.join(incomplete_reasons)}; fallback to text search)"
+    elif not is_complete:
+        tier = f"INCOMPLETE ({'; '.join(incomplete_reasons)}; fallback to text search; escalate past Tier 1)"
     elif count >= 3:
         tier = "Tier 2"
     else:
-        tier = "Tier 1"
+        tier = "Tier 1 (if <20 changed lines, else Tier 2)"
 
     return {
         "symbol": symbol,
-        "symbol_found": (matched_defs > 0 or len(transitive_callers) > 0),
-        "complete": len(index.parse_errors) == 0,
+        "symbol_found": (matched_defs > 0 or len(transitive_callers) > 0 or len(matched_refs) > 0),
+        "complete": is_complete,
         "affected_file_count": count,
         "affected_files": sorted_files,
         "affected_test_files": test_files,
         "tier_recommendation": tier,
         "transitive_callers": transitive_callers,
+        "non_call_references": matched_refs,
+        "unsupported_files": index.unsupported_files,
         "parse_errors": index.parse_errors,
     }
 
@@ -2209,15 +2510,41 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _report_parse_errors(parse_errors: Sequence[Dict[str, Any]]) -> int:
-    if not parse_errors:
+def _report_parse_errors(
+    parse_errors: Sequence[Dict[str, Any]],
+    unsupported_files: Sequence[str] = (),
+    non_call_refs: Sequence[Dict[str, Any]] = (),
+) -> int:
+    if not parse_errors and not unsupported_files and not non_call_refs:
         return 0
-    print(
-        f"[WARN] {len(parse_errors)} file(s) failed to parse; structural graph is incomplete:",
-        file=sys.stderr,
-    )
-    for err in parse_errors[:20]:
-        print(f"  - {err['file']}:{err['line']} — {err['message']}", file=sys.stderr)
+    if parse_errors:
+        print(
+            f"[WARN] {len(parse_errors)} file(s) failed to parse; structural graph is incomplete:",
+            file=sys.stderr,
+        )
+        for err in parse_errors[:20]:
+            print(f"  - {err['file']}:{err['line']} — {err['message']}", file=sys.stderr)
+    if unsupported_files:
+        exts = sorted({Path(f).suffix.lower() for f in unsupported_files if Path(f).suffix})
+        ext_summary = ", ".join(exts[:10]) if exts else "unknown"
+        print(
+            f"[WARN] INCOMPLETE (fallback to text search): {len(unsupported_files)} unsupported source file(s) "
+            f"not indexed ({ext_summary}):",
+            file=sys.stderr,
+        )
+        for uf in unsupported_files[:20]:
+            print(f"  - {uf}", file=sys.stderr)
+    if non_call_refs:
+        print(
+            f"[WARN] INCOMPLETE (fallback to text search): {len(non_call_refs)} non-call/callback reference(s) "
+            "detected (indirect calls cannot be resolved statically):",
+            file=sys.stderr,
+        )
+        for ref in non_call_refs[:20]:
+            print(
+                f"  - {ref['file']}:{ref['line']} [{ref['enclosing_scope']}] -> {ref['qualified_hint']}",
+                file=sys.stderr,
+            )
     return 2
 
 
@@ -2236,27 +2563,42 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"  [DEF] {d['file']}:{d['line']} — {d['signature']}")
             for c in data["callers"]:
                 print(f"  [CALL] {c['file']}:{c['line']} in {c['enclosing_scope']} -> {c['qualified_hint']}({', '.join(c['args'])})")
-        return _report_parse_errors(data.get("parse_errors", ()))
+            for r in data.get("non_call_references", ()):
+                print(f"  [REF/INCOMPLETE] {r['file']}:{r['line']} in {r['enclosing_scope']} -> {r['qualified_hint']}")
+        return _report_parse_errors(
+            data.get("parse_errors", ()),
+            data.get("unsupported_files", ()),
+            data.get("non_call_references", ()),
+        )
 
     if cmd == "callers":
         path_objs = [Path(p) for p in args.paths]
         callers = find_callers(args.symbol, path_objs)
         parse_errors = list(getattr(callers, "parse_errors", ()))
+        unsupported_files = list(getattr(callers, "unsupported_files", ()))
+        non_call_refs = list(getattr(callers, "non_call_references", ()))
+        is_complete = bool(getattr(callers, "complete", not (parse_errors or unsupported_files or non_call_refs)))
         if args.json:
-            if parse_errors:
+            if not is_complete:
                 print(json.dumps({
                     "symbol": args.symbol,
                     "complete": False,
+                    "status": "INCOMPLETE (fallback to text search)",
                     "callers": list(callers),
+                    "non_call_references": non_call_refs,
+                    "unsupported_files": unsupported_files,
                     "parse_errors": parse_errors,
                 }, indent=2))
             else:
                 print(json.dumps(list(callers), indent=2))
         else:
-            print(f"Callers of `{args.symbol}` ({len(callers)}):")
+            status_tag = "" if is_complete else " [INCOMPLETE — fallback to text search]"
+            print(f"Callers of `{args.symbol}` ({len(callers)}){status_tag}:")
             for c in callers:
                 print(f"  {c['file']}:{c['line']} [{c['enclosing_scope']}] -> {c['qualified_hint']}({', '.join(c['args'])})")
-        return _report_parse_errors(parse_errors)
+            for r in non_call_refs:
+                print(f"  [REF] {r['file']}:{r['line']} [{r['enclosing_scope']}] -> {r['qualified_hint']}")
+        return _report_parse_errors(parse_errors, unsupported_files, non_call_refs)
 
     if cmd == "flow":
         data = trace_data_flow(args.symbol, [Path(p) for p in args.paths])
@@ -2268,7 +2610,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"  {b['file']}:{b['line']} [{b['enclosing_scope']}]")
                 print(f"    Backflow (args): {b['args']} | origins: {b['arg_origins']}")
                 print(f"    Forwardflow: assigned_to={f['assigned_to']} | returned={f['returned_directly']} | uses={f['subsequent_uses']}")
-        return _report_parse_errors(data.get("parse_errors", ()))
+        return _report_parse_errors(
+            data.get("parse_errors", ()),
+            data.get("unsupported_files", ()),
+            data.get("non_call_references", ()),
+        )
 
     if cmd == "blast-radius":
         data = compute_blast_radius(args.symbol, [Path(p) for p in args.paths], max_depth=args.max_depth)
@@ -2278,7 +2624,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"Blast Radius for `{args.symbol}`: {data['affected_file_count']} file(s) -> {data['tier_recommendation']}")
             for f in data["affected_files"]:
                 print(f"  - {f}")
-        return _report_parse_errors(data.get("parse_errors", ()))
+        return _report_parse_errors(
+            data.get("parse_errors", ()),
+            data.get("unsupported_files", ()),
+            data.get("non_call_references", ()),
+        )
 
     if cmd == "gate-syntax":
         data = gate_syntax([Path(p) for p in args.paths])
@@ -2328,7 +2678,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"  {r['file']}:L{r['start_line']}-L{r['end_line']} (score={r['score']})")
                 for line in r["snippet"].splitlines()[:3]:
                     print(f"    | {line}")
-        return _report_parse_errors(data.get("parse_errors", ()))
+        return _report_parse_errors(
+            data.get("parse_errors", ()),
+            data.get("unsupported_files", ()),
+            data.get("non_call_references", ()),
+        )
 
     return 0
 

@@ -1,6 +1,6 @@
 # Media Salvage, Still-Image Restoration & Fidelity-Bounded Enhancement
 
-Deep-dive companion to `skills/media-studio/SKILL.md`. Load this reference when repairing damaged/unreadable media containers, restoring degraded still photographs, or upscaling low-resolution audio, image, and video assets without altering their original identity ("aslını bozmadan").
+Deep-dive companion to `~/.gemini/config/skills/media-studio/SKILL.md`. Load this reference when repairing damaged/unreadable media containers, restoring degraded still photographs, or upscaling low-resolution audio, image, and video assets without altering their original identity ("aslını bozmadan").
 
 ---
 
@@ -39,7 +39,7 @@ When repairing old digital images or scanned family/archival photographs (`.jpg`
    * **Faded Cast & Dynamic Range Recovery:** Correct yellow/magenta paper aging via gray-world / percentile channel anchoring (`1st`–`99th` percentile stretch with `>= 0.5%` highlight/shadow headroom) so clipped white patches or crushed shadow blocks are never introduced; verify geometry via `compare --min-ssim 0.0 --min-psnr 0.0` (enforcing `<= 2%` aspect lock without penalizing intentional exposure/cast correction) paired with `ab-sheet` visual inspection.
 
 ### C. Signal-Restoration Artifact Ceilings (Anti-Plastic & Anti-Metallic Guard)
-* **Audio Denoising Ceiling:** Keep `afftdn` noise reduction `nr <= 20` dB (`nr=10..14` typical, matching `skills/media-studio/SKILL.md` §2C). Stronger single-pass spectral subtraction carves holes into speech formants and creates watery "musical noise".
+* **Audio Denoising Ceiling:** Keep `afftdn` noise reduction `nr <= 20` dB (`nr=10..14` typical, matching `~/.gemini/config/skills/media-studio/SKILL.md` §2C). Stronger single-pass spectral subtraction carves holes into speech formants and creates watery "musical noise".
 * **Video Denoising Ceiling:** Keep `hqdn3d` `luma_spatial <= 5.0` and `bm3d` `sigma <= 4.5` on human faces and film grain so skin never turns waxy and moving edges do not trail across frames.
 
 ---

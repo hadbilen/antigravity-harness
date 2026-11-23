@@ -1,6 +1,6 @@
 # `#![no_std]`, Embedded, OS Kernel & Low-Level `unsafe` Hardening
 
-For `skills/rust-harden/SKILL.md`. Load this module when hardening `#![no_std]` crates, OS kernel modules, hypervisors, device drivers, interrupt handlers, syscall boundaries, DMA engines, or lock-free `unsafe` data structures.
+For `~/.gemini/config/skills/rust-harden/SKILL.md`. Load this module when hardening `#![no_std]` crates, OS kernel modules, hypervisors, device drivers, interrupt handlers, syscall boundaries, DMA engines, or lock-free `unsafe` data structures.
 
 ## 1. `#![no_std]` & Fallible Allocation Discipline (`ENOMEM`)
 

@@ -4,16 +4,16 @@ An upgrade changes the versions underneath the code while preserving observable 
 
 ## 1. Pin the Exact Version Pair
 
-- State the exact version installed today and the exact target version to reach. Read the current version from the lockfile (`package-lock.json`, `pnpm-lock.yaml`, `uv.lock`, `poetry.lock`, `Cargo.lock`, `go.mod`) or installed package metadata, never from memory (`skills/harness/SKILL.md` §2). Never target an unpinned `@latest` tag (`GEMINI.md` Rule 12); resolve the target to a concrete version number first.
+- State the exact version installed today and the exact target version to reach. Read the current version from the lockfile (`package-lock.json`, `pnpm-lock.yaml`, `uv.lock`, `poetry.lock`, `Cargo.lock`, `go.mod`) or installed package metadata, never from memory (`~/.gemini/config/skills/harness/SKILL.md` §2). Never target an unpinned `@latest` tag (`GEMINI.md` Rule 12); resolve the target to a concrete version number first.
 - A jump across multiple major versions, or upgrading a runtime and a framework simultaneously, must be split into sequential hops. Each hop must build and pass verification before the next hop starts. List the hops and their order in the plan.
 - Use the package manager that owns the repository's existing lockfile.
-- Upgrading multiple packages or crossing a major version boundary is at least Tier 2 (`skills/harness/SKILL.md` §1): write the plan with `AC-1..N` acceptance criteria before modifying manifests.
+- Upgrading multiple packages or crossing a major version boundary is at least Tier 2 (`~/.gemini/config/skills/harness/SKILL.md` §1): write the plan with `AC-1..N` acceptance criteria before modifying manifests.
 
 ## 2. Build the Intersection Delta Catalog
 
 The delta catalog lists only the upstream changes between the old and new versions **that this codebase actually touches**:
 
-1. **What changed upstream between the two versions:** Read the release notes, changelog, and migration guide for every intermediate version from installed package docs or via the `research` subagent (`skills/harness/SKILL.md` §2 — never from training memory). Remember that minor or patch releases can also introduce behavioral shifts.
+1. **What changed upstream between the two versions:** Read the release notes, changelog, and migration guide for every intermediate version from installed package docs or via the `research` subagent (`~/.gemini/config/skills/harness/SKILL.md` §2 — never from training memory). Remember that minor or patch releases can also introduce behavioral shifts.
 2. **What this codebase uses:** Search the repository (`run_command` via `git grep -n`, `ripgrep`, or `agy-guard code-map`) for all imports, function calls, configuration keys, and command-line flags from the package.
 
 For every intersection entry, record:
@@ -27,7 +27,7 @@ For every intersection entry, record:
 - **Remediation type:** mechanical (rename/codemod) vs. design judgment requiring user confirmation;
 - **Pre-bump characterization test** required for any silent behavior change (Section 4).
 
-If an official upstream codemod or migration tool exists, state which of three states holds: *exists*, *can run in this environment*, or *executed*. If the catalog reveals that most of the application must be rewritten, halt and report that the request is a migration rewrite rather than a version bump, and route generational modernization or dead-runtime porting to `skills/renew/SKILL.md`.
+If an official upstream codemod or migration tool exists, state which of three states holds: *exists*, *can run in this environment*, or *executed*. If the catalog reveals that most of the application must be rewritten, halt and report that the request is a migration rewrite rather than a version bump, and route generational modernization or dead-runtime porting to `~/.gemini/config/skills/renew/SKILL.md`.
 
 ## 3. Measure Baseline Verification Before the Bump
 
@@ -35,12 +35,12 @@ Run the project's full verification pipeline (test suite, type checker, linter, 
 
 ## 4. Pin Silent Behavior Changes Before Touching Versions
 
-Where the delta catalog identifies a silent behavior change at a call site not covered by existing assertions, write a characterization test at that seam before bumping the version (`skills/harness/references/test-design.md` and `skills/refactoring/SKILL.md` §3): literal input and literal output captured on the old version. It must pass before the bump and will immediately reveal whether behavior shifted after the bump.
+Where the delta catalog identifies a silent behavior change at a call site not covered by existing assertions, write a characterization test at that seam before bumping the version (`~/.gemini/config/skills/harness/references/test-design.md` and `~/.gemini/config/skills/refactoring/SKILL.md` §3): literal input and literal output captured on the old version. It must pass before the bump and will immediately reveal whether behavior shifted after the bump.
 
 ## 5. Upgrade One Dependency Per Change Set
 
 - Upgrade one package (or one tightly coupled package family that must move in lockstep) per change set so any regression is immediately attributable and cleanly revertible.
-- Apply mechanical call-site updates first, then approved judgment changes. Adopt new library idioms only where old ones were removed; park optional modernizations under `VALUABLE` (`skills/harness/SKILL.md` §4.D).
+- Apply mechanical call-site updates first, then approved judgment changes. Adopt new library idioms only where old ones were removed; park optional modernizations under `VALUABLE` (`~/.gemini/config/skills/harness/SKILL.md` §4.D).
 - Re-run the full verification pipeline after each hop and compare test counts and outcomes against the Section 3 baseline:
   - A previously passing test that now fails is a regression to fix.
   - A previously failing test that now passes is an unexplained behavior change to investigate, not an automatic win.

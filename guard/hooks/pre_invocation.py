@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from guard.paths import HOOK_LOCK_TIMEOUT
+from guard.paths import CorruptStateError, HOOK_LOCK_TIMEOUT, read_json_strict
 
 from .common import (
     CONTINUATION_WORDS,
@@ -45,6 +45,7 @@ from .common import (
     _facade_attr,
     _flight_recorder_file,
     _inspect_transcript_turn_state,
+    _inspect_transcript_turn_state_ex,
     _is_auxiliary_readonly_context,
     _is_git_repo_workspace,
     _is_harness_repo_root,
@@ -60,6 +61,7 @@ from .common import (
     _resolve_transcript_path,
     _safe_int,
     _strip_non_user_prose,
+    _upstream_seed_candidates,
     _workspaces_from_payload,
     atomic_write_json,
     config_dir,
@@ -83,8 +85,9 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"(?:debug|investigat(?:e|ing)|diagnos(?:e|ing))\s+(?:this\s+|the\s+|an?\s+)?(?:[\w-]+\s+){0,2}(?:failure|error|bug|crash|regression|flaky)|"
             r"root\s+cause(?:\s+(?:of|analysis))?|test\s+suite\s+(?:is\s+)?failing|"
             r"hata\s+var|çalışmıyor|calismiyor|patlıyor|patliyor|bozuldu|neden\s+hata|"
+            r"neden\s+(?:çalışmıyor|calismiyor|patlıyor|patliyor|hata\s+veriyor|kırmızı|kirmizi|geçmiyor|gecmiyor)|"
             r"hata(?:yı|sı|ları)?\s+(?:ayıkla\w*|bul\w*|teşhis\s+et\w*)|"
-            r"kök\s+neden\w*|test(?:ler|i)?\s+(?:kırıl\w*|patl\w*|fail\s+ediyor|geçmiyor)"
+            r"kök\s+neden\w*|test(?:ler|i)?\s+(?:neden\s+)?(?:kırmızı|kirmizi|kırıl\w*|patl\w*|fail(?:\s+ediyor)?|geçmiyor|gecmiyor|çalışmıyor|calismiyor|hata\s+veriyor)"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
@@ -176,9 +179,9 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             rf"(?:{_SLASH_PRE}/rustify{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
             r"rustify\w*(?!\.(?:rs|py|c|cc|cpp|cxx|h|hh|hpp|hxx|go|js|ts|md|json|toml|yaml|yml)\b)|"
             r"(?<!bump\s)(?<!upgrade\s)(?<!update\s)(?:cbindgen|bindgen|cxx\s+bridge|#?\[?cxx::bridge\]?|pyo3|napi[-_]rs|wasm[-_]bindgen)(?!\s+(?:from|to|in)\s+[\dv]|[^\n]{0,30}\bcargo\.toml\b)|"
-            r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b|(?!(?:c|cpp|golang|python|go|typescript|ts|javascript|js|ruby|java|kotlin)\b)(?:(?:this|the|our|my|existing|these)\s+){0,2}(?:(?!\b(?:to|into|c|cpp|golang|python|go|cgo|cython|typescript|ts|javascript|js|ruby|java|kotlin|napi|magnus|jni)\b)(?:[\w+/.-]+,*|,+)\s+){0,7}\brust\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
-            r"(?:(?:c(?:/c\+\+|\+\+)?|cpp|golang|python|typescript|javascript|ts/js|js/ts|ruby|java(?:/kotlin)?|kotlin)\s+(?:[\w+/.-]+\s+){0,4}(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b|"
-            r"go\s+(?:(?:code(?:base)?|module|service|library|binary|daemon|cli|worker|server|backend|runtime|app|package|crate)\s+)?(?:to|into)\s+(?:(?:idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b))|"
+            r"(?:port(?:ing)?|migrat(?:e|ing)|rewrit(?:e|ing)|convert(?:ing)?|translat(?:e|ing)|bridg(?:e|ing))\s+(?!this\s+unsafe\b|unsafe\s+(?:rust|helper|fn|function|block|code|impl|trait)\b|(?!(?:c|cpp|golang|python|go|typescript|ts|javascript|js|ruby|java|kotlin)\b)(?:(?:this|the|our|my|existing|these)\s+){0,2}(?:(?!\b(?:to|into|c|cpp|golang|python|go|cgo|cython|typescript|ts|javascript|js|ruby|java|kotlin|napi|magnus|jni)\b)(?:[\w+/.-]+,*|,+)\s+){0,7}\brust\b)(?:(?:[\w+/.-]+,*|,+)\s+){0,8}(?:to|into)\s+(?:(?:a|an)\s+)?(?:(?:new|greenfield|standalone|idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b)|"
+            r"(?:(?:c(?:/c\+\+|\+\+)?|cpp|golang|python|typescript|javascript|ts/js|js/ts|ruby|java(?:/kotlin)?|kotlin)\s+(?:[\w+/.-]+\s+){0,4}(?:to|into)\s+(?:(?:a|an)\s+)?(?:(?:new|greenfield|standalone|idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b|"
+            r"go\s+(?:(?:code(?:base)?|module|service|library|binary|daemon|cli|worker|server|backend|runtime|app|package|crate)\s+)?(?:to|into)\s+(?:(?:a|an)\s+)?(?:(?:new|greenfield|standalone|idiomatic|memory[- ]safe|compiler[- ]verified|zero[- ]panic|safe|pure),?\s+)*rust\b(?!\s*(?:edition\s*)?20\d{2}\b|\s+1\.\d+\b))|"
             r"(?:rust\s+(?:ffi(?:\s+(?:bindings?|wrappers?|bridges?))?|bindings?|wrappers?)\s+(?:for|to)\s+(?:c/c\+\+|c\+\+|(?:cpp|golang|python|go|c|typescript|javascript|ts/js|js/ts|node(?:\.?js)?|ruby|java(?:/kotlin)?|kotlin)\b)|(?:ffi|c\s+abi)\s+(?:bridge|wrapper|interop)\s+(?:for|to|with|in)\s+rust\b)|"
             r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python|typescript|javascript|ts/js|js/ts|ruby|java(?:/kotlin)?|kotlin)'?(?:dan|den|tan|ten)\s+rust'?(?:a|ya)\b|"
             r"(?:c(?:/c\+\+|\+\+)?|cpp|go|golang|python|typescript|javascript|ruby|java|kotlin)\s+(?:[\wçğıöşüÇĞİÖŞÜ.-]+\s+){0,3}rust\s+ile\s+(?:yeniden\s+yaz\w*|değiştir\w*)|"
@@ -201,12 +204,18 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"(?:remove|eliminate|clean\s+up|replace)\s+(?:(?:unnecessary|reflexive|production)\s+)*(?:rust\s+(?:\.?unwrap(?:\(\))?|\.?expect(?:\(\))?|\.?clone(?:\(\))?|arc<mutex\w*>?|rc<refcell\w*>?|ownership\s+debt|borrow[- ]checker\s+debt)\b|(?:\.?unwrap(?:\(\))?|\.?expect(?:\(\))?|\.?clone(?:\(\))?|arc<mutex\w*>?|rc<refcell\w*>?|ownership\s+debt|borrow[- ]checker\s+debt)\b[^\n.?!]{0,50}\brust\b)|"
             r"(?:narrow(?:ing)?|purif(?:y|ying)|shrink(?:ing)?|eliminat(?:e|ing))\s+unsafe\s+(?:blocks?|code|wrappers?|fns?|functions?)(?:\s+in\s+(?:this\s+|the\s+|our\s+)?(?:#!\[no_std\]\s+)?rust\b)?|"
             r"tokio::select!\s+cancellation(?:\s+safety)?|await[_ ]holding[_ ]lock|"
+            r"greenfield\s+rust\b|"
+            r"(?:scaffold(?:ing)?|design(?:ing)?|architect(?:ing)?)\s+(?:(?:a|an|this|the|our|my|new|greenfield)\s+){0,3}(?:[\w-]+\s+){0,2}rust\s+(?:workspace|crate|project|service|daemon|library|backend|architecture)\b|"
+            r"rust\s+(?:workspace|crate|service|project)\s+(?:architecture|scaffolding|layout)\b|"
+            r"(?:yeni|sıfırdan|sifirdan)\s+(?:bir\s+)?rust\s+(?:proje\w*|workspace\w*|crate\w*|servis\w*|kütüphane\w*|kutuphane\w*|mimari\w*)|"
+            r"rust\s+(?:crate\w*|proje\w*|workspace\w*|servis\w*|kütüphane\w*|kutuphane\w*|mimari\w*)\s+(?:tasarla\w*|kur(?!tar|ulu)\w*|başlat(?!ılam|ilam)\w*|baslat(?!ılam|ilam)\w*|iskele\w*)|"
+            r"rust\s+(?:servis\w*|crate\w*|kütüphane\w*|kutuphane\w*|workspace\w*)\s+yaz(?!ılım|ilim|dır|dir|ılmış|ilmis|ıl\b|il\b)\w*|"
             r"rust\s+kod\w*\s+sertleştir\w*|idiomatic\s+rust\s+yap\w*|"
             r"sahiplik\s+borc\w*\s+temizle\w*|unsafe\s+(?:blok\w*\s+|kod\w*\s+)?arındır\w*"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
-        "intra-Rust ownership/clone debt cleanup, panic removal (`--internal` vs `--contract`), async cancellation & `#![no_std]`/kernel `unsafe` narrowing",
+        "intra-Rust hardening (`--internal` vs `--contract`), greenfield crate/workspace architecture (`--greenfield`), panic removal, async cancellation & `#![no_std]`/kernel `unsafe` narrowing",
     ),
     (
         "retro",
@@ -241,7 +250,9 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/audit/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/audit{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"security\s+audit|consistency\s+audit|boundary\s+audit|spec\s+gap\s+audit|"
+            r"audit\s+this|full\s+audit|security\s+audit|consistency\s+audit|boundary\s+audit|spec\s+gap\s+audit|"
+            r"perform\s+consistency\s+analysis|inspect\s+design\s+and\s+security\s+boundaries|"
+            r"run\s+harness\s+meta[- ]audit|self[- ]audit\s+harness|"
             r"güvenlik\s+denetim\w*|tutarlılık\s+denetim\w*|mimari\s+denetim\w*|sınır\s+denetim\w*"
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
@@ -338,7 +349,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             r"speed\s+up\s+(?:this\s+|the\s+)?(?:game|app|application|software|codebase|program|service|backend|script|query|loop|startup|build|pipeline|renderer|download|upload)|"
             r"(?:reduce|shrink|cut|lower|decreas(?:e|ing))\s+(?:(?:--net|memory|ram|disk|binary|bundle|network|bandwidth|download|upload|round[- ]trip|request|api|render)\s+)*(?:memory|ram|disk|binary|bundle|network|bandwidth|download|upload|round[- ]trip|allocations?|gc\s+pressure|startup\s+time|cold[- ]start|frame\s+time|rtt|waterfall\s+latency|latency|n\+1\s+(?:queries|requests?))(?:\s+(?:usage|footprint|size|traffic|latency|payload))?|"
             r"sweetspot\s+analizi|tatlı\s+nokta\s+optimizasyonu|performans\s+optimizasyonu|(?:bellek|ram|disk|ağ|bant\s+genişliği)\s+optimizasyonu|"
-            r"(?:oyun\w*|servis\w*|uygulama\w*|yazılım\w*|beti[kğ]\w*|kod\w*|(?:işletim|dosya|derleme|önbellek)\s+sistem\w*|modül\w*|sorgu\w*|fonksiyon\w*|algoritma\w*|motor\w*|derleme\w*|[iİ]ndirme\w*|ağ\w*|bellek\w*|ram\w*|hız\w*|render\w*)\s+(?:\S+\s+){0,2}(?:optimize\s+et|hızlandır)|"
+            r"(?:oyun\w*|servis\w*|uygulama\w*|yazılım\w*|proje\w*|repo\w*|beti[kğ]\w*|kod\w*|(?:işletim|dosya|derleme|önbellek)\s+sistem\w*|modül\w*|sorgu\w*|fonksiyon\w*|algoritma\w*|motor\w*|derleme\w*|[iİ]ndirme\w*|ağ\w*|bellek\w*|ram\w*|hız\w*|render\w*)\s+(?:\S+\s+){0,2}(?:optimize\s+et|hızlandır\w*|hizlandir\w*)|"
             r"(?:bellek|ram|cpu|ağ|disk|yükleme|başlatma|soğuk\s+başlangıç|sorgu|döngü|render|kare)\s+(?:tüketimi\w*|kullanımı\w*|maliyeti\w*|süresi\w*|gecikmesi\w*|boyutu\w*)\s+(?:düşür\w*|azalt\w*|küçült\w*|optimize\s+et\w*|hızlandır\w*)|"
             r"(?:uygulama\w*|servis\w*|oyun\w*|sorgu\w*|beti[kğ]\w*|motor\w*|derleme\w*|paket\w*|dosya\w*|pipeline\w*)\s+(?:performans\w*|hız\w*|fps|belle[kğ]\w*|boyut\w*)\s+(?:iyileştir\w*|artır\w*|düşür\w*|optimize\s+et\w*)|"
             r"(?:bellek|ram|bant\s+genişliği)\s+kullanımını\s+(?:düşür|azalt)|"
@@ -354,7 +365,7 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         "skills/vibecoder/SKILL.md",
         re.compile(
             rf"(?:{_SLASH_PRE}/vibecoder?{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"vibecoder|vibercoder|vibe\s*coding|rapid\s+prototyp(?:e|ing)|single[- ]file\s+(?:html\s+)?prototyp(?:e|ing)|"
+            r"vibecoder|vibe\s*coding|rapid\s+prototyp(?:e|ing)|single[- ]file\s+(?:html\s+)?prototyp(?:e|ing)|"
             r"game\s+prototype|interactive\s+(?:prototype|sandbox)|(?:audio|sound|visual)\s+synthesizer|creative\s+studio\s+prototype|"
             r"fikrim\s+var|hızlı\s+prototip|oyun\s+prototipi|etkileşimli\s+kum\s+havuzu|ses\s+sentezleyici|"
             r"yaratıcı\s+stüdyo\s+prototip(?:i)?|tek\s+dosya(?:lık)?\s+(?:html|prototip|oyun|stüdyo)|prototip\s+üret"
@@ -485,7 +496,9 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
         re.compile(
             rf"{_PATH_WORD_PRE}(?:"
             r"schema\s+migration|database\s+migration|zero[- ]downtime\s+migration|database\s+rollback|alter\s+table|"
-            r"veritabanı\s+göç\w*|şema\s+göç\w*|migrasyon\s+yaz\w*"
+            r"veritabanı\s+göç\w*|şema\s+göç\w*|migrasyon\s+yaz\w*|"
+            r"(?:veritabanı|veritabani|şema|sema|tablo|sql|prisma|drizzle|alembic|django|knex|typeorm)\s+migration\w*|"
+            r"migration\s+(?:yaz\w*|oluştur\w*|olustur\w*|ekle\w*|hazırla\w*|hazirla\w*|geri\s+al\w*)"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
         ),
@@ -536,17 +549,6 @@ SKILL_HINTS: Tuple[Tuple[str, str, re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         "strict computational verification gates, artifact-driven task lifecycle & auditor handoffs",
-    ),
-    (
-        "procoder",
-        "skills/procoder/SKILL.md",
-        re.compile(
-            rf"(?:{_SLASH_PRE}/procoder{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"procoder\s+(?:backlog|sprint|release)"
-            rf"){_PATH_WORD_POST}|(?<![/\w\\-])\.procoder/)",
-            re.IGNORECASE,
-        ),
-        "spec, plan, todo, backlog & sprint governance for .procoder/ repositories",
     ),
     (
         "unlazy",
@@ -613,7 +615,7 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             rf"){_PATH_WORD_POST})",
             re.IGNORECASE,
         ),
-        "MCP Server `rea_rea` & Plugin `rea` (`call_mcp_tool` with `ServerName=\"rea_rea\"` + read `plugins/rea/skills/reverse-engineer-anything/SKILL.md`)",
+        "MCP Server `rea_rea` & Plugin `rea` (`call_mcp_tool` with `ServerName=\"rea_rea\"` + read `~/.gemini/config/plugins/rea/skills/reverse-engineer-anything/SKILL.md`)",
     ),
     (
         "route:mcp:antislop-contrast",
@@ -658,7 +660,7 @@ ECOSYSTEM_ROUTING_HINTS: Tuple[Tuple[str, re.Pattern[str], str], ...] = (
             rf"{_PATH_WORD_PRE}(?:"
             r"formal\s+specification|multi[- ]volume\s+spec|state\s+machine\s+invariant|safety\s+core\s+spec|"
             r"multi[- ]file\s+invariant|axiomatic\s+consistency|"
-            r"resmi\s+spesifikasyon|güvenlik\s+çekirdeği\s+spesifikasyonu|aksiyomatik\s+tutarlılık|durum\s+makinesi\s+değişmezi"
+            r"resmi\s+spesifikasyon|güvenlik\s+çekirdeği\s+spesifikasyonu|spesifikasyon\s+tutarsızl\w*|durum\s+makinesi\s+değişmezi"
             rf"){_PATH_WORD_POST}",
             re.IGNORECASE,
         ),
@@ -881,7 +883,6 @@ _DISTINCTIVE_SKILL_SLUGS = frozenset({
     "vibecoder",
     "antislop",
     "chisle",
-    "procoder",
     "unlazy",
     "marathon",
     "rustify",
@@ -1001,6 +1002,444 @@ _TASKS_PARTIAL_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[~\]|\|[^\n]*\[~\])")
 
 _TASKS_BLOCKED_RE = _LazyRegex(r"(?m)^\s*(?:-\s*\[!\]|\|[^\n]*\[!\])")
 
+_TASKS_UNCHECKED_LINE_RE = _LazyRegex(
+    r"(?m)^[^\S\r\n]*(?:[-*][^\S\r\n]*\[(?: |~|!)\][^\S\r\n]+([^\r\n]+)|\|[^\r\n]*\[(?: |~|!)\][^\r\n]*)"
+)
+
+_PROMPT_LIST_ITEM_RE = _LazyRegex(r"(?m)^[^\S\r\n]*(?:[-*•]|\d+[.)])[^\S\r\n]+\S")
+
+_CTX_HANDOFF_TIER1_KEY = "__ctx_handoff_tier1__"
+_CTX_HANDOFF_TIER2_KEY = "__ctx_handoff_tier2__"
+_CTX_FRESH_WINDOW_BASELINE = 45_000
+_CTX_DEFAULT_STEP_BURN = 12_000
+_CTX_MIN_STEP_BURN = 6_000
+_CTX_MAX_STEP_BURN = 40_000
+
+_HEAVY_WORKFLOW_SLASH_RE = _LazyRegex(
+    rf"{_SLASH_PRE}[/\$](?:"
+    r"audit|audit-upstream|rustify|rust-harden|renew|marathon|unlazy|deep-grill|"
+    r"refactoring|sweetspot|optimize|game-engineering|media-studio|database-migrations|"
+    r"rea|harness|verify|gate|run-gate"
+    rf"){_SLASH_POST}",
+    re.IGNORECASE,
+)
+
+_HEAVY_WORKFLOW_PROSE_RE = _LazyRegex(
+    rf"{_PATH_WORD_PRE}(?:"
+    r"tier[- ]?3|multi[- ]?file|architectur(?:e|al)|migrat(?:e|ion|ing)|redesign|overhaul|"
+    r"refactor(?:ing)?|security\s+audit|full\s+audit|codebase\s+audit|subagent|swarm|fan[- ]?out|"
+    r"end[- ]to[- ]end|full\s+suite|all\s+tests|whole\s+(?:repo|codebase|project)|"
+    r"across\s+(?:all|multiple|\d+)\s+(?:files?|modules?|services?|packages?)|"
+    r"window\s+\d+/\d+|campaign|rewrite\s+(?:the\s+|this\s+|all\s+)?(?:module|service|system|engine|layer)|"
+    r"mimari\w*|denetim\w*|yeniden\s+yapılandır\w*|refactor\s+et\w*|migrasyon\w*|göç\w*|"
+    r"çoklu\s+dosya\w*|tüm\s+(?:test\w*|dosya\w*|proje\w*|modül\w*)|sıfırdan|maraton|pencere\s+\d+|"
+    r"alt\s+ajan\w*|tam\s+doğrulama"
+    rf"){_PATH_WORD_POST}",
+    re.IGNORECASE,
+)
+
+_TRIVIAL_MICRO_EDIT_RE = _LazyRegex(
+    rf"{_PATH_WORD_PRE}(?:"
+    r"typo|spelling|whitespace|one[- ]line|single[- ]line|"
+    r"fix\s+(?:a\s+|this\s+|the\s+)?(?:typo|spelling|comment|whitespace|formatting|indent\w*|label)|"
+    r"rename\s+(?:this\s+|the\s+)?(?:variable|symbol|param\w*|field|label)|"
+    r"update\s+(?:this\s+|the\s+)?(?:comment|docstring|copy|label|version\s+number)|"
+    r"git\s+(?:status|log|diff)|"
+    r"yazım\s+hatas\w*|imla|tek\s+satır\w*|küçük\s+düzeltme\w*|ufak\s+düzeltme\w*|"
+    r"sadece\s+(?:şu|bu)\s+(?:satır\w*|yorum\w*|yazım\w*)"
+    rf"){_PATH_WORD_POST}",
+    re.IGNORECASE,
+)
+
+
+def _load_model_compaction_ceilings() -> Tuple[Dict[str, int], Dict[str, str]]:
+    """Loads `model_compaction_ceilings` and `known_placeholder_models` from shipped seed, state, and fallback."""
+    try:
+        from guard.upstream import (
+            DEFAULT_KNOWN_PLACEHOLDER_MODELS,
+            DEFAULT_MODEL_COMPACTION_CEILINGS,
+            _clean_compaction_ceilings,
+            _clean_known_placeholder_map,
+            reconcile_state_with_seed,
+        )
+    except ImportError as exc:  # pragma: no cover - defensive fallback
+        sys.stderr.write(f"[Harness PreInvocation] Failed to import guard.upstream defaults: {exc}\n")
+        return {"default": 200_000}, {}
+
+    ceilings: Dict[str, int] = dict(DEFAULT_MODEL_COMPACTION_CEILINGS)
+    placeholders: Dict[str, str] = dict(DEFAULT_KNOWN_PLACEHOLDER_MODELS)
+
+    def _merge_ceiling_record(src_label: str, src_path: Path, rec: Dict[str, Any]) -> None:
+        raw_mcc = rec.get("model_compaction_ceilings")
+        if raw_mcc is not None and not isinstance(raw_mcc, dict):
+            sys.stderr.write(f"[Harness PreInvocation] {src_label} `{src_path}` has non-object model_compaction_ceilings.\n")
+        else:
+            cleaned_mcc = _clean_compaction_ceilings(raw_mcc)
+            if isinstance(raw_mcc, dict) and len(cleaned_mcc) < len(raw_mcc):
+                sys.stderr.write(f"[Harness PreInvocation] {src_label} `{src_path}` dropped invalid model_compaction_ceilings entries.\n")
+            ceilings.update(cleaned_mcc)
+        placeholders.update(_clean_known_placeholder_map(rec.get("known_placeholder_models")))
+
+    loaded_seed: Optional[Dict[str, Any]] = None
+    for cand in _upstream_seed_candidates():
+        try:
+            if not cand.is_file():
+                continue
+            data = read_json_strict(cand)
+        except (CorruptStateError, OSError) as exc:
+            sys.stderr.write(f"[Harness PreInvocation] Skipping unreadable/corrupt seed `{cand}`: {exc}\n")
+            continue
+        if isinstance(data, dict) and data:
+            loaded_seed = data
+            _merge_ceiling_record("Seed", cand, data)
+            break
+
+    st_path = state_dir() / "upstream_state.json"
+    try:
+        st_exists = st_path.is_file()
+    except OSError as exc:
+        sys.stderr.write(f"[Harness PreInvocation] Cannot stat `{st_path}`: {exc}\n")
+        st_exists = False
+    if st_exists:
+        try:
+            st_data = read_json_strict(st_path)
+        except (CorruptStateError, OSError) as exc:
+            sys.stderr.write(f"[Harness PreInvocation] Ignoring unreadable/corrupt `{st_path}`: {exc}\n")
+            st_data = None
+        if isinstance(st_data, dict):
+            merge_state = True
+            if loaded_seed is not None:
+                try:
+                    st_data, _ = reconcile_state_with_seed(dict(st_data), loaded_seed)
+                except Exception as exc:
+                    sys.stderr.write(f"[Harness PreInvocation] Failed to reconcile `{st_path}` with seed: {exc}\n")
+                    merge_state = False
+            if merge_state:
+                _merge_ceiling_record("State", st_path, st_data)
+    return ceilings, placeholders
+
+
+def _effective_compaction_ceiling(
+    model_name: str,
+    ceilings: Dict[str, int],
+    placeholders: Dict[str, str],
+) -> Tuple[int, str]:
+    """Resolves a model label/slug/placeholder to its empirical compaction ceiling in tokens."""
+    raw = str(model_name or "").strip()
+    raw = re.sub(r"^(?:[a-z0-9._-]+/)+", "", raw, flags=re.IGNORECASE)
+    ph_match = re.match(r"^(MODEL_PLACEHOLDER_[A-Z0-9_]+)\b", raw, re.IGNORECASE)
+    if ph_match:
+        ph_key = ph_match.group(1).upper()
+        for pk, mapped in placeholders.items():
+            if pk.upper() == ph_key:
+                raw = mapped
+                break
+    slug = re.sub(r"[^a-z0-9.]+", "-", raw.lower()).strip("-")
+    if slug and slug in ceilings:
+        return max(32_000, int(ceilings[slug])), slug
+    best_prefix = ""
+    best_val: Optional[int] = None
+    if slug:
+        for k, v in ceilings.items():
+            if k == "default":
+                continue
+            if slug.startswith((f"{k}-", f"{k}.")):
+                if len(k) > len(best_prefix):
+                    best_prefix = k
+                    best_val = v
+        if best_val is None:
+            norm_family = re.sub(r"^(claude)-[0-9]+(?:\.[0-9]+)?-(opus|sonnet|haiku)\b", r"\1-\2", slug)
+            if norm_family != slug:
+                if norm_family in ceilings:
+                    best_val = ceilings[norm_family]
+                else:
+                    for k, v in ceilings.items():
+                        if k != "default" and norm_family.startswith((f"{k}-", f"{k}.")):
+                            if len(k) > len(best_prefix):
+                                best_prefix = k
+                                best_val = v
+    if best_val is not None:
+        return max(32_000, int(best_val)), slug
+    return max(32_000, int(ceilings.get("default", 200_000))), (slug or "default")
+
+
+def _extract_planner_token_total(entry: Dict[str, Any]) -> int:
+    """Extracts active prompt tokens (`input_tokens + cache_read_tokens + cache_creation_input_tokens`) from a `PLANNER_RESPONSE`."""
+    max_sane = 100_000_000
+    usage = entry.get("usage") if isinstance(entry.get("usage"), dict) else {}
+
+    raw_in = entry.get("input_tokens")
+    is_inclusive_prompt = False
+    if raw_in is None:
+        raw_in = entry.get("inputTokens")
+    if raw_in is None and usage:
+        for k in ("input_tokens", "inputTokens"):
+            if usage.get(k) is not None:
+                raw_in = usage.get(k)
+                break
+        if raw_in is None:
+            for k in ("prompt_tokens", "promptTokens"):
+                if usage.get(k) is not None:
+                    raw_in = usage.get(k)
+                    is_inclusive_prompt = True
+                    break
+
+    raw_cache = entry.get("cache_read_tokens")
+    if raw_cache is None:
+        raw_cache = entry.get("cacheReadTokens")
+    if raw_cache is None and usage:
+        for k in ("cache_read_tokens", "cache_read_input_tokens", "cacheReadTokens"):
+            if usage.get(k) is not None:
+                raw_cache = usage.get(k)
+                break
+
+    raw_cache_create = entry.get("cache_creation_input_tokens")
+    if raw_cache_create is None:
+        raw_cache_create = entry.get("cacheCreationTokens")
+    if raw_cache_create is None and usage:
+        for k in ("cache_creation_input_tokens", "cacheCreationTokens"):
+            if usage.get(k) is not None:
+                raw_cache_create = usage.get(k)
+                break
+
+    if raw_in is None and raw_cache is None and raw_cache_create is None:
+        return 0
+
+    in_tok = _safe_int(raw_in, default=-1) if raw_in is not None else 0
+    if in_tok < 0:
+        in_tok = 0
+    cache_tok = _safe_int(raw_cache, default=0) if raw_cache is not None else 0
+    if cache_tok < 0:
+        cache_tok = 0
+    cache_create_tok = _safe_int(raw_cache_create, default=0) if raw_cache_create is not None else 0
+    if cache_create_tok < 0:
+        cache_create_tok = 0
+
+    if in_tok > max_sane or cache_tok > max_sane or cache_create_tok > max_sane:
+        return 0
+    if is_inclusive_prompt:
+        total = max(in_tok, cache_tok) + cache_create_tok
+    else:
+        total = in_tok + cache_tok + cache_create_tok
+    return total if 0 < total <= max_sane else 0
+
+
+def _inspect_transcript_context_metrics(payload: Dict[str, Any]) -> Optional[Tuple[int, int, str]]:
+    """
+    Tail-reads `transcriptPath` up to the latest `CHECKPOINT` compaction boundary and returns
+    `(active_tokens, clamped_burn_rate_per_step, active_model)` from post-checkpoint `PLANNER_RESPONSE` steps.
+    """
+    tx_path = _resolve_transcript_path(payload)
+    if tx_path is None:
+        return None
+
+    def _scan(scan_bytes: int) -> Tuple[List[Tuple[int, str]], bool]:
+        found: List[Tuple[int, str]] = []
+        hit_checkpoint = False
+        scanned = 0
+        for entry in _iter_jsonl_tail_entries(tx_path, max_scan_bytes=scan_bytes, raise_on_error=True):
+            scanned += 1
+            step_type = str(entry.get("type", "")).upper()
+            if step_type == "CHECKPOINT":
+                hit_checkpoint = True
+                break
+            if step_type == "PLANNER_RESPONSE":
+                status = str(entry.get("status", "")).upper()
+                if status in ("ERROR", "FAILED", "CANCELLED"):
+                    continue
+                total = _extract_planner_token_total(entry)
+                if total > 0:
+                    raw_m = entry.get("model") or entry.get("modelName") or entry.get("model_name") or ""
+                    model_val = raw_m.strip() if isinstance(raw_m, str) else ""
+                    found.append((total, model_val))
+                    if len(found) >= 8:
+                        break
+            if scanned >= 400:
+                break
+        return found, hit_checkpoint
+
+    try:
+        samples, saw_checkpoint = _scan(512 * 1024)
+        if not samples and not saw_checkpoint:
+            samples, _ = _scan(2 * 1024 * 1024)
+    except OSError as exc:
+        sys.stderr.write(f"[Harness PreInvocation] Failed to tail-read `{tx_path}` for context metrics: {exc}\n")
+        return None
+
+    if not samples:
+        return None
+    samples.reverse()
+    active_tokens = samples[-1][0]
+
+    active_model = ""
+    for pk in ("modelName", "model_name", "model"):
+        pv = payload.get(pk)
+        if isinstance(pv, str) and pv.strip() and pv.strip().lower() != "auto":
+            active_model = pv.strip()
+            break
+    if not active_model:
+        for _tok, m_val in reversed(samples):
+            if m_val and m_val.lower() != "auto":
+                active_model = m_val
+                break
+
+    if len(samples) >= 2:
+        pos_deltas = sorted(
+            delta
+            for i in range(1, len(samples))
+            for delta in (samples[i][0] - samples[i - 1][0],)
+            if 0 < delta <= 100_000
+        )
+        if pos_deltas:
+            mid = len(pos_deltas) // 2
+            burn_rate = (
+                pos_deltas[mid]
+                if (len(pos_deltas) % 2 == 1)
+                else (pos_deltas[mid - 1] + pos_deltas[mid]) // 2
+            )
+        else:
+            burn_rate = _CTX_MIN_STEP_BURN
+    else:
+        burn_rate = _CTX_DEFAULT_STEP_BURN
+    clamped_burn = max(_CTX_MIN_STEP_BURN, min(burn_rate, _CTX_MAX_STEP_BURN))
+    return active_tokens, clamped_burn, active_model
+
+
+def _inspect_workspace_remaining_tasks(workspaces: Sequence[Path]) -> Tuple[int, bool]:
+    """Counts unchecked checklist/table items in the primary workspace's `tasks.md` and detects 1 small remaining item."""
+    for ws in workspaces:
+        try:
+            if not ws.is_dir():
+                continue
+        except OSError as exc:
+            sys.stderr.write(f"[Harness PreInvocation] Cannot inspect workspace `{ws}`: {exc}\n")
+            continue
+        ok, raw_tasks = _read_bounded_markdown_checked(ws / "tasks.md")
+        if not ok:
+            sys.stderr.write(f"[Harness PreInvocation] Failed to read `{ws / 'tasks.md'}` for context sizing.\n")
+            continue
+        if not raw_tasks:
+            continue
+        ttext = _FENCE_RE.sub(" ", _normalize_markdown_newlines(raw_tasks))
+        u_items = [(m.group(1) or m.group(0)).strip() for m in _TASKS_UNCHECKED_LINE_RE.finditer(ttext)]
+        rem = len(u_items)
+        if rem == 1:
+            sole = u_items[0]
+            is_small = (
+                len(sole) < 220
+                and not _HEAVY_WORKFLOW_SLASH_RE.search(sole)
+                and not _HEAVY_WORKFLOW_PROSE_RE.search(sole)
+            )
+            return 1, is_small
+        return rem, False
+    return 0, False
+
+
+def _estimate_next_job_cost(
+    scan_text: str,
+    explicit_text: str,
+    raw_prompt: str,
+    burn_rate: int,
+    remaining_tasks: int,
+    is_single_small_item: bool,
+) -> Tuple[int, bool]:
+    """
+    Dynamically estimates incoming job token demand from prompt weight, `tasks.md`, and clamped `burn_rate`.
+    Returns `(estimated_tokens, is_heavy_job)` where `estimated_tokens == 0` suppresses the advisory.
+    """
+    has_heavy_slash = bool(_HEAVY_WORKFLOW_SLASH_RE.search(explicit_text))
+    prose_hits = min(
+        3,
+        len({m.group(0).lower() for m in _HEAVY_WORKFLOW_PROSE_RE.finditer(scan_text)}),
+    )
+    list_bonus = 1 if len(_PROMPT_LIST_ITEM_RE.findall(scan_text)) >= 3 else 0
+    len_bonus = 1 if len(scan_text) >= 450 else 0
+    heavy_signals = (2 if has_heavy_slash else 0) + prose_hits + list_bonus + len_bonus
+
+    if heavy_signals == 0:
+        if _TRIVIAL_MICRO_EDIT_RE.search(scan_text):
+            return 0, False
+        if is_single_small_item:
+            return 0, False
+        if len(scan_text) < 120 and remaining_tasks <= 1:
+            return 0, False
+
+    is_heavy_job = (heavy_signals >= 1) or (remaining_tasks >= 4)
+    task_steps = min(remaining_tasks, 5) if remaining_tasks >= 2 else 0
+    if is_heavy_job:
+        estimated_steps = min(20, 10 + min(heavy_signals, 4) * 2 + task_steps)
+    else:
+        estimated_steps = 5 + task_steps
+    prompt_tokens = len(raw_prompt) // 4
+    return (estimated_steps * burn_rate) + prompt_tokens, is_heavy_job
+
+
+def _evaluate_predictive_handoff_advisory(
+    payload: Dict[str, Any],
+    workspaces: Sequence[Path],
+    scan_text: str,
+    explicit_text: str,
+    raw_prompt: str,
+    seen_turns: Dict[str, int],
+    active_turn: int,
+) -> Optional[Tuple[int, str, str]]:
+    """
+    Evaluates dynamic post-`CHECKPOINT` headroom vs. estimated next-job token demand without any
+    fixed `%` threshold. Returns `(tier, state_key, message)` where Tier 1 emits `0`-token
+    `metadata.user_markdown` and Tier 2 emits a one-time latched terse `systemMessage`.
+    """
+    if _CTX_HANDOFF_TIER2_KEY in seen_turns:
+        return None
+    metrics = _inspect_transcript_context_metrics(payload)
+    if metrics is None:
+        return None
+    active_tokens, effective_burn, active_model = metrics
+    remaining_tasks, is_single_small_item = _inspect_workspace_remaining_tasks(workspaces)
+    estimated_cost, is_heavy_job = _estimate_next_job_cost(
+        scan_text,
+        explicit_text,
+        raw_prompt,
+        effective_burn,
+        remaining_tasks,
+        is_single_small_item,
+    )
+    if estimated_cost <= 0:
+        return None
+
+    safety_buffer = max(12_000, min(36_000, 2 * effective_burn))
+    if (active_tokens - _CTX_FRESH_WINDOW_BASELINE) <= safety_buffer:
+        return None
+
+    ceilings, placeholders = _load_model_compaction_ceilings()
+    ceiling, model_slug = _effective_compaction_ceiling(active_model, ceilings, placeholders)
+    remaining_headroom = max(0, ceiling - active_tokens)
+    if remaining_headroom >= estimated_cost:
+        return None
+
+    active_k = (active_tokens + 500) // 1000
+    ceil_k = (ceiling + 500) // 1000
+    rem_k = (remaining_headroom + 500) // 1000
+    est_k = (estimated_cost + 500) // 1000
+    burn_k = max(1, (effective_burn + 500) // 1000)
+    safe_model = model_slug[:32] or "model"
+
+    critical_floor = (estimated_cost // 2) + safety_buffer
+    if (is_heavy_job and remaining_headroom < critical_floor) or remaining_headroom < safety_buffer:
+        tier2_msg = (
+            f"[Harness Context Handoff] Active ~{active_k}K/{ceil_k}K (~{rem_k}K left vs ~{est_k}K est.). "
+            "Before heavy edits, offer a 1-sentence choice: continue here or write a clean HANDOFF.md for a new window."
+        )
+        return (2, _CTX_HANDOFF_TIER2_KEY, tier2_msg)
+
+    prev_t1 = seen_turns.get(_CTX_HANDOFF_TIER1_KEY)
+    if prev_t1 is not None and (active_turn - prev_t1) < REHINT_TURN_GAP:
+        return None
+    tier1_md = (
+        f"[Context Advisory] Active ~{active_k}K/{ceil_k}K ({safe_model}); est. next job ~{est_k}K "
+        f"exceeds ~{rem_k}K headroom (burn ~{burn_k}K/step). Consider a clean HANDOFF.md window for heavy work."
+    )
+    return (1, _CTX_HANDOFF_TIER1_KEY, tier1_md)
+
 def _acknowledge_interrupted_flight(workspace: Path, expected_seq: int, conv_id: str = "") -> None:
     """Marks the matching `"in_flight"` crash record as `"interrupted_notified"` without touching sibling records."""
     flight_file = _flight_recorder_file()
@@ -1037,6 +1476,143 @@ def _acknowledge_interrupted_flight(workspace: Path, expected_seq: int, conv_id:
             f"[Harness Flight Recorder] Failed acknowledging interrupted flight ({type(exc).__name__}): {exc}\n"
         )
 
+_QUESTION_ONLY_OPENER_RE = _LazyRegex(
+    r"^\s*(?:"
+    r"what|why|how|where|when|which|who|explain|describe|summarize|show\s+me|tell\s+me|"
+    r"list|compare|can\s+you\s+explain|could\s+you\s+explain|is\s+there|are\s+there|does\s+\w+|do\s+we|"
+    r"neden|nasıl|nasil|nerede|hangi|kim|ne\s+işe|ne\s+ise|nedir|açıkla|acikla|"
+    r"özetle|ozetle|anlat|düz\s+anlat|duz\s+anlat|göster|goster|listele|karşılaştır|karsilastir"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_QUESTION_ONLY_TR_CLITIC_RE = _LazyRegex(
+    r"\b(?:mı|mi|mu|mü|mısın|misin|musun|müsün|mıdır|midir|mudur|müdür|"
+    r"nedir|ne\s+işe\s+yarar|ne\s+ise\s+yarar|nasıl\s+çalışır|nasil\s+calisir|"
+    r"düz\s+anlat|duz\s+anlat|anlat(?:ır\s+mısın|ir\s+misin)?|"
+    r"açıkla(?:r\s+mısın)?|acikla(?:r\s+misin)?|özetle(?:r\s+misin)?|ozetle(?:r\s+misin)?)"
+    r"\s*[.?]?\s*$",
+    re.IGNORECASE,
+)
+
+_QUESTION_ONLY_ACTION_VERB_RE = _LazyRegex(
+    r"(?:"
+    r"\b(?:implement|build|create|write|edit|modify|update|fix|refactor|migrate|delete|remove|add|"
+    r"rename|install|deploy|upgrade|reset|start|continue|proceed|resume|apply|run|execute|commit|"
+    r"push|patch|harden|optimize|port|convert|scaffold|rewrite|replace|clean\s+up|wire)\b|"
+    r"\b(?:uygula|ekle|sil|kur|devam|yeniden\s+düzenle|yeniden\s+duzenle|optimize\s+et)\b|"
+    r"\b(?:yaz|düzelt|duzelt|güncelle|guncelle|değiştir|degistir|kaldır|kaldir|oluştur|olustur|"
+    r"taşı|tasi|çevir|cevir|başla|basla|hızlandır|hizlandir|temizle|uyarlayalım|yapalım|yapalim)"
+    r"(?:ır|ir|ur|ür|ar|er|alım|elim|sana|sene|in|ın|un|ün|iniz|ınız|mısın|misin|musun|müsün)?\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_READONLY_SLASH_RE = _LazyRegex(r"^\s*/(?:audit|retro|grill-me)\b", re.IGNORECASE)
+
+_PASTED_BLOCKQUOTE_LINE_RE = _LazyRegex(r"^\s*>")
+_PASTED_DIFF_LINE_RE = _LazyRegex(r"^(?:diff --git |index [0-9a-f]{6,}\.\.|--- [ab]/|\+\+\+ [ab]/|@@ -\d+)")
+_PASTED_TABLE_LINE_RE = _LazyRegex(r"^\s*\|.+\|\s*$")
+_PASTED_AUDIT_FINDING_LINE_RE = _LazyRegex(
+    r"^\s*(?:[-*•]\s+)?(?:\*\*)?\[?(?:CRITICAL|HIGH|MEDIUM|LOW|INFO|PASS|FAIL|WARN(?:ING)?|"
+    r"CONFIRMED|REFUTED|FINDING\s*#?\d+|F-\d+|P\d+|H-\d+)\]?(?:\*\*)?[:\s|]",
+    re.IGNORECASE,
+)
+_PASTED_REPORT_BOUNDARY_RE = _LazyRegex(
+    r"^\s*(?:---+\s*$|#{1,4}\s+(?:Findings?|Audit(?:\s+Report)?|Review(?:\s+Summary)?|Defects?|"
+    r"Issues?|Bulgular|Denetim(?:\s+Raporu)?|İnceleme(?:\s+Raporu)?|Rapor)\b)",
+    re.IGNORECASE,
+)
+_PASTED_REPORT_SIGNAL_RE = _LazyRegex(
+    r"(?:\b(?:CRITICAL|HIGH|MEDIUM|Severity|Verdict|CONFIRMED|REFUTED|Bulgu|Önem)\b|"
+    r"\b[A-Za-z0-9_.-]+\.[A-Za-z]{1,5}:\d+\b|^\s*\|.+\|\s*$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_READONLY_HINT_ALLOWLIST_SKILLS = frozenset({"diagnosing-bugs", "porter"})
+_READONLY_HINT_ALLOWLIST_ROUTES = frozenset({
+    "route:builtin:antigravity-guide",
+    "route:builtin:agy-customizations",
+    "route:subagent:research",
+})
+_SHORT_ACTION_INTENT_RE = _LazyRegex(
+    rf"{_PATH_WORD_PRE}(?:"
+    r"(?:migration|migrasyon|test|doküman|dokuman)\s+(?:yaz\w*|ekle\w*|oluştur\w*|olustur\w*)|"
+    r"refactor\s+et\w*|alter\s+table"
+    rf"){_PATH_WORD_POST}",
+    re.IGNORECASE,
+)
+
+
+def _strip_pasted_review_and_quote_blocks(text: str) -> str:
+    """Strips quoted lines, unified diffs, markdown tables, and pasted audit/review report blocks before hint matching."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if len(lines) >= 4:
+        for idx, line in enumerate(lines):
+            if idx == 0:
+                continue
+            if _PASTED_REPORT_BOUNDARY_RE.match(line):
+                tail = "\n".join(lines[idx + 1 :])
+                if _PASTED_REPORT_SIGNAL_RE.search(tail):
+                    lines = lines[:idx]
+                    break
+    kept: List[str] = []
+    for line in lines:
+        if (
+            _PASTED_BLOCKQUOTE_LINE_RE.match(line)
+            or _PASTED_DIFF_LINE_RE.match(line)
+            or _PASTED_TABLE_LINE_RE.match(line)
+            or _PASTED_AUDIT_FINDING_LINE_RE.match(line)
+        ):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _resolve_hint_skill_path(rel_path: str, workspaces: Sequence[Path]) -> str:
+    """Resolves a canonical skill/plugin relpath to an installed-layout-safe path for external workspaces."""
+    if not rel_path.startswith(("skills/", "plugins/")):
+        return rel_path
+    cfg = configured_config_dir()
+    default_cfg = Path.home() / ".gemini" / "config"
+    try:
+        if (cfg / rel_path).is_file():
+            if cfg.expanduser() == default_cfg:
+                return f"~/.gemini/config/{rel_path}"
+            return str(cfg / rel_path)
+    except (OSError, ValueError):
+        pass
+    for ws in workspaces:
+        try:
+            if (ws / rel_path).is_file():
+                return rel_path
+        except (OSError, ValueError):
+            continue
+    return f"~/.gemini/config/{rel_path}"
+
+
+def _is_pure_readonly_or_question_prompt(scan_text: str, explicit_text: str = "") -> bool:
+    """True when the user prompt is purely a question or read-only inquiry with no edit/action verb."""
+    text = (scan_text or "").strip()
+    if not text:
+        return False
+    exp = (explicit_text or text).strip()
+    if _EXPLICIT_CMD_TOKEN_RE.search(exp) and not _READONLY_SLASH_RE.match(exp):
+        return False
+    if _QUESTION_ONLY_ACTION_VERB_RE.search(text):
+        return False
+    tail_stripped = re.sub(r"[*_`\"'»”\s)]+$", "", text)
+    if tail_stripped.endswith("?"):
+        return True
+    if _QUESTION_ONLY_OPENER_RE.match(text):
+        return True
+    if _QUESTION_ONLY_TR_CLITIC_RE.search(tail_stripped):
+        return True
+    return False
+
+
 def _detect_workspace_recovery_hint(
     workspace: Optional[Path],
     conv_id: str,
@@ -1044,6 +1620,7 @@ def _detect_workspace_recovery_hint(
     *,
     is_mid_turn: bool = False,
     now: Optional[datetime] = None,
+    is_question_only: bool = False,
 ) -> Tuple[bool, Optional[Tuple[str, str, Optional[int]]]]:
     """
     Inspects `state_dir() / "flight_recorder.json"`, `HANDOFF.md`, and `tasks.md` to detect:
@@ -1165,15 +1742,18 @@ def _detect_workspace_recovery_hint(
         tasks_ok, raw_tasks = _read_bounded_markdown_checked(workspace / "tasks.md")
         if not tasks_ok:
             inspect_ok = False
+        has_harness_handoff = bool(handoff_in_progress or handoff_complete or handoff_campaign_id)
         if raw_tasks:
             ttext = _FENCE_RE.sub(" ", _normalize_markdown_newlines(raw_tasks))
-            pending_count = len(_TASKS_PENDING_RE.findall(ttext))
-            partial_count = len(_TASKS_PARTIAL_RE.findall(ttext))
-            blocked_count = len(_TASKS_BLOCKED_RE.findall(ttext))
-            next_row_count = len(_TASKS_NEXT_ROW_RE.findall(ttext))
             m_tcid = _CAMPAIGN_ID_RE.search(ttext)
             if m_tcid:
                 tasks_campaign_id = m_tcid.group(1)
+            # 5.7: Treat tasks.md as a harness ledger only when backed by Campaign ID or a harness HANDOFF.md
+            if tasks_campaign_id or has_harness_handoff:
+                pending_count = len(_TASKS_PENDING_RE.findall(ttext))
+                partial_count = len(_TASKS_PARTIAL_RE.findall(ttext))
+                blocked_count = len(_TASKS_BLOCKED_RE.findall(ttext))
+                next_row_count = len(_TASKS_NEXT_ROW_RE.findall(ttext))
 
     tasks_supersedes_complete_handoff = bool(
         handoff_complete and tasks_campaign_id and tasks_campaign_id != handoff_campaign_id
@@ -1275,7 +1855,7 @@ def _detect_workspace_recovery_hint(
         f"{ws_key}|{flight_alert_reason}|{seq_val}|{updated_at}|{last_target}|"
         f"{handoff_in_progress}|{handoff_complete}|{tasks_supersedes_complete_handoff}|{campaign_id}|"
         f"{handoff_commit[:12]}|{current_head[:12] if head_advanced else ''}|"
-        f"{pending_count}|{next_row_count}|{partial_count}|{blocked_count}"
+        f"{pending_count}|{next_row_count}|{partial_count}|{blocked_count}|{int(is_question_only)}"
     )
     fp_hash = hashlib.sha256(fingerprint_raw.encode("utf-8")).hexdigest()[:12]
     dedup_key = f"recovery:{fp_hash}"
@@ -1285,7 +1865,7 @@ def _detect_workspace_recovery_hint(
         else "`tasks.md`, `HANDOFF.md` (if present), and recent workspace files (non-git workspace)"
     )
     reset_guidance = ""
-    if handoff_in_progress or handoff_complete or has_unfinished_tasks or campaign_id:
+    if not is_question_only and (handoff_in_progress or handoff_complete or has_unfinished_tasks or campaign_id):
         campaign_ref = f"Campaign `{campaign_id}`" if campaign_id else "the recorded ledger"
         stale_prefix = "Stale ledger boundary: if " if is_stale_ledger else "If "
         reset_guidance = (
@@ -1918,6 +2498,7 @@ def _collect_context_domain_and_transcript_hints(
     is_short_or_continuation: bool,
     is_new_user_turn: bool,
     active_turn: int,
+    suppress_workspace_domain_hints: bool = False,
 ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]], set[str]]:
     """Appends bounded workspace marker and transcript error-trace hints with turn-gap deduplication."""
     if is_short_or_continuation:
@@ -1926,7 +2507,7 @@ def _collect_context_domain_and_transcript_hints(
     extra_keys: set[str] = set()
     emitted_skills = {m[0] for m in matched}
     emitted_routes = {r[0] for r in matched_routes}
-    ws_skills, ws_routes = _detect_workspace_domain_signals(workspaces)
+    ws_skills, ws_routes = ([], []) if suppress_workspace_domain_hints else _detect_workspace_domain_signals(workspaces)
 
     def _within_cooldown(key: str) -> bool:
         return key in seen_turns and (not is_new_user_turn or (active_turn - seen_turns[key]) < REHINT_TURN_GAP)
@@ -1991,6 +2572,7 @@ def _collect_invocation_skill_hints(
     has_explicit_cmd: bool,
     active_turn: int,
     explicit_text: Optional[str] = None,
+    is_readonly_meta_question: bool = False,
 ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
     """Selects bounded skill hints and ecosystem routing directives for `handle_pre_invocation`."""
     if is_short_or_continuation:
@@ -2008,6 +2590,8 @@ def _collect_invocation_skill_hints(
         )
         is_explicit = explicit_slash or explicit_slug
         if not is_explicit:
+            if is_readonly_meta_question and skill_name not in _READONLY_HINT_ALLOWLIST_SKILLS:
+                continue
             if not has_viable_token and "@\\[" not in pattern.pattern:
                 continue
             if not pattern.search(scan_text):
@@ -2021,6 +2605,8 @@ def _collect_invocation_skill_hints(
                 continue
         priority = 2 if explicit_slash else (1 if explicit_slug else 0)
         skill_candidates.append((-priority, table_idx, skill_name, rel_path, summary))
+    if any(c[2] == "rustify" for c in skill_candidates):
+        skill_candidates = [c for c in skill_candidates if not (c[2] == "rust-harden" and c[0] == 0)]
     selected_skills = _select_tiered_hints(skill_candidates)
     matched = [(s, r, d) for _p, _i, s, r, d in selected_skills]
 
@@ -2045,6 +2631,8 @@ def _collect_invocation_skill_hints(
         )
         is_explicit_route = explicit_route_slash or explicit_route_slug
         if not is_explicit_route:
+            if is_readonly_meta_question and route_key not in _READONLY_HINT_ALLOWLIST_ROUTES:
+                continue
             if not has_viable_token and "@\\[" not in pattern.pattern:
                 continue
             if not pattern.search(scan_text):
@@ -2062,14 +2650,43 @@ def _collect_invocation_skill_hints(
     matched_routes = [(rk, d) for _p, _i, rk, d in selected_routes]
     return matched, matched_routes
 
+def _call_recovery_hint(
+    ws: Path,
+    conv_id: str,
+    *,
+    first_turn_in_conv: bool,
+    is_mid_turn: bool,
+    is_question_only: bool,
+) -> Tuple[bool, Optional[Tuple[str, str, Optional[int]]]]:
+    fn = _facade_attr("_detect_workspace_recovery_hint", _detect_workspace_recovery_hint)
+    try:
+        return fn(
+            ws,
+            conv_id,
+            first_turn_in_conv=first_turn_in_conv,
+            is_mid_turn=is_mid_turn,
+            is_question_only=is_question_only,
+        )
+    except TypeError:
+        return fn(
+            ws,
+            conv_id,
+            first_turn_in_conv=first_turn_in_conv,
+            is_mid_turn=is_mid_turn,
+        )
+
+
 def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
-    tx_state = _inspect_transcript_turn_state(payload)
-    _tx_text, _tx_step, tx_mid_turn, has_tx = tx_state
+    tx_state_ex = _inspect_transcript_turn_state_ex(payload)
+    _tx_text, _tx_step, tx_mid_turn, has_tx, tx_ends_with_user = tx_state_ex
+    tx_state = tx_state_ex[:4]
     inv_raw = payload.get("invocationNum")
     if inv_raw is None:
         inv_raw = payload.get("invocation_num")
     inv_num = _safe_int(inv_raw, default=1)
-    if inv_raw is not None and inv_num == 1:
+    if tx_ends_with_user:
+        is_mid_turn = False
+    elif inv_raw is not None and inv_num in (0, 1):
         is_mid_turn = bool(has_tx and tx_mid_turn)
     else:
         is_mid_turn = (inv_num > 1) or tx_mid_turn
@@ -2082,14 +2699,17 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     prompt_with_inline = _extract_user_request_with_inline(raw_prompt).strip() if raw_prompt else ""
     is_aux_readonly = _is_auxiliary_readonly_context(payload, prompt_with_inline)
     scan_text = cleaned[:16384]
-    inline_cmd_surface = _extract_explicit_inline_command_tokens(raw_prompt) if raw_prompt else ""
-    explicit_text = f"{scan_text} {inline_cmd_surface}".strip() if inline_cmd_surface else scan_text
+    hint_scan_text = _strip_pasted_review_and_quote_blocks(scan_text)
+    raw_for_inline = _strip_pasted_review_and_quote_blocks(prompt_with_inline) if prompt_with_inline else ""
+    inline_cmd_surface = _extract_explicit_inline_command_tokens(raw_for_inline) if raw_for_inline else ""
+    explicit_text = f"{hint_scan_text} {inline_cmd_surface}".strip() if inline_cmd_surface else hint_scan_text
     normalized = re.sub(r"[.!?,;:]+$", "", scan_text.lower()).strip()
     has_explicit_cmd = bool(
         explicit_text
         and (_EXPLICIT_CMD_TOKEN_RE.search(explicit_text) or _has_any_explicit_slug_mention(explicit_text))
     )
-    is_short_or_continuation = (not has_explicit_cmd) and (
+    has_short_action = bool(hint_scan_text and _SHORT_ACTION_INTENT_RE.search(hint_scan_text))
+    is_short_or_continuation = (not has_explicit_cmd) and (not has_short_action) and (
         len(scan_text) < MIN_PROMPT_CHARS or normalized in CONTINUATION_WORDS
     )
     workspaces = _workspaces_from_payload(payload)
@@ -2103,6 +2723,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
     pending_acks: List[Tuple[Path, int]] = []
     matched: List[Tuple[str, str, str]] = []
     matched_routes: List[Tuple[str, str]] = []
+    ctx_advisory: Optional[Tuple[int, str, str]] = None
     prompt_hash = hashlib.sha256(explicit_text.encode("utf-8")).hexdigest()[:12]
     current_sig = f"{step_idx}:{prompt_hash}"
 
@@ -2114,12 +2735,17 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             seen_turns, turn_num, last_sig = _load_conv_hint_state(ledger.get(conv_id))
             if (
                 is_mid_turn
-                and inv_raw is not None
-                and inv_num == 1
                 and not _tx_text
                 and raw_prompt
-                and last_sig
-                and not last_sig.endswith(f":{prompt_hash}")
+                and (
+                    (
+                        inv_raw is not None
+                        and inv_num in (0, 1)
+                        and last_sig
+                        and not last_sig.endswith(f":{prompt_hash}")
+                    )
+                    or (not tx_mid_turn and (not last_sig or not last_sig.endswith(f":{prompt_hash}")))
+                )
             ):
                 is_mid_turn = False
             first_turn_in_conv = "__workspace_checked__" not in seen_turns
@@ -2174,16 +2800,16 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             active_turn = max(turn_num, 1)
             new_keys: set[str] = set()
 
+            is_question_only = _is_pure_readonly_or_question_prompt(hint_scan_text, explicit_text)
             if workspaces and not is_aux_readonly:
                 all_inspect_ok = True
                 for ws in workspaces:
-                    inspect_ok, recovery = _facade_attr(
-                        "_detect_workspace_recovery_hint", _detect_workspace_recovery_hint
-                    )(
+                    inspect_ok, recovery = _call_recovery_hint(
                         ws,
                         conv_id,
                         first_turn_in_conv=first_turn_in_conv,
                         is_mid_turn=is_mid_turn,
+                        is_question_only=is_question_only,
                     )
                     if not inspect_ok:
                         all_inspect_ok = False
@@ -2198,7 +2824,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                     new_keys.add("__workspace_checked__")
 
             matched, matched_routes = _collect_invocation_skill_hints(
-                scan_text,
+                hint_scan_text,
                 workspaces,
                 seen_turns,
                 is_short_or_continuation=is_short_or_continuation,
@@ -2206,6 +2832,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 has_explicit_cmd=has_explicit_cmd,
                 active_turn=active_turn,
                 explicit_text=explicit_text,
+                is_readonly_meta_question=is_question_only,
             )
             matched, matched_routes, ctx_keys = _collect_context_domain_and_transcript_hints(
                 payload,
@@ -2216,7 +2843,32 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 is_short_or_continuation=is_short_or_continuation,
                 is_new_user_turn=is_new_user_turn,
                 active_turn=active_turn,
+                suppress_workspace_domain_hints=is_question_only,
             )
+
+            if (
+                not is_mid_turn
+                and is_distinct_user_turn
+                and not is_aux_readonly
+                and not is_short_or_continuation
+            ):
+                try:
+                    ctx_advisory = _evaluate_predictive_handoff_advisory(
+                        payload,
+                        workspaces,
+                        scan_text,
+                        explicit_text,
+                        raw_prompt,
+                        seen_turns,
+                        active_turn,
+                    )
+                except Exception as exc:
+                    sys.stderr.write(
+                        f"[Harness PreInvocation] Non-fatal predictive handoff error ({type(exc).__name__}): {exc}\n"
+                    )
+                    ctx_advisory = None
+                if ctx_advisory is not None:
+                    new_keys.add(ctx_advisory[1])
 
             new_keys |= {m[0] for m in matched} | {r[0] for r in matched_routes} | ctx_keys
             for key in new_keys:
@@ -2240,6 +2892,9 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                     hints_persisted = False
                     sys.stderr.write(f"[Harness PreInvocation] Failed to write `{hints_file}`: {exc}\n")
 
+            if ctx_advisory is not None and not hints_persisted:
+                ctx_advisory = None
+
             if pending_acks and hints_persisted:
                 for ack_ws, ack_seq_val in pending_acks:
                     _acknowledge_interrupted_flight(ack_ws, ack_seq_val, conv_id=conv_id)
@@ -2255,15 +2910,20 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             if not matched_routes:
                 return {}
         else:
+            fb_question_only = _is_pure_readonly_or_question_prompt(hint_scan_text, explicit_text)
             if not is_aux_readonly:
                 for ws in workspaces:
-                    _inspect_ok, recovery = _facade_attr(
-                        "_detect_workspace_recovery_hint", _detect_workspace_recovery_hint
-                    )(ws, conv_id, first_turn_in_conv=False, is_mid_turn=False)
+                    _inspect_ok, recovery = _call_recovery_hint(
+                        ws,
+                        conv_id,
+                        first_turn_in_conv=False,
+                        is_mid_turn=False,
+                        is_question_only=fb_question_only,
+                    )
                     if recovery is not None:
                         recovery_msgs.append(recovery[1])
             matched, matched_routes = _collect_invocation_skill_hints(
-                scan_text,
+                hint_scan_text,
                 workspaces,
                 {},
                 is_short_or_continuation=is_short_or_continuation,
@@ -2271,6 +2931,7 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 has_explicit_cmd=has_explicit_cmd,
                 active_turn=1,
                 explicit_text=explicit_text,
+                is_readonly_meta_question=fb_question_only,
             )
             matched, matched_routes, _ctx_keys = _collect_context_domain_and_transcript_hints(
                 payload,
@@ -2281,14 +2942,18 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
                 is_short_or_continuation=is_short_or_continuation,
                 is_new_user_turn=not is_short_or_continuation,
                 active_turn=1,
+                suppress_workspace_domain_hints=fb_question_only,
             )
 
-    if not recovery_msgs and not matched and not matched_routes:
+    if not recovery_msgs and not matched and not matched_routes and ctx_advisory is None:
         return {}
 
     parts: List[str] = list(recovery_msgs)
     if matched:
-        items = "; ".join(f"`{name}` ({rel} — {desc})" for name, rel, desc in matched)
+        items = "; ".join(
+            f"`{name}` ({_resolve_hint_skill_path(rel, workspaces)} — {desc})"
+            for name, rel, desc in matched
+        )
         parts.append(
             f"[Harness Skill Hint] Relevant skill(s) for this request: {items}. "
             "Read the corresponding SKILL.md if it fits the task; set this hint aside if not applicable."
@@ -2299,4 +2964,19 @@ def handle_pre_invocation(payload: Dict[str, Any]) -> Dict[str, Any]:
             f"[Harness Ecosystem Routing] Relevant subagent(s) / MCP server(s): {routes}. "
             "Invoke or call them automatically when the task touches these boundaries."
         )
-    return {"injectSteps": [{"systemMessage": {"systemMessage": " ".join(parts)}}]}
+    if ctx_advisory is not None and ctx_advisory[0] == 2:
+        parts.append(ctx_advisory[2])
+
+    inject_steps: List[Dict[str, Any]] = []
+    if parts:
+        inject_steps.append({"systemMessage": {"systemMessage": " ".join(parts)}})
+    if ctx_advisory is not None and ctx_advisory[0] == 1:
+        inject_steps.append(
+            {
+                "systemMessage": {
+                    "systemMessage": "",
+                    "metadata": {"user_markdown": ctx_advisory[2]},
+                }
+            }
+        )
+    return {"injectSteps": inject_steps} if inject_steps else {}

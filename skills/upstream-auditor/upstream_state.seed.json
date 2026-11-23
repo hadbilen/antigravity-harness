@@ -10,7 +10,18 @@
     "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
     "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)"
   },
+  "model_compaction_ceilings": {
+    "gemini-4-neon-xhigh": 512000,
+    "gemini-4-carbon-high": 512000,
+    "gemini-4": 512000,
+    "gemini-3": 512000,
+    "claude-opus": 180000,
+    "claude-sonnet": 180000,
+    "gpt-5": 240000,
+    "default": 200000
+  },
   "builtin_skills_hash": "01e53d8dd784ca029fc8e3d052e32697afb90eec805343d4bc202212a343eeb3",
+  "builtin_bundle_checksum": "builtin:c0a2d240a0b68a3e3fc8607cace71c4d32d74a1ee097cc4dd96cb8dd0ee0cc13",
   "recorded_builtin_skills": [
     "agy-customizations",
     "antigravity_guide",
@@ -28,8 +39,8 @@
     "swarm_pane",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-11-22T00:10:00+03:00",
-  "last_skills_audit_timestamp": "2026-11-22T00:10:00+03:00",
+  "last_audit_timestamp": "2026-11-22T18:30:00+03:00",
+  "last_skills_audit_timestamp": "2026-11-22T18:30:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
@@ -55,14 +66,6 @@
       "last_synced_commit": "1667149",
       "target_skills": [
         "skills/harness/references/unlazy.md"
-      ]
-    },
-    "procoder": {
-      "repo": "azrtydxb/procoder",
-      "branch": "main",
-      "last_synced_commit": "c0032ee",
-      "target_skills": [
-        "procoder"
       ]
     },
     "silk-design": {

@@ -18,7 +18,7 @@ A referenced site is a **mood-board + wireframe, not a source file.** Take its *
   site has its own subject — write and lay it out for that.
 
 The built-in foundation (Lenis root, 9-token system, fluid type, the one reveal config)
-always applies underneath — see `skills/antislop/references/silk-design.md`. The referenced site only decides the *look* and
+always applies underneath — see `~/.gemini/config/skills/antislop/references/silk-design.md`. The referenced site only decides the *look* and
 *rhythm* on top of it.
 
 ## How to read a row

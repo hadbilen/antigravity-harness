@@ -2509,6 +2509,8 @@ def _command_mutates_governance(cmd: str) -> bool:
 
 def _command_mutates_customization_structure(cmd: str, *, harness_scope: bool = True) -> bool:
     """Detects shell commands that write, overwrite, move, delete, or regenerate customization/governance files."""
+    if not harness_scope:
+        return False
     if "python" in cmd.lower() or _NON_PYTHON_INTERP_RE.search(cmd):
         ro_cmd, saw_unv_cust, mut_py_cust = _scrub_verified_readonly_python_invocations(cmd)
     else:
@@ -3561,15 +3563,32 @@ def _handle_command_pre_tool_use(
         joined_top = _join_shell_line_continuations(raw_cmd_str).strip()
         if not joined_top:
             return {"decision": "allow"}
-        candidate_cmds = [joined_top]
+        candidate_cmds: List[Tuple[str, Optional[Path]]] = [(joined_top, effective_cwd)]
+        seen_cands: set[Tuple[str, Optional[Path]]] = {(joined_top, effective_cwd)}
         if raw_cmd_str.strip() != joined_top:
-            candidate_cmds.append(raw_cmd_str.strip())
+            pair = (raw_cmd_str.strip(), effective_cwd)
+            candidate_cmds.append(pair)
+            seen_cands.add(pair)
+        top_segs = _iter_shell_segments_with_cwd(
+            joined_top, effective_cwd if effective_cwd is not None else workspace
+        )
+        for seg, seg_cwd in top_segs:
+            for ext_sub in _extract_shell_c_payloads(seg):
+                pair = (ext_sub, seg_cwd if seg_cwd is not None else effective_cwd)
+                if pair not in seen_cands:
+                    candidate_cmds.append(pair)
+                    seen_cands.add(pair)
+        extracted_seen_texts = {c for c, _ in candidate_cmds}
         for ext_sub in _extract_shell_c_payloads(raw_cmd_str):
-            if ext_sub not in candidate_cmds:
-                candidate_cmds.append(ext_sub)
+            if ext_sub not in extracted_seen_texts:
+                pair = (ext_sub, effective_cwd)
+                candidate_cmds.append(pair)
+                seen_cands.add(pair)
+                extracted_seen_texts.add(ext_sub)
 
         pending_cmd_force_ask: Optional[Dict[str, Any]] = None
-        for sub_cmd in candidate_cmds:
+        for sub_cmd, sub_cwd in candidate_cmds:
+            cur_cwd = sub_cwd if sub_cwd is not None else effective_cwd
             masked_cmd = _mask_quoted_operators(sub_cmd)
 
             if _GUARD_ADMIN_RE.search(masked_cmd) or _GUARD_INLINE_PY_RE.search(sub_cmd):
@@ -3594,7 +3613,7 @@ def _handle_command_pre_tool_use(
                 }
 
             cmd_gov_bases: List[Optional[Path]] = []
-            for _cb in (effective_cwd, workspace, *workspaces):
+            for _cb in (cur_cwd, effective_cwd, workspace, *workspaces):
                 if _cb is not None and _cb not in cmd_gov_bases:
                     cmd_gov_bases.append(_cb)
             if not cmd_gov_bases:
@@ -3619,9 +3638,9 @@ def _handle_command_pre_tool_use(
                     ),
                 }
 
-            in_harness_scope = _ptu._workspaces_in_harness_scope(workspaces, effective_cwd)
+            in_harness_scope = _ptu._workspaces_in_harness_scope(workspaces, cur_cwd)
             cmd_cust_hit = _command_mutates_customization_in_cwd(
-                sub_cmd, effective_cwd, workspaces, workspace
+                sub_cmd, cur_cwd, workspaces, workspace
             )
             if not cmd_cust_hit:
                 ro_cust_sub = (
@@ -3630,7 +3649,7 @@ def _handle_command_pre_tool_use(
                     else sub_cmd
                 )
                 segs_with_cwd = _iter_shell_segments_with_cwd(
-                    ro_cust_sub, effective_cwd if effective_cwd is not None else workspace
+                    ro_cust_sub, cur_cwd if cur_cwd is not None else workspace
                 )
                 if (
                     segs_with_cwd
@@ -3648,8 +3667,13 @@ def _handle_command_pre_tool_use(
                         if sc is not None
                     )
                 else:
+                    seg_harness_scope = in_harness_scope or any(
+                        _ptu._find_harness_repo_root(sc) is not None
+                        for _, sc in segs_with_cwd
+                        if sc is not None
+                    )
                     cmd_cust_hit = _command_mutates_customization_structure(
-                        sub_cmd, harness_scope=in_harness_scope
+                        sub_cmd, harness_scope=seg_harness_scope
                     )
             if cmd_cust_hit:
                 mod_eval = _ptu._evaluate_customization_model_and_effort(payload)

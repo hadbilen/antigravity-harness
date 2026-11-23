@@ -1,6 +1,6 @@
 # Async Tokio Services & Privileged POSIX Userspace Hardening
 
-For `skills/rust-harden/SKILL.md`. Load this module when hardening asynchronous Rust services (`tokio`, `futures`), network daemons, IPC workers, file-descriptor boundaries, or privileged Linux/POSIX processes.
+For `~/.gemini/config/skills/rust-harden/SKILL.md`. Load this module when hardening asynchronous Rust services (`tokio`, `futures`), network daemons, IPC workers, file-descriptor boundaries, or privileged Linux/POSIX processes.
 
 ## 1. `tokio::select!` Cancellation Safety
 

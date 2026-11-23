@@ -85,7 +85,7 @@ When repairing noisy, clipped, uneven, or off-spec audio, apply filters in this 
      * Web / Streaming / Social Video (YouTube, Spotify, Reels): `-14.0 LUFS`, True Peak `<= -1.0 dBTP`
      * Podcast / Voiceover / Dialogue: `-16.0 LUFS`, True Peak `<= -1.5 dBTP`
      * Broadcast Television (`EBU R128` / `ITU-R BS.1770`): `-23.0 LUFS`, True Peak `<= -1.5 dBTP`
-6. **Short Game Sound Effects (`< 0.5 s`), Engine `.ogg` & Seamless Audio Loops (`skills/game-engineering/SKILL.md`):**
+6. **Short Game Sound Effects (`< 0.5 s`), Engine `.ogg` & Seamless Audio Loops (`~/.gemini/config/skills/game-engineering/SKILL.md`):**
    * ITU-R BS.1770 gated `loudnorm` / `ebur128` requires a `400 ms` integration window, so on ultra-short UI clicks, footsteps, or impact impulses `loudnorm` emits `input_i: "-inf"` and `ebur128` can report `-70.0 LUFS` or unstable readings even for loud transients (`check --game-sfx` uses a conservative `< 0.5 s` safety cutoff to bypass `MEDIA-4`).
    * Pass `--game-sfx` (or explicit `--peak-db -1.0`) to `python3 "$MEDIA_QC" master-audio <in> <out> --game-sfx` for linear peak normalization (on lossy `.ogg`, `.opus`, `.webm`, `.mp3`, `.aac`, `.m4a` targets, default peak target clamps to `min(target_tp - 0.6, -1.6) dBFS` to protect against inter-sample codec overshoot unless `--peak-db` is pinned), `--ogg-codec vorbis` when targeting game engines expecting Ogg Vorbis, and `--trim-loop` to snap seamless ambience/music loops onto matched rising zero-crossings (`--check-loop` verifies zero splice clicks).
    * Always use `--game-sfx`—**never** `--allow-silent`—when validating active `< 0.5 s` SFX via `check`: `--allow-silent` disables silence detection completely, whereas `--game-sfx` validates `astats` Peak `dBFS` so genuinely muted SFX still fail `MEDIA-3`.
@@ -151,7 +151,7 @@ When recovering damaged/truncated audio, video, or image files, restoring scanne
 
 ---
 
-## 4. Objective Quality Control & Delivery Gate (`scripts/media_qc.py`)
+## 4. Objective Quality Control & Delivery Gate (`~/.gemini/config/skills/media-studio/scripts/media_qc.py`)
 
 No audio, video, or animated visual file may be delivered solely because `ffmpeg` exited with code `0`. Before delivery, execute the deterministic quality gate:
 
@@ -210,4 +210,4 @@ python3 "$MEDIA_QC" keyframes <output_file> <scratch_dir>/contact_sheet.png \
 * **`GAME-2` (Opt-In Pixel-Art Nearest-Neighbor Guard `--pixel-art`):** Rejects blurry semi-transparent alpha edge fringes (`0 < a < 255 > 1%` on `check`) and non-integer scales or non-uniform `k x k` texel blocks (on `compare --pixel-art`).
 * **`GAME-3` (Opt-In Sprite Atlas Geometry & Alpha Bleed Guard):** Rejects non-Power-of-Two canvases (`--require-pot`), unaligned tile grids (`--tile-size WxH`), un-dilated transparent RGB edge halos (`--check-alpha-bleed` / `--sprite-atlas` without `--pixel-art`), and opaque pixels touching internal tile dividers (unless `--allow-edge-touch`).
 
-For every visual or animated deliverable, inspect the generated tiled `contact_sheet.png` with `read_file` (`skills/harness/SKILL.md` §3B Step 4b) to confirm zero text clipping, aspect-ratio distortion, color banding, or framing defects before delivery.
+For every visual or animated deliverable, inspect the generated tiled `contact_sheet.png` with `read_file` (`~/.gemini/config/skills/harness/SKILL.md` §3B Step 4b) to confirm zero text clipping, aspect-ratio distortion, color banding, or framing defects before delivery.

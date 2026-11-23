@@ -2,7 +2,7 @@
 """
 skills/media-studio/scripts/media_qc.py — Deterministic audio/video probe, quality gate & EBU R128 mastering CLI
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
-Python standard library + system ffmpeg/ffprobe; runs on Python 3.10 and later.
+Python standard library + system ffmpeg (>= 5.1 recommended; automatic -vsync fallback on < 5.1) / ffprobe; runs on Python 3.10 and later.
 
 Rule families (enforced by `check`):
   MEDIA-1  Stream & duration integrity    (missing/empty file, unreadable container, 0 streams, or duration <= 0s)
@@ -1092,6 +1092,47 @@ def _measure_peak_db_after_filter(
     }
 
 
+_FFMPEG_VERSION_CACHE: Dict[str, Optional[Tuple[int, int]]] = {}
+_FFMPEG_VERSION_RE = re.compile(r"ffmpeg\s+version\s+(?:n|\d+:)?(\d+)\.(\d+)", re.IGNORECASE)
+
+
+def _parse_ffmpeg_version(version_output: str) -> Optional[Tuple[int, int]]:
+    for line in (version_output or "").splitlines()[:5]:
+        m = _FFMPEG_VERSION_RE.search(line)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+    return None
+
+
+def _ffmpeg_supports_fps_mode(ffmpeg_bin: str, timeout: Optional[float] = None) -> bool:
+    """Returns True when `ffmpeg` is >= 5.1 (which introduced `-fps_mode`), False on older builds."""
+    if timeout is not None and timeout <= 0:
+        raise ValueError(f"Parameter 'timeout' must be > 0 (got {timeout}).")
+    if ffmpeg_bin in _FFMPEG_VERSION_CACHE:
+        cached = _FFMPEG_VERSION_CACHE[ffmpeg_bin]
+        return cached is None or cached >= (5, 1)
+    ver: Optional[Tuple[int, int]] = None
+    probe_ok = False
+    probe_timeout = min(10.0, timeout) if timeout is not None else 10.0
+    try:
+        proc = _run_media_subprocess([ffmpeg_bin, "-version"], timeout=probe_timeout)
+        if proc.returncode == 0:
+            probe_ok = True
+            combined = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+            ver = _parse_ffmpeg_version(combined)
+        else:
+            sys.stderr.write(
+                f"[media_qc] ffmpeg -version probe exited {proc.returncode}; falling back to runtime -fps_mode probe.\n"
+            )
+    except (OSError, TimeoutError, ValueError) as exc:
+        sys.stderr.write(
+            f"[media_qc] ffmpeg -version probe failed ({type(exc).__name__}): {exc}; falling back to runtime -fps_mode probe.\n"
+        )
+    if probe_ok and ver is not None:
+        _FFMPEG_VERSION_CACHE[ffmpeg_bin] = ver
+    return ver is None or ver >= (5, 1)
+
+
 def _decode_image_rgba_frames(
     path: Path,
     width: int,
@@ -1114,35 +1155,46 @@ def _decode_image_rgba_frames(
     max_bytes = eff_max_frames * frame_bytes
     ffmpeg = _require_tool("ffmpeg")
     _guard_local_media_file(path)
-    cmd = [
-        ffmpeg,
-        "-hide_banner",
-        "-nostdin",
-        "-v",
-        "error",
-        "-err_detect",
-        "explode",
-        "-xerror",
-        "-protocol_whitelist",
-        "file",
-        "-i",
-        _safe_media_arg(path),
-        "-map",
-        "0:v:0",
-        "-an",
-        "-sn",
-        "-dn",
-        "-fps_mode",
-        "passthrough",
-        "-frames:v",
-        str(eff_max_frames),
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "rgba",
-        "pipe:1",
-    ]
-    rc, raw, stderr_b = _run_media_subprocess_bounded_bytes(cmd, max_bytes=max_bytes, timeout=timeout)
+
+    def _build_cmd(use_fps_mode: bool) -> List[str]:
+        sync_flag = ["-fps_mode", "passthrough"] if use_fps_mode else ["-vsync", "passthrough"]
+        return [
+            ffmpeg,
+            "-hide_banner",
+            "-nostdin",
+            "-v",
+            "error",
+            "-err_detect",
+            "explode",
+            "-xerror",
+            "-protocol_whitelist",
+            "file",
+            "-i",
+            _safe_media_arg(path),
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
+            *sync_flag,
+            "-frames:v",
+            str(eff_max_frames),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "pipe:1",
+        ]
+
+    use_fps = _ffmpeg_supports_fps_mode(ffmpeg, timeout=timeout)
+    rc, raw, stderr_b = _run_media_subprocess_bounded_bytes(_build_cmd(use_fps), max_bytes=max_bytes, timeout=timeout)
+    if rc != 0 and use_fps:
+        err_probe = (stderr_b or b"").decode("utf-8", errors="replace").lower()
+        if "fps_mode" in err_probe and ("unrecognized" in err_probe or "unknown" in err_probe or "option" in err_probe):
+            _FFMPEG_VERSION_CACHE[ffmpeg] = (5, 0)
+            rc, raw, stderr_b = _run_media_subprocess_bounded_bytes(
+                _build_cmd(False), max_bytes=max_bytes, timeout=timeout
+            )
     if rc != 0:
         err_txt = (stderr_b or b"").decode("utf-8", errors="replace")[-600:]
         raise RuntimeError(f"ffmpeg RGBA decode failed (exit {rc}):\n{err_txt}")

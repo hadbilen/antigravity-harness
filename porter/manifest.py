@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from porter.frontmatter import frontmatter_description
+from porter.frontmatter import FrontmatterError, frontmatter_description, split_frontmatter
 from porter.models import UniversalManifest
 
 # Mutable runtime state that must never be baked into a canonical manifest.
@@ -50,24 +50,99 @@ def content_digest(manifest_dict: Dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def _has_constitution(root: Path) -> bool:
+    return (root / "GEMINI.md").is_file() or (root / "rules" / "antigravity-constitution.md").is_file()
+
+
+_MAX_CONSTITUTION_BYTES = 524288
+
+
+def _is_verified_harness_checkout(dir_path: Path) -> bool:
+    return (dir_path / ".harness" / "manifest.json").is_file() or (dir_path / "guard" / "agy_hooks.py").is_file()
+
+
+def _read_bounded_regular_file(path: Path, max_bytes: int = _MAX_CONSTITUTION_BYTES) -> Optional[str]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(str(path), flags)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not os.path.isfile(path) or st.st_size > max_bytes:
+            return None
+        with os.fdopen(fd, "rb") as fh:
+            fd = -1
+            raw = fh.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            return None
+        return raw.decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def _read_constitution_text(root: Path) -> Optional[str]:
+    gemini_path = root / "GEMINI.md"
+    if gemini_path.is_file():
+        return gemini_path.read_text(encoding="utf-8", errors="ignore")
+    rule_path = root / "rules" / "antigravity-constitution.md"
+    if not rule_path.is_file():
+        return None
+    raw = rule_path.read_text(encoding="utf-8", errors="ignore")
+    try:
+        _, body = split_frontmatter(raw)
+    except FrontmatterError:
+        body = raw
+    cleaned = body.lstrip("\r\n")
+    m_inc = re.fullmatch(r"@\[[^\]]+\]\(([^)]+)\)\s*", cleaned)
+    if m_inc:
+        inc_raw = m_inc.group(1).strip()
+        inc_path = Path(inc_raw).expanduser()
+        if not inc_path.is_absolute():
+            inc_path = rule_path.parent / inc_path
+        if os.path.islink(inc_path) or inc_path.name != "GEMINI.md":
+            return None
+        try:
+            inc_resolved = inc_path.resolve(strict=True)
+            root_resolved = root.resolve()
+        except OSError:
+            return None
+        allowed = False
+        try:
+            inc_resolved.relative_to(root_resolved)
+            allowed = True
+        except ValueError:
+            allowed = _is_verified_harness_checkout(inc_resolved.parent)
+        if not allowed:
+            return None
+        return _read_bounded_regular_file(inc_resolved)
+    return cleaned
+
+
 def default_harness_root(fallback: Optional[Path] = None) -> Path:
-    """Returns `fallback` (or repo root) if it contains GEMINI.md and skills/, else config_dir() or /usr/share/antigravity-harness."""
+    """Returns `fallback` (or repo root) if it contains constitution + skills/, else config_dir() or /usr/share/antigravity-harness."""
     root = Path(fallback).resolve() if fallback else Path(__file__).resolve().parent.parent
-    if (root / "skills").is_dir() and (root / "GEMINI.md").is_file():
+    if (root / "skills").is_dir() and _has_constitution(root):
         return root
     try:
         from guard.paths import config_dir
         cfg = config_dir()
     except ImportError:
         cfg = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
-    if (cfg / "skills").is_dir() and (cfg / "GEMINI.md").is_file():
+    if (cfg / "skills").is_dir() and _has_constitution(cfg):
         return cfg
     for share_cand in (
         root.parent.parent / "share" / "antigravity-harness",
         Path(__file__).resolve().parent.parent.parent / "share" / "antigravity-harness",
         Path("/usr/share/antigravity-harness"),
     ):
-        if (share_cand / "skills").is_dir() and (share_cand / "GEMINI.md").is_file():
+        if (share_cand / "skills").is_dir() and _has_constitution(share_cand):
             return share_cand.resolve()
     return cfg
 
@@ -174,13 +249,12 @@ class ManifestEngine:
             },
         )
 
-        gemini_path = self.harness_root / "GEMINI.md"
-        if gemini_path.is_file():
-            content = gemini_path.read_text(encoding="utf-8", errors="ignore")
+        constitution_content = _read_constitution_text(self.harness_root)
+        if constitution_content is not None:
             manifest.constitution = {
-                "raw": content,
+                "raw": constitution_content,
                 "summary": "Universal Behavioral and Engineering Constitution",
-                "extracted_rules": self._extract_rules_from_markdown(content),
+                "extracted_rules": self._extract_rules_from_markdown(constitution_content),
             }
 
         design_path = self.harness_root / "DESIGN.md"

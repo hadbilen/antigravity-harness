@@ -29,7 +29,7 @@ Never advance physics, movement, cooldowns, or AI directly by variable frame del
 5. **Input Buffering & Forgiveness Windows:** Latch transient player actions (jump, dodge, attack, parry) inside fixed-duration tick buffers (for example, `5–7` ticks of jump coyote time and `4–6` ticks of pre-land input buffering) consumed inside `readInput` / `stepTick` rather than sampling raw key-down edges inside `render()`. Never allow variable frame rate spikes to drop buffered actions or grant double triggers.
 
 ### Architectural Seam Carve-Out (Efficiency Ladder Rung 7)
-Single-call-site phase functions inside the hot loop (`readInput`, `stepPhysics`, `resolveCollisions`, `evaluateAi`, `stepCombat`, `renderWorld`, `renderHud`) are **architectural verification seams**, not speculative abstraction bloat. Do **not** inline them into a monolithic 800-line `tick()` function under `skills/harness/SKILL.md` Efficiency Ladder Rung 7.
+Single-call-site phase functions inside the hot loop (`readInput`, `stepPhysics`, `resolveCollisions`, `evaluateAi`, `stepCombat`, `renderWorld`, `renderHud`) are **architectural verification seams**, not speculative abstraction bloat. Do **not** inline them into a monolithic 800-line `tick()` function under `~/.gemini/config/skills/harness/SKILL.md` Efficiency Ladder Rung 7.
 
 ---
 
@@ -44,7 +44,7 @@ Inside `update(dt)`, `render(alpha)`, and collision broad/narrow phases:
 
 ---
 
-## 3. Entity State Machines & Mistake-Proofing (`skills/harness/references/mistake-proofing.md`)
+## 3. Entity State Machines & Mistake-Proofing (`~/.gemini/config/skills/harness/references/mistake-proofing.md`)
 
 Boolean flag soup (`isGrounded`, `isDashing`, `isAttacking`, `isStunned`, `isDead`) creates $2^N$ implicit states where illegal combinations (attacking while dead, dashing while stunned) inevitably occur.
 
@@ -66,7 +66,7 @@ Unseeded `Math.random()` makes procedural maps, loot drops, and enemy spawns imp
 
 ## 5. Game Feel ("Juice") & `MODE: GAME & INTERACTIVE` Vitality
 
-A mechanically working game still feels like AI programmer art if inputs have no physical weight and the HUD looks like a SaaS dashboard. Apply `DESIGN.md` §2.1 (`MODE: GAME & INTERACTIVE`), `skills/antislop/SKILL.md` (`Game & Interactive Canvas Vitality`), and the following rules:
+A mechanically working game still feels like AI programmer art if inputs have no physical weight and the HUD looks like a SaaS dashboard. Apply `DESIGN.md` §2.1 (`MODE: GAME & INTERACTIVE`), `~/.gemini/config/skills/antislop/SKILL.md` (`Game & Interactive Canvas Vitality`), and the following rules:
 
 1. **Viewport Budget (`>= 85%` Canvas):** The interactive playfield owns at least 85% of the viewport. Never wrap a `<canvas>` inside a padded marketing page with a 3-card feature grid below it unless explicitly requested.
 2. **Diegetic HUD Over SaaS Cards:** Anchor HUD indicators (health, ammo, score, minimap, cooldowns) to screen edges (`8px–16px` safe inset) using translucent dark plates (`var(--surface-hud-scrim)`, defined as `--surface-hud-scrim: rgba(10, 14, 23, 0.78)` in `DESIGN.md` §3), crisp `1px` specular borders, or angled/chamfered bars. Never use white SaaS `.card` boxes or `Inter` admin tables over the playfield.
@@ -74,7 +74,7 @@ A mechanically working game still feels like AI programmer art if inputs have no
 4. **Input Feedback Triad:** Every primary player action (jump, fire, hit, dash, collect, take damage) must trigger at least **two** synchronous feedback channels:
    * **Visual:** `80ms–140ms` transform/squash-stretch tween, 2–4 frame hit-flash, directional knockback impulse, or pooled particle burst.
    * **Spatial / Camera:** Decaying trauma-based screen shake (bounded amplitude, immediately disabled when `prefers-reduced-motion: reduce` is active) or brief hit-stop (`2–4` simulation freeze frames on heavy impact).
-   * **Audio / Tactile Cue & External Asset Co-Load:** Synthesized WebAudio procedural SFX (`OscillatorNode` / noise burst envelope with a visible mute button) suffices for inline prototypes; whenever the game ships external audio clips, looping music stems, spritesheets, pixel art, textures, or cutscenes, **co-load** `skills/media-studio/SKILL.md` and pass `media_qc.py` (`--game-sfx`, `--ogg-codec vorbis|opus`, `--check-loop`, `--pixel-art`, `--sprite-atlas`) before delivery.
+   * **Audio / Tactile Cue & External Asset Co-Load:** Synthesized WebAudio procedural SFX (`OscillatorNode` / noise burst envelope with a visible mute button) suffices for inline prototypes; whenever the game ships external audio clips, looping music stems, spritesheets, pixel art, textures, or cutscenes, **co-load** `~/.gemini/config/skills/media-studio/SKILL.md` and pass `media_qc.py` (`--game-sfx`, `--ogg-codec vorbis|opus`, `--check-loop`, `--pixel-art`, `--sprite-atlas`) before delivery.
 
 ---
 
@@ -95,15 +95,15 @@ Before declaring any game or interactive simulation task complete, run all four 
    python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py <paths> --mode game
    ```
    Zero `UI-1`–`UI-5` findings are permitted on delivery.
-4. **Type, Lint, Asset QC & Test Suite:** Pass the project's standard typecheck, lint, `media_qc.py` external asset checks (when applicable), and unit/headless simulation test gates with zero errors (`skills/harness/SKILL.md` §3B).
-   * **Single-File Prototype Mode (`vibecoder`) Carve-Out:** When building a single-file HTML game prototype under `skills/vibecoder/SKILL.md`, execute the `1,000+` tick invariant and state-transition checks via an ephemeral CLI one-liner or `<appDataDir>/brain/<conversation-id>/scratch/` probe against `globalThis.__stepTick` / `globalThis.stepTick` and run `check_ui_slop.py --mode game` without creating persisted unit test files or requiring multi-file `harness` §3B test suites.
+4. **Type, Lint, Asset QC & Test Suite:** Pass the project's standard typecheck, lint, `media_qc.py` external asset checks (when applicable), and unit/headless simulation test gates with zero errors (`~/.gemini/config/skills/harness/SKILL.md` §3B).
+   * **Single-File Prototype Mode (`vibecoder`) Carve-Out:** When building a single-file HTML game prototype under `~/.gemini/config/skills/vibecoder/SKILL.md`, execute the `1,000+` tick invariant and state-transition checks via an ephemeral CLI one-liner or `<appDataDir>/brain/<conversation-id>/scratch/` probe against `globalThis.__stepTick` / `globalThis.stepTick` and run `check_ui_slop.py --mode game` without creating persisted unit test files or requiring multi-file `harness` §3B test suites.
 
 ---
 
 ## 7. Clean-Room Reference Extraction (`rea` Bridge) & Brownfield Modification Workflow
 
-* **Clean-Room Behavior & Timing Reference (`reverse-engineer-anything` / `rea_rea`):** When analyzing an existing game binary, packaged archive (`.apk`, `.asar`, `.pak`, WebAssembly/JavaScript bundle), or binary save format to reconstruct deterministic mechanics or inspect timing/UI behavior, **co-load** `reverse-engineer-anything` (routing shipped artifact analysis through the `rea_rea` Model Context Protocol (`MCP`) tools such as `open_binary`, `inspect_artifact`, `analyze_javascript_application`, or `inspect_wasm_artifact`) strictly for **clean-room behavioral specification**, never copyright-protected asset redistribution. Pair extracted or recreated external game assets with `skills/media-studio/SKILL.md` (`media_qc.py`).
+* **Clean-Room Behavior & Timing Reference (`reverse-engineer-anything` / `rea_rea`):** When analyzing an existing game binary, packaged archive (`.apk`, `.asar`, `.pak`, WebAssembly/JavaScript bundle), or binary save format to reconstruct deterministic mechanics or inspect timing/UI behavior, **co-load** `reverse-engineer-anything` (routing shipped artifact analysis through the `rea_rea` Model Context Protocol (`MCP`) tools such as `open_binary`, `inspect_artifact`, `analyze_javascript_application`, or `inspect_wasm_artifact`) strictly for **clean-room behavioral specification**, never copyright-protected asset redistribution. Pair extracted or recreated external game assets with `~/.gemini/config/skills/media-studio/SKILL.md` (`media_qc.py`).
 * **Brownfield Game Modification Triage (`GEMINI.md` Rule 18 Surgical Scope):** Do not apply greenfield templates or rewrite whole scenes in an existing game repository. Route brownfield tasks cleanly by signal:
-  * **Broken physics, state desync, softlock, or crash** -> `skills/diagnosing-bugs/SKILL.md` (capture a deterministic `(initialSeed, frameInputLog)` reproducer first).
-  * **Frame-time spikes, Garbage Collection (`GC`) stalls, shader/draw-call overhead, asset bundle bloat, or multiplayer netcode latency in a working game** -> `skills/sweetspot/SKILL.md` (`--time`, `--memory`, `--disk`, `--net` with real frame/heap benchmarks).
-  * **15+ year obsolete runtime/Flash/encoding revival or full cross-engine remake** -> `skills/renew/SKILL.md` paired with `game-engineering` (`renew` classic-game rules).
+  * **Broken physics, state desync, softlock, or crash** -> `~/.gemini/config/skills/diagnosing-bugs/SKILL.md` (capture a deterministic `(initialSeed, frameInputLog)` reproducer first).
+  * **Frame-time spikes, Garbage Collection (`GC`) stalls, shader/draw-call overhead, asset bundle bloat, or multiplayer netcode latency in a working game** -> `~/.gemini/config/skills/sweetspot/SKILL.md` (`--time`, `--memory`, `--disk`, `--net` with real frame/heap benchmarks).
+  * **15+ year obsolete runtime/Flash/encoding revival or full cross-engine remake** -> `~/.gemini/config/skills/renew/SKILL.md` paired with `game-engineering` (`renew` classic-game rules).

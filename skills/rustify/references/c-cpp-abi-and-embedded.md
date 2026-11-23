@@ -1,6 +1,6 @@
 # C, C++, Application Binary Interface & Embedded Rust Migration Reference
 
-On-demand companion to `skills/rustify/SKILL.md` for C, C++, `#![no_std]` firmware, hardware drivers, Application Binary Interface (`ABI`) contracts, and mixed-binary Foreign Function Interface (`FFI`) migrations.
+On-demand companion to `~/.gemini/config/skills/rustify/SKILL.md` for C, C++, `#![no_std]` firmware, hardware drivers, Application Binary Interface (`ABI`) contracts, and mixed-binary Foreign Function Interface (`FFI`) migrations.
 
 ---
 
@@ -78,9 +78,9 @@ When `target_profile` is `embedded-no-std` or `safety-critical`:
 
 ---
 
-## 5. Static Analysis Limits: `scripts/code_map.py` on C/C++
+## 5. Static Analysis Limits: `~/.local/share/antigravity-harness/runtime/scripts/code_map.py` on C/C++
 
-Treat `agy-guard code-map` (`scripts/code_map.py`) output on C and C++ sources as a structural starting map, never as a complete compiler-accurate call graph:
+Treat `agy-guard code-map` (`~/.local/share/antigravity-harness/runtime/scripts/code_map.py`) output on C and C++ sources as a structural starting map, never as a complete compiler-accurate call graph:
 1. **No Preprocessor Macro Expansion:** `code_map.py` performs single-pass `#` directive blanking without expanding `#define` macros, `#if` conditional compilation branches, or X-macros; macro-generated declarations and macro-wrapped function calls remain invisible or skewed in `profile` / `blast-radius`.
 2. **Linear Template Masking:** Nested C++ `<...>` template specialization signatures, operator overloads (`operator<<`), and multi-line trailing-return or `SFINAE` signatures can confuse linear regex indexing.
 3. **Mandatory Compiler Cross-Check:** Before deleting, splitting, or declaring a C/C++ symbol unreferenced across build targets, verify against `compile_commands.json` + Language Server Protocol (`LSP`) `clangd` references or compiled object symbol tables (`nm -gC` / `objdump -t`).

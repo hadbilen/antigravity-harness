@@ -1,10 +1,10 @@
 ---
 name: rust-harden
 description: >-
-  Intra-Rust hardening, ownership debt cleanup, panic removal, async cancellation, and #![no_std] or kernel unsafe
-  narrowing. Invoke with /rust-harden or on "harden rust", "rust kodunu sertleştir", "idiomatic rust yap", "sahiplik
-  borcunu temizle", "unsafe arındır". Not for cross-language ports (use 'rustify'), generic moves (use 'refactoring'),
-  speed/RAM tuning (use 'sweetspot'), Cargo bumps (use 'harness' dependency-upgrade), or bugs (use 'diagnosing-bugs').
+  Intra-Rust hardening, greenfield crate architecture, ownership/panic cleanup, async cancellation, and #![no_std] or
+  kernel unsafe narrowing. Invoke with /rust-harden (--internal|--contract|--greenfield), "harden rust", "greenfield
+  rust", "yeni rust projesi", "rust kodunu sertleştir". Not for cross-language ports (use 'rustify'), generic moves
+  ('refactoring'), tuning ('sweetspot'), Cargo bumps ('harness' dependency-upgrade), or bugs ('diagnosing-bugs').
 ---
 
 # Rust Harden: Intra-Rust Ownership, Panic-Freedom & Unsafe Narrowing Discipline
@@ -15,20 +15,22 @@ Existing Rust crates frequently accumulate borrow-checker workarounds and latent
 
 ## 1. Adjacent-Skill Boundaries & Mode Selection
 
-* **vs. `skills/rustify/SKILL.md`:** `rustify` ports C, C++, Go, Python, TS/JS, Ruby, or Java/Kotlin codebases into Rust and builds initial Foreign Function Interface (`FFI`) bridges against cross-language golden vectors. Once code compiles and runs as a Rust crate, hand off intra-Rust ownership cleanup, panic removal, async cancellation hardening, and `unsafe` narrowing to `rust-harden`.
-* **vs. `skills/refactoring/SKILL.md` & `skills/sweetspot/SKILL.md`:** Use `refactoring` for language-agnostic module splits or renames without Rust-specific ownership/lint/soundness goals, and use `sweetspot` when profiling and reducing measured wall-clock time, memory (`RAM`), binary size, or network bandwidth under the 3-Zone Gate.
-* **vs. `skills/harness/references/dependency-upgrade.md` & `skills/diagnosing-bugs/SKILL.md`:** Use `dependency-upgrade` for `Cargo.toml` version or Rust edition bumps (`2021 -> 2024`), and use `diagnosing-bugs` first when reproducing an active crash, deadlock, or failing test before hardening surrounding code.
+* **vs. `~/.gemini/config/skills/rustify/SKILL.md`:** `rustify` ports C, C++, Go, Python, TS/JS, Ruby, or Java/Kotlin codebases into Rust and builds initial Foreign Function Interface (`FFI`) bridges against cross-language golden vectors. Once code compiles and runs as a Rust crate, hand off intra-Rust ownership cleanup, panic removal, async cancellation hardening, and `unsafe` narrowing to `rust-harden`.
+* **vs. `~/.gemini/config/skills/refactoring/SKILL.md` & `~/.gemini/config/skills/sweetspot/SKILL.md`:** Use `refactoring` for language-agnostic module splits or renames without Rust-specific ownership/lint/soundness goals, and use `sweetspot` when profiling and reducing measured wall-clock time, memory (`RAM`), binary size, or network bandwidth under the 3-Zone Gate.
+* **vs. `~/.gemini/config/skills/harness/references/dependency-upgrade.md` & `~/.gemini/config/skills/diagnosing-bugs/SKILL.md`:** Use `dependency-upgrade` for `Cargo.toml` version or Rust edition bumps (`2021 -> 2024`), and use `diagnosing-bugs` first when reproducing an active crash, deadlock, or failing test before hardening surrounding code.
 
-### Two Mutually Exclusive Operational Modes (Never Mix in One Changeset)
+### Three Mutually Exclusive Operational Modes (Never Mix in One Changeset)
 
-Bare `/rust-harden` invocations default to **Mode 1 (`--internal`)** unless the user explicitly passes `--contract` or confirms contract tightening via `ask_question`:
+Bare `/rust-harden` invocations default to **Mode 1 (`--internal`)** unless the user explicitly passes `--contract` or `--greenfield`, or confirms contract tightening via `ask_question`. Explicit natural-language greenfield scaffolding prompts in workspaces with `0` existing `Cargo.toml` crates enter **Mode 3 (`--greenfield`)** directly (asking via `ask_question` only when an existing `Cargo.toml` crate is present and intent is ambiguous):
 
 1. **Mode 1 (`--internal`, Default): Behavior- & Signature-Preserving Hardening**
    * **Contract Invariant:** `100%` preservation of all `pub` function/type/trait signatures, wire formats, CLI flags, exit codes, and existing test suites (`GEMINI.md` Rule 9).
    * **Allowed Scope:** Replace reflexive `.clone()` and single-owner-solvable `Arc<Mutex<T>>` / `Rc<RefCell<T>>` wrappers with owned moves, `&T` / `&mut T` borrows, or bounded channels; shrink lock guard scopes before `.await` or slow I/O; replace internal `.unwrap()`, `.expect()`, and `slice[i]` panics inside functions whose return type already carries `Result` or `Option`; and purify private `unsafe` blocks into safe slices (`&[T]`, `&mut [T]`), `split_at_mut`, iterators, or typed arena indices.
 2. **Mode 2 (`--contract`): Controlled Public Contract Tightening**
-   * **Contract Invariant:** Deliberately upgrades `pub`-reachable panics, unchecked `as` integer casts, infallible OOM allocations, or primitive stringly-typed parameters into `#[must_use] Result<T, DomainError>`, `TryFrom` conversions, `Vec::try_reserve` / `try_reserve_exact`, and invariant-enforcing `newtype` or `typestate` wrappers (`skills/harness/references/mistake-proofing-languages.md`).
-   * **Mandatory Protocol:** Execute `Expand -> Migrate -> Contract` across workspace callers (`skills/refactoring/SKILL.md` §5, mapping blast radius first via `agy-guard code-map callers <symbol>` and `agy-guard code-map blast-radius <symbol>`), obtain explicit user approval under `## Authorized Test Modifications` in `tasks.md` (`GEMINI.md` Rule 9) before updating any existing test call signature, and dispatch both `contract-change-auditor` and `test-adequacy-auditor` prior to delivery.
+   * **Contract Invariant:** Deliberately upgrades `pub`-reachable panics, unchecked `as` integer casts, infallible OOM allocations, or primitive stringly-typed parameters into `#[must_use] Result<T, DomainError>`, `TryFrom` conversions, `Vec::try_reserve` / `try_reserve_exact`, and invariant-enforcing `newtype` or `typestate` wrappers (`~/.gemini/config/skills/harness/references/mistake-proofing-languages.md`).
+   * **Mandatory Protocol:** Execute `Expand -> Migrate -> Contract` across workspace callers (`~/.gemini/config/skills/refactoring/SKILL.md` §5, mapping blast radius first via `agy-guard code-map callers <symbol>` and `agy-guard code-map blast-radius <symbol>`), obtain explicit user approval under `## Authorized Test Modifications` in `tasks.md` (`GEMINI.md` Rule 9) before updating any existing test call signature, and dispatch both `contract-change-auditor` and `test-adequacy-auditor` prior to delivery.
+3. **Mode 3 (`--greenfield`): Day-1 Greenfield Rust Crate & Workspace Architecture**
+   * **Contract Invariant:** Establishes clean workspace/crate partitioning (`core`/`domain`/`bin`/`ffi`), Edition `2024` + MSRV + `[workspace.lints]` + `clippy.toml` + `.cargo/config.toml` publish-age cooldowns, `thiserror`/`anyhow` error boundaries, single-owner/newtype/typestate APIs, and `#[expect(lint, reason = "...")]` hygiene when designing or scaffolding a new Rust crate, service, or workspace from scratch (never mixed with legacy signature tightening on an existing published crate). Load [references/greenfield-architecture.md](./references/greenfield-architecture.md).
 
 ---
 
@@ -75,8 +77,9 @@ Never apply a naive workspace-wide `unsafe_code = "deny"` paired with `allow_att
 
 ## 4. Progressive Disclosure: Specialized Domain Profiles
 
-Load only the reference document matching the target crate's runtime layer:
+Load the reference document matching the target crate's runtime layer (co-loading [references/greenfield-architecture.md](./references/greenfield-architecture.md) with the matching runtime-layer profile when scaffolding a new specialized workspace):
 
+* **Greenfield Rust Crates, Services & Workspaces (`--greenfield`):** Read [references/greenfield-architecture.md](./references/greenfield-architecture.md) for workspace/crate partitioning (`core`/`domain`/`bin`/`ffi`), Edition `2024` + MSRV + `[workspace.lints]` + `clippy.toml` + `.cargo/config.toml` publish-age cooldowns, `thiserror`/`anyhow` error boundaries, day-1 single-owner/newtype/typestate APIs, and `#[expect(lint, reason = "...")]` suppression hygiene.
 * **Async Services, Tokio Daemons & Privileged POSIX Processes:** Read [references/async-and-userspace.md](./references/async-and-userspace.md) for `tokio::select!` cancellation safety, zero locks across `.await`, bounded backpressure, `spawn_blocking` isolation, `OwnedFd` / `BorrowedFd` RAII descriptors, and synchronous pre-runtime `setgroups(&[]) -> setresgid -> setresuid` privilege drop with negative `setuid(0) -> EPERM` verification.
 * **`#![no_std]`, Embedded, OS Kernel & Low-Level `unsafe` Subsystems:** Read [references/kernel-and-unsafe.md](./references/kernel-and-unsafe.md) for fallible `alloc` (`ENOMEM`), Framekernel safe/unsafe crate partitioning, IRQ-safe spinlock ordering, `UserSlice` / `UserPtr` SMAP/PAN/TOCTOU boundaries, DMA `Pin` and hardware-quiesced/quarantined `Drop` safety, `8-16 KB` kernel stack limits (`large_stack_frames` / `large_stack_arrays`), and paired `Atomic*` ordering proofs (`loom`, `cargo kani`).
 * **Games, Vulkan/GPU Renderers & Real-Time Audio Engines:** Read [references/game-and-realtime.md](./references/game-and-realtime.md) for per-frame heap/cache hygiene (`clippy::large_enum_variant` + `1,000`-tick zero-allocation check), generational arenas vs. `Rc<RefCell<T>>` / `Arc<Mutex<T>>`, deterministic non-`HashMap` simulation, `f32`/`f64` `NaN`/`total_cmp`/clamp guards, reverse-order GPU/Vulkan `Drop`, swapchain `Outdated`/`Lost` handling, lock-free `SPSC` audio threads, and bounded binary packet/save deserialization.
@@ -85,7 +88,7 @@ Load only the reference document matching the target crate's runtime layer:
 
 ## 5. Verification Ladder & Independent Auditor Gate
 
-Execute deterministic Rust sensors sequentially after every hardening slice (routing `>500`-line or twice-failing borrow-checker and trait traces immediately to `build-error-resolver` per `skills/harness/SKILL.md` §3.B):
+Execute deterministic Rust sensors sequentially after every hardening slice (routing `>500`-line or twice-failing borrow-checker and trait traces immediately to `build-error-resolver` per `~/.gemini/config/skills/harness/SKILL.md` §3.B):
 
 1. **Compiler & Workspace Lint Gate (Mandatory for All Crates):**
    ```bash
@@ -107,9 +110,10 @@ Execute deterministic Rust sensors sequentially after every hardening slice (rou
 
 ## 6. Triggers & Reference Modules
 
-* **Slash Command:** `/rust-harden` (defaults to `--internal`; pass `--contract` for `pub` signature tightening).
-* **Natural Language Triggers:** `harden rust`, `idiomatic rust cleanup`, `remove rust unwrap and clone debt`, `rust kodunu sertleştir`, `idiomatic rust yap`, `sahiplik borcunu temizle`, `unsafe arındır`.
-* **Reference Modules (`skills/rust-harden/references/`):**
+* **Slash Command:** `/rust-harden` (defaults to `--internal`; pass `--contract` for `pub` signature tightening or `--greenfield` for day-1 crate/workspace architecture).
+* **Natural Language Triggers:** `harden rust`, `idiomatic rust cleanup`, `remove rust unwrap and clone debt`, `greenfield rust`, `scaffold rust workspace`, `yeni rust projesi`, `rust crate tasarla`, `rust servisi yaz`, `rust kodunu sertleştir`, `idiomatic rust yap`, `sahiplik borcunu temizle`, `unsafe arındır`.
+* **Reference Modules (`~/.gemini/config/skills/rust-harden/references/`):**
+  * **Greenfield Crate & Workspace Architecture (`--greenfield`):** [references/greenfield-architecture.md](./references/greenfield-architecture.md)
   * **Async & Privileged Userspace Hardening:** [references/async-and-userspace.md](./references/async-and-userspace.md)
   * **Kernel, `#![no_std]` & `unsafe` Soundness Hardening:** [references/kernel-and-unsafe.md](./references/kernel-and-unsafe.md)
   * **Game Loops, Graphics (Vulkan/GPU) & Real-Time Audio Hardening:** [references/game-and-realtime.md](./references/game-and-realtime.md)

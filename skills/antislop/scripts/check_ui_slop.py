@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import colorsys
 import json
+import math
 import os
 import re
 import sys
@@ -190,12 +192,180 @@ INLINE_BOX_STYLE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# UI-3 patterns
-AI_GRADIENT_RE = re.compile(
-    r"\b(?:from|via|to)-(?:purple|violet|indigo|pink|fuchsia)-[0-9]{2,3}\b|"
-    r"linear-gradient\([^)]*(?:#8b5cf6|#a855f7|#ec4899|#6366f1|#d946ef|purple|violet|magenta|fuchsia)[^)]*\)",
+# UI-3 patterns (Tailwind gradient classes + HSL hue-range CSS gradient stop detection)
+TAILWIND_AI_GRADIENT_RE = re.compile(
+    r"\b(?:from|via|to)-(?:purple|violet|indigo|pink|fuchsia)-[0-9]{2,3}\b",
     re.IGNORECASE,
 )
+# Exported backward-compatible union matching both Tailwind classes and CSS linear-gradient stops
+AI_GRADIENT_RE = re.compile(
+    r"\b(?:from|via|to)-(?:purple|violet|indigo|pink|fuchsia)-[0-9]{2,3}\b"
+    r"|linear-gradient\([^)]*(?:purple|violet|indigo|pink|fuchsia|#667eea|#764ba2|#a855f7|#8b5cf6|#ec4899|#6366f1|#4f46e5)[^)]*\)",
+    re.IGNORECASE,
+)
+
+CSS_GRADIENT_START_RE = re.compile(
+    r"\b(?:repeating-)?(?:linear|radial|conic)-gradient\s*\(",
+    re.IGNORECASE,
+)
+_CSS_AI_GRADIENT_NAMED_RE = re.compile(
+    r"\b(?:purple|violet|blueviolet|darkviolet|darkorchid|mediumorchid|orchid|"
+    r"mediumpurple|rebeccapurple|indigo|slateblue|mediumslateblue|magenta|fuchsia|deeppink|hotpink)\b",
+    re.IGNORECASE,
+)
+_CSS_HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b")
+_CSS_RGB_FUNC_RE = re.compile(r"\brgba?\s*\(((?:[^()]|\([^()]*\)){1,160})\)", re.IGNORECASE)
+_CSS_HSL_FUNC_RE = re.compile(r"\bhsla?\s*\(((?:[^()]|\([^()]*\)){1,160})\)", re.IGNORECASE)
+_MAX_GRADIENT_SPAN_CHARS = 1024
+
+
+def _iter_css_gradients(text: str) -> Iterable[Tuple[int, str, str]]:
+    """Yields `(start_offset, full_gradient_span, inner_body)` using balanced-paren scanning (scanning up to cap)."""
+    n = len(text)
+    for m in CSS_GRADIENT_START_RE.finditer(text):
+        start = m.start()
+        body_start = m.end()
+        depth = 1
+        idx = body_start
+        limit = min(n, body_start + _MAX_GRADIENT_SPAN_CHARS)
+        while idx < limit and depth > 0:
+            ch = text[idx]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            idx += 1
+        if depth == 0:
+            yield start, text[start:idx], text[body_start : idx - 1]
+        elif idx > body_start:
+            yield start, text[start:idx], text[body_start:idx]
+
+
+def _parse_alpha_token(raw: str) -> float:
+    tok = raw.strip()
+    if tok.endswith("%"):
+        val = float(tok[:-1]) / 100.0
+    else:
+        val = float(tok)
+    return max(0.0, min(1.0, val))
+
+
+def _rgb_to_hsl_deg(r: float, g: float, b: float) -> Tuple[float, float, float]:
+    h, l, s = colorsys.rgb_to_hls(max(0.0, min(1.0, r)), max(0.0, min(1.0, g)), max(0.0, min(1.0, b)))
+    return (h * 360.0) % 360.0, s, l
+
+
+def _parse_hex_to_hsl(hex_digits: str) -> Optional[Tuple[float, float, float]]:
+    ln = len(hex_digits)
+    if ln in (3, 4):
+        r = int(hex_digits[0] * 2, 16) / 255.0
+        g = int(hex_digits[1] * 2, 16) / 255.0
+        b = int(hex_digits[2] * 2, 16) / 255.0
+        if ln == 4 and (int(hex_digits[3] * 2, 16) / 255.0) <= 0.05:
+            return None
+        return _rgb_to_hsl_deg(r, g, b)
+    if ln in (6, 8):
+        r = int(hex_digits[0:2], 16) / 255.0
+        g = int(hex_digits[2:4], 16) / 255.0
+        b = int(hex_digits[4:6], 16) / 255.0
+        if ln == 8 and (int(hex_digits[6:8], 16) / 255.0) <= 0.05:
+            return None
+        return _rgb_to_hsl_deg(r, g, b)
+    return None
+
+
+def _split_css_color_channels(inner: str) -> Optional[List[str]]:
+    """Splits RGB/HSL color function channels and suppresses stops with numeric alpha <= 0.05."""
+    if "/" in inner:
+        chan_part, alpha_part = inner.split("/", 1)
+        try:
+            if _parse_alpha_token(alpha_part) <= 0.05:
+                return None
+        except ValueError:
+            pass  # symbolic alpha (e.g. `none`, `var(--alpha)`) defaults to opaque (1.0)
+        parts = [p for p in re.split(r"[\s,]+", chan_part.strip()) if p]
+    else:
+        parts = [p for p in re.split(r"[\s,]+", inner.strip()) if p]
+        if len(parts) >= 4:
+            try:
+                if _parse_alpha_token(parts[3]) <= 0.05:
+                    return None
+            except ValueError:
+                pass
+    return parts[:3] if len(parts) >= 3 else None
+
+
+def _parse_rgb_func_to_hsl(inner: str) -> Optional[Tuple[float, float, float]]:
+    parts = _split_css_color_channels(inner)
+    if parts is None:
+        return None
+    rgb: List[float] = []
+    for tok in parts:
+        try:
+            if tok.endswith("%"):
+                rgb.append(float(tok[:-1]) / 100.0)
+            else:
+                rgb.append(float(tok) / 255.0)
+        except ValueError:
+            return None
+    return _rgb_to_hsl_deg(rgb[0], rgb[1], rgb[2])
+
+
+def _parse_hsl_func_to_hsl(inner: str) -> Optional[Tuple[float, float, float]]:
+    parts = _split_css_color_channels(inner)
+    if parts is None:
+        return None
+    h_tok, s_tok, l_tok = parts[0].lower(), parts[1], parts[2]
+    try:
+        if h_tok.endswith("turn"):
+            h_deg = float(h_tok[:-4]) * 360.0
+        elif h_tok.endswith("grad"):
+            h_deg = float(h_tok[:-4]) * 0.9
+        elif h_tok.endswith("rad"):
+            h_deg = math.degrees(float(h_tok[:-3]))
+        elif h_tok.endswith("deg"):
+            h_deg = float(h_tok[:-3])
+        else:
+            h_deg = float(h_tok)
+        s = float(s_tok.rstrip("%")) / 100.0
+        l = float(l_tok.rstrip("%")) / 100.0
+    except ValueError:
+        return None
+    return h_deg % 360.0, max(0.0, min(1.0, s)), max(0.0, min(1.0, l))
+
+
+def _extract_gradient_stop_hsls(grad_body: str) -> List[Tuple[float, float, float]]:
+    stops: List[Tuple[float, float, float]] = []
+    for m in _CSS_HEX_COLOR_RE.finditer(grad_body):
+        parsed = _parse_hex_to_hsl(m.group(1))
+        if parsed is not None:
+            stops.append(parsed)
+    for m in _CSS_RGB_FUNC_RE.finditer(grad_body):
+        parsed = _parse_rgb_func_to_hsl(m.group(1))
+        if parsed is not None:
+            stops.append(parsed)
+    for m in _CSS_HSL_FUNC_RE.finditer(grad_body):
+        parsed = _parse_hsl_func_to_hsl(m.group(1))
+        if parsed is not None:
+            stops.append(parsed)
+    return stops
+
+
+def _is_ai_purple_indigo_gradient(grad_body: str) -> bool:
+    """Detects unearned AI purple/indigo/violet/magenta/pink CSS gradients via HSL hue-range math."""
+    if _CSS_AI_GRADIENT_NAMED_RE.search(grad_body):
+        return True
+    stops = _extract_gradient_stop_hsls(grad_body)
+    bridge_hits = 0
+    max_bridge_hue = 0.0
+    for h_deg, sat, light in stops:
+        if 235.0 <= h_deg <= 335.0 and sat >= 0.30 and 0.15 <= light <= 0.88:
+            return True
+        if 225.0 <= h_deg <= 335.0 and sat >= 0.35 and 0.20 <= light <= 0.85:
+            bridge_hits += 1
+            if h_deg > max_bridge_hue:
+                max_bridge_hue = h_deg
+    return bridge_hits >= 2 and max_bridge_hue >= 232.0
 
 BACKDROP_BLUR_RE = re.compile(
     r"\bbackdrop-blur(?:-[a-z0-9]+)?\b|backdrop-filter\s*:\s*blur\(",
@@ -401,9 +571,12 @@ def scan_text(text: str, *, path: str = "<stdin>", mode: str = "auto") -> FileRe
         popped = stack.pop()
         _flush_sibling_runs(popped.child_runs)
 
-    # 2. UI-3: Unearned AI visual tells (purple/pink gradients, >2 backdrop-blur, continuous bounce/ping)
-    for m in AI_GRADIENT_RE.finditer(text):
+    # 2. UI-3: Unearned AI visual tells (Tailwind or HSL-detected purple/indigo/pink gradients, >2 backdrop-blur, bounce/ping)
+    for m in TAILWIND_AI_GRADIENT_RE.finditer(text):
         raw_hits.append(("UI-3", m.start(), m.group(0)))
+    for grad_start, grad_span, grad_body in _iter_css_gradients(text):
+        if _is_ai_purple_indigo_gradient(grad_body):
+            raw_hits.append(("UI-3", grad_start, grad_span))
 
     blur_matches = list(BACKDROP_BLUR_RE.finditer(text))
     if len(blur_matches) > 2:

@@ -2,11 +2,11 @@
 
 > Anti Slop: Rules for AI Coding Agents. UI & Visual skill
 
-> Part of the antislop system. Read together with the `antislop` core skill (`skills/antislop/SKILL.md`). This skill deep-dives the UI/visual concern: color, layout, components, decoration, structural flow, and motion. It references core rules by number and never duplicates or renumbers them. Load on demand when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit.
+> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill deep-dives the UI/visual concern: color, layout, components, decoration, structural flow, and motion. It references core rules by number and never duplicates or renumbers them. Load on demand when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`skills/antislop/SKILL.md`) when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit (do not auto-load all `antislop-*` supplements simultaneously on routine edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds UI-specific depth.
+- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit (do not auto-load all `antislop-*` supplements simultaneously on routine edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds UI-specific depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - The Delivery Gate in the core remains the gate. The "UI Skill Checklist" at the end of this file is the UI-specific supplement to run alongside it.
 

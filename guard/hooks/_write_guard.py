@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+import sys
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,6 +26,7 @@ from .common import (
     _flight_recorder_file,
     _is_git_repo_workspace,
     _normalize_markdown_newlines,
+    _read_bounded_markdown_checked,
     _read_ledger_checked,
     _repo_root,
     file_lock,
@@ -360,24 +362,23 @@ def _extract_edit_pair(mapping: Dict[str, Any]) -> Tuple[bool, Optional[Tuple[st
     return True, (_normalize_markdown_newlines(t_val), _normalize_markdown_newlines(r_val))
 
 
-def _write_mutates_authorized_test_section(
+def _resolve_tasks_md_state(
     target: str,
-    args: Dict[str, Any],
     base_dir: Optional[Path],
-    *,
-    allow_stale_reset: bool = True,
-    conv_id: str = "",
-) -> bool:
+) -> Tuple[Optional[str], Optional[Path], bool, bool, str]:
+    """
+    Resolves `target` and reads existing `tasks.md` with bounded non-symlink checks.
+    Returns `(norm_target, disk_path, is_symlink, read_ok, norm_old_text)`.
+    When `norm_target is None`, `target` was an unparseable `file:` URI (`is_symlink` signals tasks mention).
+    """
     raw_s = target.strip()
     if raw_s.lower().startswith("file:"):
         parsed_uri = _ptu._parse_file_uri(raw_s)
         if parsed_uri is None:
-            return "tasks" in urllib.parse.unquote(raw_s).lower()
+            return None, None, ("tasks" in urllib.parse.unquote(raw_s).lower()), False, ""
         norm_target = _ptu._canonicalize_check_path(parsed_uri)
     else:
         norm_target = _ptu._canonicalize_check_path(raw_s)
-    if Path(norm_target).name.lower() != "tasks.md":
-        return False
     raw_disk_path = Path(os.path.expanduser(norm_target))
     if not raw_disk_path.is_absolute():
         raw_disk_path = (base_dir or _repo_root()) / raw_disk_path
@@ -388,50 +389,66 @@ def _write_mutates_authorized_test_section(
     except (OSError, RuntimeError):
         is_target_symlink = True
         disk_path = raw_disk_path
-    reset_disk_path: Optional[Path] = disk_path if (allow_stale_reset and not is_target_symlink) else None
+    read_ok = True
     old_text = ""
-    try:
-        if disk_path.is_file():
-            old_text = disk_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        old_text = ""
-    norm_old = _normalize_markdown_newlines(old_text)
+    if is_target_symlink:
+        try:
+            if disk_path.is_file() and disk_path.stat().st_size <= 524288:
+                old_text = disk_path.read_text(encoding="utf-8", errors="replace")
+            elif disk_path.is_file():
+                read_ok = False
+        except OSError as exc:
+            read_ok = False
+            sys.stderr.write(f"[Harness Write Guard] Failed reading symlinked `{disk_path}`: {exc}\n")
+    else:
+        read_ok, old_text = _read_bounded_markdown_checked(disk_path)
+        if not read_ok:
+            sys.stderr.write(f"[Harness Write Guard] Failed reading `{disk_path}` within 512 KiB bound.\n")
+    return norm_target, disk_path, is_target_symlink, read_ok, _normalize_markdown_newlines(old_text)
+
+
+def _simulate_tasks_write_candidates(
+    norm_old: str,
+    args: Dict[str, Any],
+) -> Tuple[List[str], bool]:
+    """
+    Simulates every content/chunk/edit payload in `args` against `norm_old`.
+    Returns `(simulated_texts, ambiguous_or_unsimulatable)`.
+    """
+    sim_texts: List[str] = []
+    ambiguous = False
     evaluated_any = False
 
-    # 1. Inspect every present full-file or append content key (`SBV-03`)
     for content_key in ("Content", "FileContent", "CodeContent", "content", "file_text"):
         if content_key in args and args.get(content_key) is not None:
             raw_body = args.get(content_key)
             if not isinstance(raw_body, str):
-                return True
+                return sim_texts, True
             evaluated_any = True
             body = _normalize_markdown_newlines(raw_body)
             is_append = bool(args.get("Append") or args.get("append"))
-            sim_text = (norm_old + body) if is_append else body
-            if _auth_sections_differ(norm_old, sim_text, disk_path=reset_disk_path, conv_id=conv_id):
-                return True
+            sim_texts.append((norm_old + body) if is_append else body)
 
-    # 2. Inspect every present chunk-list key and top-level replacement key (`SBV-01`, `SBV-02`, `SBV-03`)
     pair_groups: List[List[Tuple[str, str]]] = []
     for chunk_key in ("ReplacementChunks", "edits", "chunks"):
         if chunk_key in args and args.get(chunk_key) is not None:
             chunks = args.get(chunk_key)
             if not isinstance(chunks, list) or not chunks:
-                return True
+                return sim_texts, True
             group: List[Tuple[str, str]] = []
             for ch in chunks:
                 if not isinstance(ch, dict):
-                    return True
+                    return sim_texts, True
                 has_keys, extracted_pair = _extract_edit_pair(ch)
                 if not has_keys or extracted_pair is None:
-                    return True
+                    return sim_texts, True
                 group.append(extracted_pair)
             pair_groups.append(group)
 
     has_top_edit, top_pair = _extract_edit_pair(args)
     if has_top_edit:
         if top_pair is None:
-            return True
+            return sim_texts, True
         pair_groups.append([top_pair])
 
     has_existing_heading = bool(_AUTH_HEADING_RE.search(norm_old))
@@ -440,19 +457,17 @@ def _write_mutates_authorized_test_section(
         if len(pairs) == 1:
             t_s, r_s = pairs[0]
             if norm_old and t_s in norm_old:
-                sim_text = norm_old.replace(t_s, r_s)
-                if _auth_sections_differ(norm_old, sim_text, disk_path=reset_disk_path, conv_id=conv_id):
-                    return True
-            else:
-                if has_existing_heading or re.search(
-                    r"Authorized\s+Test\s+Modifications", f"{t_s}\n{r_s}", re.IGNORECASE
-                ):
-                    return True
+                sim_texts.append(norm_old.replace(t_s, r_s))
+            elif has_existing_heading or re.search(
+                r"Authorized\s+Test\s+Modifications", f"{t_s}\n{r_s}", re.IGNORECASE
+            ):
+                ambiguous = True
         else:
             if not norm_old:
-                return True
+                ambiguous = True
+                continue
             spans: List[Tuple[int, int, str]] = []
-            ambiguous_or_missing = False
+            group_bad = False
             for t_s, r_s in pairs:
                 pos = 0
                 found_for_pair = 0
@@ -464,16 +479,17 @@ def _write_mutates_authorized_test_section(
                     found_for_pair += 1
                     pos = idx + len(t_s)
                 if found_for_pair == 0:
-                    ambiguous_or_missing = True
+                    group_bad = True
                     break
-            if not ambiguous_or_missing:
+            if not group_bad:
                 spans.sort(key=lambda item: (item[0], item[1]))
                 for idx in range(1, len(spans)):
                     if spans[idx - 1][1] > spans[idx][0]:
-                        ambiguous_or_missing = True
+                        group_bad = True
                         break
-            if ambiguous_or_missing:
-                return True
+            if group_bad:
+                ambiguous = True
+                continue
             out_parts: List[str] = []
             cursor = 0
             for s_start, s_end, r_s in spans:
@@ -481,10 +497,87 @@ def _write_mutates_authorized_test_section(
                 out_parts.append(r_s)
                 cursor = s_end
             out_parts.append(norm_old[cursor:])
-            sim_text = "".join(out_parts)
-            if _auth_sections_differ(norm_old, sim_text, disk_path=reset_disk_path, conv_id=conv_id):
-                return True
+            sim_texts.append("".join(out_parts))
 
     if not evaluated_any:
+        ambiguous = True
+    return sim_texts, ambiguous
+
+
+def _write_mutates_authorized_test_section(
+    target: str,
+    args: Dict[str, Any],
+    base_dir: Optional[Path],
+    *,
+    allow_stale_reset: bool = True,
+    conv_id: str = "",
+) -> bool:
+    norm_target, disk_path, is_target_symlink, read_ok, norm_old = _resolve_tasks_md_state(target, base_dir)
+    if norm_target is None:
+        return is_target_symlink
+    if Path(norm_target).name.lower() != "tasks.md":
+        return False
+    if not read_ok:
         return True
-    return False
+    reset_disk_path: Optional[Path] = disk_path if (allow_stale_reset and not is_target_symlink) else None
+    sim_texts, ambiguous = _simulate_tasks_write_candidates(norm_old, args)
+    for sim_text in sim_texts:
+        if _auth_sections_differ(norm_old, sim_text, disk_path=reset_disk_path, conv_id=conv_id):
+            return True
+    return ambiguous
+
+
+def _summarize_authorized_test_mutation_diff(
+    target: str,
+    args: Dict[str, Any],
+    base_dir: Optional[Path],
+) -> str:
+    """Returns a concise operator-readable summary of test path(s) and diff in `## Authorized Test Modifications`."""
+    norm_target, _disk_path, _is_sym, read_ok, old_text = _resolve_tasks_md_state(target, base_dir)
+    label = norm_target or target.strip()
+    if norm_target is None or not read_ok:
+        return f"target `{label}` (unable to simulate exact section diff; inspect edit arguments)"
+
+    sim_texts, _ambiguous = _simulate_tasks_write_candidates(old_text, args)
+    old_sec = _extract_normalized_auth_section(old_text)
+    sim_text: Optional[str] = None
+    for cand in sim_texts:
+        if _extract_normalized_auth_section(cand) != old_sec:
+            sim_text = cand
+            break
+    if sim_text is None and sim_texts:
+        sim_text = sim_texts[0]
+    if sim_text is None:
+        return f"target `{label}` (unable to simulate exact section diff; inspect edit arguments)"
+
+    new_sec = _extract_normalized_auth_section(sim_text)
+    old_lines = [l for l in old_sec.splitlines() if l.strip()]
+    new_lines = [l for l in new_sec.splitlines() if l.strip()]
+    added_lines = max(0, len([l for l in new_lines if l not in old_lines]))
+    removed_lines = max(0, len([l for l in old_lines if l not in new_lines]))
+    delta = f"+{added_lines}/-{removed_lines} section lines"
+
+    try:
+        from guard.test_boundary import TestBoundaryGuard
+
+        old_paths = TestBoundaryGuard.parse_authorized_tasks_text(old_text)
+        new_paths = TestBoundaryGuard.parse_authorized_tasks_text(sim_text)
+        added_paths = sorted(new_paths - old_paths)
+        removed_paths = sorted(old_paths - new_paths)
+        parts: List[str] = []
+        if added_paths:
+            shown = ", ".join(f"`{p}`" for p in added_paths[:3])
+            extra = f" (+{len(added_paths) - 3} more)" if len(added_paths) > 3 else ""
+            parts.append(f"adds {shown}{extra}")
+        if removed_paths:
+            shown = ", ".join(f"`{p}`" for p in removed_paths[:3])
+            extra = f" (+{len(removed_paths) - 3} more)" if len(removed_paths) > 3 else ""
+            parts.append(f"removes {shown}{extra}")
+        if not parts and new_paths:
+            shown = ", ".join(f"`{p}`" for p in sorted(new_paths)[:3])
+            parts.append(f"edits entries for {shown}")
+        if parts:
+            return f"{'; '.join(parts)} ({delta})"
+    except Exception as exc:
+        sys.stderr.write(f"[Harness Write Guard] Failed to summarize authorized test diff ({type(exc).__name__}): {exc}\n")
+    return f"modifies section in `{label}` ({delta})"

@@ -6,6 +6,7 @@ Zero external dependencies: uses strictly the Python standard library.
 
 from __future__ import annotations
 
+import bisect
 import json as _stdlib_json
 import os
 import re
@@ -212,7 +213,62 @@ class _LazyRegex:
         return self._get().groupindex
 
 
-_FENCE_RE = _LazyRegex(r"(?ms)^[ \t]{0,3}(`{3,}(?!`)|~{3,}(?!~)).*?^[ \t]{0,3}\1[ \t]*$")
+class _FenceStripper(_LazyRegex):
+    """Linear-time fenced-code stripper preserving `_LazyRegex` API/flags parity (fixes O(N^2) backreference ReDoS)."""
+
+    def sub(self, repl: Any, string: str, count: int = 0) -> str:
+        if not isinstance(repl, str) or count != 0:
+            return super().sub(repl, string, count)
+        if not string or ("```" not in string and "~~~" not in string):
+            return string
+        lines = string.split("\n")
+        if len(lines) < 2:
+            return string
+        openers: Dict[int, Tuple[str, int]] = {}
+        closers: Dict[Tuple[str, int], List[int]] = {}
+        for idx, line in enumerate(lines):
+            n_line = len(line)
+            if n_line < 3:
+                continue
+            i = 0
+            while i < 3 and i < n_line and line[i] in (" ", "\t"):
+                i += 1
+            if i >= n_line:
+                continue
+            ch = line[i]
+            if ch not in ("`", "~"):
+                continue
+            j = i
+            while j < n_line and line[j] == ch:
+                j += 1
+            run_len = j - i
+            if run_len < 3:
+                continue
+            key = (ch, run_len)
+            openers[idx] = key
+            if line[j:].strip(" \t") == "":
+                closers.setdefault(key, []).append(idx)
+        if not closers:
+            return string
+        out: List[str] = []
+        n_lines = len(lines)
+        idx = 0
+        while idx < n_lines:
+            key = openers.get(idx)
+            if key is not None:
+                cands = closers.get(key)
+                if cands:
+                    pos = bisect.bisect_right(cands, idx)
+                    if pos < len(cands):
+                        out.append(repl)
+                        idx = cands[pos] + 1
+                        continue
+            out.append(lines[idx])
+            idx += 1
+        return "\n".join(out)
+
+
+_FENCE_RE = _FenceStripper(r"(?ms)^[ \t]{0,3}(`{3,}(?!`)|~{3,}(?!~)).*?^[ \t]{0,3}\1[ \t]*$")
 
 _PASTED_RE = _LazyRegex(r"(?s)<pasted_content\b[^<>]*>.*?</pasted_content[^<>]*>")
 
@@ -359,11 +415,13 @@ def _scan_transcript_turn_window(
     return latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user
 
 
-def _inspect_transcript_turn_state(payload: Dict[str, Any]) -> Tuple[str, int, bool, bool]:
+def _inspect_transcript_turn_state_ex(payload: Dict[str, Any]) -> Tuple[str, int, bool, bool, bool]:
     """
     Inspects up to 128 KB (widening to 2 MiB on heavy mid-turn output) at the tail of `transcript.jsonl`:
-      `(latest_user_text, resolved_step_idx, is_mid_turn_continuation, has_transcript)`.
+      `(latest_user_text, resolved_step_idx, is_mid_turn_continuation, has_transcript, ends_with_user_input)`.
     `is_mid_turn_continuation` is True when `>= 1` non-`USER_INPUT` entries follow the latest `USER_INPUT`.
+    `ends_with_user_input` is True strictly when `transcript.jsonl` contains a `USER_INPUT` entry with
+    zero trailing non-user entries after it (anchoring new-turn detection independent of `invocationNum`).
     """
     step_raw = payload.get("stepIdx")
     if step_raw is None:
@@ -372,21 +430,26 @@ def _inspect_transcript_turn_state(payload: Dict[str, Any]) -> Tuple[str, int, b
 
     tx_path = _resolve_transcript_path(payload)
     if tx_path is None:
-        return "", explicit_step, False, False
+        return "", explicit_step, False, False, False
 
     latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user = (
         _scan_transcript_turn_window(tx_path, explicit_step, max_scan_bytes=131072)
     )
-    if not found_user and trailing_non_user > 0:
-        latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user = (
-            _scan_transcript_turn_window(tx_path, explicit_step, max_scan_bytes=2 * 1024 * 1024)
-        )
+    if not found_user:
+        try:
+            tx_size = tx_path.stat().st_size
+        except OSError:
+            tx_size = 0
+        if trailing_non_user > 0 or tx_size > 131072:
+            latest_text, latest_entry_step, user_input_count, trailing_non_user, found_user = (
+                _scan_transcript_turn_window(tx_path, explicit_step, max_scan_bytes=2 * 1024 * 1024)
+            )
 
     if not found_user:
-        return "", explicit_step, trailing_non_user > 0, True
+        return "", explicit_step, trailing_non_user > 0, True, False
 
     explicit_prompt = ""
-    for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "userMessage", "user_prompt"):
+    for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "user_prompt"):
         val = payload.get(key)
         if isinstance(val, str) and val.strip():
             explicit_prompt = val.strip()[:131072]
@@ -405,8 +468,18 @@ def _inspect_transcript_turn_state(payload: Dict[str, Any]) -> Tuple[str, int, b
         resolved_step = latest_entry_step + (1 if explicit_differs else 0)
     else:
         resolved_step = user_input_count + (1 if explicit_differs else 0)
+    ends_with_user = trailing_non_user == 0
     is_mid = (trailing_non_user > 0) and (not explicit_differs)
-    return latest_text, resolved_step, is_mid, True
+    return latest_text, resolved_step, is_mid, True, ends_with_user
+
+
+def _inspect_transcript_turn_state(payload: Dict[str, Any]) -> Tuple[str, int, bool, bool]:
+    """
+    Inspects up to 128 KB (widening to 2 MiB on heavy mid-turn output) at the tail of `transcript.jsonl`:
+      `(latest_user_text, resolved_step_idx, is_mid_turn_continuation, has_transcript)`.
+    `is_mid_turn_continuation` is True when `>= 1` non-`USER_INPUT` entries follow the latest `USER_INPUT`.
+    """
+    return _inspect_transcript_turn_state_ex(payload)[:4]
 
 
 def _extract_latest_user_prompt(
@@ -427,7 +500,7 @@ def _extract_latest_user_prompt(
         _tx_state if _tx_state is not None else _inspect_transcript_turn_state(payload)
     )
 
-    for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "userMessage", "user_prompt"):
+    for key in ("lastUserInput", "last_user_input", "prompt", "userPrompt", "user_prompt"):
         val = payload.get(key)
         if isinstance(val, str) and val.strip():
             resolved = explicit_step if explicit_step > 0 else (tx_step if has_tx else 0)
@@ -568,16 +641,8 @@ def _is_auxiliary_readonly_context(payload: Dict[str, Any], cleaned_prompt: str 
         return True
     for key in (
         "role",
-        "agentRole",
-        "agent_role",
-        "workerRole",
-        "worker_role",
-        "swarmRole",
-        "swarm_role",
         "workerName",
         "worker_name",
-        "rosterName",
-        "roster_name",
         "subagentType",
         "subagent_type",
         "typeName",
@@ -825,6 +890,39 @@ def _is_git_repo_workspace(workspace: Path) -> bool:
             continue
     return False
 
+_HOST_FIXTURE_SECRET_KEY_SUBSTRS = (
+    "apikey",
+    "api_key",
+    "token",
+    "secret",
+    "authorization",
+    "password",
+    "passwd",
+    "cookie",
+    "credential",
+    "private_key",
+    "privatekey",
+)
+_HOST_FIXTURE_SECRET_VAL_RE = re.compile(
+    r"(?i)(?:\bBearer\s+[A-Za-z0-9._~+/=-]{8,}|\bANTIGRAVITY_CSRF_TOKEN\s*=\s*\S+|"
+    r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{12,}|\bsk-[A-Za-z0-9_-]{16,}|\bAKIA[0-9A-Z]{16}\b)"
+)
+
+
+def _upstream_seed_candidates() -> List[Path]:
+    return [
+        _repo_root() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        configured_config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        Path("/usr/share/antigravity-harness") / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+    ]
+
+
+def _redact_fixture_str(val: str, limit: int = 512) -> str:
+    redacted = _HOST_FIXTURE_SECRET_VAL_RE.sub("<redacted>", val)
+    return redacted[:limit]
+
+
 def _sanitize_host_fixture_payload(obj: Any, _depth: int = 0) -> Any:
     if _depth > 8:
         return "<truncated>"
@@ -832,17 +930,18 @@ def _sanitize_host_fixture_payload(obj: Any, _depth: int = 0) -> Any:
         out: Dict[str, Any] = {}
         for k, v in obj.items():
             ks = str(k)
-            if ks.lower() in ("apikey", "api_key", "token", "secret", "authorization", "password"):
+            k_norm = re.sub(r"[^a-z0-9_]+", "_", ks.lower())
+            if any(tok in k_norm for tok in _HOST_FIXTURE_SECRET_KEY_SUBSTRS):
                 out[ks] = "<redacted>"
-            elif ks in ("prompt", "userPrompt", "userMessage", "user_prompt", "lastUserInput", "last_user_input", "assistantMessage", "lastAssistantMessage", "diffText") and isinstance(v, str):
-                out[ks] = v[:512]
+            elif ks in ("prompt", "userPrompt", "user_prompt", "lastUserInput", "last_user_input", "lastAssistantMessage", "diffText") and isinstance(v, str):
+                out[ks] = _redact_fixture_str(v, 512)
             else:
                 out[ks] = _sanitize_host_fixture_payload(v, _depth + 1)
         return out
     if isinstance(obj, list):
         return [_sanitize_host_fixture_payload(item, _depth + 1) for item in obj[:20]]
-    if isinstance(obj, str) and len(obj) > 512:
-        return obj[:512]
+    if isinstance(obj, str):
+        return _redact_fixture_str(obj, 512)
     return obj
 
 def _maybe_record_host_fixture(event: str, payload: Dict[str, Any]) -> None:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # check_skills.sh — Upstream Auditor 72h Lightweight CLI Tracker
-# Checks GitHub HEAD commits and release tags for 9 tracked community skills without LLM overhead.
+# Checks GitHub HEAD commits and release tags for 8 tracked community skills without LLM overhead.
 #
 
 set -e
@@ -65,6 +65,13 @@ for cand in (repo_candidate, os.path.join(data_root, "runtime"), "/usr/lib/antig
     if cand and os.path.isfile(os.path.join(cand, "porter", "net.py")) and cand not in sys.path:
         sys.path.insert(0, cand)
 
+from guard.upstream import (
+    BUILTIN_CHECKSUM_RE,
+    compute_seed_digest as seed_digest,
+    read_builtin_bundle_checksum_checked,
+    reconcile_state_with_seed,
+    short_checksum,
+)
 from porter.net import safe_fetch_url
 
 state_file = os.environ["AGY_UPSTREAM_STATE"]
@@ -118,69 +125,13 @@ def parse_ts(val):
         return None
 
 
-def seed_digest(seed: dict) -> str:
-    canonical = {
-        "last_audited_model": seed.get("last_audited_model"),
-        "last_model_slug": seed.get("last_model_slug"),
-        "last_pbtxt_model": seed.get("last_pbtxt_model"),
-        "environment_Target": seed.get("environment_Target"),
-        "builtin_skills_hash": seed.get("builtin_skills_hash"),
-        "recorded_builtin_skills": seed.get("recorded_builtin_skills"),
-        "tracked_repositories": seed.get("tracked_repositories"),
-    }
-    if "approved_customization_models" in seed:
-        canonical["approved_customization_models"] = seed.get("approved_customization_models")
-    if "known_placeholder_models" in seed:
-        canonical["known_placeholder_models"] = seed.get("known_placeholder_models")
-    raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-
-
 def reconcile_in_memory(state: dict, seed: dict) -> None:
     if not isinstance(state, dict) or not isinstance(seed, dict):
         return
-    had_explicit_repos = "tracked_repositories" in state
-    is_full_ledger = any(
-        k in state
-        for k in (
-            "last_audit_timestamp",
-            "last_skills_audit_timestamp",
-            "last_audited_model",
-            "last_seen_model",
-            "last_ack_timestamp",
-            "builtin_skills_hash",
-            "_reconciled_seed_digest",
-        )
-    )
-    s_digest = seed_digest(seed)
-    prev_digest = state.get("_reconciled_seed_digest")
-    has_prev = isinstance(prev_digest, str) and bool(prev_digest)
-    seed_changed = (prev_digest != s_digest) if has_prev else False
-    seed_ts = parse_ts(seed.get("last_audit_timestamp") or seed.get("last_skills_audit_timestamp"))
-    state_ts = parse_ts(state.get("last_audit_timestamp") or state.get("last_skills_audit_timestamp"))
-    can_sync = seed_changed or (not has_prev and (seed_ts is None or state_ts is None or seed_ts >= state_ts))
-
-    seed_repos = seed.get("tracked_repositories")
-    if isinstance(seed_repos, dict):
-        if not had_explicit_repos:
-            state["tracked_repositories"] = {}
-        state_repos = state.get("tracked_repositories")
-        if isinstance(state_repos, dict):
-            for rname, sinfo in seed_repos.items():
-                if not isinstance(sinfo, dict):
-                    continue
-                cur = state_repos.get(rname)
-                if rname not in state_repos:
-                    if (not had_explicit_repos) or is_full_ledger:
-                        state_repos[rname] = copy.deepcopy(sinfo)
-                elif isinstance(cur, dict) and can_sync:
-                    for rk in ("repo", "branch", "track", "path", "last_synced_commit", "target_skills"):
-                        if rk in sinfo:
-                            cur[rk] = copy.deepcopy(sinfo[rk])
-                        elif rk in ("track", "path") and rk in cur:
-                            cur.pop(rk, None)
-                elif isinstance(cur, dict) and "target_skills" in sinfo:
-                    cur["target_skills"] = copy.deepcopy(sinfo["target_skills"])
+    reconciled, _ = reconcile_state_with_seed(state, seed)
+    if reconciled is not state:
+        state.clear()
+        state.update(reconciled)
 
 
 try:
@@ -200,8 +151,10 @@ if seed_file and os.path.isfile(seed_file) and os.path.abspath(seed_file) != os.
             seed_data = json.load(sf)
         if isinstance(seed_data, dict):
             reconcile_in_memory(state, seed_data)
-    except Exception:
-        pass
+        else:
+            print(f"[WARN] Shipped seed file {seed_file} root is not a JSON object; skipping reconciliation.", file=sys.stderr)
+    except Exception as exc:
+        print(f"[WARN] Failed to load or reconcile seed file {seed_file}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 tracked = state.get("tracked_repositories", {})
 if not isinstance(tracked, dict) or not tracked:
@@ -311,13 +264,28 @@ if updates_found:
     print("\nTo inspect diffs and apply constitutional filter:")
     print("  /audit-upstream --skills")
 
+current_bundle_cs, bundle_cs_err = read_builtin_bundle_checksum_checked()
+raw_rec_bundle = state.get("builtin_bundle_checksum")
+recorded_bundle_cs = raw_rec_bundle.strip() if isinstance(raw_rec_bundle, str) else ""
+bundle_drift = False
+if bundle_cs_err:
+    errors_found.append(("builtin/.checksum", bundle_cs_err))
+elif recorded_bundle_cs and current_bundle_cs and current_bundle_cs != recorded_bundle_cs:
+    bundle_drift = True
+    print(
+        f"\n[ALERT] Antigravity builtin bundle drift detected (builtin/.checksum: "
+        f"{short_checksum(recorded_bundle_cs, peer=current_bundle_cs)} -> "
+        f"{short_checksum(current_bundle_cs, peer=recorded_bundle_cs)})."
+    )
+    print("  Inspect bundled plugins/sidecars with: /audit-upstream --platform")
+
 if errors_found:
     print(f"\n[WARN] {len(errors_found)} repository check(s) failed; upstream synchronization is NOT verified:", file=sys.stderr)
     for name, reason in errors_found:
         print(f"  - {name}: {reason}", file=sys.stderr)
     sys.exit(1)
 
-if not updates_found:
+if not updates_found and not bundle_drift:
     print("\n[OK] All external skill repositories are synchronized with local state.")
 
 EOF

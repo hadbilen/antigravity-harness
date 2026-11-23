@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import List, Optional, Tuple
 from guard.environment import AgentEnvironment, EnvironmentRegistry, RegistryError
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.notifier import load_settings
-from guard.paths import move_aside, state_dir
+from guard.paths import move_aside, read_json, state_dir
 
 
 def recover_or_load_registry(
@@ -120,6 +121,10 @@ def grant_statistics(config_json: Path) -> Optional[dict]:
     }
 
 
+_HOOK_SCRIPT_SUFFIXES = (".py", ".sh", ".mjs", ".js", ".cjs", ".ps1", ".bat", ".cmd")
+_SCRIPT_INTERPRETERS = frozenset({"python", "python3", "py", "node", "bash", "sh", "zsh", "dash", "pwsh", "powershell"})
+
+
 def _iter_hook_commands(node: object) -> List[str]:
     cmds: List[str] = []
     if isinstance(node, dict):
@@ -132,6 +137,138 @@ def _iter_hook_commands(node: object) -> List[str]:
         for item in node:
             cmds.extend(_iter_hook_commands(item))
     return cmds
+
+
+def _has_disabled_flag(node: object) -> bool:
+    if isinstance(node, dict):
+        if node.get("enabled") is False:
+            return True
+        return any(_has_disabled_flag(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_has_disabled_flag(item) for item in node)
+    return False
+
+
+def _extract_hook_executable(tokens: List[str]) -> Tuple[Optional[str], int, List[str]]:
+    """
+    Returns `(executable, next_index, effective_tokens)`, skipping leading `env` wrappers
+    (including `/usr/bin/env` and `-S <split-string>`) and `VAR=val` assignments.
+    """
+    eff_tokens = list(tokens)
+    idx = 0
+    while idx < len(eff_tokens):
+        tok = eff_tokens[idx].strip("\"'")
+        if not tok:
+            idx += 1
+            continue
+        if Path(tok).name.lower() == "env" and idx + 1 < len(eff_tokens):
+            idx += 1
+            while idx < len(eff_tokens) and eff_tokens[idx].startswith("-"):
+                flag = eff_tokens[idx]
+                if flag in ("-S", "--split-string") and idx + 1 < len(eff_tokens):
+                    raw_s = eff_tokens[idx + 1]
+                    try:
+                        import shlex as _shlex
+
+                        sub_toks = _shlex.split(raw_s, posix=(os.name != "nt"))
+                    except ValueError:
+                        sub_toks = raw_s.split()
+                    eff_tokens = eff_tokens[:idx] + sub_toks + eff_tokens[idx + 2 :]
+                    continue
+                if flag.startswith("--split-string="):
+                    raw_s = flag.split("=", 1)[1]
+                    try:
+                        import shlex as _shlex
+
+                        sub_toks = _shlex.split(raw_s, posix=(os.name != "nt"))
+                    except ValueError:
+                        sub_toks = raw_s.split()
+                    eff_tokens = eff_tokens[:idx] + sub_toks + eff_tokens[idx + 1 :]
+                    continue
+                idx += 2 if flag in ("-u", "-C", "--unset", "--chdir") and idx + 1 < len(eff_tokens) else 1
+            continue
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok):
+            idx += 1
+            continue
+        return tok, idx + 1, eff_tokens
+    return None, len(eff_tokens), eff_tokens
+
+
+def _is_path_like_token(tok: str) -> bool:
+    return (
+        "/" in tok
+        or "\\" in tok
+        or tok.startswith(".")
+        or tok.startswith("~")
+        or (len(tok) >= 2 and tok[1] == ":")
+    )
+
+
+def _hook_executable_exists(exe: str, root: Path) -> bool:
+    expanded = os.path.expanduser(exe)
+    if _is_path_like_token(exe):
+        exe_path = Path(expanded)
+        if not exe_path.is_absolute():
+            exe_path = root / exe_path
+        if not exe_path.is_file():
+            return False
+        if os.name != "nt" and not os.access(exe_path, os.X_OK):
+            return False
+        return True
+    if shutil.which(expanded):
+        return True
+    if os.name == "nt" and expanded == "python3":
+        return bool(shutil.which("python") or shutil.which("py"))
+    return False
+
+
+def _collect_native_deny_rules(root: Path, warnings: Optional[List[str]] = None) -> List[str]:
+    """Reads native Antigravity `deny` rules from App `config.json` and CLI `settings.json`."""
+    entries: List[str] = []
+    for cfg_path, check_global_grants in (
+        (root / "config.json", True),
+        (root.parent / "antigravity-cli" / "settings.json", False),
+    ):
+        if not cfg_path.is_file():
+            continue
+        raw_data = read_json(cfg_path, default=None)
+        if raw_data is None:
+            if warnings is not None:
+                warnings.append(f"Native Antigravity settings file {cfg_path} could not be parsed as valid JSON.")
+            continue
+        if not isinstance(raw_data, dict):
+            continue
+        if check_global_grants:
+            user_settings = raw_data.get("userSettings")
+            if isinstance(user_settings, dict):
+                grants = user_settings.get("globalPermissionGrants")
+                if isinstance(grants, dict) and isinstance(grants.get("deny"), list):
+                    entries.extend(str(e) for e in grants["deny"] if isinstance(e, str))
+        perms = raw_data.get("permissions")
+        if isinstance(perms, dict) and isinstance(perms.get("deny"), list):
+            entries.extend(str(e) for e in perms["deny"] if isinstance(e, str))
+    return entries
+
+
+def _check_native_deny_rules(root: Path, infos: List[str], warnings: Optional[List[str]] = None) -> None:
+    """Recommends native Antigravity `deny` rules (`agy-guard unlock`, `--no-verify`) as INFO."""
+    deny_entries = _collect_native_deny_rules(root, warnings=warnings)
+    lowered = [e.lower() for e in deny_entries]
+    has_unlock_deny = any("agy-guard" in e and "unlock" in e for e in lowered)
+    has_no_verify_deny = any("--no-verify" in e for e in lowered)
+    missing_recs: List[str] = []
+    if not has_unlock_deny:
+        missing_recs.append("'agy-guard unlock' (e.g. command(agy-guard unlock))")
+    if not has_no_verify_deny:
+        missing_recs.append("'--no-verify' (e.g. command(regex:.*--no-verify.*))")
+    if missing_recs:
+        infos.append(
+            "Native Antigravity deny rules recommended for defense-in-depth (in config.json "
+            "userSettings.globalPermissionGrants.deny or ~/.gemini/antigravity-cli/settings.json "
+            f"permissions.deny): {', '.join(missing_recs)}."
+        )
+    else:
+        infos.append("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.")
 
 
 def _check_plugins_symlinks(root: Path, warnings: List[str]) -> None:
@@ -235,26 +372,121 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
                             f"Lifecycle hooks configuration {hooks_file} still registers legacy 'PreInvocation' alongside 'SessionStart' "
                             f"under 'upstream-watchdog' (run {repair_hint})."
                         )
+            hg_entry = hooks_data.get("harness-gate")
+            hg_schema_invalid = False
+            hooks_disabled = False
+            if hooks_data.get("enabled") is False:
+                warnings.append(
+                    f"Lifecycle hooks configuration {hooks_file} sets 'enabled': false; all lifecycle hooks are inactive."
+                )
+                hooks_disabled = True
+            if isinstance(uw_entry, dict) and _has_disabled_flag(uw_entry):
+                warnings.append(
+                    f"Lifecycle hook group 'upstream-watchdog' in {hooks_file} has 'enabled': false; "
+                    "SessionStart upstream checks are inactive."
+                )
+                hooks_disabled = True
             if "harness-gate" not in hooks_data:
                 warnings.append(
                     f"Lifecycle hooks configuration {hooks_file} is missing 'harness-gate' (PreInvocation/PreToolUse/Stop)."
                 )
+            elif not isinstance(hg_entry, dict):
+                warnings.append(
+                    f"Lifecycle hooks configuration {hooks_file} has invalid 'harness-gate' entry (expected JSON object)."
+                )
+                hg_schema_invalid = True
+            elif _has_disabled_flag(hg_entry):
+                warnings.append(
+                    f"Lifecycle hook group 'harness-gate' in {hooks_file} has 'enabled': false; "
+                    "PreInvocation/PreToolUse/Stop enforcement is partially or fully inactive."
+                )
+                hooks_disabled = True
+            if isinstance(hg_entry, dict):
+                has_ptu = isinstance(hg_entry.get("PreToolUse"), list) and bool(_iter_hook_commands(hg_entry.get("PreToolUse")))
+                missing_opt = [
+                    ev
+                    for ev in ("PreInvocation", "Stop")
+                    if not isinstance(hg_entry.get(ev), list) or not _iter_hook_commands(hg_entry.get(ev))
+                ]
+                if not has_ptu:
+                    hg_schema_invalid = True
+                    missing_all = ["PreToolUse", *missing_opt]
+                    warnings.append(
+                        f"Lifecycle hook group 'harness-gate' in {hooks_file} is missing active hook commands for: "
+                        f"{', '.join(missing_all)}."
+                    )
+                elif missing_opt:
+                    infos.append(
+                        f"Lifecycle hook group 'harness-gate' in {hooks_file} has no active commands for optional events: "
+                        f"{', '.join(missing_opt)}."
+                    )
             seen_missing = set()
             for cmd in _iter_hook_commands(hooks_data):
                 try:
                     tokens = shlex.split(cmd, posix=(os.name != "nt"))
-                except ValueError:
+                except ValueError as exc:
+                    warnings.append(
+                        f"Lifecycle hook command in {hooks_file.name} has unbalanced quotes ({exc}): {cmd[:120]}"
+                    )
+                    seen_missing.add(cmd[:120])
                     tokens = cmd.split()
-                for tok in tokens:
+                exe, arg_start, eff_tokens = _extract_hook_executable(tokens)
+                if not exe:
+                    if cmd not in seen_missing:
+                        seen_missing.add(cmd)
+                        warnings.append(
+                            f"Lifecycle hook command in {hooks_file.name} resolves to no executable: {cmd[:120]}"
+                        )
+                    continue
+                if not _hook_executable_exists(exe, root):
+                    if exe not in seen_missing:
+                        seen_missing.add(exe)
+                        warnings.append(
+                            f"Lifecycle hook command executable referenced in {hooks_file.name} "
+                            f"does not exist, is not executable, or is not on PATH: {exe}"
+                        )
+                exe_stem = Path(exe).stem.lower()
+                is_interpreter = exe_stem in _SCRIPT_INTERPRETERS
+                skip_next_arg = False
+                checked_interp_script = False
+                for tok in eff_tokens[arg_start:]:
                     cleaned = tok.strip("\"'")
-                    if cleaned.endswith(".py"):
-                        script_path = Path(cleaned) if Path(cleaned).is_absolute() else (root / cleaned)
+                    if not cleaned:
+                        continue
+                    if skip_next_arg:
+                        skip_next_arg = False
+                        continue
+                    if is_interpreter and cleaned in ("-c", "-m", "-e", "--eval", "-Command", "-EncodedCommand"):
+                        skip_next_arg = True
+                        checked_interp_script = True
+                        continue
+                    if is_interpreter and cleaned in ("-W", "-X", "-r", "--require", "--loader", "--import"):
+                        skip_next_arg = True
+                        continue
+                    if cleaned.startswith("-"):
+                        continue
+                    check_as_script = cleaned.lower().endswith(_HOOK_SCRIPT_SUFFIXES)
+                    if check_as_script and is_interpreter and not checked_interp_script:
+                        checked_interp_script = True
+                    elif not check_as_script and is_interpreter and not checked_interp_script:
+                        checked_interp_script = True
+                        check_as_script = _is_path_like_token(cleaned)
+                    if check_as_script:
+                        expanded = os.path.expanduser(cleaned)
+                        script_path = Path(expanded) if Path(expanded).is_absolute() else (root / expanded)
                         if not script_path.is_file() and cleaned not in seen_missing:
                             seen_missing.add(cleaned)
                             warnings.append(
                                 f"Lifecycle hook script referenced in {hooks_file.name} does not exist: {cleaned}"
                             )
-            if "upstream-watchdog" in hooks_data and "harness-gate" in hooks_data and not seen_missing and not uw_schema_invalid:
+            if (
+                "upstream-watchdog" in hooks_data
+                and "harness-gate" in hooks_data
+                and not seen_missing
+                and not uw_schema_invalid
+                and not hg_schema_invalid
+                and not hooks_disabled
+            ):
                 infos.append("Native lifecycle hooks ('upstream-watchdog' & 'harness-gate') are registered in hooks.json.")
     elif root.is_dir():
         repair_hint = _repair_command_hint()
@@ -342,18 +574,40 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
                 warnings.append(
                     f"Upstream watchdog state file {upstream_file} field 'known_placeholder_models' is not a JSON object."
                 )
+            if (
+                "model_compaction_ceilings" in upstream_data
+                and upstream_data.get("model_compaction_ceilings") is not None
+                and not isinstance(upstream_data.get("model_compaction_ceilings"), dict)
+            ):
+                warnings.append(
+                    f"Upstream watchdog state file {upstream_file} field 'model_compaction_ceilings' is not a JSON object."
+                )
             if upstream_data.get("last_audit_failed"):
                 warnings.append(f"Last upstream repository audit failed in {upstream_file}; check network/rate-limit status.")
 
+    # Warn if both legacy GEMINI.md and canonical rules/antigravity-constitution.md coexist (App/CLI double-load).
+    legacy_gemini = root / "GEMINI.md"
+    canonical_rule = root / "rules" / "antigravity-constitution.md"
+    has_legacy_gemini = legacy_gemini.is_file() or os.path.islink(legacy_gemini)
+    has_canonical_rule = canonical_rule.is_file() or os.path.islink(canonical_rule)
+    if has_legacy_gemini and has_canonical_rule:
+        repair_hint = _repair_command_hint()
+        warnings.append(
+            f"Global constitution exists in both {legacy_gemini} and {canonical_rule}; Antigravity App/CLI "
+            f"will load both cumulatively (double-loading). Remove legacy GEMINI.md or re-run {repair_hint}."
+        )
+
     # Check for unmanaged top-level ~/.gemini/GEMINI.md or ~/.gemini/AGENTS.md shadowing ~/.gemini/config/
     if root.name == "config" and root.parent.name == ".gemini":
+        active_const = canonical_rule if has_canonical_rule else legacy_gemini
         for top_md_name in ("GEMINI.md", "AGENTS.md"):
             top_md = root.parent / top_md_name
             if top_md.is_file() or os.path.islink(top_md):
                 warnings.append(
                     f"Top-level {top_md} exists alongside {root} and may shadow or duplicate global rules in "
-                    f"{root / 'GEMINI.md'}."
+                    f"{active_const}."
                 )
+    _check_native_deny_rules(root, infos, warnings=warnings)
     _check_workspace_hooks_collision(root, warnings)
 
 
