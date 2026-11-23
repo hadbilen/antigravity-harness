@@ -1,6 +1,6 @@
 # Maintainer: Had Bilen <https://github.com/hadbilen>
 pkgname=antigravity-guard
-pkgver=2.3.0
+pkgver=2.4.0
 pkgrel=1
 pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
 arch=('x86_64' 'aarch64')
@@ -47,7 +47,7 @@ EOF
 
     # Documentation, Hooks, Manifest & Governance Templates
     install -dm755 "$pkgdir/usr/share/antigravity-harness"
-    cp GEMINI.md DESIGN.md README.md hooks.json "$pkgdir/usr/share/antigravity-harness/"
+    cp GEMINI.md DESIGN.md README.md LICENSE THIRD_PARTY_NOTICES.md hooks.json "$pkgdir/usr/share/antigravity-harness/"
     python3 -c 'import json, sys; from pathlib import Path; p = Path(sys.argv[1]) / "usr/share/antigravity-harness/hooks.json"; raw = p.read_text(encoding="utf-8"); u, g = "skills/upstream-auditor/scripts/upstream_watcher.py", "guard/agy_hooks.py"; assert u in raw and g in raw, "expected hook script paths missing in hooks.json"; out = raw.replace(u, "/usr/share/antigravity-harness/" + u).replace(g, "/usr/lib/antigravity-guard/" + g); assert isinstance(json.loads(out), dict); p.write_text(out, encoding="utf-8")' "$pkgdir"
     install -Dm644 .harness/manifest.json "$pkgdir/usr/share/antigravity-harness/.harness/manifest.json"
     cp -r templates skills agents "$pkgdir/usr/share/antigravity-harness/"
