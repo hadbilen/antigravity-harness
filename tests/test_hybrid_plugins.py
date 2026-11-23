@@ -1573,7 +1573,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
         assert env is not None
         FileIntegrityMonitor.for_environment(env, os_adapter=adapter).save_baseline()
 
-        unreadable_pack_dir = self.cfg / "plugins" / "unreadable_pack"
+        unreadable_pack_dir = env.get_root() / "plugins" / "unreadable_pack"
         orig_islink = os.path.islink
 
         def _fake_islink(p: object) -> bool:
@@ -2980,6 +2980,82 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
                 {"toolCall": {"name": "write_to_file", "args": {"TargetFile": safe_write}}, "cwd": str(self.ws)}
             )
             self.assertEqual(res_w, {"decision": "allow"}, res_w)
+
+    def test_cross_os_symlink_ancestor_staging_bootcheck_and_str_root_seams(self) -> None:
+        from guard.environment import EnvironmentRegistry
+        from guard.integrity import FileIntegrityMonitor
+        from guard.paths import is_within
+        from guard.startup import StartupManager
+
+        # 1. is_within accepts custom str-only non-PathLike root objects (Windows _FakeDriveRoot parity)
+        FakeStrRoot = type("_FakeStrRoot", (), {"__str__": lambda self: str(self.tmp_root)})
+        fake_root = FakeStrRoot()
+        fake_root.tmp_root = self.tmp / "fake_root"
+        self.assertTrue(is_within(self.tmp / "fake_root" / "sub" / "a.txt", fake_root))
+        self.assertFalse(is_within(self.tmp / "other" / "a.txt", fake_root))
+
+        # 2. Symlinked ancestor (macOS /var -> /private/var equivalent): staging writes allowed, escapes denied,
+        #    and StartupManager matches the resolved global antigravity environment and its FIM baseline.
+        if os.name != "nt":
+            real_base = self.tmp / "private_var"
+            link_base = self.tmp / "var_link"
+            real_base.mkdir()
+            link_base.symlink_to(real_base)
+
+            home_link = link_base / "home"
+            cfg_link = home_link / ".gemini" / "config"
+            state_link = link_base / "state" / "antigravity-harness"
+            staging_link = state_link / "staging"
+            home_staging = home_link / ".local" / "state" / "antigravity-harness" / "staging"
+            for d in (cfg_link, staging_link, home_staging):
+                d.mkdir(parents=True, exist_ok=True)
+            (cfg_link / "DESIGN.md").write_text("# Design\n", encoding="utf-8")
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home_link),
+                    "ANTIGRAVITY_CONFIG_DIR": str(cfg_link),
+                    "AGY_GUARD_STATE_DIR": str(state_link),
+                },
+            ):
+                r_write = agy_hooks.handle_pre_tool_use(
+                    {
+                        "tool_name": "write_to_file",
+                        "tool_input": {"TargetFile": str(staging_link / "model-calibration-sync.md")},
+                    }
+                )
+                self.assertEqual(r_write.get("decision"), "allow", r_write)
+
+                esc = staging_link / "esc_state"
+                esc.symlink_to(state_link)
+                r_esc = agy_hooks.handle_pre_tool_use(
+                    {
+                        "tool_name": "write_to_file",
+                        "tool_input": {"TargetFile": str(esc / "upstream_state.json")},
+                    }
+                )
+                self.assertEqual(r_esc.get("decision"), "deny", r_esc)
+
+                r_cp = agy_hooks.handle_pre_tool_use(
+                    {
+                        "modelName": "Gemini 4 Neon (XHigh)",
+                        "effort": "high",
+                        "toolCall": {
+                            "name": "run_command",
+                            "args": {"CommandLine": "cp /tmp/rfc.md ~/.local/state/antigravity-harness/staging/rfc.md"},
+                        },
+                    }
+                )
+                self.assertEqual(r_cp.get("decision"), "allow", r_cp)
+
+                reg = EnvironmentRegistry()
+                ag_env = reg.get_environment("antigravity")
+                assert ag_env is not None
+                FileIntegrityMonitor.for_environment(ag_env, os_adapter=reg.os_adapter).save_baseline()
+                mgr = StartupManager(target_dir=cfg_link, registry=reg)
+                self.assertEqual(mgr.environment.id, "antigravity")
+                self.assertTrue(mgr.integrity_monitor.state_file.is_file())
 
 
 if __name__ == "__main__":

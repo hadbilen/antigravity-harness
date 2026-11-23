@@ -112,7 +112,7 @@ def _active_artifact_dir(payload: Dict[str, Any]) -> Optional[Path]:
         if ".." in norm_slashes.split("/"):
             return None
         exp = Path(os.path.expanduser(raw_explicit))
-        if not exp.is_absolute():
+        if not (exp.is_absolute() or (os.name == "nt" and norm_slashes.startswith("/") and not norm_slashes.startswith("//"))):
             return None
         cand = exp
     elif conv_id and conv_id != "default" and "\x00" not in conv_id and _CONV_ID_FALLBACK_RE.match(conv_id):
@@ -577,28 +577,34 @@ def _custom_enforced_governance_roots() -> List[Path]:
                     _append_custom_seam(gp_path)
     return out
 
-def _config_root_candidates() -> List[Path]:
+def _with_resolved_candidates(paths: Sequence[Path]) -> List[Path]:
     out: List[Path] = []
-    for cand in (
+    for cand in paths:
+        if cand not in out:
+            out.append(cand)
+        try:
+            if not cand.is_symlink():
+                res = cand.resolve()
+                if res not in out:
+                    out.append(res)
+        except (OSError, RuntimeError, ValueError):
+            pass
+    return out
+
+def _config_root_candidates() -> List[Path]:
+    return _with_resolved_candidates((
         configured_config_dir(),
         config_dir(),
         Path(os.path.abspath(Path.home() / ".gemini" / "config")),
-    ):
-        if cand not in out:
-            out.append(cand)
-    return out
+    ))
 
 def _state_root_candidates() -> List[Path]:
     home = Path.home()
-    out: List[Path] = []
-    for cand in (
+    return _with_resolved_candidates((
         state_dir(),
         Path(os.path.abspath(home / ".local" / "state" / "antigravity-harness")),
         Path(os.path.abspath(home / ".local" / "state" / "antigravity-guard")),
-    ):
-        if cand not in out:
-            out.append(cand)
-    return out
+    ))
 
 def _governance_roots() -> List[Path]:
     roots: List[Path] = []
@@ -734,6 +740,8 @@ def _is_runtime_config_subdir(candidate: Path, root: Path) -> bool:
         if not within_staging:
             return False
         try:
+            if staging_path.is_symlink():
+                return False
             resolved_cand = candidate.resolve()
             resolved_staging = staging_path.resolve()
             resolved_within = is_within(resolved_cand, resolved_staging)
@@ -961,7 +969,7 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
         try:
             if is_within(expanded.resolve(), root.resolve()):
                 return True
-        except (OSError, RuntimeError, ValueError):
+        except (OSError, RuntimeError, ValueError, AttributeError):
             pass
     return False
 

@@ -6,12 +6,12 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && (pwd -W 2>/dev/null || pwd))"
 CONFIG_DIR="${ANTIGRAVITY_CONFIG_DIR:-${HOME}/.gemini/config}"
 STATE_DIR="${AGY_GUARD_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/antigravity-harness}"
 STATE_FILE="${UPSTREAM_STATE_FILE:-${STATE_DIR}/upstream_state.json}"
 SEED_FILE="${CONFIG_DIR}/skills/upstream-auditor/upstream_state.seed.json"
-BUNDLED_SEED="$(cd "${SCRIPT_DIR}/.." && pwd)/upstream_state.seed.json"
+BUNDLED_SEED="$(cd "${SCRIPT_DIR}/.." && (pwd -W 2>/dev/null || pwd))/upstream_state.seed.json"
 SYSTEM_SHARE_SEED="${ANTIGRAVITY_SHARE_DIR:-/usr/share/antigravity-harness}/skills/upstream-auditor/upstream_state.seed.json"
 
 GITHUB_API_BASE="${GITHUB_API_BASE:-https://api.github.com}"
@@ -45,7 +45,12 @@ else
   fi
 fi
 
-AGY_UPSTREAM_STATE="$STATE_FILE" AGY_UPSTREAM_SEED="$RESOLVED_SEED" AGY_SCRIPT_DIR="$SCRIPT_DIR" GITHUB_API_BASE="$GITHUB_API_BASE" python3 -B - <<'EOF'
+PYTHON_CMD="python3"
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -c "import sys" >/dev/null 2>&1; then
+  PYTHON_CMD="python"
+fi
+
+AGY_UPSTREAM_STATE="$STATE_FILE" AGY_UPSTREAM_SEED="$RESOLVED_SEED" AGY_SCRIPT_DIR="$SCRIPT_DIR" GITHUB_API_BASE="$GITHUB_API_BASE" "$PYTHON_CMD" -B - <<'EOF'
 import concurrent.futures
 import copy
 import hashlib

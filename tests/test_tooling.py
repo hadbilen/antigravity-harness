@@ -140,7 +140,8 @@ class TestMetaAudit(TempCase):
 class TestInstaller(TempCase):
     def _run(self, *args: str, env_extra=None) -> subprocess.CompletedProcess:
         env = dict(os.environ, ANTIGRAVITY_CONFIG_DIR=str(self.tmp / "cfg"), HOME=str(self.tmp / "home"),
-                   XDG_STATE_HOME=str(self.tmp / "state"), XDG_DATA_HOME=str(self.tmp / "data"), USERPROFILE=str(self.tmp / "home"))
+                   XDG_STATE_HOME=str(self.tmp / "state"), XDG_DATA_HOME=str(self.tmp / "data"),
+                   USERPROFILE=str(self.tmp / "home"), LOCALAPPDATA=str(self.tmp / "localappdata"))
         env.update(env_extra or {})
         return subprocess.run([sys.executable, str(REPO_ROOT / "install.py"), *args], capture_output=True, text=True,
                               env=env, stdin=subprocess.DEVNULL, timeout=120)

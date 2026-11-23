@@ -72,11 +72,21 @@ class StartupManager:
                 self.registry = None
                 self._registry_error = str(exc)
 
+        def _same_root(env_root: Path, target: Path) -> bool:
+            if env_root == target:
+                return True
+            try:
+                if not os.path.islink(target) and not os.path.islink(env_root):
+                    return env_root.resolve() == target.resolve()
+            except OSError:
+                return False
+            return False
+
         global_env = self.registry.get_environment("antigravity") if self.registry is not None else None
         default_env = default_antigravity_environment()
-        if global_env is not None and global_env.get_root() == self.target_dir:
+        if global_env is not None and _same_root(global_env.get_root(), self.target_dir):
             self.environment: AgentEnvironment = global_env
-        elif self.registry is None and default_env.get_root() == self.target_dir:
+        elif self.registry is None and _same_root(default_env.get_root(), self.target_dir):
             self.environment = default_env
         else:
             self.environment = default_antigravity_environment(self.target_dir)

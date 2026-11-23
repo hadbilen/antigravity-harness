@@ -598,8 +598,7 @@ class TestW3OSLevelGuardFixes(_IsolatedCase):
         mgr.environment.protect_root = True
         mgr.execute_boot_check()
         self.assertFalse(os.access(cfg, os.W_OK))
-        os.chmod(cfg, 0o755)
-        os.chmod(cfg / "GEMINI.md", 0o644)
+        mgr.os_adapter.unlock(cfg)
 
     def test_startup_macos_launchctl_bootstrap_bootout_and_legacy_fallback(self) -> None:
         fake_agents = self.tmp / "LaunchAgents"

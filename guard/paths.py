@@ -108,9 +108,11 @@ def path_key(*parts: Any) -> str:
 def is_within(path: Path, root: Path) -> bool:
     """True if `path` is `root` or lies beneath it (lexically, after absolutisation)."""
     try:
-        Path(os.path.abspath(path)).relative_to(Path(os.path.abspath(root)))
+        p_in = path if isinstance(path, (str, bytes, os.PathLike)) else str(path)
+        r_in = root if isinstance(root, (str, bytes, os.PathLike)) else str(root)
+        Path(os.path.abspath(p_in)).relative_to(Path(os.path.abspath(r_in)))
         return True
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
 

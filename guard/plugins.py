@@ -278,7 +278,7 @@ def _find_trusted_python_on_path(binary_names: Tuple[str, ...]) -> Optional[str]
             dir_real = os.path.realpath(cleaned)
             if cwd_real and dir_real == cwd_real:
                 continue
-            if os.name != "nt":
+            if os.name != "nt" and sys.platform != "win32":
                 st = os.stat(dir_real)
                 if st.st_mode & stat.S_IWOTH:
                     continue

@@ -21,6 +21,7 @@ _ROOT = Path(tempfile.mkdtemp(prefix="agy-test-home-"))
 
 os.environ["HOME"] = str(_ROOT)
 os.environ["USERPROFILE"] = str(_ROOT)
+os.environ["LOCALAPPDATA"] = str(_ROOT / "AppData" / "Local")
 os.environ["XDG_STATE_HOME"] = str(_ROOT / "state")
 os.environ["XDG_DATA_HOME"] = str(_ROOT / "data")
 os.environ["ANTIGRAVITY_CONFIG_DIR"] = str(_ROOT / ".gemini" / "config")

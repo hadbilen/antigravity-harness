@@ -1087,9 +1087,14 @@ class MetaAuditEngine:
                                         )
                                         continue
                                     try:
-                                        cmd_tokens = shlex.split(cmd_str)
+                                        cmd_tokens = shlex.split(cmd_str, posix=(os.name != "nt"))
                                     except ValueError:
                                         cmd_tokens = cmd_str.split()
+                                    if os.name == "nt":
+                                        cmd_tokens = [
+                                            t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in ("'", '"') else t
+                                            for t in cmd_tokens
+                                        ]
                                     for tok in cmd_tokens:
                                         if tok.startswith("-") or not tok.endswith((".py", ".sh", ".mjs")):
                                             continue
