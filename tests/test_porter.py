@@ -549,10 +549,12 @@ class TestExportParityExtended(unittest.TestCase):
             sorted(self.manifest.templates),
             [
                 "ARCHITECTURE.template.md",
+                "DECISIONS.template.md",
                 "HANDOFF.template.md",
                 "MISTAKES.template.md",
                 "REPOSTATE.template.md",
                 "SECURITY_POSTURE.template.md",
+                "procoder.SKILL.template.md",
                 "vulkan.SKILL.template.md",
             ],
         )
@@ -562,10 +564,12 @@ class TestExportParityExtended(unittest.TestCase):
                 emitter.emit(self.manifest, out)
                 for name in (
                     "ARCHITECTURE.template.md",
+                    "DECISIONS.template.md",
                     "HANDOFF.template.md",
                     "MISTAKES.template.md",
                     "REPOSTATE.template.md",
                     "SECURITY_POSTURE.template.md",
+                    "procoder.SKILL.template.md",
                     "vulkan.SKILL.template.md",
                 ):
                     self.assertEqual((out / "templates" / name).read_bytes(), (REPO_ROOT / "templates" / name).read_bytes())
@@ -608,10 +612,19 @@ class TestExportParityExtended(unittest.TestCase):
                     native = (out / ".claude" / "agents" / f"{agent['name']}.md").read_text(encoding="utf-8")
                     native_meta, native_body = parse_frontmatter(native)
                     self.assertEqual(native_meta.get("tools"), expected[agent["name"]])
-                    expected_body = ConstitutionalSanitizer.sanitize_for_export(
-                        parse_frontmatter(agent["raw"])[1], target="claude"
+                    expected_source_body = ConstitutionalSanitizer.sanitize_for_export(
+                        parse_frontmatter(agent["raw"])[1],
+                        target="claude",
                     )
-                    self.assertEqual(native_body.strip(), expected_body)
+                    self.assertIn(expected_source_body.strip(), native_body)
+                    for clause in (
+                        "Prompt Defense & Constitutional Baseline",
+                        "untrusted data",
+                        "relaxing, skipping, or deleting test assertions",
+                        "exact dependency version pinning",
+                        "surgical scope reusing existing codebase helpers",
+                    ):
+                        self.assertIn(clause, native_body)
                     self.assertNotIn("<appDataDir>", native_body)
             claude_md = (out / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertIn("templates/HANDOFF.template.md", claude_md)
@@ -624,7 +637,12 @@ class TestExportParityExtended(unittest.TestCase):
                 EMITTERS[target].emit(self.manifest, out)
                 for agent in self.manifest.agents:
                     text = (out / EMITTERS[target].AGENTS_DIR / f"{agent['name']}.md").read_text(encoding="utf-8")
-                    self.assertNotIn("\ntools:", text)
+                    meta, _ = parse_frontmatter(text)
+                    self.assertNotIn("Read, Grep, Glob", text)
+                    self.assertNotIn("WebFetch", str(meta.get("tools", "")))
+                    self.assertNotIn("WebSearch", str(meta.get("tools", "")))
+                    expected_tools = ["read_file", "search_web"] if agent["name"] == "research" else ["read_file"]
+                    self.assertEqual(meta.get("tools"), expected_tools)
 
 
 class TestDeadlineTimeoutMapping(unittest.TestCase):

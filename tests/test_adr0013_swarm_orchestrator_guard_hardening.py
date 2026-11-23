@@ -870,6 +870,8 @@ class TestW4PreFlightAuditAndMutationResilience(_IsolatedCase):
     def test_w4_workflow_ast_dynamic_call_tool_fail_closed_kwargs_and_symlink_scriptpath(self) -> None:
         ws = self.tmp / "ws_wf_w4"
         ws.mkdir()
+        (ws / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         brain = Path.home() / ".gemini" / "antigravity" / "brain" / "conv-w4-wf"
         brain.mkdir(parents=True, exist_ok=True)
         outside = self.tmp / "outside_wf"
@@ -1191,6 +1193,8 @@ class TestW4PreFlightAuditAndMutationResilience(_IsolatedCase):
     def test_w4_swarm_channels_cust_channels_resurrection_and_send_message_fail_closed(self) -> None:
         ws = self.tmp / "ws_sw_w4"
         ws.mkdir()
+        (ws / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         base = {"workspacePath": str(ws), "model": "Gemini 4 Neon (XHigh)", "swarmId": "sw-w4"}
 
         # Spawn Flash worker

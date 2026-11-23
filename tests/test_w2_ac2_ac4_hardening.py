@@ -69,6 +69,8 @@ class TestAC2ToolExpansionAndSwarmGuards(unittest.TestCase):
         self.root = Path(self._tmp)
         self.repo = self.root / "repo"
         self.repo.mkdir(parents=True)
+        (self.repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (self.repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (self.repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (self.repo / "skills" / "harness").mkdir(parents=True)
         (self.repo / "skills" / "harness" / "SKILL.md").write_text("---\nname: harness\n---\n", encoding="utf-8")
@@ -964,6 +966,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_repo"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (ws_repo / "skills" / "harness").mkdir(parents=True, exist_ok=True)
         (ws_repo / "skills" / "harness" / "SKILL.md").write_text("---\nname: harness\n---\n", encoding="utf-8")
@@ -1067,6 +1071,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_sched"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (ws_repo / "skills" / "harness").mkdir(parents=True, exist_ok=True)
         (ws_repo / "skills" / "harness" / "SKILL.md").write_text("---\nname: harness\n---\n", encoding="utf-8")
@@ -1302,6 +1308,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_ph_seam"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
 
         seed_dir = self.cfg / "skills" / "upstream-auditor"
@@ -1385,6 +1393,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_defsub_w4"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
 
         def _p(args: dict, conv_id: str = "conv-def-w4", model_name: str = TOP_MODEL, effort: str = "xhigh") -> dict:
@@ -1452,6 +1462,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_sm_w4"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
 
         def _p(args: dict, conv_id: str = "conv-sm-w4", tx: Path | None = None) -> dict:
@@ -1505,6 +1517,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_pm_w4"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (ws_repo / "skills" / "harness").mkdir(parents=True, exist_ok=True)
         (ws_repo / "skills" / "harness" / "SKILL.md").write_text("---\nname: harness\n---\n", encoding="utf-8")
@@ -1562,6 +1576,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         ws_repo = self.root / "ws_sw_w4"
         ws_repo.mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_repo / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_repo / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (ws_repo / "src").mkdir(parents=True, exist_ok=True)
         (ws_repo / "src" / "app.py").write_text("X = 1\n", encoding="utf-8")

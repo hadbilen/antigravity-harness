@@ -148,12 +148,18 @@ class TestInstaller(TempCase):
     def test_copy_install_produces_lockable_real_files_and_external_backups(self):
         cfg = self.tmp / "cfg"
         (cfg / "skills").mkdir(parents=True)
-        (cfg / "GEMINI.md").write_text("old rules", encoding="utf-8")
+        (cfg / "GEMINI.md").write_text("# Antigravity Global Engineering & Behavioral Constitution\nold rules\n", encoding="utf-8")
         (cfg / "hooks.json").write_text(json.dumps({"my-hook": {"PreToolUse": []}}), encoding="utf-8")
         res = self._run()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertFalse(os.path.islink(cfg / "GEMINI.md"))
-        self.assertEqual((cfg / "GEMINI.md").read_text(encoding="utf-8"), (REPO_ROOT / "GEMINI.md").read_text(encoding="utf-8"))
+        rule_file = cfg / "rules" / "antigravity-constitution.md"
+        self.assertTrue(rule_file.is_file())
+        self.assertFalse(os.path.islink(rule_file))
+        rule_text = rule_file.read_text(encoding="utf-8")
+        self.assertIn("trigger: always_on", rule_text)
+        self.assertIn((REPO_ROOT / "GEMINI.md").read_text(encoding="utf-8").strip(), rule_text)
+        self.assertFalse((cfg / "GEMINI.md").exists(), "legacy harness GEMINI.md must be retired to avoid double-loading")
+        self.assertFalse((cfg / "MISTAKES.md").exists(), "harness-internal MISTAKES.md must not be installed globally")
         self.assertTrue((cfg / "skills" / "harness" / "SKILL.md").is_file())
         self.assertTrue((cfg / "templates" / "HANDOFF.template.md").is_file())
         hooks = json.loads((cfg / "hooks.json").read_text(encoding="utf-8"))

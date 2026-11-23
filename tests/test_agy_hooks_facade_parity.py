@@ -349,6 +349,8 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
         self.assertIn("synthetic-flagship-9-xhigh", allowed)
 
         # 3. _batch_update_swarm_workers_ledger monkeypatch fails safe (force_ask) on swarm customization add
+        (self.ws_dir / ".harness").mkdir(parents=True, exist_ok=True)
+        (self.ws_dir / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (self.ws_dir / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         real_top_name, _ = agy_hooks._catalog_top_model_spec()
         with mock.patch.object(agy_hooks, "_batch_update_swarm_workers_ledger", return_value=False):
@@ -661,8 +663,19 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
 
     def test_all_submodule_top_level_definitions_registered_in_facade(self) -> None:
         hooks_py = REPO_ROOT / "guard" / "agy_hooks.py"
-        line_count = len(hooks_py.read_text(encoding="utf-8").splitlines())
-        self.assertLessEqual(line_count, 350, f"guard/agy_hooks.py exceeds 350-line facade cap ({line_count})")
+        raw_bytes = hooks_py.read_bytes()
+        lines = raw_bytes.decode("utf-8").splitlines()
+        max_line = max((len(line) for line in lines), default=0)
+        self.assertLessEqual(
+            len(raw_bytes),
+            32_768,
+            f"guard/agy_hooks.py exceeds 32 KiB facade byte budget ({len(raw_bytes)} bytes)",
+        )
+        self.assertLessEqual(
+            max_line,
+            160,
+            f"guard/agy_hooks.py exceeds 160-char line readability budget ({max_line} chars)",
+        )
 
         internal_shims = {
             "_DEFAULT_REPO_ROOT",

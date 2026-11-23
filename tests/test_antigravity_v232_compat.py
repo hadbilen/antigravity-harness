@@ -296,8 +296,10 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
         self.assertTrue((REPO_ROOT / "skills" / "harness" / "references" / "context-and-artifacts.md").is_file())
         self.assertTrue((REPO_ROOT / "skills" / "harness" / "references" / "multi-agent-orchestration.md").is_file())
 
+        self.assertIn("references/multi-agent-orchestration.md", harness_txt)
+        self.assertIn("§5", harness_txt)
+        self.assertNotIn("swarm_pane", harness_txt)
         for rel_doc in (
-            "skills/harness/SKILL.md",
             "skills/harness/references/multi-agent-orchestration.md",
             "skills/harness/references/marathon.md",
             "skills/harness/references/unlazy/references/dispatch.md",
@@ -525,14 +527,17 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
                 res = agy_hooks.handle_pre_tool_use(payload)
                 self.assertEqual(res.get("decision"), "deny", (label, res))
 
-        # Two-step bypass on non-harness-detection edge: add cust worker without model, then switch its model to flash
+        # Two-step bypass inside a harness checkout: add cust worker without model, then switch its model to flash
+        two_step_ws = self.tmp / "two_step_harness"
+        (two_step_ws / ".harness").mkdir(parents=True, exist_ok=True)
+        (two_step_ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         conv = "sw-two-step"
         add_ok = agy_hooks.handle_pre_tool_use(
             {
                 "conversationId": conv,
                 "modelName": "Gemini 4 Neon (XHigh)",
                 "effort": "xhigh",
-                "workspacePath": str(self.tmp),
+                "workspacePath": str(two_step_ws),
                 "toolCall": {
                     "name": "swarm",
                     "args": {
@@ -549,7 +554,7 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
                 "conversationId": conv,
                 "modelName": "Gemini 4 Neon (XHigh)",
                 "effort": "xhigh",
-                "workspacePath": str(self.tmp),
+                "workspacePath": str(two_step_ws),
                 "toolCall": {
                     "name": "swarm",
                     "args": {"action": "model", "name": "cfg-worker", "model": "flash_lite"},
@@ -601,9 +606,9 @@ class TestAntigravityV232SwarmAndRouting(unittest.TestCase):
 
         gemini_bytes = (REPO_ROOT / "GEMINI.md").read_bytes()
         self.assertLess(len(gemini_bytes), 20000)
-        gemini_text = gemini_bytes.decode("utf-8")
+        maintainer_text = (REPO_ROOT / ".agents" / "rules" / "harness-maintainer.md").read_text(encoding="utf-8")
         for token in ("native_swarm", "migrate-agent-settings", "mcp-app-development", "/grill-me", "/learn"):
-            self.assertIn(token, gemini_text)
+            self.assertIn(token, maintainer_text)
 
 
 class TestAntigravityV232KnowledgeWorkHygiene(unittest.TestCase):
@@ -616,7 +621,10 @@ class TestAntigravityV232KnowledgeWorkHygiene(unittest.TestCase):
     def test_recovery_hint_adapts_to_non_git_vs_git_workspaces(self) -> None:
         non_git_ws = self.tmp / "docs_folder"
         non_git_ws.mkdir()
-        (non_git_ws / "tasks.md").write_text("- [ ] Draft quarterly summary\n", encoding="utf-8")
+        (non_git_ws / "tasks.md").write_text(
+            "**Campaign ID:** `2026-11-22-kw-nongit`\n- [ ] Draft quarterly summary\n",
+            encoding="utf-8",
+        )
 
         res_nongit = agy_hooks.handle_pre_invocation(
             {
@@ -634,7 +642,10 @@ class TestAntigravityV232KnowledgeWorkHygiene(unittest.TestCase):
         git_ws = self.tmp / "code_repo"
         git_ws.mkdir()
         (git_ws / ".git").mkdir()
-        (git_ws / "tasks.md").write_text("- [ ] Fix parser edge case\n", encoding="utf-8")
+        (git_ws / "tasks.md").write_text(
+            "**Campaign ID:** `2026-11-22-kw-git`\n- [ ] Fix parser edge case\n",
+            encoding="utf-8",
+        )
 
         res_git = agy_hooks.handle_pre_invocation(
             {
@@ -667,15 +678,18 @@ class TestAntigravityV232KnowledgeWorkHygiene(unittest.TestCase):
                 )
                 self.assertEqual(res.get("decision"), "allow", (rel, res))
 
+        # Rule 17 model gate is scoped strictly to harness checkouts & ~/.gemini/config (2.3):
+        # external non-harness repos can edit their own GEMINI.md / AGENTS.md / SKILL.md / .cursor/ on any model.
         for rel in (
             "skills/custom/SKILL.md",
             ".agents/skills/demo/foo.md",
             "GEMINI.md",
+            "AGENTS.md",
             "hooks.json",
             ".cursor/rules/style.mdc",
         ):
-            with self.subTest(always_cust=rel):
-                self.assertTrue(
+            with self.subTest(external_allowed=rel):
+                self.assertFalse(
                     agy_hooks._targets_customization_structure(rel, workspace=non_harness_ws),
                     rel,
                 )
@@ -686,12 +700,20 @@ class TestAntigravityV232KnowledgeWorkHygiene(unittest.TestCase):
                         "toolCall": {"name": "edit_file", "args": {"Path": rel}},
                     }
                 )
-                self.assertEqual(res.get("decision"), "deny", (rel, res))
+                self.assertEqual(res.get("decision"), "allow", (rel, res))
 
         harness_ws = self.tmp / "harness_ws"
         (harness_ws / ".harness").mkdir(parents=True)
         (harness_ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
-        for rel in ("skills/notes.md", "agents/roster.md"):
+        for rel in (
+            "skills/notes.md",
+            "agents/roster.md",
+            "skills/custom/SKILL.md",
+            ".agents/skills/demo/foo.md",
+            "GEMINI.md",
+            "hooks.json",
+            ".cursor/rules/style.mdc",
+        ):
             with self.subTest(harness_cust=rel):
                 self.assertTrue(
                     agy_hooks._targets_customization_structure(rel, workspace=harness_ws),

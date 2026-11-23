@@ -874,6 +874,8 @@ class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
         # 5. PreToolUse `_seed_placeholder_diagnostic` & fail-closed `force_ask` on Rule 17 governance writes
         ws_gov = self.tmp / "ws_gov_ac5"
         ws_gov.mkdir(parents=True, exist_ok=True)
+        (ws_gov / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_gov / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_gov / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
 
         for ph_id, expected_label in self.EXPECTED_PLACEHOLDERS.items():
@@ -979,6 +981,8 @@ class TestAuditorMutualFalsificationRegressions(HermeticHookCase):
         cfg_target = str(self.cfg_dir / "GEMINI.md")
         ws_gov = self.tmp / "ws_cust_hd"
         ws_gov.mkdir(parents=True, exist_ok=True)
+        (ws_gov / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_gov / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_gov / "GEMINI.md").write_text("# WS Constitution\n", encoding="utf-8")
 
         deny_vectors = [
@@ -1269,6 +1273,8 @@ class TestAuditorMutualFalsificationRegressions(HermeticHookCase):
         )
         ws_iso = self.tmp / "ws_iso"
         ws_iso.mkdir()
+        (ws_iso / ".harness").mkdir(parents=True, exist_ok=True)
+        (ws_iso / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (ws_iso / "GEMINI.md").write_text("# C\n", encoding="utf-8")
         with (
             mock.patch.object(agy_hooks, "REPO_ROOT", self.tmp / "absent_repo"),

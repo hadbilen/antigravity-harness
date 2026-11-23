@@ -537,7 +537,9 @@ class TestInstallerHooks(TempDirCase):
         self.assertTrue((inst.backup_dir / "skills" / "retired-legacy-skill" / "SKILL.md").is_file())
         receipt = json.loads((install.state_dir() / "install_receipt.json").read_text(encoding="utf-8"))
         self.assertIn("installed", receipt)
-        self.assertIn("GEMINI.md", receipt["installed"])
+        self.assertIn("rules/antigravity-constitution.md", receipt["installed"])
+        self.assertNotIn("GEMINI.md", receipt["installed"])
+        self.assertNotIn("MISTAKES.md", receipt["installed"])
 
     def test_verify_invariants_check_diff_honors_base_path(self):
         import subprocess

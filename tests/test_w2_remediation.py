@@ -565,7 +565,7 @@ class TestContractAuditorRemediationsW2(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(res.returncode, 0, msg=res.stderr)
-            self.assertEqual(len(list((export_dir / ".claude" / "skills").iterdir())), 21)
+            self.assertEqual(len(list((export_dir / ".claude" / "skills").iterdir())), 20)
 
 
 class TestSliceAPorterArchiveSymlinkAndNetW2(unittest.TestCase):

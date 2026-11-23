@@ -215,6 +215,8 @@ class TestWindowsCIV220Remediation(unittest.TestCase):
         )
         self.assertEqual(res_hooks.get("decision"), "force_ask")
 
+        (self.ws_dir / ".harness").mkdir(parents=True, exist_ok=True)
+        (self.ws_dir / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         gemini_uri = f"file://{self.ws_dir.as_posix()}/GEMINI%2Emd"
         res_cust = agy_hooks.handle_pre_tool_use(
             {

@@ -2275,6 +2275,8 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
                 self.assertEqual(res.get("decision"), "deny", f"Expected deny for {label}: {res}")
 
     def test_run_workflow_model_gate_rmtree_force_ask_and_clean_controls(self) -> None:
+        (self.workspace / ".harness").mkdir(parents=True, exist_ok=True)
+        (self.workspace / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         # Downgraded workflow agent (`flash_lite`, persistent `flash`, reassigned `m`, or parent low-tier model) is denied
         for label, model_name, script in (
             (
@@ -2644,6 +2646,8 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
                 self.assertEqual(res.get("decision"), "deny", f"Expected deny for {label}: {res}")
 
         # 3. `call_tool` customization model gate (`deny`) and destructive `run_command` (`force_ask`)
+        (self.workspace / ".harness").mkdir(parents=True, exist_ok=True)
+        (self.workspace / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         ct_cust_deny = agy_hooks.handle_pre_tool_use(
             {
                 "modelName": "gemini-3-flash",

@@ -488,6 +488,8 @@ class TestPreToolUseCommandAndSandboxSeams(HermeticSeamCase):
     def test_p09_workflow_environ_reassigned_var_and_supply_chain_commands(self) -> None:
         cust_ws = self.tmp / "wf_cust_ws"
         (cust_ws / "guard").mkdir(parents=True)
+        (cust_ws / ".harness").mkdir(parents=True, exist_ok=True)
+        (cust_ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (cust_ws / "GEMINI.md").write_text("# WS\n", encoding="utf-8")
 
         res_env = handle_pre_tool_use({
@@ -1794,6 +1796,8 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
         # SBV-3b: mcp_fs_write_file on GEMINI.md under gemini-3-flash -> deny
         cust_ws = self.tmp / "sbv3_cust_ws"
         (cust_ws / "guard").mkdir(parents=True)
+        (cust_ws / ".harness").mkdir(parents=True, exist_ok=True)
+        (cust_ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (cust_ws / "GEMINI.md").write_text("# WS Constitution\n", encoding="utf-8")
         for target_arg in (str(cust_ws / "GEMINI.md"), "GEMINI.md"):
             with self.subTest(sbv3_target=target_arg):
@@ -2588,6 +2592,8 @@ class TestW1OrchestratorSwarmAndWorkflowCalibration(unittest.TestCase):
         self.state_dir.mkdir(parents=True)
         self.ws = self.tmp / "repo"
         _init_git_repo(self.ws)
+        (self.ws / ".harness").mkdir(parents=True, exist_ok=True)
+        (self.ws / ".harness" / "manifest.json").write_text("{}", encoding="utf-8")
         (self.ws / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (self.ws / "skills" / "harness").mkdir(parents=True)
         (self.ws / "skills" / "harness" / "SKILL.md").write_text("---\nname: harness\n---\n", encoding="utf-8")

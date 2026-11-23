@@ -312,9 +312,11 @@ class TestPreToolUseCwdIsolation(unittest.TestCase):
             ("abs_runtime_file", str(agy_hooks.data_dir() / "runtime" / "internal_note.txt")),
             ("dotdot_escape_gemini", rel_escape_gemini),
             ("dotdot_escape_custom_non_basename", rel_escape_custom),
-            ("universal_skill_md", "SKILL.md"),
-            ("universal_gemini_md", "GEMINI.md"),
-            ("universal_hooks_json", "hooks.json"),
+        )
+        harness_ws_cust_targets = (
+            ("harness_skill_md", "SKILL.md"),
+            ("harness_gemini_md", "GEMINI.md"),
+            ("harness_hooks_json", "hooks.json"),
         )
 
         for cwd_label, hook_cwd in (
@@ -390,7 +392,31 @@ class TestPreToolUseCwdIsolation(unittest.TestCase):
                             (cwd_label, target_label, tool_name, res),
                         )
 
-            # Harness repository `guard/` and `skills/` references must still trigger Rule 17 deny
+            # Harness repository `SKILL.md`, `GEMINI.md`, `hooks.json`, `guard/`, and `skills/` references must still trigger Rule 17 deny
+            for target_label, target_ref in harness_ws_cust_targets:
+                prompt_text = f"Review and align {target_ref} structure"
+                with self.subTest(cwd=cwd_label, harness_target=target_label):
+                    self.assertTrue(
+                        pre_tool_use._text_targets_customization(
+                            prompt_text,
+                            [self.harness_ws],
+                            fallback_ws=self.harness_ws,
+                            effective_cwd=self.harness_ws,
+                        ),
+                        (cwd_label, target_label, prompt_text),
+                    )
+                    res_h_target = agy_hooks.handle_pre_tool_use(
+                        self._hook_payload(
+                            "swarm",
+                            {"action": "add", "name": "sec-h", "brief": prompt_text},
+                            ws=self.harness_ws,
+                            model_name=NON_FLAGSHIP_MODEL,
+                            effort="medium",
+                            conv_id=f"conv-sec-h-{cwd_label}-{target_label}",
+                        )
+                    )
+                    self.assertEqual(res_h_target.get("decision"), "deny", (cwd_label, target_label, res_h_target))
+                    self.assertIn("Rule 17", str(res_h_target.get("reason", "")))
             for h_label, h_ws in (("fixture_harness", self.harness_ws), ("repo_root", REPO_ROOT)):
                 for h_ref in ("guard/hooks/pre_tool_use.py", "guard/", "skills/harness/notes.md", "skills/"):
                     h_prompt = f"Review {h_ref} invariants"
