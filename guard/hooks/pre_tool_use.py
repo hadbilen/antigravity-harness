@@ -930,11 +930,12 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
                     stripped_up = re.sub(r"^(?:\.\.(?:[/\\]|$))+", "", cleaned)
                     if re.match(r"^[A-Za-z]:[/\\]", stripped_up):
                         return _targets_governance_dir(stripped_up)
+                    rel_up = stripped_up.lstrip("/\\")
                     seen_drives_up: List[str] = []
                     for r in _governance_roots():
                         if r.drive and r.drive.upper() not in seen_drives_up:
                             seen_drives_up.append(r.drive.upper())
-                            if _targets_governance_dir(f"{r.drive}\\{stripped_up.lstrip('/\\\\')}"):
+                            if _targets_governance_dir(f"{r.drive}\\{rel_up}"):
                                 return True
                     return False
                 expanded = Path("/") / expanded

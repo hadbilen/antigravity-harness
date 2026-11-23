@@ -2998,7 +2998,8 @@ _SHELL_VERB_SKIP_NAMES = frozenset({
 })
 
 def _extract_shell_path_tokens(sub_cmd: str) -> List[str]:
-    expanded = _unquote_single_tokens(_strip_unquoted_shell_comments(_expand_simple_shell_vars(sub_cmd)))
+    raw_no_comments = _strip_unquoted_shell_comments(_expand_simple_shell_vars(sub_cmd))
+    expanded = _unquote_single_tokens(raw_no_comments)
     no_multi_quotes = _QUOTED_SPAN_RE.sub(" ", expanded)
     out: List[str] = []
     for raw_tok in re.findall(r"[^\s;|&()<>\"'`]+", no_multi_quotes):
@@ -3015,6 +3016,12 @@ def _extract_shell_path_tokens(sub_cmd: str) -> List[str]:
         if re.match(r"^s/[^/]*/[^/]*/[gip0-9]*$", tok) or tok.isdigit():
             continue
         out.append(tok)
+    for win_rel in re.findall(r"(?:^|(?<=[\s;|&()<>]))(\.\.?\\[^\s;|&()<>'\"`]+)", raw_no_comments):
+        norm_rel = win_rel.replace("\\", "/")
+        if win_rel not in out:
+            out.append(win_rel)
+        if norm_rel not in out:
+            out.append(norm_rel)
     for m_q in _QUOTED_SPAN_RE.finditer(expanded):
         raw_q = m_q.group(0)
         inner = raw_q[1:-1].strip()
