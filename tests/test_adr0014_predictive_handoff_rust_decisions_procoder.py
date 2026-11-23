@@ -34,6 +34,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,14 @@ from guard import upstream as guard_upstream  # noqa: E402
 WATCHER_PATH = REPO_ROOT / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
 SEED_PATH = REPO_ROOT / "skills" / "upstream-auditor" / "upstream_state.seed.json"
 CHECK_SKILLS_SH = REPO_ROOT / "skills" / "upstream-auditor" / "scripts" / "check_skills.sh"
+
+
+def _bash_exe() -> str:
+    if os.name == "nt":
+        for cand in (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe"):
+            if os.path.isfile(cand):
+                return cand
+    return shutil.which("bash") or "bash"
 
 
 def _load_watcher(env: dict[str, str]):
@@ -305,7 +314,7 @@ class TestW1BuiltinBundleChecksumAndCalibration(unittest.TestCase):
             "UPSTREAM_STATE_FILE": str(st_file),
             "PYTHONPATH": str(shim_dir),
         }
-        p_drift = subprocess.run(["bash", str(CHECK_SKILLS_SH)], capture_output=True, text=True, env=env, timeout=15)
+        p_drift = subprocess.run([_bash_exe(), str(CHECK_SKILLS_SH)], capture_output=True, text=True, env=env, timeout=15)
         self.assertEqual(p_drift.returncode, 0, p_drift.stderr + p_drift.stdout)
         self.assertIn("builtin/.checksum", p_drift.stdout)
         self.assertNotIn("[OK]", p_drift.stdout, "check_skills.sh must not print [OK] when builtin bundle drift exists")
@@ -329,7 +338,7 @@ class TestW1BuiltinBundleChecksumAndCalibration(unittest.TestCase):
         )
         self.checksum_file.write_text(local_ack_cs, encoding="utf-8")
         p_ack = subprocess.run(
-            ["bash", str(CHECK_SKILLS_SH)],
+            [_bash_exe(), str(CHECK_SKILLS_SH)],
             capture_output=True,
             text=True,
             env={**env, "UPSTREAM_STATE_FILE": str(ack_state_file)},
@@ -341,7 +350,7 @@ class TestW1BuiltinBundleChecksumAndCalibration(unittest.TestCase):
 
         # 3. Missing default .checksum degrades cleanly without alert and prints [OK]
         self.checksum_file.unlink()
-        p_missing = subprocess.run(["bash", str(CHECK_SKILLS_SH)], capture_output=True, text=True, env=env, timeout=15)
+        p_missing = subprocess.run([_bash_exe(), str(CHECK_SKILLS_SH)], capture_output=True, text=True, env=env, timeout=15)
         self.assertEqual(p_missing.returncode, 0, p_missing.stderr + p_missing.stdout)
         self.assertNotIn("builtin/.checksum", p_missing.stdout)
         self.assertIn("[OK]", p_missing.stdout)
@@ -351,7 +360,7 @@ class TestW1BuiltinBundleChecksumAndCalibration(unittest.TestCase):
             ext_cs = self.root / "ext_cs_target.txt"
             ext_cs.write_text("builtin:deadbeefdeadbeefdeadbeefdeadbeef\n", encoding="utf-8")
             self.checksum_file.symlink_to(ext_cs)
-            p_sym = subprocess.run(["bash", str(CHECK_SKILLS_SH)], capture_output=True, text=True, env=env, timeout=15)
+            p_sym = subprocess.run([_bash_exe(), str(CHECK_SKILLS_SH)], capture_output=True, text=True, env=env, timeout=15)
             self.assertNotEqual(p_sym.returncode, 0, "Symlinked .checksum must fail closed in check_skills.sh")
             self.assertNotIn("[OK]", p_sym.stdout)
             self.assertIn("builtin/.checksum", p_sym.stderr)
@@ -1768,7 +1777,7 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
         cs_state = self.root / "cs_legacy_state.json"
         cs_state.write_text(json.dumps(legacy_state), encoding="utf-8")
         proc_cs = subprocess.run(
-            ["bash", str(CHECK_SKILLS_SH)],
+            [_bash_exe(), str(CHECK_SKILLS_SH)],
             capture_output=True,
             text=True,
             env={

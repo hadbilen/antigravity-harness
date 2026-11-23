@@ -4692,7 +4692,7 @@ def _handle_workflow_pre_tool_use(
             and _ptu._is_path_strictly_within_dir(str(sp_path), active_scratch_dir)
         )
         if (
-            (sp_mode & stat.S_IWOTH)
+            (os.name != "nt" and bool(sp_mode & stat.S_IWOTH))
             or (workspaces and not in_ws and not in_active_scratch)
             or (not workspaces and not in_active_scratch and (sp_mode & 0o222))
         ):

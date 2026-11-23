@@ -577,9 +577,13 @@ def _custom_enforced_governance_roots() -> List[Path]:
                     _append_custom_seam(gp_path)
     return out
 
-def _with_resolved_candidates(paths: Sequence[Path]) -> List[Path]:
+def _config_root_candidates() -> List[Path]:
     out: List[Path] = []
-    for cand in paths:
+    for cand in (
+        configured_config_dir(),
+        config_dir(),
+        Path(os.path.abspath(Path.home() / ".gemini" / "config")),
+    ):
         if cand not in out:
             out.append(cand)
         try:
@@ -591,20 +595,24 @@ def _with_resolved_candidates(paths: Sequence[Path]) -> List[Path]:
             pass
     return out
 
-def _config_root_candidates() -> List[Path]:
-    return _with_resolved_candidates((
-        configured_config_dir(),
-        config_dir(),
-        Path(os.path.abspath(Path.home() / ".gemini" / "config")),
-    ))
-
 def _state_root_candidates() -> List[Path]:
     home = Path.home()
-    return _with_resolved_candidates((
+    out: List[Path] = []
+    for cand in (
         state_dir(),
         Path(os.path.abspath(home / ".local" / "state" / "antigravity-harness")),
         Path(os.path.abspath(home / ".local" / "state" / "antigravity-guard")),
-    ))
+    ):
+        if cand not in out:
+            out.append(cand)
+        try:
+            if not cand.is_symlink():
+                res = cand.resolve()
+                if res not in out:
+                    out.append(res)
+        except (OSError, RuntimeError, ValueError):
+            pass
+    return out
 
 def _governance_roots() -> List[Path]:
     roots: List[Path] = []
@@ -918,6 +926,17 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
             return False
         if base_dir is None:
             if re.match(r"^\.\.(?:[/\\]|$)", cleaned):
+                if os.name == "nt":
+                    stripped_up = re.sub(r"^(?:\.\.(?:[/\\]|$))+", "", cleaned)
+                    if re.match(r"^[A-Za-z]:[/\\]", stripped_up):
+                        return _targets_governance_dir(stripped_up)
+                    seen_drives_up: List[str] = []
+                    for r in _governance_roots():
+                        if r.drive and r.drive.upper() not in seen_drives_up:
+                            seen_drives_up.append(r.drive.upper())
+                            if _targets_governance_dir(f"{r.drive}\\{stripped_up.lstrip('/\\\\')}"):
+                                return True
+                    return False
                 expanded = Path("/") / expanded
                 exp_str = str(expanded)
             else:

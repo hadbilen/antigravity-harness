@@ -35,6 +35,14 @@ _WATCHER_PATH = REPO_ROOT / "skills" / "upstream-auditor" / "scripts" / "upstrea
 _CHECK_SKILLS_SH = REPO_ROOT / "skills" / "upstream-auditor" / "scripts" / "check_skills.sh"
 
 
+def _bash_exe() -> str:
+    if os.name == "nt":
+        for cand in (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe"):
+            if os.path.isfile(cand):
+                return cand
+    return shutil.which("bash") or "bash"
+
+
 def _assert_constitutionally_clean(case: unittest.TestCase, label: str, text: str) -> None:
     report = _ANALYZER.analyze(text, source_identifier=label)
     case.assertEqual(report.constitutional_score, 100, f"{label}: {report.issues}")
@@ -891,7 +899,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
 
         env_clean = {**env, "UPSTREAM_STATE_FILE": str(clean_state_file)}
         proc_clean = subprocess.run(
-            ["bash", str(_CHECK_SKILLS_SH)],
+            [_bash_exe(), str(_CHECK_SKILLS_SH)],
             capture_output=True,
             text=True,
             env=env_clean,
@@ -908,7 +916,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
 
         # 2. Malformed remote tag fails closed with exit code 1 and INVALID TAG status.
         proc_bad = subprocess.run(
-            ["bash", str(_CHECK_SKILLS_SH)],
+            [_bash_exe(), str(_CHECK_SKILLS_SH)],
             capture_output=True,
             text=True,
             env=env,

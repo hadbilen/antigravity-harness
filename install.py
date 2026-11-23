@@ -912,9 +912,10 @@ class Installer:
 
     def _write_launcher(self, path: Path, content: str, executable: bool = True) -> None:
         had_existing = os.path.lexists(path)
+        content_bytes = content.encode("utf-8")
         if had_existing and not os.path.islink(path) and path.is_file():
             try:
-                if path.read_text(encoding="utf-8") == content:
+                if path.read_bytes() == content_bytes:
                     if executable and not IS_WINDOWS and not (os.lstat(path).st_mode & 0o111):
                         os.chmod(path, 0o755)
                     return
@@ -929,7 +930,7 @@ class Installer:
                     pass
             self._backup_external(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_bytes(content_bytes)
         if executable and not IS_WINDOWS:
             path.chmod(0o755)
         if not had_existing:

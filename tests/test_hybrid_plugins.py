@@ -1038,7 +1038,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         self.assertEqual(mcp_restored["antislop-human"]["command"], sys.executable)
         self.assertEqual(
             mcp_restored["antislop-human"]["args"],
-            [str(self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+            [str(self.cfg.resolve() / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
         )
         self.assertIn("third-party-mcp", mcp_restored)
 
