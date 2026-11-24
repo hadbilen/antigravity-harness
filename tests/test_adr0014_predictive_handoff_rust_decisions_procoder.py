@@ -1758,11 +1758,13 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
         shim_dir.mkdir()
         queried_log = self.root / "queried_urls.txt"
         (shim_dir / "sitecustomize.py").write_text(
-            "import json, os, sys, types\n"
+            "import json, os, sys, threading, types\n"
             f"LOG = {str(queried_log)!r}\n"
+            "_LOCK = threading.Lock()\n"
             "def _fake_fetch(url, **_kw):\n"
-            "    with open(LOG, 'a', encoding='utf-8') as fh:\n"
-            "        fh.write(url + '\\n')\n"
+            "    with _LOCK:\n"
+            "        with open(LOG, 'a', encoding='utf-8') as fh:\n"
+            "            fh.write(url + '\\n')\n"
             "    if '/releases/latest' in url:\n"
             "        return json.dumps({'tag_name': 'v2.1.0'})\n"
             "    return json.dumps([{'sha': 'aaaaaaa000000000000000000000000000000000'}])\n"
