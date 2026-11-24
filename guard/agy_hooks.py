@@ -13,55 +13,42 @@ Facade readability budget (ADR-0015): <= 32,768 UTF-8 bytes (32 KiB) and <= 160 
 
 from __future__ import annotations
 
-import functools
-import importlib
-import importlib.util
 import json
 import os
 import re
+import stat
 import sys
-from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
 
 FACADE_MAX_BYTES = 32_768
 FACADE_MAX_LINE_LENGTH = 160
 
 _LAZY_STDLIB_ATTRS = frozenset({"subprocess", "tomllib"})
+_LAZY_PATH_ATTRS = frozenset({"Path", "SCRIPT_DIR", "REPO_ROOT"})
+_PATHS_EXPORTS = frozenset({
+    "HOOK_LOCK_TIMEOUT", "CorruptStateError", "atomic_write_json", "config_dir",
+    "configured_config_dir", "data_dir", "file_lock", "is_within", "move_aside",
+    "read_json", "read_json_strict", "state_dir",
+})
 
 _INIT_FILE = __file__
-SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent
-_INIT_REPO_ROOT = REPO_ROOT
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+_SCRIPT_DIR_STR = os.path.dirname(os.path.realpath(__file__))
+_REPO_ROOT_STR = os.path.dirname(_SCRIPT_DIR_STR)
+_INIT_REPO_ROOT = _REPO_ROOT_STR
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 if __name__ == "__main__":
     _main_mod = sys.modules.get("__main__")
     try:
         _is_direct_cli = (
             bool(sys.argv and sys.argv[0])
-            and Path(sys.argv[0]).resolve() == Path(__file__).resolve()
+            and os.path.realpath(sys.argv[0]) == os.path.realpath(__file__)
         )
     except OSError:
         _is_direct_cli = False
     if _is_direct_cli and _main_mod is not None and _main_mod.__dict__ is globals():
         sys.modules.setdefault("guard.agy_hooks", _main_mod)
 
-from guard.paths import (  # noqa: E402
-    HOOK_LOCK_TIMEOUT,
-    CorruptStateError,
-    atomic_write_json,
-    config_dir,
-    configured_config_dir,
-    data_dir,
-    file_lock,
-    is_within,
-    move_aside,
-    read_json,
-    read_json_strict,
-    state_dir,
-)
-
-PRE_TOOL_USE_MATCHER_TOOLS: Tuple[str, ...] = (
+PRE_TOOL_USE_MATCHER_TOOLS: tuple[str, ...] = (
     "run_command", "bash", "execute_command", "shell", "send_command_input", "manage_task",
     "run_workflow", "invoke_subagent", "swarm", "post_message", "send_message", "define_subagent",
     "schedule", "call_mcp_tool", "mcp_.*", "write_to_file", "write_file", "replace_file_content",
@@ -69,7 +56,7 @@ PRE_TOOL_USE_MATCHER_TOOLS: Tuple[str, ...] = (
 )
 PRE_TOOL_USE_MATCHER: str = "|".join(PRE_TOOL_USE_MATCHER_TOOLS)
 
-_SUBMODULE_EXPORTS: Dict[str, Tuple[str, ...]] = {
+_SUBMODULE_EXPORTS: dict[str, tuple[str, ...]] = {
     'common': (
         'CONTINUATION_WORDS', 'MAX_CONTEXT_SIGNALS', 'MAX_EXPLICIT_HINTS', 'MAX_HINTS', 'MAX_STRIKES',
         'MIN_PROMPT_CHARS', 'REHINT_TURN_GAP', '_AUTH_HEADING_RE', '_AUXILIARY_PROMPT_ROLE_RE',
@@ -245,7 +232,7 @@ _SUBMODULE_EXPORTS: Dict[str, Tuple[str, ...]] = {
         'inspect_git_diff', 'validate_structured_content', 'validate_ui_slop_content',
     ),
 }
-_SYMBOL_TO_SUBMODULE: Dict[str, str] = {s: m for m, syms in _SUBMODULE_EXPORTS.items() for s in syms}
+_SYMBOL_TO_SUBMODULE: dict[str, str] = {s: m for m, syms in _SUBMODULE_EXPORTS.items() for s in syms}
 _SYNTHETIC_PKG_NAME = f"_agy_hooks_pkg_{os.urandom(6).hex()}"
 
 
@@ -257,28 +244,33 @@ def _needs_synthetic_hooks_package() -> bool:
     reg = sys.modules.get("guard.agy_hooks")
     if reg is None or reg.__dict__ is not globals():
         return True
-    if getattr(sys, "frozen", False) and not (SCRIPT_DIR / "hooks" / "__init__.py").is_file():
+    init_py = os.path.join(_SCRIPT_DIR_STR, "hooks", "__init__.py")
+    if getattr(sys, "frozen", False) and not os.path.isfile(init_py):
         return False
     guard_mod = sys.modules.get("guard")
     if guard_mod is not None:
         guard_paths = getattr(guard_mod, "__path__", None)
         if guard_paths is not None:
-            resolved_dir = str(SCRIPT_DIR.resolve())
-            if not any(str(Path(p).resolve()) == resolved_dir for p in guard_paths):
+            if not any(os.path.realpath(str(p)) == _SCRIPT_DIR_STR for p in guard_paths):
                 return True
     return False
 
 
-def _ensure_hooks_package() -> Tuple[str, Any]:
+def _ensure_hooks_package() -> tuple[str, object]:
+    import importlib
+
     if not _needs_synthetic_hooks_package():
         return "guard.hooks", importlib.import_module("guard.hooks")
     pkg_mod = sys.modules.get(_SYNTHETIC_PKG_NAME)
     if pkg_mod is None:
-        init_py = SCRIPT_DIR / "hooks" / "__init__.py"
+        import importlib.util
+
+        hooks_dir = os.path.join(_SCRIPT_DIR_STR, "hooks")
+        init_py = os.path.join(hooks_dir, "__init__.py")
         spec = importlib.util.spec_from_file_location(
             _SYNTHETIC_PKG_NAME,
             init_py,
-            submodule_search_locations=[str(SCRIPT_DIR / "hooks")],
+            submodule_search_locations=[hooks_dir],
         )
         if spec is None or spec.loader is None:
             raise ImportError(f"Cannot load hooks package from {init_py}")
@@ -292,12 +284,14 @@ def _ensure_hooks_package() -> Tuple[str, Any]:
     return _SYNTHETIC_PKG_NAME, pkg_mod
 
 
-def _load_submodule(submod: str) -> Tuple[str, Any, Any]:
+def _load_submodule(submod: str) -> tuple[str, object, object]:
+    import importlib
+
     pkg_prefix, pkg_mod = _ensure_hooks_package()
     return pkg_prefix, pkg_mod, importlib.import_module(f"{pkg_prefix}.{submod}")
 
 
-def _resolve_attr(name: str) -> Any:
+def _resolve_attr(name: str) -> object:
     g = globals()
     return g[name] if name in g else __getattr__(name)
 
@@ -305,14 +299,14 @@ def _resolve_attr(name: str) -> Any:
 class _GlobalsProxy:
     _globals = globals()
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> object:
         return _resolve_attr(name)
 
 
 _FACADE_PROXY = _GlobalsProxy()
 
 
-def _call_with_facade(pkg_mod: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
+def _call_with_facade(pkg_mod: object, fn: object, *args: object, **kwargs: object) -> object:
     tok = pkg_mod._ACTIVE_FACADE.set(_FACADE_PROXY)
     try:
         return fn(*args, **kwargs)
@@ -320,12 +314,13 @@ def _call_with_facade(pkg_mod: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
         pkg_mod._ACTIVE_FACADE.reset(tok)
 
 
-def _bind_facade_callable(pkg_mod: Any, val: Any) -> Any:
+def _bind_facade_callable(pkg_mod: object, val: object) -> object:
+    import functools
     import inspect
 
     if inspect.isgeneratorfunction(val):
         @functools.wraps(val)
-        def _bound_gen(*args: Any, **kwargs: Any) -> Any:
+        def _bound_gen(*args: object, **kwargs: object) -> object:
             gen = _call_with_facade(pkg_mod, val, *args, **kwargs)
             try:
                 while True:
@@ -340,18 +335,35 @@ def _bind_facade_callable(pkg_mod: Any, val: Any) -> Any:
         return _bound_gen
 
     @functools.wraps(val)
-    def _bound_callable(*args: Any, **kwargs: Any) -> Any:
+    def _bound_callable(*args: object, **kwargs: object) -> object:
         return _call_with_facade(pkg_mod, val, *args, **kwargs)
 
     return _bound_callable
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> object:
+    if name in _LAZY_PATH_ATTRS:
+        from pathlib import Path as _Path
+
+        val_p: object = _Path if name == "Path" else (_Path(_SCRIPT_DIR_STR) if name == "SCRIPT_DIR" else _Path(_REPO_ROOT_STR))
+        globals()[name] = val_p
+        return val_p
+    if name in _PATHS_EXPORTS:
+        import importlib
+
+        paths_mod = importlib.import_module("guard.paths")
+        val_gp = getattr(paths_mod, name)
+        globals()[name] = val_gp
+        return val_gp
     if name == "subprocess":
-        mod: Any = importlib.import_module("subprocess")
+        import importlib
+
+        mod: object = importlib.import_module("subprocess")
         globals()["subprocess"] = mod
         return mod
     if name == "tomllib":
+        import importlib
+
         try:
             mod = importlib.import_module("tomllib")
         except ImportError:  # pragma: no cover
@@ -369,7 +381,9 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals().keys()) | set(_SYMBOL_TO_SUBMODULE.keys()) | _LAZY_STDLIB_ATTRS)
+    return sorted(
+        set(globals().keys()) | set(_SYMBOL_TO_SUBMODULE.keys()) | _LAZY_STDLIB_ATTRS | _LAZY_PATH_ATTRS | _PATHS_EXPORTS
+    )
 
 
 def _is_pre_tool_use_event(event: str) -> bool:
@@ -380,14 +394,14 @@ def _is_stop_event(event: str) -> bool:
     return event.strip().lower().replace("_", "-") == "stop"
 
 
-def _resolve_handler(name: str) -> Any:
+def _resolve_handler(name: str) -> object:
     try:
         return _resolve_attr(name)
     except (ImportError, SyntaxError) as exc:
         raise _HookBootstrapError(f"{type(exc).__name__}: {exc}") from exc
 
 
-def _is_fast_pre_invocation_noop(payload: Dict[str, Any]) -> bool:
+def _is_fast_pre_invocation_noop(payload: dict[str, object]) -> bool:
     if not isinstance(payload, dict):
         return False
     inv_raw = (
@@ -404,25 +418,20 @@ def _is_fast_pre_invocation_noop(payload: Dict[str, Any]) -> bool:
         return False
     raw_tx = payload.get("transcriptPath") or payload.get("transcript_path")
     if isinstance(raw_tx, str) and raw_tx.strip():
-        tx_path = Path(os.path.expanduser(raw_tx.strip()))
+        tx_path = os.path.expanduser(raw_tx.strip())
     else:
         cid = str(payload.get("conversationId") or payload.get("conversation_id") or "").strip()
         if not cid or cid == "default" or not re.match(r"^[A-Za-z0-9._-]{1,128}$", cid):
             return False
-        tx_path = (
-            Path.home()
-            / ".gemini"
-            / "antigravity"
-            / "brain"
-            / cid
-            / ".system_generated"
-            / "logs"
-            / "transcript.jsonl"
+        tx_path = os.path.join(
+            os.path.expanduser("~"), ".gemini", "antigravity", "brain", cid,
+            ".system_generated", "logs", "transcript.jsonl",
         )
     try:
-        if tx_path.is_symlink() or not tx_path.is_file():
+        lst = os.lstat(tx_path)
+        if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
             return False
-        st_size = tx_path.stat().st_size
+        st_size = lst.st_size
         if st_size <= 0 or st_size > 2 * 1024 * 1024:
             return False
         read_sz = min(st_size, 65536)
@@ -450,7 +459,7 @@ def _is_fast_pre_invocation_noop(payload: Dict[str, Any]) -> bool:
     return not re.search(rb"command\s+exited\s+with\s+code\s+[1-9]", slice_low)
 
 
-def dispatch_hook(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def dispatch_hook(event: str, payload: dict[str, object]) -> dict[str, object]:
     if os.environ.get("AGY_RECORD_HOST_FIXTURES", "").strip() in ("1", "true", "yes"):
         _resolve_handler("_maybe_record_host_fixture")(event, payload)
     norm = event.strip().lower().replace("_", "-")
@@ -468,7 +477,7 @@ def dispatch_hook(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 _RAW_HOOK_EVENT_RE = re.compile(r'"hookEventName"\s*:\s*"([^"]+)"')
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: list[str] | tuple[str, ...] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if len(raw_argv) <= 1 and (not raw_argv or not raw_argv[0].startswith("-")):
         arg_event = raw_argv[0] if raw_argv else ""
@@ -506,7 +515,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             event = m_ev.group(1).strip()
 
     if stdin_invalid and (_is_pre_tool_use_event(event) or not event):
-        response: Dict[str, Any] = {
+        response: dict[str, object] = {
             "decision": "deny",
             "reason": (
                 "[Harness PreToolUse Gate] Empty, malformed, or non-object JSON payload "
@@ -566,7 +575,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 __all__ = tuple(
     sorted(
         k
-        for k in (set(globals()) | set(_SYMBOL_TO_SUBMODULE) | _LAZY_STDLIB_ATTRS)
+        for k in (
+            set(globals()) | set(_SYMBOL_TO_SUBMODULE) | _LAZY_STDLIB_ATTRS | _LAZY_PATH_ATTRS | _PATHS_EXPORTS
+        )
         if not k.startswith("_")
     )
 )

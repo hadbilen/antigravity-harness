@@ -86,7 +86,7 @@ def _repo_root() -> Path:
     init_file = _facade_attr("_INIT_FILE", None)
     if isinstance(file_val, (str, Path)) and init_file is not None and str(file_val) != str(init_file):
         return Path(file_val).resolve().parent.parent
-    return Path(repo_val) if repo_val is not None else _DEFAULT_REPO_ROOT
+    return Path(repo_val) if repo_val is not None else (Path(init_repo) if init_repo is not None else _DEFAULT_REPO_ROOT)
 
 
 class _FacadeModuleProxy:
