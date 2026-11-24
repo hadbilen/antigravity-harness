@@ -13,7 +13,7 @@ Never re-encode a damaged file before testing whether its underlying compressed 
 MEDIA_QC="skills/media-studio/scripts/media_qc.py"
 for _p in .claude .cursor .agents .aider; do [ -f "$MEDIA_QC" ] || MEDIA_QC="$_p/skills/media-studio/scripts/media_qc.py"; done
 [ -f "$MEDIA_QC" ] || MEDIA_QC="$HOME/.gemini/config/skills/media-studio/scripts/media_qc.py"
-[ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py"
+[ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py"
 
 # 1. Attempt zero-generation-loss stream-copy salvage first (-c copy) on timed/multi-frame containers
 python3 "$MEDIA_QC" salvage <damaged_input> <salvaged_output> --json
@@ -69,7 +69,7 @@ Tiny archival images/videos (`<= 360p`) or narrowband (`8 kHz` telephone/dictaph
      MEDIA_QC="skills/media-studio/scripts/media_qc.py"
      for _p in .claude .cursor .agents .aider; do [ -f "$MEDIA_QC" ] || MEDIA_QC="$_p/skills/media-studio/scripts/media_qc.py"; done
      [ -f "$MEDIA_QC" ] || MEDIA_QC="$HOME/.gemini/config/skills/media-studio/scripts/media_qc.py"
-     [ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py"
+     [ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py"
 
      # Visual Tier 2 gate (images / video)
      python3 "$MEDIA_QC" compare <original_file> <enhanced_file> --min-ssim 0.85 --min-psnr 24.0

@@ -1,6 +1,6 @@
 """
 guard/hooks/_swarm_guard.py — Lazy PreToolUse native swarm, messaging, subagent & schedule guard (ADR-0013).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -582,7 +582,7 @@ def _inspect_delegation_rule12_text(
             return {
                 "decision": "deny",
                 "reason": (
-                    f"[Harness Governance Shield] Human-only `agy-guard` administration commands are "
+                    f"[Harness Governance Shield] Human-only `plumb-guard` administration commands are "
                     f"prohibited inside `{tool_label}` (GEMINI.md Rule 12)."
                 ),
             }

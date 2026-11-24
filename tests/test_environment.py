@@ -1,6 +1,6 @@
 """
 tests/test_environment.py — Test Multi-Environment Governance & Registry
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

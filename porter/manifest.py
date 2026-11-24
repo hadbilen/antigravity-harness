@@ -51,7 +51,7 @@ def content_digest(manifest_dict: Dict[str, Any]) -> str:
 
 
 def _has_constitution(root: Path) -> bool:
-    return (root / "GEMINI.md").is_file() or (root / "rules" / "antigravity-constitution.md").is_file()
+    return (root / "GEMINI.md").is_file() or (root / "rules" / "plumbwork-constitution.md").is_file()
 
 
 _MAX_CONSTITUTION_BYTES = 524288
@@ -149,7 +149,7 @@ def _read_constitution_text(root: Path) -> Optional[str]:
     gemini_path = root / "GEMINI.md"
     if gemini_path.is_file():
         return gemini_path.read_text(encoding="utf-8", errors="ignore")
-    rule_path = root / "rules" / "antigravity-constitution.md"
+    rule_path = root / "rules" / "plumbwork-constitution.md"
     if not rule_path.is_file():
         return None
     raw = rule_path.read_text(encoding="utf-8", errors="ignore")
@@ -184,7 +184,7 @@ def _read_constitution_text(root: Path) -> Optional[str]:
 
 
 def default_harness_root(fallback: Optional[Path] = None) -> Path:
-    """Returns `fallback` (or repo root) if it contains constitution + skills/, else config_dir() or /usr/share/antigravity-harness."""
+    """Returns `fallback` (or repo root) if it contains constitution + skills/, else config_dir() or /usr/share/plumbwork."""
     root = Path(fallback).resolve() if fallback else Path(__file__).resolve().parent.parent
     if (root / "skills").is_dir() and _has_constitution(root):
         return root
@@ -195,11 +195,16 @@ def default_harness_root(fallback: Optional[Path] = None) -> Path:
         cfg = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
     if (cfg / "skills").is_dir() and _has_constitution(cfg):
         return cfg
-    for share_cand in (
-        root.parent.parent / "share" / "antigravity-harness",
-        Path(__file__).resolve().parent.parent.parent / "share" / "antigravity-harness",
-        Path("/usr/share/antigravity-harness"),
-    ):
+    env_share = os.environ.get("PLUMBWORK_SHARE_DIR", "").strip()
+    share_cands = []
+    if env_share:
+        share_cands.append(Path(env_share).expanduser())
+    share_cands.extend([
+        root.parent.parent / "share" / "plumbwork",
+        Path(__file__).resolve().parent.parent.parent / "share" / "plumbwork",
+        Path("/usr/share/plumbwork"),
+    ])
+    for share_cand in share_cands:
         if (share_cand / "skills").is_dir() and _has_constitution(share_cand):
             return share_cand.resolve()
     return cfg
@@ -300,10 +305,10 @@ class ManifestEngine:
             schema_version=SCHEMA_VERSION,
             generated_at="" if deterministic else datetime.now(timezone.utc).isoformat(),
             metadata={
-                "name": "antigravity-harness",
+                "name": "plumbwork",
                 "description": "Engineering harness, behavioral constitution, and auditor subagent ecosystem.",
                 "author": "hadbilen",
-                "repository": "https://github.com/hadbilen/antigravity-harness",
+                "repository": "https://github.com/hadbilen/plumbwork",
             },
         )
 
@@ -361,7 +366,7 @@ class ManifestEngine:
                 f"Refusing to regenerate canonical .harness/manifest.json from installed hybrid profile "
                 f"'{self.harness_root}' (only 14 core skills sit under skills/). Run 'python3 porter.py manifest' "
                 "from the canonical source checkout, or refresh installed assets via 'python3 install.py --plugins' / "
-                "'agy-guard init --plugins'."
+                "'plumb-guard init --plugins'."
             )
         target = Path(output_path) if output_path else (self.harness_root / ".harness" / "manifest.json")
         target.parent.mkdir(parents=True, exist_ok=True)

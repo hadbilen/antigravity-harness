@@ -1,6 +1,6 @@
 """
 guard/hooks/common.py — Shared primitives and dynamic facade collaborator proxies (ADR-0008).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -922,11 +922,13 @@ _HOST_FIXTURE_SECRET_VAL_RE = re.compile(
 
 
 def _upstream_seed_candidates() -> List[Path]:
+    from guard.paths import share_dir_candidates
+
     return [
         _repo_root() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
         configured_config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
         config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        Path("/usr/share/antigravity-harness") / "skills" / "upstream-auditor" / "upstream_state.seed.json",
+        *(sh / "skills" / "upstream-auditor" / "upstream_state.seed.json" for sh in share_dir_candidates()),
     ]
 
 

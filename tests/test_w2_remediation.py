@@ -119,16 +119,16 @@ class TestPackagingParityW2(unittest.TestCase):
         pkgbuild = (REPO_ROOT / "installers" / "packaging" / "PKGBUILD").read_text(encoding="utf-8")
         for token in (
             "porter.py",
-            "agy-porter",
+            "plumb-porter",
             "hooks.json",
             ".harness/manifest.json",
-            "bash-completion/completions/agy-guard",
+            "bash-completion/completions/plumb-guard",
         ):
             self.assertIn(token, pkgbuild, f"PKGBUILD missing {token}")
 
         with tempfile.TemporaryDirectory(prefix="agy-w2-pkg-") as tmp:
             tmp_path = Path(tmp)
-            fake_bin = tmp_path / "agy-guard-bin"
+            fake_bin = tmp_path / "plumb-guard-bin"
             fake_bin.write_bytes(b"\x7fELFfakebinary")
             fake_bin.chmod(0o755)
             stage = tmp_path / "stage"
@@ -142,14 +142,14 @@ class TestPackagingParityW2(unittest.TestCase):
             )
             packager.prepare_payload(stage)
 
-            self.assertTrue((stage / "usr" / "bin" / "agy-guard").is_file())
-            self.assertTrue((stage / "usr" / "bin" / "agy-porter").is_file())
-            self.assertTrue(os.access(stage / "usr" / "bin" / "agy-porter", os.X_OK))
-            self.assertTrue((stage / "usr" / "lib" / "antigravity-guard" / "porter.py").is_file())
-            self.assertTrue((stage / "usr" / "lib" / "antigravity-guard" / "porter").is_dir())
-            self.assertTrue((stage / "usr" / "share" / "antigravity-harness" / "hooks.json").is_file())
-            self.assertTrue((stage / "usr" / "share" / "antigravity-harness" / ".harness" / "manifest.json").is_file())
-            self.assertTrue((stage / "usr" / "share" / "bash-completion" / "completions" / "agy-guard").is_file())
+            self.assertTrue((stage / "usr" / "bin" / "plumb-guard").is_file())
+            self.assertTrue((stage / "usr" / "bin" / "plumb-porter").is_file())
+            self.assertTrue(os.access(stage / "usr" / "bin" / "plumb-porter", os.X_OK))
+            self.assertTrue((stage / "usr" / "lib" / "plumb-guard" / "porter.py").is_file())
+            self.assertTrue((stage / "usr" / "lib" / "plumb-guard" / "porter").is_dir())
+            self.assertTrue((stage / "usr" / "share" / "plumbwork" / "hooks.json").is_file())
+            self.assertTrue((stage / "usr" / "share" / "plumbwork" / ".harness" / "manifest.json").is_file())
+            self.assertTrue((stage / "usr" / "share" / "bash-completion" / "completions" / "plumb-guard").is_file())
 
 
 class TestCodeMapResilienceW2(unittest.TestCase):
@@ -219,7 +219,7 @@ class TestDiagnosticsAndWatchdogHardeningW2(unittest.TestCase):
         with mock.patch.dict(
             os.environ,
             {
-                "AGY_GUARD_STATE_DIR": str(st_dir),
+                "PLUMB_GUARD_STATE_DIR": str(st_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(cfg_root),
                 "UPSTREAM_STATE_FILE": str(st_dir / "upstream_state.json"),
             },
@@ -261,10 +261,10 @@ class TestDiagnosticsAndWatchdogHardeningW2(unittest.TestCase):
 
         env = {
             "ANTIGRAVITY_CONFIG_DIR": str(cfg_root),
-            "AGY_GUARD_STATE_DIR": str(self.root / "state"),
+            "PLUMB_GUARD_STATE_DIR": str(self.root / "state"),
             "UPSTREAM_STATE_FILE": str(st_file),
             "ANTIGRAVITY_BUILTIN_SKILLS_DIR": str(self.root / "builtin"),
-            "AGY_GUARD_NOTIFY": "0",
+            "PLUMB_GUARD_NOTIFY": "0",
         }
         with mock.patch.dict(os.environ, env):
             spec = importlib.util.spec_from_file_location(
@@ -383,7 +383,7 @@ class TestMetaAuditExpansionW2(unittest.TestCase):
         )
         (self.root / "installers" / "packaging").mkdir(parents=True)
         (self.root / "installers" / "packaging" / "PKGBUILD").write_text(
-            "pkgname=antigravity-guard\npackage() { cp guard.py \"$pkgdir/\"; }\n",
+            "pkgname=plumb-guard\npackage() { cp guard.py \"$pkgdir/\"; }\n",
             encoding="utf-8",
         )
         (self.root / "README.md").write_text("# Demo\n", encoding="utf-8")
@@ -524,7 +524,7 @@ class TestContractAuditorRemediationsW2(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            fake_bin = root / "agy-guard-bin"
+            fake_bin = root / "plumb-guard-bin"
             fake_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             fake_bin.chmod(0o755)
             stage = root / "stage"
@@ -537,13 +537,13 @@ class TestContractAuditorRemediationsW2(unittest.TestCase):
             )
             packager._prepare_payload(stage)
 
-            self.assertTrue((stage / "usr" / "lib" / "antigravity-guard" / "guard" / "__init__.py").is_file())
+            self.assertTrue((stage / "usr" / "lib" / "plumb-guard" / "guard" / "__init__.py").is_file())
             hooks_data = json.loads(
-                (stage / "usr" / "share" / "antigravity-harness" / "hooks.json").read_text(encoding="utf-8")
+                (stage / "usr" / "share" / "plumbwork" / "hooks.json").read_text(encoding="utf-8")
             )
             hooks_blob = json.dumps(hooks_data)
-            self.assertIn("/usr/share/antigravity-harness/skills/upstream-auditor/scripts/upstream_watcher.py", hooks_blob)
-            self.assertIn("/usr/lib/antigravity-guard/guard/agy_hooks.py", hooks_blob)
+            self.assertIn("/usr/share/plumbwork/skills/upstream-auditor/scripts/upstream_watcher.py", hooks_blob)
+            self.assertIn("/usr/lib/plumb-guard/guard/agy_hooks.py", hooks_blob)
 
             empty_cfg = root / "empty_cfg"
             empty_cfg.mkdir(parents=True)
@@ -553,7 +553,7 @@ class TestContractAuditorRemediationsW2(unittest.TestCase):
             res = subprocess.run(
                 [
                     sys.executable,
-                    str(stage / "usr" / "lib" / "antigravity-guard" / "porter.py"),
+                    str(stage / "usr" / "lib" / "plumb-guard" / "porter.py"),
                     "export",
                     "--target",
                     "claude",
@@ -817,15 +817,15 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
         from guard.agy_hooks import handle_pre_tool_use
 
         denied_cmds = [
-            'agy-""guard unlock',
-            "agy-''guard unlock",
+            'plumb-""guard unlock',
+            "plumb-''guard unlock",
             'python3 in""stall.py',
             'rm -rf ~/.gemini/""config/GEMINI.md',
             'git commit --no-""verify',
-            "`agy-guard unlock`",
-            "agy-guard test-boundary --output /tmp/forged.json snapshot",
-            "env -i agy-guard unlock",
-            "agy-guard provenance generate --authorize tests/test_x.py",
+            "`plumb-guard unlock`",
+            "plumb-guard test-boundary --output /tmp/forged.json snapshot",
+            "env -i plumb-guard unlock",
+            "plumb-guard provenance generate --authorize tests/test_x.py",
             "python3 install.py # --dry-run",
         ]
         for cmd in denied_cmds:
@@ -915,7 +915,7 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
         bin_dir = fake_home / ".local" / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
         porter_bin = bin_dir / "porter"
-        porter_bin.write_text('#!/bin/sh\n# antigravity-harness launcher\nexec python3 porter.py "$@"\n', encoding="utf-8")
+        porter_bin.write_text('#!/bin/sh\n# plumbwork launcher\nexec python3 porter.py "$@"\n', encoding="utf-8")
 
         with mock.patch.dict(os.environ, {"HOME": str(fake_home), "USERPROFILE": str(fake_home)}):
             r_write = handle_pre_tool_use(
@@ -932,7 +932,7 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
         self.assertEqual(r_write.get("decision"), "deny")
         self.assertEqual(r_cmd.get("decision"), "deny")
 
-        # Pre-planting ~/.local/bin/porter when absent AND mutating /usr/bin/agy-guard are denied,
+        # Pre-planting ~/.local/bin/porter when absent AND mutating /usr/bin/plumb-guard are denied,
         # whereas an existing third-party CNCF porter binary without harness marker stays allowed.
         porter_bin.unlink()
         with mock.patch.dict(os.environ, {"HOME": str(fake_home), "USERPROFILE": str(fake_home)}):
@@ -940,7 +940,7 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
                 {"toolCall": {"name": "write_to_file", "args": {"TargetFile": str(porter_bin), "CodeContent": "#!/bin/sh\n"}}}
             )
             r_usr_bin = handle_pre_tool_use(
-                {"toolCall": {"name": "write_to_file", "args": {"TargetFile": "/usr/bin/agy-guard", "CodeContent": "#!/bin/sh\n"}}}
+                {"toolCall": {"name": "write_to_file", "args": {"TargetFile": "/usr/bin/plumb-guard", "CodeContent": "#!/bin/sh\n"}}}
             )
         self.assertEqual(r_preplant.get("decision"), "deny")
         if os.name != "nt":
@@ -975,14 +975,14 @@ class TestSliceBHooksWorkflowAndProtectionW2(unittest.TestCase):
             {
                 "toolCall": {
                     "name": "run_workflow",
-                    "args": {"Script": 'call_tool("default_api:run_command", CommandLine="agy-guard unlock")'},
+                    "args": {"Script": 'call_tool("default_api:run_command", CommandLine="plumb-guard unlock")'},
                 }
             }
         )
         self.assertEqual(r_ns_wf.get("decision"), "deny")
 
         r_ns_direct = handle_pre_tool_use(
-            {"toolCall": {"name": "default_api:run_command", "args": {"CommandLine": "agy-guard unlock"}}}
+            {"toolCall": {"name": "default_api:run_command", "args": {"CommandLine": "plumb-guard unlock"}}}
         )
         self.assertEqual(r_ns_direct.get("decision"), "deny")
 
@@ -1121,7 +1121,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
     def test_self_audit_default_root_fallback_split_runtime_and_system_share(self) -> None:
         import guard.cli as cli_mod
 
-        fake_runtime_cli = self.tmp / "opt" / "lib" / "antigravity-guard" / "guard" / "cli.py"
+        fake_runtime_cli = self.tmp / "opt" / "lib" / "plumb-guard" / "guard" / "cli.py"
         fake_runtime_cli.parent.mkdir(parents=True, exist_ok=True)
         fake_runtime_cli.write_text("# stub\n", encoding="utf-8")
 
@@ -1145,7 +1145,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
             self.assertFalse(payload["is_valid"])
 
         empty_cfg = self.tmp / "empty_cfg"
-        share_dir = self.tmp / "opt" / "share" / "antigravity-harness"
+        share_dir = self.tmp / "opt" / "share" / "plumbwork"
         (share_dir / "skills" / "demo").mkdir(parents=True)
         (share_dir / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
         (share_dir / "skills" / "demo" / "SKILL.md").write_text("# Broken system share skill\n", encoding="utf-8")
@@ -1197,7 +1197,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
 
         env_vars = {
             "ANTIGRAVITY_CONFIG_DIR": str(cfg),
-            "AGY_GUARD_STATE_DIR": str(state_root),
+            "PLUMB_GUARD_STATE_DIR": str(state_root),
             "ANTIGRAVITY_BUILTIN_SKILLS_DIR": str(builtin_dir),
             "ANTIGRAVITY_PBTXT_FILE": str(self.tmp / "no_pbtxt"),
         }
@@ -1258,7 +1258,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
 
         home = self.tmp / "doc_home"
         cfg = home / ".gemini" / "config"
-        st = home / ".local" / "state" / "antigravity-harness"
+        st = home / ".local" / "state" / "plumbwork"
         (cfg / "skills").mkdir(parents=True)
         st.mkdir(parents=True)
         (cfg / "GEMINI.md").write_text("# Rule\n", encoding="utf-8")
@@ -1266,7 +1266,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         env_vars = {
             "HOME": str(home),
             "ANTIGRAVITY_CONFIG_DIR": str(cfg),
-            "AGY_GUARD_STATE_DIR": str(st),
+            "PLUMB_GUARD_STATE_DIR": str(st),
         }
         with mock.patch.dict(os.environ, env_vars, clear=False):
             reg = EnvironmentRegistry()
@@ -1527,7 +1527,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         bad_bin_packager = pkg_mod.LinuxPackager(
             version="2.0.0",
             out_dir=out_dir,
-            binary_path=self.tmp / "nonexistent_agy_guard_bin",
+            binary_path=self.tmp / "nonexistent_plumb_guard_bin",
         )
         with self.assertRaises(FileNotFoundError):
             bad_bin_packager._prepare_payload(self.tmp / "stage_bad_bin")
@@ -1590,7 +1590,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
 
         home = self.tmp / "inst_home"
         cfg = home / ".gemini" / "config"
-        st = home / ".local" / "state" / "antigravity-harness"
+        st = home / ".local" / "state" / "plumbwork"
         cfg.mkdir(parents=True)
         st.mkdir(parents=True)
 
@@ -1612,9 +1612,9 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         victim.write_bytes(b"ORIGINAL_VICTIM")
         bin_dir = home / ".local" / "bin"
         bin_dir.mkdir(parents=True)
-        (bin_dir / "agy-guard.tmp").symlink_to(victim)
+        (bin_dir / "plumb-guard.tmp").symlink_to(victim)
         fake_payload = b"#!/bin/sh\necho hi\n"
-        fake_sha = f"{__import__('hashlib').sha256(fake_payload).hexdigest()}  agy-guard-linux-x86_64\n"
+        fake_sha = f"{__import__('hashlib').sha256(fake_payload).hexdigest()}  plumb-guard-linux-x86_64\n"
 
         orig_isfile = Path.is_file
         with (
@@ -1625,7 +1625,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
             mock.patch("pathlib.Path.is_file", autospec=True) as mock_isfile,
         ):
             def _side_isfile(p: Path) -> bool:
-                if p.name in ("agy-guard-linux-x86_64", "agy-guard-linux-x86_64.sha256") and p.parent.name == "dist":
+                if p.name in ("plumb-guard-linux-x86_64", "plumb-guard-linux-x86_64.sha256") and p.parent.name == "dist":
                     return True
                 return orig_isfile(p)
 
@@ -1644,7 +1644,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         with (
             mock.patch.dict(
                 os.environ,
-                {"HOME": str(home), "USERPROFILE": str(home), "ANTIGRAVITY_CONFIG_DIR": str(cfg), "AGY_GUARD_STATE_DIR": str(st)},
+                {"HOME": str(home), "USERPROFILE": str(home), "ANTIGRAVITY_CONFIG_DIR": str(cfg), "PLUMB_GUARD_STATE_DIR": str(st)},
                 clear=False,
             ),
             mock.patch("guard.startup.StartupManager.enable", return_value=(False, "systemd unavailable")),
@@ -1653,7 +1653,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         ):
             rc_main = install_mod.main(["--no-lock", "--enable-startup"])
         self.assertEqual(rc_main, 1)
-        self.assertNotIn("[SUCCESS] Antigravity Harness installed.", out_m.getvalue())
+        self.assertNotIn("[SUCCESS] Plumbwork installed.", out_m.getvalue())
 
     def test_lease_corrupt_list_update_record_and_expire_baseline_resilience(self) -> None:
         from guard.environment import AgentEnvironment, EnvironmentRegistry
@@ -1665,7 +1665,7 @@ class TestSliceCDiagnosticsPackagingCodeMapAndWatchdogW2(unittest.TestCase):
         env_dir.mkdir()
         (env_dir / "GEMINI.md").write_text("# Rule\n", encoding="utf-8")
 
-        with mock.patch.dict(os.environ, {"AGY_GUARD_STATE_DIR": str(st)}, clear=False):
+        with mock.patch.dict(os.environ, {"PLUMB_GUARD_STATE_DIR": str(st)}, clear=False):
             adapter = mock.MagicMock()
             adapter.lock.return_value = (True, "locked")
             adapter.unlock.return_value = (True, "unlocked")
@@ -1740,7 +1740,7 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
         (root / "skills" / "demo").mkdir(parents=True)
         (root / "skills" / "demo" / "SKILL.md").write_text(
             "---\nname: demo\ndescription: Demo skill. Invoke with /demo. Not for other tasks.\n---\n"
-            "Inspect ~/.local/share/antigravity-harness/runtime/guard/nonexistent_xyz.py and "
+            "Inspect ~/.local/share/plumbwork/runtime/guard/nonexistent_xyz.py and "
             "see ~/.gemini/config/skills/nonexistent-xyz/SKILL.md in prose.\n",
             encoding="utf-8",
         )
@@ -1753,7 +1753,7 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
         (root / "templates").mkdir()
         (root / "installers" / "packaging").mkdir(parents=True)
         (root / "installers" / "packaging" / "package_linux.py").write_text(
-            "# Drifted package_linux missing agy-porter and manifest.json\n",
+            "# Drifted package_linux missing plumb-porter and manifest.json\n",
             encoding="utf-8",
         )
         (root / "README.md").write_text("# Demo\n", encoding="utf-8")
@@ -1781,7 +1781,7 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
 
         msgs = "\n".join(f.message for f in eng.findings)
         self.assertIn("package_linux.py is missing required packaging artifact", msgs)
-        self.assertIn("~/.local/share/antigravity-harness/runtime/guard/nonexistent_xyz.py", msgs)
+        self.assertIn("~/.local/share/plumbwork/runtime/guard/nonexistent_xyz.py", msgs)
         self.assertIn("~/.gemini/config/skills/nonexistent-xyz/SKILL.md", msgs)
         self.assertIn("src/demo/", msgs)
 
@@ -1791,8 +1791,8 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
 
         home = self.tmp / "split_home"
         cfg = home / ".gemini" / "config"
-        data_root = home / ".local" / "share" / "antigravity-harness"
-        state_root = home / ".local" / "state" / "antigravity-harness"
+        data_root = home / ".local" / "share" / "plumbwork"
+        state_root = home / ".local" / "state" / "plumbwork"
         (cfg / "skills" / "managed-skill").mkdir(parents=True)
         (cfg / "agents").mkdir(parents=True)
         (cfg / "GEMINI.md").write_text("# Constitution\n", encoding="utf-8")
@@ -1835,8 +1835,8 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
         env_vars = {
             "HOME": str(home),
             "ANTIGRAVITY_CONFIG_DIR": str(cfg),
-            "AGY_GUARD_DATA_DIR": str(data_root),
-            "AGY_GUARD_STATE_DIR": str(state_root),
+            "PLUMB_GUARD_DATA_DIR": str(data_root),
+            "PLUMB_GUARD_STATE_DIR": str(state_root),
         }
         with mock.patch.dict(os.environ, env_vars, clear=False):
             eng = MetaAuditEngine(repo_root=cfg)
@@ -1868,7 +1868,7 @@ class TestSliceDMetaAuditSplitLayoutAndGovernanceW2(unittest.TestCase):
 
         media_txt = (REPO_ROOT / "skills" / "media-studio" / "SKILL.md").read_text(encoding="utf-8")
         self.assertNotIn("python3 skills/media-studio/scripts/media_qc.py", media_txt)
-        self.assertIn("/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py", media_txt)
+        self.assertIn("/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py", media_txt)
 
 
 if __name__ == "__main__":

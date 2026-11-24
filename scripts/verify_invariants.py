@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 scripts/verify_invariants.py — Machine-Enforced Constitutional & Verification Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 
 Deterministically verifies codebase modifications against fundamental invariants:
 1. Goodhart's Invariant: Prohibits test weakening, skipped tests, commented-out assertions.
@@ -536,7 +536,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     base_path = Path(args.path).resolve()
     print("=" * 64)
-    print("      Antigravity Harness — Invariant Verification Guard        ")
+    print("      Plumbwork — Invariant Verification Guard        ")
     print("=" * 64)
 
     violations = []

@@ -46,14 +46,14 @@ except ImportError:
 WATCHER_VERSION = "1.4"
 USER_AGENT = f"UpstreamAuditor-Watchdog/{WATCHER_VERSION}"
 
-CONFIG_DIR = os.path.expanduser(os.environ.get("ANTIGRAVITY_CONFIG_DIR", "~/.gemini/config"))
+CONFIG_DIR = os.path.expanduser((os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip() or "~/.gemini/config")
 SKILL_DIR = os.path.join(CONFIG_DIR, "skills", "upstream-auditor")
 CUSTOM_SKILLS_DIR = os.path.join(CONFIG_DIR, "skills")
 SEED_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.seed.json")      # shipped, read-only
 # Seed that ships next to this script (used when the watcher runs from a source checkout).
 BUNDLED_SEED_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "upstream_state.seed.json")
 SYSTEM_SHARE_SEED_FILE = os.path.join(
-    os.path.expanduser(os.environ.get("ANTIGRAVITY_SHARE_DIR", "/usr/share/antigravity-harness")),
+    os.path.expanduser((os.environ.get("PLUMBWORK_SHARE_DIR") or "").strip() or "/usr/share/plumbwork"),
     "skills",
     "upstream-auditor",
     "upstream_state.seed.json",
@@ -62,28 +62,30 @@ SYSTEM_SHARE_SEED_FILE = os.path.join(
 LEGACY_STATE_FILE = os.path.join(SKILL_DIR, "upstream_state.json")
 
 DEFAULT_STATE_DIR = os.path.expanduser(
-    os.environ.get("AGY_GUARD_STATE_DIR")
-    or os.path.join(os.environ.get("XDG_STATE_HOME", "~/.local/state"), "antigravity-harness")
+    (os.environ.get("PLUMB_GUARD_STATE_DIR") or "").strip()
+    or os.path.join((os.environ.get("XDG_STATE_HOME") or "").strip() or "~/.local/state", "plumbwork")
 )
-STATE_FILE = os.environ.get("UPSTREAM_STATE_FILE", os.path.join(DEFAULT_STATE_DIR, "upstream_state.json"))
-BUILTIN_DIR = os.path.expanduser(os.environ.get("ANTIGRAVITY_BUILTIN_SKILLS_DIR") or "~/.gemini/antigravity/builtin/skills")
-PBTXT_FILE = os.path.expanduser(os.environ.get("ANTIGRAVITY_PBTXT_FILE") or "~/.gemini/antigravity/antigravity_state.pbtxt")
+STATE_FILE = (os.environ.get("UPSTREAM_STATE_FILE") or "").strip() or os.path.join(DEFAULT_STATE_DIR, "upstream_state.json")
+BUILTIN_DIR = os.path.expanduser((os.environ.get("ANTIGRAVITY_BUILTIN_SKILLS_DIR") or "").strip() or "~/.gemini/antigravity/builtin/skills")
+PBTXT_FILE = os.path.expanduser((os.environ.get("ANTIGRAVITY_PBTXT_FILE") or "").strip() or "~/.gemini/antigravity/antigravity_state.pbtxt")
 
 
 def _ensure_runtime_sys_path() -> None:
     repo_candidate = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     )
-    if os.name == "nt":
-        default_data = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "antigravity-harness")
-    else:
-        default_data = os.path.join(os.path.expanduser(os.environ.get("XDG_DATA_HOME", "~/.local/share")), "antigravity-harness")
-    data_root = os.path.expanduser(os.environ.get("AGY_GUARD_DATA_DIR") or default_data)
+    xdg_data = (os.environ.get("XDG_DATA_HOME") or "").strip() or "~/.local/share"
+    default_data = os.path.join(os.path.expanduser(xdg_data), "plumbwork")
+    data_root = os.path.expanduser((os.environ.get("PLUMB_GUARD_DATA_DIR") or "").strip() or default_data)
     candidates = [
         repo_candidate,
         os.path.join(data_root, "runtime"),
-        "/usr/lib/antigravity-guard",
     ]
+    if os.name == "nt":
+        local_app = (os.environ.get("LOCALAPPDATA") or "").strip()
+        if local_app:
+            candidates.append(os.path.join(local_app, "plumbwork", "runtime"))
+    candidates.append("/usr/lib/plumb-guard")
     for cand in candidates:
         if cand and os.path.isfile(os.path.join(cand, "porter", "net.py")) and cand not in sys.path:
             sys.path.insert(0, cand)
@@ -106,7 +108,7 @@ SESSION_ID_KEYS = (
     "conversationId", "conversation_id", "sessionId", "session_id",
     "trajectoryId", "trajectory_id", "cascadeId", "cascade_id",
 )
-NOTIFY_TITLE = "Antigravity Harness — upstream change"
+NOTIFY_TITLE = "Plumbwork — upstream change"
 REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 HEX_SHA_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 SUBPATH_RE = re.compile(r"[A-Za-z0-9_./-]+")
@@ -408,7 +410,7 @@ def save_state(state: dict) -> bool:
 
 def _shipped_seed_candidates():
     candidates = [SEED_STATE_FILE, BUNDLED_SEED_FILE]
-    if "ANTIGRAVITY_SHARE_DIR" in os.environ or "ANTIGRAVITY_CONFIG_DIR" not in os.environ:
+    if bool((os.environ.get("PLUMBWORK_SHARE_DIR") or "").strip()) or "ANTIGRAVITY_CONFIG_DIR" not in os.environ:
         candidates.append(SYSTEM_SHARE_SEED_FILE)
     return candidates
 
@@ -439,7 +441,11 @@ def load_seed():
                     if shipped is not None:
                         _reconcile_with_seed(data, shipped)
                 return data, candidate
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                print(
+                    f"[WARN] upstream_watcher skipped unreadable/corrupt seed {candidate}: {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
                 continue
     return None, ""
 
@@ -1131,11 +1137,11 @@ def build_notice(reasons, first_time: bool = False) -> str:
 
 
 def spawn_desktop_notification(reasons) -> None:
-    """Best effort, fire-and-forget: never waits for, or fails because of, agy-guard."""
-    if os.environ.get("AGY_GUARD_NOTIFY", "").strip().lower() in ("0", "off", "false", "disabled"):
+    """Best effort, fire-and-forget: never waits for, or fails because of, plumb-guard."""
+    if os.environ.get("PLUMB_GUARD_NOTIFY", "").strip().lower() in ("0", "off", "false", "disabled"):
         return
     try:
-        exe = shutil.which("agy-guard")
+        exe = shutil.which("plumb-guard")
         if not exe:
             return
         cmd = [exe, "notify", "send", "--title", NOTIFY_TITLE,
@@ -1149,8 +1155,8 @@ def spawn_desktop_notification(reasons) -> None:
             kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **kwargs)
         threading.Thread(target=proc.wait, name="upstream-notify-reaper", daemon=True).start()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[WARN] upstream_watcher failed to spawn plumb-guard notification: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 # ----------------------------------------------------------------------

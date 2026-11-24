@@ -257,4 +257,4 @@ Install: the binary ships per platform in `dist/` of the procoder repo
 (github.com/azrtydxb/procoder); put the one for your platform on PATH,
 or use the Claude Code plugin which wires everything automatically.
 
-<!-- Adapted from azrtydxb/procoder under the Apache License 2.0 and modified for opt-in project-local use with Antigravity Harness; see THIRD_PARTY_NOTICES.md. -->
+<!-- Adapted from azrtydxb/procoder under the Apache License 2.0 and modified for opt-in project-local use with Plumbwork; see THIRD_PARTY_NOTICES.md. -->

@@ -284,7 +284,7 @@ class TestRustifySkillAndRoutingSeams(unittest.TestCase):
             os.environ,
             {
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
             },
         )
         self._env_patch.start()

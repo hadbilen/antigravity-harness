@@ -1,6 +1,6 @@
-# Antigravity Global Engineering & Behavioral Constitution
+# Plumbwork Global Engineering & Behavioral Constitution
 
-Always-on invariants only. Procedures live in skills (`harness`, `diagnosing-bugs`, `audit`, `porter`); mechanical checks live in `agy-guard`.
+Always-on invariants only. Procedures live in skills (`harness`, `diagnosing-bugs`, `audit`, `porter`); mechanical checks live in `plumb-guard`.
 
 ## 1. Discourse and Communication
 
@@ -41,4 +41,4 @@ Always-on invariants only. Procedures live in skills (`harness`, `diagnosing-bug
 14. **Interface Design:** User Interface (UI) work follows local `DESIGN.md` (else `~/.gemini/config/DESIGN.md`) and passes `ui-refinery`.
 18. **Surgical Changes & Reuse:** Trace every changed line to the request or verified defect; preserve unrelated comments/formatting alongside external edits; reuse existing helpers/types first.
 
-*(Harness-repository maintainer rules (Rule 12 Guard/Porter admin addendum and Rules 15–17) live in `.agents/rules/harness-maintainer.md` inside the `antigravity-harness` checkout.)*
+*(Harness-repository maintainer rules (Rule 12 Guard/Porter admin addendum and Rules 15–17) live in `.agents/rules/harness-maintainer.md` inside the `plumbwork` checkout.)*

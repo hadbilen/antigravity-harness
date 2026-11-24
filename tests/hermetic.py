@@ -1,5 +1,5 @@
 """
-tests/hermetic.py — Hermetic test environment for the Antigravity Harness suite.
+tests/hermetic.py — Hermetic test environment for the Plumbwork suite.
 
 Imported first by every test module. It redirects HOME and every per-user state location
 into a throw-away directory (so tests never read or write the developer's real
@@ -25,8 +25,16 @@ os.environ["LOCALAPPDATA"] = str(_ROOT / "AppData" / "Local")
 os.environ["XDG_STATE_HOME"] = str(_ROOT / "state")
 os.environ["XDG_DATA_HOME"] = str(_ROOT / "data")
 os.environ["ANTIGRAVITY_CONFIG_DIR"] = str(_ROOT / ".gemini" / "config")
-os.environ["AGY_GUARD_NOTIFY"] = "off"
-for _var in ("ANTIGRAVITY_INTEGRITY_FILE", "AGY_GUARD_STATE_DIR", "AGY_GUARD_DATA_DIR", "UPSTREAM_STATE_FILE", "ANTIGRAVITY_MODEL"):
+os.environ["PLUMB_GUARD_NOTIFY"] = "off"
+os.environ["PLUMB_GUARD_NO_TRAY"] = "1"
+for _var in (
+    "ANTIGRAVITY_INTEGRITY_FILE",
+    "PLUMB_GUARD_STATE_DIR",
+    "PLUMB_GUARD_DATA_DIR",
+    "PLUMBWORK_SHARE_DIR",
+    "UPSTREAM_STATE_FILE",
+    "ANTIGRAVITY_MODEL",
+):
     os.environ.pop(_var, None)
 
 HOME = _ROOT

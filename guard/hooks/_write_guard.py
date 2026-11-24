@@ -1,6 +1,6 @@
 """
 guard/hooks/_write_guard.py — Lazy PreToolUse `tasks.md` Authorized Test Modifications & stale-reset guard (ADR-0013).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

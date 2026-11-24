@@ -1,6 +1,6 @@
 """
 guard/paths.py — Canonical per-user locations for Guard state, data and runtime files.
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Runtime state (baselines, leases, registry, lock-mode records) deliberately lives
@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, List, Optional
 
-APP_NAME = "antigravity-harness"
+APP_NAME = "plumbwork"
 IS_WINDOWS = os.name == "nt"
 
 
@@ -57,9 +57,9 @@ def state_dir() -> Path:
     """
     Per-user mutable state: baselines, leases, registry, lock-mode records.
     Same resolution on every platform (and in the upstream watcher hook):
-    AGY_GUARD_STATE_DIR > $XDG_STATE_HOME/antigravity-harness > ~/.local/state/antigravity-harness
+    PLUMB_GUARD_STATE_DIR > $XDG_STATE_HOME/plumbwork > ~/.local/state/plumbwork
     """
-    override = _env_path("AGY_GUARD_STATE_DIR")
+    override = _env_path("PLUMB_GUARD_STATE_DIR")
     if override:
         return _absolute(override)
     xdg = _env_path("XDG_STATE_HOME")
@@ -67,12 +67,24 @@ def state_dir() -> Path:
 
 
 def data_dir() -> Path:
-    """Per-user persistent data (snapshots, installed runtime): AGY_GUARD_DATA_DIR > XDG_DATA_HOME > ~/.local/share."""
-    override = _env_path("AGY_GUARD_DATA_DIR")
+    """Per-user persistent data (snapshots, installed runtime): PLUMB_GUARD_DATA_DIR > XDG_DATA_HOME > ~/.local/share."""
+    override = _env_path("PLUMB_GUARD_DATA_DIR")
     if override:
         return _absolute(override)
     xdg = _env_path("XDG_DATA_HOME")
     return _absolute((xdg or Path.home() / ".local" / "share") / APP_NAME)
+
+
+def share_dir_candidates() -> list[Path]:
+    """System-wide shared payload roots: non-empty PLUMBWORK_SHARE_DIR (absolute) ahead of /usr/share/plumbwork."""
+    roots: list[Path] = []
+    override = _env_path("PLUMBWORK_SHARE_DIR")
+    if override is not None:
+        roots.append(_absolute(override))
+    default_share = Path("/usr/share/plumbwork")
+    if default_share not in roots:
+        roots.append(default_share)
+    return roots
 
 
 def runtime_dir() -> Path:

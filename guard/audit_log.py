@@ -1,6 +1,6 @@
 """
 guard/audit_log.py — Persistent audit trail and diagnostic log for Guard.
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Every security-relevant decision (lock, unlock, approval granted/refused, lease grant and
@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 from guard.paths import state_dir
 
-LOGGER_NAME = "antigravity_guard"
+LOGGER_NAME = "plumb_guard"
 MAX_BYTES = 1024 * 1024
 BACKUP_COUNT = 5
 

@@ -25,7 +25,7 @@ Classify every task into one operational tier before writing code:
 * **Tier 2 (Standard Production - Default Harness Engine):**
   * *Scope:* 1-2 files with >=20 changed lines, or 3-8 files (features, bug fixes, API endpoints, queries, UI components).
   * *Plan:* Write `implementation_plan.md` (§4.A) with `AC-1..N` (§4.E) and track steps in `tasks.md`.
-  * *Blast Radius:* Map callers via `agy-guard code-map blast-radius <symbol>`; escalate `>8 files` to Tier 3.
+  * *Blast Radius:* Map callers via `plumb-guard code-map blast-radius <symbol>`; escalate `>8 files` to Tier 3.
   * *Auditors (Targeted):* Dispatch `consistency-auditor` and `specification-gap-auditor` on formal specs or safety cores.
   * *Auditors (Boundaries):* Dispatch `silent-failure-hunter` and `security-boundary-verifier` on storage, financial, auth, or crypto seams.
   * *Auditors (Contracts & Scope):* Dispatch `contract-change-auditor` on public schema/API shifts, `test-adequacy-auditor` on caller/data shifts, and `simplicity-auditor` on new helpers or `> +150` net lines.
@@ -105,7 +105,7 @@ Evaluate the seven rungs in order before writing new code and stop at the first 
   * Bound untracked reads to plain-text non-secret files `<= 50 KB`; report path and bytes only for binary/oversized/secret files; aggregate `>= 5` files via scratch scripts.
   * Unauthorized assertion edits trigger `BLOCKED: Unconfirmed Test Mutation Detected`.
   * Record user-approved contract updates in `tasks.md` under `## Authorized Test Modifications: [<file_path>: <reason>]`.
-  * Mechanical backstop: `agy-guard test-boundary verify` / `agy-guard verify-invariants --test-boundary`.
+  * Mechanical backstop: `plumb-guard test-boundary verify` / `plumb-guard verify-invariants --test-boundary`.
 
 ---
 
@@ -126,19 +126,19 @@ Execute and verify outputs in order after code or document changes:
 
 1. **Type, Syntax & Schema Gate:**
    * Run native compiler/typechecker (`npx --no-install tsc --noEmit`, `mypy`, `go build ./... && go vet ./...`, `cargo check --all-targets`).
-   * Parse modified `.py`/`.json`/`.toml`/`.svg`/`.xml` via `agy-guard code-map gate-syntax <paths...>` (pinned linters for `.yaml`/OpenAPI/`Dockerfile`).
+   * Parse modified `.py`/`.json`/`.toml`/`.svg`/`.xml` via `plumb-guard code-map gate-syntax <paths...>` (pinned linters for `.yaml`/OpenAPI/`Dockerfile`).
    * Route `> 500`-line traces immediately (or after 2 consecutive failures) to `build-error-resolver`.
 2. **Formatting & Lint Gate:**
    * Run project linters (`eslint`, `prettier --check`, `ruff`, `golangci-lint`, `cargo clippy --all-targets -- -D warnings`).
    * Auto-correct only modified hunks (`GEMINI.md` Rule 18).
 3. **Call-Graph, Dataflow & Link Reachability:**
-   * Query `agy-guard code-map profile|callers|flow|blast-radius <symbol>` before raw text grep.
+   * Query `plumb-guard code-map profile|callers|flow|blast-radius <symbol>` before raw text grep.
    * Wire 0-caller symbols or mark `@entrypoint`, and verify local links resolve.
 4. **Deterministic Unit Tests:**
    * Run test suite (`npm test`, `pytest`, `go test ./...`, `cargo test`) at contract seams (`test-design`).
    * Route non-obvious failures to `diagnosing-bugs`.
    * **4a. Test Integrity & Mutation Guard:** Inspect test diffs and untracked files (§2); unauthorized assertion edits block exit.
-   * **4b. UI, Visual & Document Gate:** Run `ui-refinery` Delivery Gate (`GEMINI.md` Rule 14), `agy-guard ui-slop <paths> --mode <utility|editorial|game>`, and one entry-point smoke check.
+   * **4b. UI, Visual & Document Gate:** Run `ui-refinery` Delivery Gate (`GEMINI.md` Rule 14), `plumb-guard ui-slop <paths> --mode <utility|editorial|game>`, and one entry-point smoke check.
    * **Render-and-Inspect:** Re-read generated `.pdf`/`.svg`/`.docx`/`.xlsx`/`.pptx`/LaTeX/Typst/images via `read_file` or parser to verify zero clipping, overflow, or broken geometry.
 5. **Independent Auditor Pre-flight:**
    * Mandatory for Tier 3 or `GEMINI.md` Critical Exceptions (§5.A, §5.B).
@@ -174,12 +174,12 @@ Maintain four aligned artifacts for Tier 2/3 tasks:
 * Flush completed steps immediately into `tasks.md`.
 * Recommend host compaction only at `>= 30` tool calls or explicit user request after flushing to `tasks.md` (or `scratch/compact_checkpoint.md` for read-only tasks).
 * Never create competing root state files alongside `tasks.md` and `HANDOFF.md`.
-* Runtime hooks (`~/.local/share/antigravity-harness/runtime/guard/agy_hooks.py`) maintain `~/.local/state/antigravity-harness/flight_recorder.json` (`PreToolUse`, `Stop`, `PreInvocation` continuity gate).
+* Runtime hooks (`~/.local/share/plumbwork/runtime/guard/agy_hooks.py`) maintain `~/.local/state/plumbwork/flight_recorder.json` (`PreToolUse`, `Stop`, `PreInvocation` continuity gate).
 * Parallel-session ledger hygiene & flight-recorder mechanics: [references/context-and-artifacts.md](./references/context-and-artifacts.md) §3.
 
 ### C. Think in Code (Constitution Rule 11)
 
-* Compute via OS tools (`grep`, `jq`, `awk`, `agy-guard code-map`, `agy-guard code-map fts-search "<query>" <paths...> --top 5` on `<= 50 MB` plain text).
+* Compute via OS tools (`grep`, `jq`, `awk`, `plumb-guard code-map`, `plumb-guard code-map fts-search "<query>" <paths...> --top 5` on `<= 50 MB` plain text).
 * Never do financial or statistical math mentally; run exact decimal or integer-minor-unit code.
 * Aggregate `>= 5` files via `<appDataDir>/brain/<conversation-id>/scratch/` scripts and never dump raw streams.
 * Route `> 50 KB` docs to `research` and `> 500`-line traces to `build-error-resolver`.
@@ -217,7 +217,7 @@ Full contracts, role specs, and swarm mechanics: [references/multi-agent-orchest
 ### B. Zero-Reasoning Contract Injection & Anonymized Evaluation
 
 * Never forward full transcripts, author reasoning, or "tests already pass" claims.
-* Pass only: single-sentence `Task Objective`, exact `git diff HEAD`, bounded untracked slices (`<= 50 KB`, `<= 250` lines), and `agy-guard code-map callers` coordinates.
+* Pass only: single-sentence `Task Objective`, exact `git diff HEAD`, bounded untracked slices (`<= 50 KB`, `<= 250` lines), and `plumb-guard code-map callers` coordinates.
 * Include `Audit Focus`, explicit `Claims to Falsify` (`consistency-auditor`), and the **Zero-Prose Subagent Return Contract** (`file:line | severity | proof | remediation`).
 * Deduplicate multi-auditor findings by `file:line` proof, not persona label.
 * On multi-window `marathon` campaigns or user-requested critical audits, cross-family verification (e.g., `Claude Opus 5.5 (High)` auditing `Gemini 4 Neon (XHigh)`) reduces same-family blind spots.
@@ -236,7 +236,7 @@ Full contracts, role specs, and swarm mechanics: [references/multi-agent-orchest
 
 ### E. Verification of Subagent & External Review Findings (Mutual Falsification)
 
-* Treat every static finding as a hypothesis until verified at `file:line` against callers and upstream guards (`agy-guard code-map callers`/`flow`/`trace`).
+* Treat every static finding as a hypothesis until verified at `file:line` against callers and upstream guards (`plumb-guard code-map callers`/`flow`/`trace`).
 * Attempt empirical reproduction on every `CRITICAL`/`HIGH` finding and record an explicit verdict (`CONFIRMED`, `REFUTED` with proof, or `OPEN`).
 * Request authorization before any fix mutating tests or governance (`GEMINI.md` Rules 9 & 12).
 * Full procedure: [references/multi-agent-orchestration.md](./references/multi-agent-orchestration.md) §4.

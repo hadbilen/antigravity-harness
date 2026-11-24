@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 scripts/build_plugins.py — Standalone Antigravity Plugin Pack Builder & Validator CLI
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Usage:

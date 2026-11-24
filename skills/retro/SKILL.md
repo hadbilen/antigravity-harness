@@ -26,7 +26,7 @@ Inspect the existing artifacts on disk without re-reading raw past transcripts:
 - **`MISTAKES.md`** at the project root (Date & Incident, Root Cause, Impact, Preventive Invariant).
 - **Plan files and `walkthrough.md` / `implementation_plan.md`**, specifically checking the four Outcome labels (`~/.gemini/config/skills/harness/SKILL.md` §4.A): **Deviations**, **Not verified**, **Surprises**, and **Follow-ups**.
 - **`PRODUCT.md`** (if the project originated from a `vibecoder` prototype), **Architecture Decision Records (`docs/adr/*.md`)**, and opt-in **`DECISIONS.md`** (when present at the project root, inspecting structured `Proposed By` / `Origin`, `Approved By`, and `Authority` provenance fields).
-- **`tasks.md` and `HANDOFF.md`**, plus the project's verification scripts (`package.json`, `pyproject.toml`, `Makefile`, Continuous Integration (CI) workflows, `agy-guard status`).
+- **`tasks.md` and `HANDOFF.md`**, plus the project's verification scripts (`package.json`, `pyproject.toml`, `Makefile`, Continuous Integration (CI) workflows, `plumb-guard status`).
 
 ## 3. Project Phase & Observable Trajectory
 
@@ -43,14 +43,14 @@ Inspect the existing artifacts on disk without re-reading raw past transcripts:
 - **Classify each proposal by Kind:**
   - **Product:** A requirement that repeatedly shifts, an acceptance criterion that repeatedly fails, or a `PRODUCT.md` assumption that implementation keeps hitting.
   - **Process:** Planning omissions, missing pre-bump baselines, or skipped verification steps.
-  - **Environment:** Linter rules, tests, `agy-guard` checks, `hooks.json` handlers, skills, or project instructions.
+  - **Environment:** Linter rules, tests, `plumb-guard` checks, `hooks.json` handlers, skills, or project instructions.
 - **What Worked:** Highlight practices whose recorded outcomes show measurable value (e.g., zero regressions after characterization pinning, defects caught early by a specific auditor or hook), citing the records.
 
 ## 5. Choose the Lowest-Friction Durable Home (`GEMINI.md` Rule 10)
 
 Classify the target failure mode before choosing where the proposal lives:
 
-- **Mechanical** (a deterministic syntactic/textual pattern, a banned command or Application Programming Interface (API), a file path rule, a required command sequence, or a missing environment variable): propose a **deterministic check** at the cheapest layer (a project linter rule, a seam test, a `hooks.json` check in `~/.local/share/antigravity-harness/runtime/guard/agy_hooks.py`, or a CI step). Build the mechanical check instead of adding prose; first verify whether an existing linter or hook rule already exists but is disabled or unwired.
+- **Mechanical** (a deterministic syntactic/textual pattern, a banned command or Application Programming Interface (API), a file path rule, a required command sequence, or a missing environment variable): propose a **deterministic check** at the cheapest layer (a project linter rule, a seam test, a `hooks.json` check in `~/.local/share/plumbwork/runtime/guard/agy_hooks.py`, or a CI step). Build the mechanical check instead of adding prose; first verify whether an existing linter or hook rule already exists but is disabled or unwired.
 - **Judgment** (cross-file design trade-offs, domain modeling, seam adequacy): propose a targeted clause in the relevant on-demand `skills/<name>/SKILL.md` or an inspection bullet in the relevant `agents/<name>.md` auditor.
 - **Always-on Constitution (`GEMINI.md` / `AGENTS.md`):** propose adding to always-on instructions **only** when no mechanical check, skill, or subagent home can carry it, and phrase it as a single compact sentence.
 

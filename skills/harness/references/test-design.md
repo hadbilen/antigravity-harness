@@ -4,7 +4,7 @@ A test exists to catch a specific break. This skill is the reference for writing
 
 ## 1. Scope and the Immutable Test Invariant
 
-These rules govern the tests you write now. Existing tests are frozen (`GEMINI.md` Rule 9, enforced by `agy-guard test-boundary verify` / `agy-guard verify-invariants --test-boundary`): a weak existing test is reported to the user, never edited, relaxed, or deleted without explicit user authorization; a new assertion goes into a new test (in `--mode bugfix`, existing test files must remain 100% byte-identical and new regression tests go into a new test file; in `--mode tdd`, existing test files may be extended with pure line additions that never mutate or remove existing lines).
+These rules govern the tests you write now. Existing tests are frozen (`GEMINI.md` Rule 9, enforced by `plumb-guard test-boundary verify` / `plumb-guard verify-invariants --test-boundary`): a weak existing test is reported to the user, never edited, relaxed, or deleted without explicit user authorization; a new assertion goes into a new test (in `--mode bugfix`, existing test files must remain 100% byte-identical and new regression tests go into a new test file; in `--mode tdd`, existing test files may be extended with pure line additions that never mutate or remove existing lines).
 
 ## 2. The Loop: Red, Then Green
 

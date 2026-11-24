@@ -1,6 +1,6 @@
 """
 guard/hooks/__init__.py — Event-scoped lifecycle hook package header (ADR-0008).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Intentionally defines only `_ACTIVE_FACADE` (`ContextVar`) with zero eager submodule

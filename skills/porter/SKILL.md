@@ -9,7 +9,7 @@ description: >-
 
 # Porter: Universal AI Agent Bridge & Suitability Transpiler
 
-A deterministic bidirectional bridge and compiler connecting Antigravity Harness with any external AI coding environment (Claude Code, Cursor, Windsurf, Hermes, Cline, Aider, Copilot, ChatGPT Codex, or emerging autonomous frameworks).
+A deterministic bidirectional bridge and compiler connecting Plumbwork with any external AI coding environment (Claude Code, Cursor, Windsurf, Hermes, Cline, Aider, Copilot, ChatGPT Codex, or emerging autonomous frameworks).
 
 ---
 
@@ -52,7 +52,7 @@ When a user provides an external file (e.g. `.mdc`, `.cursorrules`, `CLAUDE.md`,
    # Or from the repository checkout:
    python3 porter.py import <file_or_url> --as-skill <name>
    # To stage into a live Guard-protected configuration (human confirmation required):
-   agy-guard porter stage <file_or_url> --name <name>
+   plumb-guard porter stage <file_or_url> --name <name>
    ```
 
 ---

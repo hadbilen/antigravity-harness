@@ -1,9 +1,9 @@
 """
 guard/doctor.py — Health diagnosis for an environment's governance scope (headless, testable).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
-The CLI (`agy-guard doctor`) only renders a DoctorReport; the checks live here so they can
+The CLI (`plumb-guard doctor`) only renders a DoctorReport; the checks live here so they can
 be exercised without a terminal.
 """
 
@@ -19,10 +19,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from guard.environment import AgentEnvironment, EnvironmentRegistry, RegistryError
+from guard.environment import (
+    CONSTITUTION_RULE_REL,
+    AgentEnvironment,
+    EnvironmentRegistry,
+    RegistryError,
+    is_harness_plugin_dir,
+    is_legacy_harness_skill_dir,
+    read_install_receipt,
+)
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.notifier import load_settings
-from guard.paths import move_aside, read_json, state_dir
+from guard.paths import data_dir, move_aside, read_json, state_dir
 from guard.plugins import HARNESS_PLUGIN_NAMES
 
 
@@ -113,7 +121,7 @@ def grant_statistics(config_json: Path) -> Optional[dict]:
     elif not isinstance(allow, list):
         return None
     entries = [e if isinstance(e, str) else json.dumps(e) for e in allow]
-    governance_markers = (".gemini/config", ".gemini/antigravity-harness")
+    governance_markers = (".gemini/config", ".gemini/plumbwork", ".gemini/antigravity-harness")
     return {
         "total": len(entries),
         "governance_writes": sum(1 for e in entries if e.startswith("write_file") and any(m in e for m in governance_markers)),
@@ -253,14 +261,14 @@ def _collect_native_deny_rules(root: Path, warnings: Optional[List[str]] = None)
 
 
 def _check_native_deny_rules(root: Path, infos: List[str], warnings: Optional[List[str]] = None) -> None:
-    """Recommends native Antigravity `deny` rules (`agy-guard unlock`, `--no-verify`) as INFO."""
+    """Recommends native Antigravity `deny` rules (`plumb-guard unlock`, `--no-verify`) as INFO."""
     deny_entries = _collect_native_deny_rules(root, warnings=warnings)
     lowered = [e.lower() for e in deny_entries]
-    has_unlock_deny = any("agy-guard" in e and "unlock" in e for e in lowered)
+    has_unlock_deny = any("plumb-guard" in e and "unlock" in e for e in lowered)
     has_no_verify_deny = any("--no-verify" in e for e in lowered)
     missing_recs: List[str] = []
     if not has_unlock_deny:
-        missing_recs.append("'agy-guard unlock' (e.g. command(agy-guard unlock))")
+        missing_recs.append("'plumb-guard unlock' (e.g. command(plumb-guard unlock))")
     if not has_no_verify_deny:
         missing_recs.append("'--no-verify' (e.g. command(regex:.*--no-verify.*))")
     if missing_recs:
@@ -270,7 +278,7 @@ def _check_native_deny_rules(root: Path, infos: List[str], warnings: Optional[Li
             f"permissions.deny): {', '.join(missing_recs)}."
         )
     else:
-        infos.append("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.")
+        infos.append("Native Antigravity deny rules cover 'plumb-guard unlock' and '--no-verify'.")
 
 
 def _is_harness_contrast_mcp_arg(arg: str, root: Optional[Path] = None) -> bool:
@@ -944,9 +952,9 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
             if upstream_data.get("last_audit_failed"):
                 warnings.append(f"Last upstream repository audit failed in {upstream_file}; check network/rate-limit status.")
 
-    # Warn if both legacy GEMINI.md and canonical rules/antigravity-constitution.md coexist (App/CLI double-load).
+    # Warn if both legacy GEMINI.md and canonical rules/plumbwork-constitution.md coexist (App/CLI double-load).
     legacy_gemini = root / "GEMINI.md"
-    canonical_rule = root / "rules" / "antigravity-constitution.md"
+    canonical_rule = root / CONSTITUTION_RULE_REL
     has_legacy_gemini = legacy_gemini.is_file() or os.path.islink(legacy_gemini)
     has_canonical_rule = canonical_rule.is_file() or os.path.islink(canonical_rule)
     if has_legacy_gemini and has_canonical_rule:
@@ -970,6 +978,116 @@ def _check_hooks_and_runtime_state(root: Path, warnings: List[str], infos: List[
     _check_workspace_hooks_collision(root, warnings)
 
 
+def _check_legacy_residue(root: Path, warnings: List[str]) -> None:
+    """Read-only diagnostics for leftover pre-v3.0 (`antigravity-harness` / `agy-guard` / legacy `antislop`) artifacts."""
+    home = Path.home()
+    xdg_state_raw = os.environ.get("XDG_STATE_HOME", "").strip()
+    xdg_data_raw = os.environ.get("XDG_DATA_HOME", "").strip()
+    legacy_state_dir = (Path(xdg_state_raw).expanduser() if xdg_state_raw else (home / ".local" / "state")) / "antigravity-harness"
+    legacy_data_dir = (Path(xdg_data_raw).expanduser() if xdg_data_raw else (home / ".local" / "share")) / "antigravity-harness"
+
+    def _same_path(a: Path, b: Path) -> bool:
+        try:
+            return os.path.abspath(a) == os.path.abspath(b) or (
+                not os.path.islink(a) and not os.path.islink(b) and a.resolve() == b.resolve()
+            )
+        except OSError:
+            return False
+
+    def _lstat_exists(path: Path) -> Tuple[bool, Optional[os.stat_result]]:
+        try:
+            return True, os.lstat(path)
+        except (FileNotFoundError, NotADirectoryError):
+            return False, None
+
+    for legacy_dir, active_dir, label in (
+        (legacy_state_dir, state_dir(), "legacy v2.x state directory"),
+        (legacy_data_dir, data_dir(), "legacy v2.x data directory"),
+    ):
+        try:
+            exists, _ = _lstat_exists(legacy_dir)
+            if exists and not _same_path(legacy_dir, active_dir):
+                warnings.append(
+                    f"Legacy pre-v3.0 residue detected ({label}: {legacy_dir}); "
+                    "Plumbwork v3.0.0 uses 'plumbwork' XDG directories. Run legacy '--uninstall' or remove it manually."
+                )
+        except OSError as exc:
+            warnings.append(f"Could not inspect legacy residue path {legacy_dir} ({exc}).")
+
+    legacy_rule = root / "rules" / "antigravity-constitution.md"
+    try:
+        exists, _ = _lstat_exists(legacy_rule)
+        if exists:
+            warnings.append(
+                f"Legacy pre-v3.0 constitution rule {legacy_rule} remains on disk alongside Plumbwork "
+                f"('{CONSTITUTION_RULE_REL}'); remove it manually or run legacy '--uninstall' to avoid duplicate rule loading."
+            )
+    except OSError as exc:
+        warnings.append(f"Could not inspect legacy constitution rule {legacy_rule} ({exc}).")
+
+    for sentinel_path, sentinel_label in (
+        (home / ".config" / "systemd" / "user" / "agy-guard-boot.service", "systemd boot sentinel"),
+        (home / "Library" / "LaunchAgents" / "com.antigravity.guard.plist", "launchd boot sentinel"),
+    ):
+        try:
+            exists, _ = _lstat_exists(sentinel_path)
+            if exists:
+                warnings.append(
+                    f"Legacy pre-v3.0 {sentinel_label} remains on disk ({sentinel_path}); "
+                    "disable/remove it manually and enable the Plumb Guard sentinel via 'plumb-guard startup enable'."
+                )
+        except OSError as exc:
+            warnings.append(f"Could not inspect legacy boot sentinel {sentinel_path} ({exc}).")
+
+    receipt = read_install_receipt(target_dir=root)
+    raw_plugins = receipt.get("installed_plugins") if isinstance(receipt, dict) else None
+    if raw_plugins is not None and not isinstance(raw_plugins, list):
+        warnings.append("Install receipt 'installed_plugins' field is not a list; treating legacy plugins as unreceipted.")
+    rec_plugins = {p for p in raw_plugins if isinstance(p, str)} if isinstance(raw_plugins, list) else set()
+    raw_installed = receipt.get("installed") if isinstance(receipt, dict) else None
+    if raw_installed is not None and not isinstance(raw_installed, list):
+        warnings.append("Install receipt 'installed' field is not a list; treating legacy skills as unreceipted.")
+    rec_installed = {p for p in raw_installed if isinstance(p, str)} if isinstance(raw_installed, list) else set()
+
+    plugins_parent = root / "plugins"
+    legacy_plug = plugins_parent / "antislop"
+    try:
+        parent_exists, parent_st = _lstat_exists(plugins_parent)
+        if parent_exists and parent_st is not None and not stat.S_ISLNK(parent_st.st_mode):
+            plug_exists, plug_st = _lstat_exists(legacy_plug)
+            if plug_exists and plug_st is not None and not stat.S_ISLNK(plug_st.st_mode) and stat.S_ISDIR(plug_st.st_mode):
+                os.listdir(legacy_plug)  # surface PermissionError on unreadable directory
+                if (
+                    "antislop" not in rec_plugins
+                    and is_harness_plugin_dir(legacy_plug, expected_pack="antislop", allow_legacy_names=True)
+                ):
+                    warnings.append(
+                        f"Unreceipted legacy harness plugin {legacy_plug} remains on disk (superseded by plugins/ui-refinery); "
+                        "remove it manually if no longer needed (third-party upstream antislop installs are preserved)."
+                    )
+    except OSError as exc:
+        warnings.append(f"Could not inspect legacy plugin path {legacy_plug} ({exc}).")
+
+    skills_parent = root / "skills"
+    legacy_skill = skills_parent / "antislop"
+    try:
+        parent_exists, parent_st = _lstat_exists(skills_parent)
+        if parent_exists and parent_st is not None and not stat.S_ISLNK(parent_st.st_mode):
+            skill_exists, skill_st = _lstat_exists(legacy_skill)
+            if skill_exists and skill_st is not None and not stat.S_ISLNK(skill_st.st_mode) and stat.S_ISDIR(skill_st.st_mode):
+                os.listdir(legacy_skill)  # surface PermissionError on unreadable directory
+                if (
+                    "skills/antislop" not in rec_installed
+                    and is_legacy_harness_skill_dir(legacy_skill)
+                ):
+                    warnings.append(
+                        f"Unreceipted legacy harness skill {legacy_skill} remains on disk (superseded by ui-refinery); "
+                        "remove it manually if no longer needed (third-party upstream antislop installs are preserved)."
+                    )
+    except OSError as exc:
+        warnings.append(f"Could not inspect legacy skill path {legacy_skill} ({exc}).")
+
+
 def _check_workspace_hooks_collision(ws_root: Path, warnings: List[str]) -> None:
     """Warns if `<ws_root>/.agents/hooks.json` defines or overrides `harness-gate` or `upstream-watchdog`."""
     for rel_ws_hooks in (".agents/hooks.json", ".agent/hooks.json", "_agents/hooks.json", "_agent/hooks.json"):
@@ -987,15 +1105,15 @@ def _check_workspace_hooks_collision(ws_root: Path, warnings: List[str]) -> None
                 if colliding_keys:
                     warnings.append(
                         f"Workspace lifecycle hooks file {rel_ws_hooks} ({ws_hooks_file}) defines {colliding_keys}, which may "
-                        "override or disable global Antigravity Harness lifecycle hooks."
+                        "override or disable global Plumbwork lifecycle hooks."
                     )
 
 
 def _repair_command_hint() -> str:
     has_install_py = (Path(__file__).resolve().parent.parent / "install.py").is_file()
-    if has_install_py and not os.environ.get("ANTIGRAVITY_SHARE_DIR"):
+    if has_install_py and not os.environ.get("PLUMBWORK_SHARE_DIR"):
         return "'python3 install.py'"
-    return "'agy-guard init'"
+    return "'plumb-guard init'"
 
 
 def _is_home_or_ancestor(path: Path) -> bool:
@@ -1018,12 +1136,12 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
         if not root.exists():
             warnings.append(
                 f"Workspace root {root} for environment '{env.id}' does not exist "
-                f"(remove stale entry with 'agy-guard env remove {env.id}')."
+                f"(remove stale entry with 'plumb-guard env remove {env.id}')."
             )
         elif _is_home_or_ancestor(root):
             warnings.append(
                 f"Non-global environment '{env.id}' is rooted at home/ancestor directory {root} rather than a project workspace "
-                f"(review or remove with 'agy-guard env remove {env.id}')."
+                f"(review or remove with 'plumb-guard env remove {env.id}')."
             )
         else:
             _check_workspace_hooks_collision(root, warnings)
@@ -1036,7 +1154,7 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
         warnings.append(f"Baseline is stored inside the protected tree ({monitor.state_file}).")
     legacy_baseline = root / ".guard_integrity.json"
     if legacy_baseline.exists():
-        warnings.append(f"Legacy baseline {legacy_baseline} is no longer used; remove it after 'agy-guard rebaseline'.")
+        warnings.append(f"Legacy baseline {legacy_baseline} is no longer used; remove it after 'plumb-guard rebaseline'.")
     legacy_snaps = root / ".guard_snapshots"
     if legacy_snaps.exists():
         warnings.append(
@@ -1078,6 +1196,7 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
         _check_hooks_and_runtime_state(root, warnings, infos)
         _check_plugins_symlinks(root, warnings)
         _check_hybrid_plugins(root, warnings, infos)
+        _check_legacy_residue(root, warnings)
         missing_ws: List[str] = []
         home_ws: List[str] = []
         for other in registry.list_environments():
@@ -1093,12 +1212,12 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
         if missing_ws:
             warnings.append(
                 f"Registered environment(s) point to missing workspace directories: {', '.join(missing_ws)} "
-                f"(clean up with 'agy-guard env remove <id>')."
+                f"(clean up with 'plumb-guard env remove <id>')."
             )
         if home_ws:
             warnings.append(
                 f"Non-global workspace environment(s) are rooted at home/ancestor directory: {', '.join(home_ws)} "
-                f"(review or remove with 'agy-guard env remove <id>')."
+                f"(review or remove with 'plumb-guard env remove <id>')."
             )
     watcher_log = state_dir() / "logs" / "lease-watcher.log"
     if watcher_log.is_file():
@@ -1112,7 +1231,7 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
         from guard.startup import StartupManager
         sentinel_active = bool(StartupManager(root).status().get("active"))
     if not sentinel_active:
-        infos.append("Boot sentinel is not enabled ('agy-guard startup enable').")
+        infos.append("Boot sentinel is not enabled ('plumb-guard startup enable').")
     if not load_settings().get("enabled", True):
-        infos.append("Desktop notifications are disabled ('agy-guard notify enable'); security events still go to the audit log.")
+        infos.append("Desktop notifications are disabled ('plumb-guard notify enable'); security events still go to the audit log.")
     return result

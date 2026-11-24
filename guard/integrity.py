@@ -1,6 +1,6 @@
 """
 guard/integrity.py — SHA-256 File Integrity Monitor (FIM)
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 The baseline is a flat, unsigned `relative path -> SHA-256` map stored in the per-user
@@ -43,13 +43,13 @@ class IntegrityReport:
     def summary(self) -> str:
         if self.baseline_status == "missing":
             return (f"[WARN] BASELINE MISSING: no trusted baseline yet ({self.total_files} files in scope). "
-                    f"Run 'agy-guard rebaseline' after reviewing them.")
+                    f"Run 'plumb-guard rebaseline' after reviewing them.")
         if self.baseline_status == "corrupt":
             return f"[WARN] BASELINE CORRUPT: the baseline file could not be read ({self.total_files} files in scope)."
         if self.baseline_status == "pending_review":
             changed = len(self.modified) + len(self.added) + len(self.deleted)
             return (f"[REVIEW] {changed} change(s) made during {self.pending_source or 'a maintenance window'} await review "
-                    f"(nothing else drifted). Inspect them, then run 'agy-guard rebaseline' to accept.")
+                    f"(nothing else drifted). Inspect them, then run 'plumb-guard rebaseline' to accept.")
         if self.is_intact:
             return f"[OK] Integrity Verified: {self.total_files} files intact. Zero drift detected."
         parts = []
@@ -314,7 +314,7 @@ class FileIntegrityMonitor:
         """
         Records the current state as a candidate baseline awaiting human review. The trusted
         baseline is NOT changed, so the drift stays visible until someone accepts it with
-        `agy-guard rebaseline` (which requires approval).
+        `plumb-guard rebaseline` (which requires approval).
         """
         current_hashes = self.scan_directory()
         payload = {
@@ -368,14 +368,14 @@ class FileIntegrityMonitor:
             if self.legacy_state_file:
                 notes.append(
                     f"A legacy baseline exists at {self.legacy_state_file} (different scope and location). "
-                    f"Run 'agy-guard rebaseline' to adopt the per-user baseline."
+                    f"Run 'plumb-guard rebaseline' to adopt the per-user baseline."
                 )
             return IntegrityReport(
                 timestamp=now_str,
                 target_dir=str(self.target_dir),
                 total_files=len(current_hashes),
                 is_intact=False,
-                deleted=["[BASELINE MISSING: No baseline found. Run 'agy-guard rebaseline' to establish the initial trusted state]"],
+                deleted=["[BASELINE MISSING: No baseline found. Run 'plumb-guard rebaseline' to establish the initial trusted state]"],
                 notes=notes,
                 baseline_status="missing",
             )

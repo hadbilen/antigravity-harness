@@ -1,5 +1,5 @@
 @echo off
-REM bin/agy-guard.bat — Windows CMD Launcher for Antigravity Guard
+REM bin/plumb-guard.bat — Windows CMD Launcher for Plumb Guard
 setlocal
 
 set "SCRIPT_DIR=%~dp0"

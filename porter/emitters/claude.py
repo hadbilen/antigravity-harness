@@ -168,7 +168,7 @@ def native_agent(raw: str, target: str = "claude") -> str:
 
 
 class ClaudeEmitter:
-    """Exports Antigravity Harness as a native Claude Code workspace."""
+    """Exports Plumbwork as a native Claude Code workspace."""
 
     TARGET = "claude"
     SKILLS_DIR = ".claude/skills"
@@ -189,7 +189,7 @@ class ClaudeEmitter:
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
         plan[output_dir / "CLAUDE.md"] = f"""# Claude Code Engineering Guidelines
 
-> Exported from Antigravity Harness v{manifest.version}. Skills live in `{cls.SKILLS_DIR}/`,
+> Exported from Plumbwork v{manifest.version}. Skills live in `{cls.SKILLS_DIR}/`,
 > auditor subagents in `{cls.NATIVE_AGENTS_DIR}/` (invoke them with the Task tool before delivery).
 
 ---

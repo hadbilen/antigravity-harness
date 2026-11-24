@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-installers/build_binaries.py — Standalone Binary Builder for Antigravity Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+installers/build_binaries.py — Standalone Binary Builder for Plumb Guard
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 
-Packages `agy-guard` CLI and GUI into a single standalone executable using PyInstaller.
+Packages `plumb-guard` CLI and GUI into a single standalone executable using PyInstaller.
 Bundles `pystray` and `Pillow` for native system tray integration on Linux, macOS, and Windows.
 """
 
@@ -38,13 +38,13 @@ def build_pyinstaller_command(
 ) -> Tuple[str, List[str]]:
     """Constructs the PyInstaller build command with portable script assets and Linux GTK+Tk isolation."""
     if system == "Linux":
-        binary_name = f"agy-guard-linux-{machine}"
+        binary_name = f"plumb-guard-linux-{machine}"
     elif system == "Darwin":
-        binary_name = f"agy-guard-macos-{machine}"
+        binary_name = f"plumb-guard-macos-{machine}"
     elif system == "Windows":
-        binary_name = f"agy-guard-windows-{machine}.exe"
+        binary_name = f"plumb-guard-windows-{machine}.exe"
     else:
-        binary_name = f"agy-guard-{system.lower()}-{machine}"
+        binary_name = f"plumb-guard-{system.lower()}-{machine}"
 
     entry_point = repo_root / "guard.py"
     exe_name = binary_name[:-4] if binary_name.endswith(".exe") else binary_name

@@ -380,7 +380,7 @@ class TestAntigravityV232HookModernization(unittest.TestCase):
             watcher, "BUNDLED_SEED_FILE", str(seed_path)
         ), mock.patch.object(watcher, "STATE_FILE", str(self.tmp / "state" / "upstream_state.json")), mock.patch.object(
             watcher, "CONFIG_DIR", str(cfg)
-        ), mock.patch.dict("os.environ", {"AGY_GUARD_NOTIFY": "off"}):
+        ), mock.patch.dict("os.environ", {"PLUMB_GUARD_NOTIFY": "off"}):
             out = watcher.run_hook({"invocationNum": 1, "modelName": "Gemini 4 Hydrogen (XHigh)", "conversationId": "w-1"})
 
         steps = out.get("injectSteps", [])
@@ -780,7 +780,7 @@ class TestSlice6SecurityAndRegressionHardening(unittest.TestCase):
         import os
         from unittest import mock
 
-        return mock.patch.dict(os.environ, {"AGY_GUARD_STATE_DIR": str(self._state_tmp)}, clear=False)
+        return mock.patch.dict(os.environ, {"PLUMB_GUARD_STATE_DIR": str(self._state_tmp)}, clear=False)
 
     def test_model_and_effort_hydrogen_paired_and_extra_low_transcript(self) -> None:
         # Neon requires XHigh/extra-high; `high` must fail closed even alone or overriding `(XHigh)`.
@@ -1153,7 +1153,7 @@ class TestSlice6SecurityAndRegressionHardening(unittest.TestCase):
             os.environ,
             {
                 "ANTIGRAVITY_CONFIG_DIR": str(cfg),
-                "AGY_GUARD_STATE_DIR": str(self._state_tmp),
+                "PLUMB_GUARD_STATE_DIR": str(self._state_tmp),
                 "UPSTREAM_STATE_FILE": str(st_f),
             },
             clear=False,

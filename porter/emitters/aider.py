@@ -14,7 +14,7 @@ from porter.sanitizer import ConstitutionalSanitizer
 
 
 class AiderEmitter:
-    """Exports Antigravity Harness for Aider environments."""
+    """Exports Plumbwork for Aider environments."""
 
     TARGET = "aider"
     SKILLS_DIR = ".aider/skills"
@@ -28,7 +28,7 @@ class AiderEmitter:
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
         plan[output_dir / "CONVENTIONS.md"] = f"""# Project Conventions & Engineering Rules
 
-> Exported from Antigravity Harness v{manifest.version}. Add a skill to the chat with
+> Exported from Plumbwork v{manifest.version}. Add a skill to the chat with
 > `/read {cls.SKILLS_DIR}/<name>/SKILL.md` when it applies.
 
 {const}

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 porter.py — Universal AI Agent Bridge & Suitability Transpiler
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 `porter import` writes into this SOURCE repository (reviewable via git diff). It never
-writes into the live, Guard-protected configuration: use `agy-guard porter stage` for that.
+writes into the live, Guard-protected configuration: use `plumb-guard porter stage` for that.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _harness_root() -> Path:
 def fetch_target_content(target: str) -> str:
     """Reads content from a local path or a remote HTTP(S) URL with SSRF protection."""
     if target.startswith(("http://", "https://")):
-        return safe_fetch_url(target, user_agent=f"Antigravity-Porter/{PORTER_VERSION}")
+        return safe_fetch_url(target, user_agent=f"Plumb-Porter/{PORTER_VERSION}")
     path = Path(target).resolve()
     if not path.exists():
         raise FileNotFoundError(f"Target path does not exist: {target}")
@@ -125,7 +125,7 @@ def cmd_import(args: argparse.Namespace) -> int:
     harness_root = _harness_root()
     if _is_live_config(harness_root):
         print("Error: porter.py is running from the live configuration directory. "
-              "Use 'agy-guard porter stage' to ingest into a protected environment.", file=sys.stderr)
+              "Use 'plumb-guard porter stage' to ingest into a protected environment.", file=sys.stderr)
         return 1
     if _is_zip_target(args.target):
         print(f"Error: '{args.target}' is a ZIP archive. Porter never extracts archives; "
@@ -255,7 +255,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         if os.path.islink(manifest_path) or not manifest_path.is_file():
             print(
                 f"Error: installed hybrid profile '{harness_root}' is missing canonical manifest "
-                f"'{manifest_path}'. Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' "
+                f"'{manifest_path}'. Re-run 'python3 install.py --plugins' or 'plumb-guard init --plugins' "
                 "from the source checkout, or run 'porter.py export' from the source repository.",
                 file=sys.stderr,
             )
@@ -271,7 +271,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     out_base = Path(args.out).resolve() if args.out else default_out
     targets = [args.target] if args.target != "all" else list(EMITTERS)
 
-    print(f"Antigravity Porter Export — Version {manifest.version}")
+    print(f"Plumbwork Porter Export — Version {manifest.version}")
     print(f"Source: {harness_root}")
     print(f"Output: {out_base}")
     print("-" * 50)
@@ -299,7 +299,7 @@ def cmd_manifest(args: argparse.Namespace) -> int:
         if is_hybrid:
             print(
                 f"[MANIFEST] STALE: {out_path} diverges from installed hybrid assets. "
-                "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' from the source checkout.",
+                "Re-run 'python3 install.py --plugins' or 'plumb-guard init --plugins' from the source checkout.",
                 file=sys.stderr,
             )
         else:
@@ -329,7 +329,7 @@ def _robust_console() -> None:
 def main() -> int:
     _robust_console()
     parser = argparse.ArgumentParser(
-        prog="porter",
+        prog="plumb-porter",
         description="Universal AI Agent Bridge, Suitability Analyzer, and Transpiler.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {PORTER_VERSION}")

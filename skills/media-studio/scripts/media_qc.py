@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 skills/media-studio/scripts/media_qc.py — Deterministic audio/video probe, quality gate & EBU R128 mastering CLI
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Python standard library + system ffmpeg (>= 5.1 recommended; automatic -vsync fallback on < 5.1) / ffprobe; runs on Python 3.10 and later.
 
 Rule families (enforced by `check`):

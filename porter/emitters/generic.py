@@ -14,7 +14,7 @@ from porter.sanitizer import ConstitutionalSanitizer
 
 
 class GenericEmitter:
-    """Exports Antigravity Harness as generic Markdown rules."""
+    """Exports Plumbwork as generic Markdown rules."""
 
     TARGET = "generic"
     SKILLS_DIR = "skills"
@@ -28,7 +28,7 @@ class GenericEmitter:
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
         plan[output_dir / "RULES.md"] = f"""# Engineering Rules & Behavioral Invariants
 
-> Exported from Antigravity Harness v{manifest.version}
+> Exported from Plumbwork v{manifest.version}
 > Universal instructions applicable to any model or coding assistant.
 
 ---

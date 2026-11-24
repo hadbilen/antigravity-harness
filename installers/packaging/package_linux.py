@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 installers/packaging/package_linux.py — Native Linux Distribution Package Generator
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly Python standard library & native OS tools.
 
 Generates:
@@ -116,16 +116,16 @@ class LinuxPackager:
         bin_dir = staging_dir / "usr" / "bin"
         apps_dir = staging_dir / "usr" / "share" / "applications"
         icons_dir = staging_dir / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps"
-        docs_dir = staging_dir / "usr" / "share" / "antigravity-harness"
+        docs_dir = staging_dir / "usr" / "share" / "plumbwork"
         comp_dir = staging_dir / "usr" / "share" / "bash-completion" / "completions"
 
         for d in (bin_dir, apps_dir, icons_dir, docs_dir, comp_dir):
             d.mkdir(parents=True, exist_ok=True)
 
         # 1. Binary or launcher (plus Porter & scripts runtime library)
-        dest_bin = bin_dir / "agy-guard"
-        dest_porter = bin_dir / "agy-porter"
-        lib_dir = staging_dir / "usr" / "lib" / "antigravity-guard"
+        dest_bin = bin_dir / "plumb-guard"
+        dest_porter = bin_dir / "plumb-porter"
+        lib_dir = staging_dir / "usr" / "lib" / "plumb-guard"
         lib_dir.mkdir(parents=True, exist_ok=True)
         ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
 
@@ -134,7 +134,7 @@ class LinuxPackager:
         else:
             # Standalone launcher invoking system python3
             dest_bin.write_text(
-                "#!/bin/sh\nexec python3 /usr/lib/antigravity-guard/guard.py \"$@\"\n",
+                "#!/bin/sh\nexec python3 /usr/lib/plumb-guard/guard.py \"$@\"\n",
                 encoding="utf-8"
             )
 
@@ -143,26 +143,26 @@ class LinuxPackager:
         shutil.copy2(self.repo_root / "guard.py", lib_dir / "guard.py")
         shutil.copy2(self.repo_root / "porter.py", lib_dir / "porter.py")
         dest_porter.write_text(
-            "#!/bin/sh\nexec python3 /usr/lib/antigravity-guard/porter.py \"$@\"\n",
+            "#!/bin/sh\nexec python3 /usr/lib/plumb-guard/porter.py \"$@\"\n",
             encoding="utf-8"
         )
         dest_porter.chmod(0o755)
         dest_bin.chmod(0o755)
 
         # 2. Desktop entry
-        desktop_src = self.repo_root / "installers" / "antigravity-guard.desktop"
+        desktop_src = self.repo_root / "installers" / "plumb-guard.desktop"
         if desktop_src.exists():
-            shutil.copy2(desktop_src, apps_dir / "antigravity-guard.desktop")
+            shutil.copy2(desktop_src, apps_dir / "plumb-guard.desktop")
         else:
-            (apps_dir / "antigravity-guard.desktop").write_text(
-                "[Desktop Entry]\nType=Application\nName=Antigravity Guard\nComment=OS-Level AI Governance Shield\nExec=agy-guard gui\nIcon=antigravity-guard\nTerminal=false\nCategories=Development;Security;\n",
+            (apps_dir / "plumb-guard.desktop").write_text(
+                "[Desktop Entry]\nType=Application\nName=Plumb Guard\nComment=OS-Level AI Governance Shield\nExec=plumb-guard gui\nIcon=plumb-guard\nTerminal=false\nCategories=Development;Security;\n",
                 encoding="utf-8"
             )
 
         # 3. Icon
-        icon_src = self.repo_root / "installers" / "packaging" / "antigravity-guard.svg"
+        icon_src = self.repo_root / "installers" / "packaging" / "plumb-guard.svg"
         if icon_src.exists():
-            shutil.copy2(icon_src, icons_dir / "antigravity-guard.svg")
+            shutil.copy2(icon_src, icons_dir / "plumb-guard.svg")
 
         # 4. Governance Docs, Hooks, Manifest & Templates
         for name in ("GEMINI.md", "DESIGN.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "hooks.json"):
@@ -176,10 +176,10 @@ class LinuxPackager:
             raise ValueError(f"Expected hook script paths ({src_uw}, {src_hg}) not found in {staged_hooks}")
         hooks_txt = hooks_txt.replace(
             src_uw,
-            "/usr/share/antigravity-harness/skills/upstream-auditor/scripts/upstream_watcher.py",
+            "/usr/share/plumbwork/skills/upstream-auditor/scripts/upstream_watcher.py",
         ).replace(
             src_hg,
-            "/usr/lib/antigravity-guard/guard/agy_hooks.py",
+            "/usr/lib/plumb-guard/guard/agy_hooks.py",
         )
         parsed_hooks = __import__("json").loads(hooks_txt)
         if not isinstance(parsed_hooks, dict):
@@ -203,21 +203,21 @@ class LinuxPackager:
                             sc.chmod(0o755)
 
         # 5. Bash completion
-        comp_content = """# Bash completion for agy-guard
-_agy_guard_completions() {
+        comp_content = """# Bash completion for plumb-guard
+_plumb_guard_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local commands="init status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify code-map ui-slop synthetic-markers verify-invariants gui"
     COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
 }
-complete -F _agy_guard_completions agy-guard
+complete -F _plumb_guard_completions plumb-guard
 """
-        (comp_dir / "agy-guard").write_text(comp_content, encoding="utf-8")
+        (comp_dir / "plumb-guard").write_text(comp_content, encoding="utf-8")
 
     def build_deb(self) -> Optional[Path]:
         """Builds a Debian / Ubuntu .deb package."""
         self.ensure_out_dir()
         deb_arch = "amd64" if self.arch in ("x86_64", "amd64") else ("arm64" if self.arch in ("arm64", "aarch64") else self.arch)
-        package_name = f"antigravity-guard_{self.version}_{deb_arch}.deb"
+        package_name = f"plumb-guard_{self.version}_{deb_arch}.deb"
         target_deb = self.out_dir / package_name
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -228,17 +228,20 @@ complete -F _agy_guard_completions agy-guard
             deb_dir = stage / "DEBIAN"
             deb_dir.mkdir(parents=True, exist_ok=True)
 
-            control_content = f"""Package: antigravity-guard
+            control_content = f"""Package: plumb-guard
 Version: {self.version}
 Section: devel
 Priority: optional
 Architecture: {deb_arch}
 Depends: python3 (>= 3.10)
+Provides: antigravity-guard
+Conflicts: antigravity-guard
+Replaces: antigravity-guard
 Recommends: libnotify-bin, python3-tk
 Suggests: nodejs, ffmpeg
-Maintainer: Had Bilen <https://github.com/hadbilen/antigravity-harness>
+Maintainer: Had Bilen <https://github.com/hadbilen/plumbwork>
 Description: OS-Level Governance, Write Protection, & Multi-Environment Integrity Suite
- Antigravity Guard (agy-guard) enforces OS write protection, cryptographic
+ Plumb Guard (plumb-guard) enforces OS write protection, cryptographic
  SHA-256 file integrity monitoring (FIM), and multi-environment governance
  across Antigravity, Claude Code, GPT Codex, Cursor, and Aider agent environments.
 """
@@ -320,21 +323,23 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
         """Generates RPM spec and builds .rpm package if rpmbuild is available."""
         self.ensure_out_dir()
         rpm_arch = "x86_64" if self.arch in ("x86_64", "amd64") else ("aarch64" if self.arch in ("arm64", "aarch64") else self.arch)
-        package_name = f"antigravity-guard-{self.version}-1.{rpm_arch}.rpm"
+        package_name = f"plumb-guard-{self.version}-1.{rpm_arch}.rpm"
         target_rpm = self.out_dir / package_name
 
-        spec_content = f"""Name:           antigravity-guard
+        spec_content = f"""Name:           plumb-guard
 Version:        {self.version}
 Release:        1%{{?dist}}
 Summary:        OS-Level AI Governance Shield & Multi-Environment Integrity Suite
 License:        MIT AND Apache-2.0
-URL:            https://github.com/hadbilen/antigravity-harness
+URL:            https://github.com/hadbilen/plumbwork
 BuildArch:      {rpm_arch}
 Requires:       python3 >= 3.10
+Provides:       antigravity-guard = %{{version}}-%{{release}}
+Obsoletes:      antigravity-guard < 3.0.0
 Recommends:     python3-tkinter
 
 %description
-Antigravity Guard (agy-guard) enforces OS-level write protection, cryptographic
+Plumb Guard (plumb-guard) enforces OS-level write protection, cryptographic
 SHA-256 file integrity monitoring (FIM), and multi-environment governance across
 Antigravity, Claude Code, GPT Codex, Cursor, and Aider agent environments.
 
@@ -350,19 +355,19 @@ mkdir -p %{{buildroot}}
 cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
 
 %files
-/usr/bin/agy-guard
-/usr/bin/agy-porter
-/usr/lib/antigravity-guard
-/usr/share/applications/antigravity-guard.desktop
-/usr/share/icons/hicolor/scalable/apps/antigravity-guard.svg
-/usr/share/antigravity-harness
-/usr/share/bash-completion/completions/agy-guard
+/usr/bin/plumb-guard
+/usr/bin/plumb-porter
+/usr/lib/plumb-guard
+/usr/share/applications/plumb-guard.desktop
+/usr/share/icons/hicolor/scalable/apps/plumb-guard.svg
+/usr/share/plumbwork
+/usr/share/bash-completion/completions/plumb-guard
 
 %changelog
 * {self.changelog_date} Had Bilen <hadbilen@users.noreply.github.com> - {self.version}-1
 - Release {self.version}; see CHANGELOG.md for details
 """
-        spec_path = self.out_dir / "antigravity-guard.spec"
+        spec_path = self.out_dir / "plumb-guard.spec"
         spec_path.write_text(spec_content, encoding="utf-8")
 
         rpmbuild = shutil.which("rpmbuild")
@@ -398,26 +403,29 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
         """Builds an Arch Linux package (.pkg.tar.zst or fallback .pkg.tar.xz)."""
         self.ensure_out_dir()
         arch_name = "x86_64" if self.arch in ("x86_64", "amd64") else ("aarch64" if self.arch in ("arm64", "aarch64") else self.arch)
-        package_name = f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.zst"
+        package_name = f"plumb-guard-{self.version}-1-{arch_name}.pkg.tar.zst"
         target_pkg = self.out_dir / package_name
 
         with tempfile.TemporaryDirectory() as tmpdir:
             stage = Path(tmpdir) / "stage"
             self._prepare_payload(stage)
 
-            pkginfo = f"""pkgname = antigravity-guard
+            pkginfo = f"""pkgname = plumb-guard
 pkgver = {self.version}-1
 pkgdesc = OS-Level AI Governance Shield & Multi-Environment Integrity Suite
-url = https://github.com/hadbilen/antigravity-harness
+url = https://github.com/hadbilen/plumbwork
 builddate = {int(os.environ.get("SOURCE_DATE_EPOCH", time.time()))}
-packager = Had Bilen <https://github.com/hadbilen/antigravity-harness>
+packager = Had Bilen <https://github.com/hadbilen/plumbwork>
 size = {self._payload_size(stage)}
 arch = {arch_name}
 license = MIT
 license = Apache-2.0
+provides = antigravity-guard
+replaces = antigravity-guard
+conflict = antigravity-guard
 depend = python>=3.10
 optdepend = libnotify: Desktop notifications
-optdepend = tk: Desktop GUI interface (agy-guard gui)
+optdepend = tk: Desktop GUI interface (plumb-guard gui)
 optdepend = nodejs: JavaScript syntax verification and UI tooling
 optdepend = ffmpeg: Media studio audio/video verification and processing
 """
@@ -426,7 +434,7 @@ optdepend = ffmpeg: Media studio audio/video verification and processing
             # Check if zstd is available, otherwise use .pkg.tar.xz
             has_zstd = shutil.which("zstd") is not None
             if not has_zstd:
-                target_pkg = self.out_dir / f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
+                target_pkg = self.out_dir / f"plumb-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
 
             entries = [".PKGINFO"] + sorted(p.name for p in stage.iterdir() if p.name != ".PKGINFO")
             tar_cmd = shutil.which("gtar") if sys.platform == "darwin" else shutil.which("tar")
@@ -456,7 +464,7 @@ optdepend = ffmpeg: Media studio audio/video verification and processing
                 tarinfo.gname = "root"
                 return tarinfo
 
-            target_pkg = self.out_dir / f"antigravity-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
+            target_pkg = self.out_dir / f"plumb-guard-{self.version}-1-{arch_name}.pkg.tar.xz"
             with tarfile.open(target_pkg, "w:xz") as tar:
                 tar.add(stage / ".PKGINFO", arcname=".PKGINFO", filter=_root_tar_filter)
                 for entry_name in entries[1:]:
@@ -468,7 +476,7 @@ optdepend = ffmpeg: Media studio audio/video verification and processing
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="package_linux",
-        description="Native Linux Distribution Packaging Utility for Antigravity Guard"
+        description="Native Linux Distribution Packaging Utility for Plumb Guard"
     )
     parser.add_argument("--format", choices=["deb", "rpm", "arch", "all"], default="all", help="Target package format")
     parser.add_argument("--all", action="store_true", help="Build all package formats (deb, rpm, arch)")
@@ -503,7 +511,7 @@ def main() -> int:
         return 0
 
     print("=" * 64)
-    print(f"   Building Linux Distribution Packages for Antigravity Guard v{packager.version}   ")
+    print(f"   Building Linux Distribution Packages for Plumb Guard v{packager.version}   ")
     print("=" * 64)
 
     generated: List[Path] = []

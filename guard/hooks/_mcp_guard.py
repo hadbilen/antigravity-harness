@@ -1,6 +1,6 @@
 """
 guard/hooks/_mcp_guard.py — Lazy PreToolUse MCP tool-call inspection guard (ADR-0013).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -179,7 +179,7 @@ def _inspect_mcp_tool_call(
             "decision": "deny",
             "reason": (
                 "[Harness Governance Shield] Protected environments registry `environments.json` is corrupt or "
-                "unreadable (failing closed; run `agy-guard doctor` in an interactive terminal)."
+                "unreadable (failing closed; run `plumb-guard doctor` in an interactive terminal)."
             ),
         }
     mcp_targets = _extract_mcp_target_paths(mcp_args) if checks_gov_path else []
@@ -211,7 +211,7 @@ def _inspect_mcp_tool_call(
                 return {
                     "decision": "deny",
                     "reason": (
-                        f"[Harness MCP Shield] Human-only `agy-guard` administration via MCP tool "
+                        f"[Harness MCP Shield] Human-only `plumb-guard` administration via MCP tool "
                         f"(`{effective_label}`) is prohibited (GEMINI.md Rule 12)."
                     ),
                 }

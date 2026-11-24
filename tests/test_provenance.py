@@ -1,6 +1,6 @@
 """
 tests/test_provenance.py — Unit Tests for RunProvenanceTracker
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 """
 
 import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)

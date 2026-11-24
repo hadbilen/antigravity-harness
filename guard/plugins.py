@@ -1,6 +1,6 @@
 """
 guard/plugins.py — Canonical Antigravity Plugin Catalog, Standalone Builder, Hybrid Core Rewriter & Validator.
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library (Python 3.10+).
 """
 
@@ -58,10 +58,10 @@ BANNED_BRAND_PREFIXES: Tuple[str, ...] = (
 
 PLUGIN_AUTHOR: Dict[str, str] = {
     "name": "hadbilen",
-    "url": "https://github.com/hadbilen/antigravity-harness",
+    "url": "https://github.com/hadbilen/plumbwork",
 }
-PLUGIN_HOMEPAGE = "https://github.com/hadbilen/antigravity-harness"
-PLUGIN_REPOSITORY = "https://github.com/hadbilen/antigravity-harness"
+PLUGIN_HOMEPAGE = "https://github.com/hadbilen/plumbwork"
+PLUGIN_REPOSITORY = "https://github.com/hadbilen/plumbwork"
 PLUGIN_LICENSE = "MIT"
 
 # Fixed UTC epoch (2026-11-23T00:00:00Z) used for bit-identical archives when SOURCE_DATE_EPOCH is unset.
@@ -115,7 +115,7 @@ HYBRID_CORE_REWRITE_EXCLUDES: FrozenSet[str] = frozenset({
 
 @dataclass(frozen=True)
 class PluginSpec:
-    """Immutable specification of a canonical Antigravity Harness domain plugin pack."""
+    """Immutable specification of a canonical Plumbwork domain plugin pack."""
 
     name: str
     display_name: str
@@ -372,7 +372,7 @@ _MEDIA_QC_BLOCK_RE = re.compile(
     r'(?P=indent)for _p in \.claude \.cursor \.agents \.aider; do \[ -f "\$MEDIA_QC" \] \|\| '
     r'MEDIA_QC="\$_p/skills/media-studio/scripts/media_qc\.py"; done\n'
     r'(?P=indent)\[ -f "\$MEDIA_QC" \] \|\| MEDIA_QC="\$HOME/\.gemini/config/skills/media-studio/scripts/media_qc\.py"\n'
-    r'(?P=indent)\[ -f "\$MEDIA_QC" \] \|\| MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc\.py"',
+    r'(?P=indent)\[ -f "\$MEDIA_QC" \] \|\| MEDIA_QC="/usr/share/(?:antigravity-harness|plumbwork)/skills/media-studio/scripts/media_qc\.py"',
     re.MULTILINE,
 )
 
@@ -431,7 +431,7 @@ def _rewrite_ui_refinery_agy_guard(text: str, plugin_rel_path: str) -> str:
     text = re.sub(
         r"^# Canonical installed fallback \(when (?:agy-guard|plumb-guard) is not on PATH\):\n"
         r"python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py ([^\n]+)$",
-        r"# Optional (when agy-guard is installed): agy-guard ui-slop \1",
+        r"# Optional (when plumb-guard is installed): plumb-guard ui-slop \1",
         text,
         flags=re.MULTILINE,
     )
@@ -444,35 +444,35 @@ def _rewrite_ui_refinery_agy_guard(text: str, plugin_rel_path: str) -> str:
     text = re.sub(
         r"^# Canonical installed fallback \(when (?:agy-guard|plumb-guard) is not on PATH\):\n"
         r"python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers\.py ([^\n]+)$",
-        r"# Optional (when agy-guard is installed): agy-guard synthetic-markers \1",
+        r"# Optional (when plumb-guard is installed): plumb-guard synthetic-markers \1",
         text,
         flags=re.MULTILINE,
     )
 
-    # 2. Inline dual invocations (`agy-guard ...` or `python3 ~/.gemini/config/skills/ui-refinery/scripts/...`)
+    # 2. Inline dual invocations (`plumb-guard ...` or `python3 ~/.gemini/config/skills/ui-refinery/scripts/...`)
     text = re.sub(
         r"`(?:agy-guard|plumb-guard) synthetic-markers`\s+or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers\.py`",
-        f"`python3 {synth_rel}` (or optional `agy-guard synthetic-markers`)",
+        f"`python3 {synth_rel}` (or optional `plumb-guard synthetic-markers`)",
         text,
     )
     text = re.sub(
         r"\(`(?:agy-guard|plumb-guard) ui-slop`\s+or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py`\)",
-        f"(`python3 {ui_rel}`, or optional `agy-guard ui-slop`)",
+        f"(`python3 {ui_rel}`, or optional `plumb-guard ui-slop`)",
         text,
     )
     text = re.sub(
         r"`(?:agy-guard|plumb-guard) ui-slop`\s*\(or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py`\)",
-        f"`python3 {ui_rel}` (or optional `agy-guard ui-slop`)",
+        f"`python3 {ui_rel}` (or optional `plumb-guard ui-slop`)",
         text,
     )
     text = re.sub(
         r"`(?:agy-guard|plumb-guard) ui-slop ([^`]+)`\s*\(or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py \1`\)",
-        rf"`python3 {ui_rel} \1` (or optional `agy-guard ui-slop`)",
+        rf"`python3 {ui_rel} \1` (or optional `plumb-guard ui-slop`)",
         text,
     )
     text = re.sub(
         r"`(?:agy-guard|plumb-guard) ui-slop ([^`]+)`\s*\(([^;)]+);\s*fallback\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py`\)",
-        rf"`python3 {ui_rel} \1` (\2; optional `agy-guard ui-slop`)",
+        rf"`python3 {ui_rel} \1` (\2; optional `plumb-guard ui-slop`)",
         text,
     )
 
@@ -509,25 +509,30 @@ def _rewrite_ui_refinery_agy_guard(text: str, plugin_rel_path: str) -> str:
 
 
 def _rewrite_rust_suite_agy_guard(text: str) -> str:
-    text = text.replace(
-        "mapping blast radius first via `agy-guard code-map callers <symbol>` and `agy-guard code-map blast-radius <symbol>`",
-        "mapping blast radius first via `cargo check --workspace`, `rust-analyzer`, `rg`, or optional `agy-guard code-map`",
+    text = re.sub(
+        r"mapping blast radius first via `(?:agy-guard|plumb-guard) code-map callers <symbol>` and `(?:agy-guard|plumb-guard) code-map blast-radius <symbol>`",
+        "mapping blast radius first via `cargo check --workspace`, `rust-analyzer`, `rg`, or optional `plumb-guard code-map`",
+        text,
     )
-    text = text.replace(
-        "Map symbol dependencies via `agy-guard code-map profile <symbol>` / `blast-radius <symbol>`",
-        "Map symbol dependencies via native tooling (`compile_commands.json`, `clangd`, `rust-analyzer`, `rg`, or optional `agy-guard code-map`)",
+    text = re.sub(
+        r"Map symbol dependencies via `(?:agy-guard|plumb-guard) code-map profile <symbol>` / `blast-radius <symbol>`",
+        "Map symbol dependencies via native tooling (`compile_commands.json`, `clangd`, `rust-analyzer`, `rg`, or optional `plumb-guard code-map`)",
+        text,
     )
-    text = text.replace(
-        "and the human operator seals a fresh `agy-guard test-boundary snapshot`.",
-        "and record the approved test transition before retiring legacy tests (or seal a snapshot when optional `agy-guard` is installed).",
+    text = re.sub(
+        r"and the human operator seals a fresh `(?:agy-guard|plumb-guard) test-boundary snapshot`\.",
+        "and record the approved test transition before retiring legacy tests (or seal a snapshot when optional `plumb-guard` is installed).",
+        text,
     )
-    text = text.replace(
-        "## 5. Static Analysis Limits: `~/.local/share/antigravity-harness/runtime/scripts/code_map.py` on C/C++",
+    text = re.sub(
+        r"## 5\. Static Analysis Limits: `~/\.local/share/(?:antigravity-harness|plumbwork)/runtime/scripts/code_map\.py` on C/C\+\+",
         "## 5. Static Analysis Limits: Lightweight Regex/AST Call-Graph Tools on C/C++",
+        text,
     )
-    text = text.replace(
-        "Treat `agy-guard code-map` (`~/.local/share/antigravity-harness/runtime/scripts/code_map.py`) output on C and C++ sources",
-        "Treat lightweight static call-graph output (such as optional `agy-guard code-map` / `code_map.py`) on C and C++ sources",
+    text = re.sub(
+        r"Treat `(?:agy-guard|plumb-guard) code-map` \(`~/\.local/share/(?:antigravity-harness|plumbwork)/runtime/scripts/code_map\.py`\) output on C and C\+\+ sources",
+        "Treat lightweight static call-graph output (such as optional `plumb-guard code-map` / `code_map.py`) on C and C++ sources",
+        text,
     )
     return text
 
@@ -539,7 +544,7 @@ def _rewrite_game_engineering_agy_guard(text: str) -> str:
         r"(?P=indent)python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py <paths> --mode game",
         r"\g<indent># When the optional ui-refinery plugin is installed:\n"
         r"\g<indent>python3 <path/to/ui-refinery/scripts/check_ui_slop.py> <paths> --mode game\n"
-        r"\g<indent># Optional (when agy-guard is installed): agy-guard ui-slop <paths> --mode game",
+        r"\g<indent># Optional (when plumb-guard is installed): plumb-guard ui-slop <paths> --mode game",
         text,
         flags=re.MULTILINE,
     )
@@ -556,7 +561,7 @@ def _rewrite_media_studio_paths(text: str, plugin_rel_path: str) -> str:
             f'{ind}for _p in . .claude .cursor .agents .aider; do [ -f "$MEDIA_QC" ] || '
             f'MEDIA_QC="$_p/skills/media-studio/scripts/media_qc.py"; done\n'
             f'{ind}[ -f "$MEDIA_QC" ] || MEDIA_QC="$HOME/.gemini/config/plugins/media-studio/skills/media-studio/scripts/media_qc.py"\n'
-            f'{ind}[ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py"'
+            f'{ind}[ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py"'
         )
 
     text = _MEDIA_QC_BLOCK_RE.sub(_replace_block, text)
@@ -751,10 +756,10 @@ def render_plugin_readme(spec: PluginSpec, version: str) -> str:
     license_clause = (
         f"Licensed under the MIT License (see [LICENSE](./LICENSE) and "
         f"[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)). "
-        f"Built from [antigravity-harness]({PLUGIN_HOMEPAGE}) (`v{version}`)."
+        f"Built from [plumbwork]({PLUGIN_HOMEPAGE}) (`v{version}`)."
         if spec.third_party_upstreams
         else f"Licensed under the MIT License (see [LICENSE](./LICENSE)). "
-        f"Built from [antigravity-harness]({PLUGIN_HOMEPAGE}) (`v{version}`)."
+        f"Built from [plumbwork]({PLUGIN_HOMEPAGE}) (`v{version}`)."
     )
     lines.extend([
         "",
@@ -769,8 +774,8 @@ def render_plugin_readme(spec: PluginSpec, version: str) -> str:
 def _resolve_repo_legal_file(repo_root: Path, filename: str) -> Path:
     """Resolves root LICENSE or THIRD_PARTY_NOTICES.md from repo_root (with Linux FHS licenses fallback)."""
     candidates = [repo_root / filename]
-    if repo_root == Path("/usr/share/antigravity-harness"):
-        candidates.append(Path("/usr/share/licenses/antigravity-guard") / filename)
+    if repo_root == Path("/usr/share/plumbwork"):
+        candidates.append(Path("/usr/share/licenses/plumb-guard") / filename)
     for cand in candidates:
         if os.path.islink(cand):
             raise FileNotFoundError(f"Refusing symlinked legal notice file: {cand}")
@@ -1510,8 +1515,13 @@ _MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 _BARE_SCRIPTS_RE = re.compile(r"(?<![A-Za-z0-9_./~$-])scripts/[A-Za-z0-9_./-]+")
 _TILDE_CONFIG_RE = re.compile(r"~/\.gemini/config/")
 _FLAT_HOME_SKILLS_RE = re.compile(r"\$HOME/\.gemini/config/skills/")
-_RUNTIME_PATH_RE = re.compile(r"(?:~|\$HOME)/\.local/share/(?:antigravity-harness|plumbwork)/")
-_INLINE_AGY_GUARD_RE = re.compile(r"`(?:agy-guard|plumb-guard)\b[^`]*`")
+_RUNTIME_PATH_RE = re.compile(
+    r"(?:(?:~|\$HOME|\$\{HOME\})/\.local/(?:(?:share|state)/(?:antigravity-(?:harness|guard)|plumbwork|plumb-guard)/|bin/(?:agy|plumb)-(?:guard|porter)\b)"
+    r"|/usr/(?:lib/(?:antigravity-guard|plumb-guard)|share/antigravity-harness)(?:/|\b))"
+)
+_INLINE_GUARD_CMD_RE = re.compile(r"`(?:agy-guard|plumb-guard|agy-porter|plumb-porter)\b[^`]*`")
+_LEGACY_GUARD_CMD_RE = re.compile(r"\b(?:agy-guard|agy-porter)\b")
+_FENCED_GUARD_CMD_RE = re.compile(r"(?:^|[;&|()]\s*|\b(?:env|sudo|command|exec)\s+|[A-Za-z_][A-Za-z0-9_]*=\S+\s+)(?:agy-guard|plumb-guard|agy-porter|plumb-porter)(?:\s|$)")
 _OPTIONAL_QUALIFIER_RE = re.compile(r"(?i)\b(?:optional|when\s+[^\n`]*installed|if\s+available)\b")
 _BACKTICK_REL_PATH_RE = re.compile(r"`(\.\.?/[A-Za-z0-9_./-]+\.(?:md|py|sh|css|json|svg))`")
 
@@ -1713,15 +1723,14 @@ def _validate_markdown_standalone(md_path: Path, plugin_dir: Path, errors: List[
                 )
 
         if in_fence:
-            if (
-                stripped.startswith(("agy-guard ", "plumb-guard "))
-                or stripped in ("agy-guard", "plumb-guard")
-            ):
-                errors.append(f"{rel}:{lineno}: mandatory uncommented `{stripped.split()[0]}` command inside code fence")
+            if not stripped.startswith("#") and _FENCED_GUARD_CMD_RE.search(stripped):
+                m_fc = re.search(r"\b(?:agy-guard|plumb-guard|agy-porter|plumb-porter)\b", stripped)
+                tok = m_fc.group(0) if m_fc else stripped.split()[0]
+                errors.append(f"{rel}:{lineno}: mandatory uncommented `{tok}` command inside code fence")
             continue
 
-        for m in _INLINE_AGY_GUARD_RE.finditer(line):
-            if not _OPTIONAL_QUALIFIER_RE.search(line):
+        for m in _INLINE_GUARD_CMD_RE.finditer(line):
+            if _LEGACY_GUARD_CMD_RE.search(m.group(0)) or not _OPTIONAL_QUALIFIER_RE.search(line):
                 errors.append(f"{rel}:{lineno}: unqualified mandatory {m.group(0)} invocation")
 
         for m in _MD_LINK_RE.finditer(line):

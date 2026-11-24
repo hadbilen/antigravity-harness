@@ -1,4 +1,4 @@
-# bin/agy-guard.ps1 — Windows PowerShell Launcher for Antigravity Guard
+﻿# bin/plumb-guard.ps1 — Windows PowerShell Launcher for Plumb Guard
 [CmdletBinding()]
 param(
     [Parameter(ValueFromRemainingArguments = $true)]

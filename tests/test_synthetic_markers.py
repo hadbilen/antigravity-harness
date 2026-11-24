@@ -1,6 +1,6 @@
 """
 tests/test_synthetic_markers.py — Tests for skills/ui-refinery/scripts/check_synthetic_markers.py
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Standard library only; no network.
 """
 

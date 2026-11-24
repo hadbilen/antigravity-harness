@@ -477,7 +477,7 @@ class TestLeaseLifecycle(TempDirCase):
     def test_headless_request_is_rejected_without_revealing_a_bypass(self):
         ok, msg, _ = self.manager.request_unlock("env_a", "agent", 60, interactive=False)
         self.assertFalse(ok)
-        self.assertNotIn("agy-guard unlock", msg)
+        self.assertNotIn("plumb-guard unlock", msg)
 
 
 @posix_only

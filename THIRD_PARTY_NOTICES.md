@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Antigravity Harness is MIT-licensed (see `LICENSE`). Several skills are adapted from third-party
+Plumbwork is MIT-licensed (see `LICENSE`). Several skills are adapted from third-party
 open-source projects. Their original copyright and license notices are reproduced below as their
 licenses require. Adapted files may have been modified for this harness.
 

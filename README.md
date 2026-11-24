@@ -1,19 +1,19 @@
-# Antigravity Harness
+# Plumbwork
 
-[![Release](https://img.shields.io/badge/release-v2.4.0-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases)
-[![CI](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v3.0.0-blue.svg)](https://github.com/hadbilen/plumbwork/releases)
+[![CI](https://github.com/hadbilen/plumbwork/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/plumbwork/actions/workflows/ci.yml)
 [![Runtime](https://img.shields.io/badge/core%20runtime-Python%20stdlib%20only-brightgreen.svg)](#dependencies)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20ui--refinery-orange.svg)](DESIGN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **A behavioral constitution, auditor subagents, a rule transpiler, and a write-protection /
-> integrity-monitoring companion (`agy-guard`) for AI coding agents.**
+> integrity-monitoring companion (`plumb-guard`) for AI coding agents.**
 
 Autonomous coding agents suffer from **environment mutation drift**, **sycophancy**, **test weakening
-(Goodhart's Curse)**, **context bloat**, and **ecosystem fragmentation**. Antigravity Harness counters
+(Goodhart's Curse)**, **context bloat**, and **ecosystem fragmentation**. Plumbwork counters
 them with an engineering constitution (`GEMINI.md`), 20 modular skills, 10 independent auditor
 subagents, Porter (a rule importer/exporter for Claude Code, Cursor, Aider and `AGENTS.md` tools),
-and Antigravity Guard, which write-protects the governance files, detects drift, and gates changes
+and Plumb Guard, which write-protects the governance files, detects drift, and gates changes
 behind human confirmation.
 
 ---
@@ -27,14 +27,14 @@ Guard runs as **your own OS user**. Read this before relying on it:
 | Accidental edits and tools that respect file permissions | A process running as your user that deliberately restores write bits (`chmod u+w`) |
 | In-place edits of top-level files (`DESIGN.md`, `hooks.json`, …) and any change inside `rules/`, `skills/`, `agents/`, `templates/` | Deleting and recreating a top-level file: the config root stays writable for Antigravity's own saves, so this is only *detected* (FIM), not blocked |
 | Headless / unattended agents: administration commands (`unlock`, `rebaseline`, `snapshot restore` / `prune`, lowering an environment policy, `notify disable`, `startup enable` / `disable`, `porter stage`, …) refuse without a human typing `yes` in a terminal or approving in the GUI | An agent that can drive an interactive terminal *and* chooses to ignore the constitution |
-| Interactive approval prompts and native Antigravity `deny` rules (`command(agy-guard unlock)`, `command(regex:.*--no-verify.*)`) in standard App/CLI modes | Launching Antigravity CLI with `--dangerously-skip-permissions`, which auto-approves tool permission requests without prompting (native `deny` rules and OS-level read-only / `chattr +i` locks remain the backstop) |
+| Interactive approval prompts and native Antigravity `deny` rules (`command(plumb-guard unlock)`, `command(regex:.*--no-verify.*)`) in standard App/CLI modes | Launching Antigravity CLI with `--dangerously-skip-permissions`, which auto-approves tool permission requests without prompting (native `deny` rules and OS-level read-only / `chattr +i` locks remain the backstop) |
 | Silent drift: the SHA-256 baseline (outside the protected tree) reports modified, added, deleted and unreadable files | An attacker who can rewrite both the files **and** the per-user baseline (it is not signed) |
 | Forgotten maintenance windows: leases relock automatically when they expire (failed relocks are retried and alerted), and changes made during an unattended window wait for review instead of being trusted | `root` / administrators, or kernel-level tampering |
-| Untraceable decisions: approvals, refusals, locks, leases, rebaselines, restores, boot checks and every WARNING/CRITICAL alert are appended to an audit log (`~/.local/state/antigravity-harness/logs/guard.log`) | Rewriting that log: it lives in your user's state directory and is not signed |
+| Untraceable decisions: approvals, refusals, locks, leases, rebaselines, restores, boot checks and every WARNING/CRITICAL alert are appended to an audit log (`~/.local/state/plumbwork/logs/guard.log`) | Rewriting that log: it lives in your user's state directory and is not signed |
 
 For a real boundary, make the policy files immutable with root (`sudo chattr +i`), keep them root-owned,
 or enforce policy on the host side (e.g. an Antigravity `PreToolUse` hook that denies writes to the
-governance tree). `agy-guard status` shows which protection kind is active
+governance tree). `plumb-guard status` shows which protection kind is active
 (`USER-SPACE LOCK (advisory against the same OS user)` vs `IMMUTABLE (chattr +i, root)`).
 
 ---
@@ -63,21 +63,21 @@ governance tree). `agy-guard status` shows which protection kind is active
         ┌──────────────────┬──────────────────┼──────────────────┬──────────────────┐
         ▼                  ▼                  ▼                  ▼                  ▼
   ┌──────────────┐ ┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐ ┌──────────────────┐
-  │   Auditor    │ │  Modular Skill  │ │ Baseline UI  │ │  Porter bridge   │ │Antigravity Guard │
+  │   Auditor    │ │  Modular Skill  │ │ Baseline UI  │ │  Porter bridge   │ │   Plumb Guard    │
   │  Subagents   │ │     System      │ │   Contract   │ │ (verified export)│ │ (lock/FIM/lease) │
   └──────────────┘ └─────────────────┘ └──────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
 ---
 
-## 1. Antigravity Guard (`agy-guard` CLI & GUI)
+## 1. Plumb Guard (`plumb-guard` CLI & GUI)
 
 ### Governance write shield (`guard/os_adapter.py`, `guard/environment.py`)
-Guard locks the **governance seams** of `~/.gemini/config/` (`rules/` including `rules/antigravity-constitution.md`,
+Guard locks the **governance seams** of `~/.gemini/config/` (`rules/` including `rules/plumbwork-constitution.md`,
 `DESIGN.md`, `AGENTS.md`, `GEMINI.md` if present, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/`,
 plus the 4 harness plugin directories `plugins/ui-refinery`, `plugins/rust-suite`, `plugins/media-studio`, and `plugins/game-engineering` when installed in opt-in `--plugins` Hybrid Layout)
-together with the installed Guard runtime (`~/.local/share/antigravity-harness/runtime/`) and user launchers
-(`~/.local/bin/agy-guard`, `agy-porter`, `porter`). Harness-internal `MISTAKES.md` stays in this source repository and is
+together with the installed Guard runtime (`~/.local/share/plumbwork/runtime/`) and user launchers
+(`~/.local/bin/plumb-guard`, `plumb-porter`, `porter`). Harness-internal `MISTAKES.md` stays in this source repository and is
 not installed globally into `~/.gemini/config/`. Antigravity's
 own runtime state (`config.json`, `projects/`, `sidecars/`, `plugins/` parent directory for Marketplace and third-party plugins, `cache`) stays writable, and so does
 the root directory: Antigravity saves `config.json` by atomic replace (new file + rename), which a read-only
@@ -94,18 +94,18 @@ one is not stopped; the integrity baseline reports it.
 * `lock` returns a non-zero exit code and lists the reasons whenever protection is only partial.
 
 ### Integrity baseline (`guard/integrity.py`)
-* A flat `path -> SHA-256` map per environment, stored in `~/.local/state/antigravity-harness/integrity/`
+* A flat `path -> SHA-256` map per environment, stored in `~/.local/state/plumbwork/integrity/`
   (outside the protected tree; `ANTIGRAVITY_INTEGRITY_FILE` overrides it for the global environment).
 * Records symlinks as links (retargeting is detected), reports unreadable files, ignores installer backups and
   legacy Guard files **at the top level only** (a `backup_*` folder inside `skills/` is monitored), rejects
   malformed baselines as corrupt, and archives the previous baseline on every rebaseline. It detects drift; it
   is not a signature.
 * Changes made during a lease that expired unattended are recorded as **pending review**: `status` and `verify`
-  show `[REVIEW]` until an approved `agy-guard rebaseline` accepts them (anything changed afterwards is
+  show `[REVIEW]` until an approved `plumb-guard rebaseline` accepts them (anything changed afterwards is
   reported as ordinary drift).
 
 ### Snapshots & verified restore (`guard/snapshot.py`)
-* Snapshots of the governance scope live in `~/.local/share/antigravity-harness/snapshots/` with a content manifest.
+* Snapshots of the governance scope live in `~/.local/share/plumbwork/snapshots/` with a content manifest.
 * Restore verifies the snapshot against its content manifest (snapshots without one are refused), refuses to
   write through destination symlinks, always takes a pre-restore backup first, swaps entries with a journal
   (rolled back on failure, with relock failures reported), and re-establishes the baseline.
@@ -118,50 +118,53 @@ one is not stopped; the integrity baseline reports it.
   tools' own runtime state (sessions, memory, `settings.local.json`). The home directory is never treated as a
   workspace, and the GUI asks for a project folder. Ids include a path hash so two projects with the same folder
   name never collide; ambiguous ids are rejected. Whole-directory seams registered by 1.3.x are migrated.
-* Policies: `enforced`, `monitored`, `disabled` (`agy-guard env policy <id> <policy>`). Other agents'
+* Policies: `enforced`, `monitored`, `disabled` (`plumb-guard env policy <id> <policy>`). Other agents'
   environments start as `monitored` (integrity reports, no chmod); lowering a policy requires human approval,
   and a non-enforced environment is reported as NOT protected instead of "locked".
 * The registry lives in the per-user state directory, so results never depend on the current directory.
 
 ### Human-approved, time-bounded leases (`guard/lease.py`)
-* `agy-guard request-unlock --duration 60` asks a human to approve in the terminal (or the GUI); headless
+* `plumb-guard request-unlock --duration 60` asks a human to approve in the terminal (or the GUI); headless
   requests are rejected. There is no auto-approve flag.
 * The record is persisted **before** unlocking and re-checked under the store lock, so two requests can never
   both be granted; a detached watcher (logging to `logs/lease-watcher.log`) relocks when the lease expires, and
   every Guard command also expires overdue leases. Several environments can hold leases at the same time.
 * Closing relocks first and removes only the record of **that** lease. A successful close writes a change
-  report (`~/.local/state/antigravity-harness/lease_reports/<id>.json`); the window's changes become pending
-  review, or are accepted at once when a human closes the window with `agy-guard lock-complete` and confirms.
+  report (`~/.local/state/plumbwork/lease_reports/<id>.json`); the window's changes become pending
+  review, or are accepted at once when a human closes the window with `plumb-guard lock-complete` and confirms.
   A failed relock keeps the record, raises a CRITICAL notification and is retried (up to 5 times, 60 s apart).
   A corrupt lease store fails closed: it is set aside and every enforced environment is re-locked.
 
 ### Notifications (`guard/notifier.py`)
 * `notify-send` (Linux), `osascript` (macOS), PowerShell balloon tips (Windows); message text is passed as
   data (argv / environment), never interpolated into code. Falls back to the terminal.
-* Cooldowns: `CRITICAL` none, `WARNING` 30 minutes, `INFO` 24 hours. `agy-guard notify quiet` passes
-  CRITICAL only; `agy-guard notify disable` silences everything (force never overrides it) and requires human
-  approval; WARNING and CRITICAL events still reach the audit log. `agy-guard notify send` lets hooks reach the
+* Cooldowns: `CRITICAL` none, `WARNING` 30 minutes, `INFO` 24 hours. `plumb-guard notify quiet` passes
+  CRITICAL only; `plumb-guard notify disable` silences everything (force never overrides it) and requires human
+  approval; WARNING and CRITICAL events still reach the audit log. `plumb-guard notify send` lets hooks reach the
   human instead of the agent's context.
 
 ### Audit trail (`guard/audit_log.py`)
-* One JSON object per line in `~/.local/state/antigravity-harness/logs/guard.log` (1 MiB × 5 rotation, mode
+* One JSON object per line in `~/.local/state/plumbwork/logs/guard.log` (1 MiB × 5 rotation, mode
   0600): approvals and refusals, locks and unlocks, policy changes, lease grants/closes/relock failures,
   baselines and pending reviews, snapshot create/restore/prune, boot checks, notification settings and every
   WARNING/CRITICAL notification (including suppressed ones). Logging never blocks an operation.
 
 ### Boot sentinel, doctor and GUI
-* `agy-guard startup enable` (human approval) registers a systemd user unit / launchd agent / scheduled task
+* `plumb-guard startup enable` (human approval) registers a systemd user unit / launchd agent / scheduled task
   (least privilege on Windows) that runs `boot-check`: it locks **first**, then verifies; on drift it captures a
   forensic snapshot (identical drift is not copied again; the newest 3 are kept), sends a CRITICAL notification
   and never rebaselines. Enabling reports failure when systemctl/launchctl fails. (Ordering before the
   graphical session is best-effort.)
-* `agy-guard doctor [--fix]` (checks in `guard/doctor.py`) reports protection gaps, legacy baselines/snapshots
+* `plumb-guard doctor [--fix]` (checks in `guard/doctor.py`) reports protection gaps, legacy baselines/snapshots
   inside the config tree, world-writable sources, symlink installs, dangling or external symlinks under `plugins/`
   and `.agents/skills/`, hybrid duplicate `skills/<slug>` + `plugins/<pack>/skills/<slug>` shadowing and stale global
-  `contrast-mcp.py` entries alongside `plugins/ui-refinery/mcp_config.json`, `hooks.json` schema/executable/script-path existence and `"enabled": false` states,
-  dual `GEMINI.md` + `rules/antigravity-constitution.md` double-load warnings, workspace `.agents/hooks.json`
+  `contrast-mcp.py` entries alongside `plugins/ui-refinery/mcp_config.json`, duplicate `plugin.json` `name` collisions
+  across installed plugins (JSONC-aware), read-only pre-`v3.0.0` legacy-residue warnings (leftover `v2.x` XDG
+  state/data directories, retired constitution rule, legacy boot sentinels, and unreceipted legacy harness directories),
+  `hooks.json` schema/executable/script-path existence and `"enabled": false` states,
+  dual `GEMINI.md` + `rules/plumbwork-constitution.md` double-load warnings, workspace `.agents/hooks.json`
   collisions, `install_receipt.json` version alignment, relock-watcher errors, risky Antigravity permission grants
-  (counts only), and native Antigravity `deny` rule recommendations (`agy-guard unlock`, `--no-verify`, plus optional `agy plugin` guidance when harness packs are installed).
+  (counts only), and native Antigravity `deny` rule recommendations (`plumb-guard unlock`, `--no-verify`, plus optional `agy plugin` guidance when harness packs are installed).
 * **Full CLI Workflow (25 subcommands):** `init`, `status`, `lock`, `unlock`, `verify`, `rebaseline`, `snapshot`, `porter`, `upstream`, `startup`, `boot-check`, `gui`, `doctor`, `test-boundary`, `provenance`, `env`, `request-unlock`, `lock-complete`, `drift`, `self-audit`, `notify`, `code-map`, `ui-slop`, `synthetic-markers`, `verify-invariants` (plus the internal `lease-tick` used by the lease watcher).
 * **Desktop GUI (`guard/gui.py`):** Tkinter/ttk, `DESIGN.md` dark palette; long operations (verify,
   rebaseline, restore, drift analysis) run off the UI thread, tray callbacks are marshalled onto the Tk loop,
@@ -169,16 +172,16 @@ one is not stopped; the integrity baseline reports it.
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
 * **Event-scoped lifecycle hooks (`hooks.json`, `guard/__init__.py`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/__init__.py` uses PEP 562 lazy `__getattr__` exports and `guard/agy_hooks.py` acts as a readable, byte-budgeted (`<= 32 KiB`, `<= 160` chars/line) lazy CLI router and compatibility facade (with a lightweight `invocationNum > 1` fast path) loading only the active lifecycle and tool-scoped submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py` with on-demand `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, and `_workflow_ast.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`, `ADR-0010`, `ADR-0013`, `ADR-0015`):
   * **`PreInvocation` (`pre_invocation.py`):** calibrated bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `ui-refinery-contrast` / `ui-refinery_contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`, `ADR-0011`, `ADR-0015`, `ADR-0016`) emitting installed-layout-safe paths (`~/.gemini/config/...` or `~/.gemini/config/plugins/<pack>/...`), live `config.json["plugins"][<pack>]["enabled"]` toggle awareness suppressing disabled or removed harness packs, explicit `/slash` priority, pasted-review and read-only meta-question false-positive suppression, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]` (with `marathon` `Campaign ID` isolation and stale-ledger anti-merge guidance), dynamic predictive context-window handoff advisories (post-`CHECKPOINT` active token headroom vs. incoming job cost without fixed `%` cutoffs, delivering Tier-1 `0`-token `user_markdown` and one-time Tier-2 latched `systemMessage` per `ADR-0014`), and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
-  * **`PreToolUse` (`pre_tool_use.py`, `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, `_workflow_ast.py`):** Governance Shield (unconditional `deny` on `~/.gemini/config` governance seams, `~/.gemini/{GEMINI,AGENTS}.md`, `plugins/` root/dot/glob patterns, and all paths inside harness plugin packs while preserving third-party plugins, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010` and `ADR-0016`), Top-Catalog Model & Highest-Effort Customization Gate (Rule 17, scoped strictly to `antigravity-harness` checkouts so external user projects can edit their own `AGENTS.md`/`GEMINI.md`/`SKILL.md` on any model, with `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), `GEMINI.md` Rule 9 `tasks.md` `## Authorized Test Modifications` gating (with standardized 3-sentence plain-language operator headers *What changes / If approved / If denied* across all `force_ask` prompts plus exact test path(s) and diff summaries per `ADR-0015`, while permitting clean `[COMPLETE]` stale-campaign resets once prior authorized tests are committed), `force_ask` gating on directory drops (`cp -r`, `rsync`, `git clone`, `mv`, cwd `tar -x`/`unzip`) into `~/.gemini/config/plugins/<any>`, all `agy plugin (install|import)` commands, and `agy plugin (disable|uninstall)` commands targeting harness packs (third-party `disable`/`uninstall` exempt), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
+  * **`PreToolUse` (`pre_tool_use.py`, `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, `_workflow_ast.py`):** Governance Shield (unconditional `deny` on `~/.gemini/config` governance seams, `~/.gemini/{GEMINI,AGENTS}.md`, `plugins/` root/dot/glob patterns, and all paths inside harness plugin packs while preserving third-party plugins, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010` and `ADR-0016`), Top-Catalog Model & Highest-Effort Customization Gate (Rule 17, scoped strictly to `plumbwork` checkouts so external user projects can edit their own `AGENTS.md`/`GEMINI.md`/`SKILL.md` on any model, with `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), `GEMINI.md` Rule 9 `tasks.md` `## Authorized Test Modifications` gating (with standardized 3-sentence plain-language operator headers *What changes / If approved / If denied* across all `force_ask` prompts plus exact test path(s) and diff summaries per `ADR-0015`, while permitting clean `[COMPLETE]` stale-campaign resets once prior authorized tests are committed), `force_ask` gating on directory drops (`cp -r`, `rsync`, `git clone`, `mv`, cwd `tar -x`/`unzip`) into `~/.gemini/config/plugins/<any>`, all `agy plugin (install|import)` commands, and `agy plugin (disable|uninstall)` commands targeting harness packs (third-party `disable`/`uninstall` exempt), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
   * **`Stop` (`stop_gate.py`):** diff, untracked-file, and linked-worktree `TestBoundaryGuard` integrity verification (tautological assertions, operator/matcher relaxation, `C9` test-runner sniffing, unapproved test skips, malformed `.json`/`.toml`/`.svg` syntax, `UI-1`–`UI-5` slop, and broken local Markdown links) guarded by a 3-strike circuit breaker.
-* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the `SessionStart` hook monitors model drift, `builtin/skills` SHA-256, `~/.gemini/antigravity/builtin/.checksum` bundle drift (`ADR-0014`), and 8 tracked external repositories, sending an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `agy-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `agy-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
+* **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the `SessionStart` hook monitors model drift, `builtin/skills` SHA-256, `~/.gemini/antigravity/builtin/.checksum` bundle drift (`ADR-0014`), and 8 tracked external repositories, sending an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `plumb-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `plumb-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
 
 ---
 
 ## 2. The Engineering Constitution (`GEMINI.md` + `.agents/rules/harness-maintainer.md`)
 
 Slim universal always-on invariants live in `GEMINI.md` (Rules 1–14 & 18, installed globally to
-`~/.gemini/config/rules/antigravity-constitution.md` with `trigger: always_on` so Antigravity App, CLI, and
+`~/.gemini/config/rules/plumbwork-constitution.md` with `trigger: always_on` so Antigravity App, CLI, and
 IDE/Extensions all load a single copy while Antigravity's native rule deduplication prevents duplicate loading
 inside this checkout); harness-repository-only maintainer rules (Rule 12 admin addendum and Rules 15–17) live
 in `.agents/rules/harness-maintainer.md` (`trigger: always_on`). Procedures live in skills and mechanical checks
@@ -255,7 +258,7 @@ boilerplate is deduplicated across `agents/*.md` and injected standalone during 
   (`RULES.md`, `skills/`, `agents/`). Skills, support files (with their executable bits), templates and agents
   are exported with LF line endings and checked for parity by the self-audit; `hooks.json` is Antigravity-only
   and is not exported. Existing files are only overwritten with `--force`.
-* **Staging gate:** `agy-guard porter stage` binds the reviewed content hash to the written content, refuses
+* **Staging gate:** `plumb-guard porter stage` binds the reviewed content hash to the written content, refuses
   destination symlinks, snapshots first and re-locks afterwards; `porter.py import` only writes into this
   source repository (review it with `git diff`).
 
@@ -286,7 +289,7 @@ boilerplate is deduplicated across `agents/*.md` and injected standalone during 
 Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ### Bilingual Architecture (Canonical English + Native Turkish Intent Bridge)
-While all core invariants, formal specifications, architectural decision records (`docs/adr/`), and agent contracts are canonical English (`GEMINI.md` Rule 6), Antigravity Harness provides **first-class bilingual intent recognition**:
+While all core invariants, formal specifications, architectural decision records (`docs/adr/`), and agent contracts are canonical English (`GEMINI.md` Rule 6), Plumbwork provides **first-class bilingual intent recognition**:
 * **Zero-Friction Prompt Matching:** Skill hint tables (`guard/agy_hooks.py` / `guard/hooks/pre_invocation.py`) and frontmatter triggers accept both standard English commands/phrases and native Turkish colloquial intents (`"hata var"`, `"sadeleştir"`, `"hızlandır"`, `"veri analizi"`).
 * **Localized Synthetic-Prose Scanner:** `skills/ui-refinery/scripts/check_synthetic_markers.py` features automatic language detection (`detect_language`) and dedicated Turkish LLM synthetic-marker detection rules (`TR-1` through `TR-7`) alongside universal English markers.
 * **Extensibility:** The bilingual intent tables serve as a reference implementation for contributors wishing to bridge additional languages into Antigravity 2.0 lifecycle hooks.
@@ -306,7 +309,7 @@ While all core invariants, formal specifications, architectural decision records
 ## Directory Structure
 
 ```text
-antigravity-harness/
+plumbwork/
 ├── GEMINI.md / DESIGN.md / MISTAKES.md   # Universal constitution, design contract, repo-local incident log
 ├── .agents/
 │   └── rules/harness-maintainer.md        # Harness-only maintainer rules (Rule 12 addendum, Rules 15-17)
@@ -317,9 +320,9 @@ antigravity-harness/
 ├── .github/workflows/ci.yml               # 3 OS x Python 3.10-3.14, lint, trusted-boundary, release
 ├── .harness/manifest.json                 # Canonical manifest (checked by CI)
 ├── docs/
-│   ├── adr/                               # Architecture Decision Records (ADR-0001 through ADR-0016)
+│   ├── adr/                               # Architecture Decision Records (ADR-0001 through ADR-0017)
 │   └── benchmark-protocol.md              # 10-task real-project A/B quality benchmark & PreInvocation evaluation record
-├── bin/                                   # agy-guard launchers (POSIX, .bat, .ps1)
+├── bin/                                   # plumb-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
 ├── guard/                                 # Guard: os_adapter, environment, integrity, snapshot, lease,
 │   │                                      #   notifier, approval, audit_log, doctor, paths, startup,
@@ -335,13 +338,13 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 10 auditor subagent definitions
 ├── skills/                                # 20 top-level skills + on-demand references/ & scripts/
-├── tests/                                 # Hermetic unittest suite (894 tests)
+├── tests/                                 # Hermetic unittest suite (901 tests)
 └── templates/                             # ARCHITECTURE, DECISIONS, HANDOFF, MISTAKES, REPOSTATE, SECURITY_POSTURE, procoder.SKILL, vulkan.SKILL & config templates
 ```
 
 Runtime state never lives in the repository: registry, baselines, leases, lock-mode records and the
-upstream ledger are in `~/.local/state/antigravity-harness/`; snapshots and the installed runtime in
-`~/.local/share/antigravity-harness/` (`XDG_STATE_HOME` / `XDG_DATA_HOME` are honoured).
+upstream ledger are in `~/.local/state/plumbwork/`; snapshots and the installed runtime in
+`~/.local/share/plumbwork/` (`XDG_STATE_HOME` / `XDG_DATA_HOME` are honoured).
 
 ---
 
@@ -350,17 +353,17 @@ upstream ledger are in `~/.local/state/antigravity-harness/`; snapshots and the 
 ### Recommended: install from a source checkout (all platforms)
 
 ```bash
-git clone https://github.com/hadbilen/antigravity-harness.git
-cd antigravity-harness
+git clone https://github.com/hadbilen/plumbwork.git
+cd plumbwork
 python3 install.py          # Windows: python install.py   |   POSIX alternative: ./install.sh
 ```
 
 The default **copy mode** installs real files into `~/.gemini/config` (writing the universal constitution to
-`~/.gemini/config/rules/antigravity-constitution.md` with `trigger: always_on` so App, CLI, and IDE/Extensions
+`~/.gemini/config/rules/plumbwork-constitution.md` with `trigger: always_on` so App, CLI, and IDE/Extensions
 load one shared copy while backing up and retiring legacy `~/.gemini/config/GEMINI.md` and receipt-tracked
 `MISTAKES.md`), copies the
-Guard runtime to `~/.local/share/antigravity-harness/runtime`, writes `agy-guard` / `agy-porter` launchers
-to `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\antigravity-guard\*.cmd`), merges the `upstream-watchdog`
+Guard runtime to `~/.local/share/plumbwork/runtime`, writes `plumb-guard` / `plumb-porter` launchers
+to `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\plumb-guard\*.cmd`), merges the `upstream-watchdog`
 and `harness-gate` lifecycle hooks into `hooks.json` without dropping other hooks, repoints relocated skill
 scripts in `mcp_config.json` (`RELOCATED_SKILL_SCRIPTS`) while retiring superseded consolidated skill directories, backs replaced files up **outside** the config tree
 (together with snapshots, baselines and backups left inside it by 1.3.0 and earlier),
@@ -371,17 +374,17 @@ the checksum-verified standalone binary), `--no-lock`, `--enable-startup`, `--dr
 
 ### Opt-in Hybrid Plugin Layout (`--plugins`) and standalone plugin packs
 
-Default `v2.4.0` installs use Flat Layout (all 20 canonical skills under `~/.gemini/config/skills/`). To deploy the 4 domain bundles as UI-toggleable, OS-locked Antigravity Plugin Packs while keeping the 14 core governance skills, 10 auditor subagents, constitution, and `agy-guard` locks managed from this repository:
+Default `v3.0.0` installs use Flat Layout (all 20 canonical skills under `~/.gemini/config/skills/`). To deploy the 4 domain bundles as UI-toggleable, OS-locked Antigravity Plugin Packs while keeping the 14 core governance skills, 10 auditor subagents, constitution, and `plumb-guard` locks managed from this repository:
 
 ```bash
-# Activate Hybrid Layout from a source checkout (or via Linux package: agy-guard init --plugins)
+# Activate Hybrid Layout from a source checkout (or via Linux package: plumb-guard init --plugins)
 python3 install.py --plugins
 
 # Verify OS locks, SHA-256 baseline, diagnostics, and hybrid self-audit
-agy-guard status
-agy-guard verify
-agy-guard doctor
-agy-guard self-audit --strict
+plumb-guard status
+plumb-guard verify
+plumb-guard doctor
+plumb-guard self-audit --strict
 
 # Losslessly revert Hybrid Layout back to Flat Layout (restores retired global mcp_config.json keys)
 python3 install.py --flat-skills
@@ -389,7 +392,7 @@ python3 install.py --flat-skills
 
 #### Standalone plugin packs (GitHub Releases)
 
-Each release publishes 4 standalone-clean plugin packs (`.zip` + `.zip.sha256`) on [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases) that work in Antigravity without `agy-guard` or the full harness (each archive bundles a strict `v1/plugin.json`, dual-theme `128x128` SVG logo, MIT `LICENSE`, pack-scoped `THIRD_PARTY_NOTICES.md`, and `README.md` linking back to this repository):
+Each release publishes 4 standalone-clean plugin packs (`.zip` + `.zip.sha256`) on [GitHub Releases](https://github.com/hadbilen/plumbwork/releases) that work in Antigravity without `plumb-guard` or the full harness (each archive bundles a strict `v1/plugin.json`, dual-theme `128x128` SVG logo, MIT `LICENSE`, pack-scoped `THIRD_PARTY_NOTICES.md`, and `README.md` linking back to this repository):
 
 | Pack (`dir`) | Display Name | Bundled Skills & Extras |
 | :--- | :--- | :--- |
@@ -402,96 +405,96 @@ To install a standalone pack from GitHub Releases (or build all 4 locally from s
 
 ```bash
 # Verify checksum and extract into global ~/.gemini/config/plugins/ (or project .agents/plugins/)
-sha256sum -c ui-refinery-v2.4.0.zip.sha256
-unzip ui-refinery-v2.4.0.zip -d ~/.gemini/config/plugins/
+sha256sum -c ui-refinery-v3.0.0.zip.sha256
+unzip ui-refinery-v3.0.0.zip -d ~/.gemini/config/plugins/
 
 # Build, archive, and offline-validate all 4 standalone packs from a source checkout
 python3 scripts/build_plugins.py --out dist/plugins --validate --zip
 ```
 
-> **Canonical Home:** Antigravity plugins cannot install `agy-guard`/`agy-porter` PATH binaries, OS-level read-only locks, or global constitutional governance (`ADR-0016`). Use the standalone `.zip` packs when you only need a single domain toolkit; use `python3 install.py --plugins` (or `agy-guard init --plugins`) from this repository for the full constitutional harness and write-protection boundary.
+> **Canonical Home:** Antigravity plugins cannot install `plumb-guard`/`plumb-porter` PATH binaries, OS-level read-only locks, or global constitutional governance (`ADR-0016`). Use the standalone `.zip` packs when you only need a single domain toolkit; use `python3 install.py --plugins` (or `plumb-guard init --plugins`) from this repository for the full constitutional harness and write-protection boundary.
 
 **`agy plugin` security boundary (`ADR-0016`):**
 - The 4 harness plugin directories (`plugins/ui-refinery`, `plugins/rust-suite`, `plugins/media-studio`, `plugins/game-engineering`) are OS-locked and FIM-monitored inside the `antigravity` `enforced` scope, while `~/.gemini/config/plugins/` stays writable for Marketplace and third-party plugins (such as `rea`).
-- Toggling a harness pack in the Antigravity UI writes only to `~/.gemini/config/config.json` (never modifying files inside `plugins/<pack>/`); `PreInvocation` reads that state to suppress disabled plugin skill hints and `ui-refinery_contrast` MCP hints, while `Stop` (`stop_gate.py`) resolves `check_ui_slop.py` from OS-locked `runtime/` (or `/usr/share/antigravity-harness` on Linux packages) independent of `config.json`.
+- Toggling a harness pack in the Antigravity UI writes only to `~/.gemini/config/config.json` (never modifying files inside `plugins/<pack>/`); `PreInvocation` reads that state to suppress disabled plugin skill hints and `ui-refinery_contrast` MCP hints, while `Stop` (`stop_gate.py`) resolves `check_ui_slop.py` from OS-locked `runtime/` (or `/usr/share/plumbwork` on Linux packages) independent of `config.json`.
 - `PreToolUse` denies direct writes, glob/dot/command-substitution escapes, `git clone` into protected roots, and explicit archive extraction targeting `~/.gemini/config/plugins/` root or harness packs; gates directory drops (`cp -r/-R/-a`, `rsync`, `git clone`, `mv`, cwd `tar -x`/`unzip`) targeting `~/.gemini/config/plugins/<any>`, all `agy plugin (install|import)` commands, and `agy plugin (disable|uninstall)` commands targeting harness packs behind 3-sentence `force_ask` confirmation (leaving third-party `disable`/`uninstall` exempt).
-- **Downgrade & MCP backup note:** Before downgrading a `--plugins` install back to `v2.3.0`, run `python3 install.py --flat-skills` (or `agy-guard init --flat-skills`) first so plugin seams are pruned and flat skills/MCP entries are restored; any custom `env` or extra CLI flags on retired `contrast-mcp.py` entries are preserved in the external pre-migration backup (`~/.local/state/antigravity-harness/backups/`).
+- **Upgrading from `v2.x` & MCP backup note:** `v3.0.0` is a clean major cutover (`ADR-0017`) with no runtime compatibility shims; see [`CHANGELOG.md`](CHANGELOG.md) for the clean 2-command `v2.x -> v3.0.0` upgrade sequence (back up first, uninstall the legacy `v2.x` install, then run `v3.0.0` `python3 install.py` or `python3 install.py --plugins`). To revert a `--plugins` install back to Flat Layout, run `python3 install.py --flat-skills` (or `plumb-guard init --flat-skills`); any custom `env` or extra CLI flags on retired `contrast-mcp.py` entries are preserved in the external pre-migration backup (`~/.local/state/plumbwork/backups/`).
 
 ### Linux packages and standalone binaries
 
-Release assets (see [GitHub Releases](https://github.com/hadbilen/antigravity-harness/releases)) ship with a
+Release assets (see [GitHub Releases](https://github.com/hadbilen/plumbwork/releases)) ship with a
 `.sha256` file each (including standalone plugin pack `.zip` archives); verify before installing:
 
 ```bash
-sha256sum -c antigravity-guard_2.4.0_amd64.deb.sha256
-sudo apt install ./antigravity-guard_2.4.0_amd64.deb
-agy-guard init              # bootstrap ~/.gemini/config, hooks, FIM baseline & lock from /usr/share/antigravity-harness (add --plugins for Hybrid Layout)
+sha256sum -c plumb-guard_3.0.0_amd64.deb.sha256
+sudo apt install ./plumb-guard_3.0.0_amd64.deb
+plumb-guard init              # bootstrap ~/.gemini/config, hooks, FIM baseline & lock from /usr/share/plumbwork (add --plugins for Hybrid Layout)
 ```
 
-Before removing a Linux `.deb`, `.rpm`, or Arch system package, run `agy-guard init --uninstall` per user account to unlock `~/.gemini/config`, remove receipt-tracked harness files and merged hook keys while preserving user-authored customizations, and archive a backup. Binaries are built for `linux-x86_64`, `macos-arm64` and `windows-x86_64`; `python3 install.py --binary` (optionally pinned with `--sha256 <64-hex>`) downloads the matching one only if its SHA-256 checksum matches. On other platforms (e.g. FreeBSD) the Python runtime is used.
+Before removing a Linux `.deb`, `.rpm`, or Arch system package, run `plumb-guard init --uninstall` per user account to unlock `~/.gemini/config`, remove receipt-tracked harness files and merged hook keys while preserving user-authored customizations, and archive a backup. Binaries are built for `linux-x86_64`, `macos-arm64` and `windows-x86_64`; `python3 install.py --binary` (optionally pinned with `--sha256 <64-hex>`) downloads the matching one only if its SHA-256 checksum matches. On other platforms (e.g. FreeBSD) the Python runtime is used.
 
 ---
 
-## Antigravity Guard (`agy-guard`) Usage
+## Plumb Guard (`plumb-guard`) Usage
 
 ```bash
 # Health check (and re-lock / establish a missing baseline)
-agy-guard doctor --fix
+plumb-guard doctor --fix
 
 # Protection, integrity and lease status
-agy-guard status
+plumb-guard status
 
 # Lock the governance seams; verify integrity
-agy-guard lock
-agy-guard verify
+plumb-guard lock
+plumb-guard verify
 
 # Maintenance: prefer a time-bounded lease (human approval, automatic relock)
-agy-guard request-unlock --duration 120 --reason "update skills"
-agy-guard lock-complete            # relock now; offers to accept the window's changes
+plumb-guard request-unlock --duration 120 --reason "update skills"
+plumb-guard lock-complete            # relock now; offers to accept the window's changes
 
 # Permanent unlock and accepting the current state require human confirmation
-agy-guard unlock
-agy-guard rebaseline
+plumb-guard unlock
+plumb-guard rebaseline
 
 # Snapshots
-agy-guard snapshot create --label pre_experiment
-agy-guard snapshot list
-agy-guard snapshot restore --id <snapshot_id>
+plumb-guard snapshot create --label pre_experiment
+plumb-guard snapshot list
+plumb-guard snapshot restore --id <snapshot_id>
 
 # Porter gate
-agy-guard porter inspect https://example.com/some_rule.md
-agy-guard porter stage ./custom_rule.md
+plumb-guard porter inspect https://example.com/some_rule.md
+plumb-guard porter stage ./custom_rule.md
 
 # Upstream repositories and model/runtime drift (zero LLM tokens)
-agy-guard upstream check
-agy-guard upstream status
-agy-guard upstream ack
+plumb-guard upstream check
+plumb-guard upstream status
+plumb-guard upstream ack
 
 # Other environments
-agy-guard env detect --path ~/projects/my-app
-agy-guard env list
-agy-guard env policy <env_id> monitored # built-in global 'antigravity' always reloads as 'enforced'
-agy-guard drift
+plumb-guard env detect --path ~/projects/my-app
+plumb-guard env list
+plumb-guard env policy <env_id> monitored # built-in global 'antigravity' always reloads as 'enforced'
+plumb-guard drift
 
 # Test trust boundary and reproducibility
-agy-guard test-boundary snapshot
-agy-guard test-boundary verify --mode tdd
-agy-guard test-boundary verify --base-ref origin/main
-agy-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py" --passes 2
-agy-guard provenance generate
+plumb-guard test-boundary snapshot
+plumb-guard test-boundary verify --mode tdd
+plumb-guard test-boundary verify --base-ref origin/main
+plumb-guard test-boundary run-reproducible --cmd "pytest tests/test_core.py" --passes 2
+plumb-guard provenance generate
 
 # Portable workspace verification tools (work from any external project cwd)
-agy-guard code-map callers handle_request src/
-agy-guard ui-slop index.html --mode utility
-agy-guard synthetic-markers --profile technical README.md
-agy-guard verify-invariants --all
+plumb-guard code-map callers handle_request src/
+plumb-guard ui-slop index.html --mode utility
+plumb-guard synthetic-markers --profile technical README.md
+plumb-guard verify-invariants --all
 
 # Boot sentinel, notifications, self-audit, GUI
-agy-guard startup enable
-agy-guard boot-check
-agy-guard notify quiet
-agy-guard self-audit --strict
-agy-guard gui
+plumb-guard startup enable
+plumb-guard boot-check
+plumb-guard notify quiet
+plumb-guard self-audit --strict
+plumb-guard gui
 
 # Upstream watchdog notice: show the reasons, then silence it once reviewed
 python3 ~/.gemini/config/skills/upstream-auditor/scripts/upstream_watcher.py --status
@@ -505,21 +508,21 @@ Administration commands exit with code `3` when no human confirmation was given.
 If a misbehaving hook blocks urgent recovery work, disable only the affected group in `~/.gemini/config/hooks.json`
 rather than deleting the file or leaving the config tree permanently unlocked:
 
-1. Open a short human-approved lease: `agy-guard request-unlock --duration 15 --reason "emergency hook bypass"`.
+1. Open a short human-approved lease: `plumb-guard request-unlock --duration 15 --reason "emergency hook bypass"`.
 2. Add `"enabled": false` inside the target hook group (`"harness-gate"` or `"upstream-watchdog"`) in `~/.gemini/config/hooks.json`.
-3. Run `agy-guard doctor` to confirm the disabled hook state is visible as an explicit warning.
-4. Once recovery finishes, remove `"enabled": false` (or re-run `python3 install.py`) and close the lease with `agy-guard lock-complete`.
+3. Run `plumb-guard doctor` to confirm the disabled hook state is visible as an explicit warning.
+4. Once recovery finishes, remove `"enabled": false` (or re-run `python3 install.py`) and close the lease with `plumb-guard lock-complete`.
 
 > **Fail-Open Host Semantics:** Official Antigravity plugin documentation
 > (`https://antigravity.google/docs/build-plugins`) specifies that
 > non-zero hook exit codes are logged and ignored (**fail-open**), in contrast to third-party summaries that
 > describe hooks as fail-closed. `guard/agy_hooks.py` therefore exits `0` and returns explicit JSON decisions
-> (`deny`, `force_ask`, `allow`, `block`) on stdout. Run `agy-guard doctor` after Python or Antigravity upgrades
+> (`deny`, `force_ask`, `allow`, `block`) on stdout. Run `plumb-guard doctor` after Python or Antigravity upgrades
 > to verify every hook executable and script path exists on disk so missing binaries cannot silently fall open.
 
 ---
 
-## Porter CLI (`porter.py` / `agy-porter`) Usage
+## Porter CLI (`porter.py` / `plumb-porter`) Usage
 
 ```bash
 # Read-only suitability inspection (a .zip is inspected without extracting anything)
@@ -550,7 +553,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (894 tests)
+# Hermetic unit test suite (901 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings
@@ -561,7 +564,7 @@ python3 scripts/verify_invariants.py --all
 python3 scripts/verify_invariants.py --diff --mode tdd --base-ref origin/main
 
 # Standalone plugin pack build, archive & offline validation
-python3 scripts/build_plugins.py --out /tmp/agy-plugins-smoke --validate --zip
+python3 scripts/build_plugins.py --out /tmp/plumbwork-plugins-smoke --validate --zip
 ```
 
 ---

@@ -1,6 +1,6 @@
 """
 guard/approval.py — Human confirmation gate for Guard administration commands.
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Threat model (honest): the gate stops unattended/headless automation and accidental
@@ -185,7 +185,7 @@ def tty_approver(request: ApprovalRequest) -> bool:
         warn("approval.non_interactive", action=request.action, reason=reason)
         print(f"[WARN] Human confirmation unavailable for '{request.action}': {reason}", file=sys.stderr)
         return False
-    print(f"\n[ANTIGRAVITY GUARD — HUMAN CONFIRMATION REQUIRED: {request.action}]")
+    print(f"\n[PLUMB GUARD — HUMAN CONFIRMATION REQUIRED: {request.action}]")
     print(request.summary)
     for line in request.details:
         print(f"  - {line}")

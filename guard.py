@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-guard.py — Antigravity Guard (agy-guard) CLI & GUI Root Launcher
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+guard.py — Plumb Guard (plumb-guard) CLI & GUI Root Launcher
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Usage:

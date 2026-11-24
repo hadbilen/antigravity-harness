@@ -143,7 +143,7 @@ class TestFableW3SkillsAndAgents(unittest.TestCase):
                 "Bad guard ref: `guard/hooks/pre_invocation.py`.\n"
                 "Bad harness script ref: `scripts/meta_audit.py`.\n"
                 "Good installed template: `~/.gemini/config/templates/HANDOFF.template.md`.\n"
-                "Good installed runtime: `~/.local/share/antigravity-harness/runtime/guard/hooks/pre_invocation.py`.\n"
+                "Good installed runtime: `~/.local/share/plumbwork/runtime/guard/hooks/pre_invocation.py`.\n"
                 "Good relative sibling link: [ref](references/sub.md).\n",
                 encoding="utf-8",
             )
@@ -160,13 +160,13 @@ class TestFableW3SkillsAndAgents(unittest.TestCase):
             ):
                 self.assertIn(token, msgs)
 
-        # Porter sanitizer strips ~/.local/share/antigravity-harness/runtime/ for portable exports
+        # Porter sanitizer strips ~/.local/share/plumbwork/runtime/ for portable exports
         exported = ConstitutionalSanitizer.sanitize_for_export(
-            "Run `python3 ~/.local/share/antigravity-harness/runtime/scripts/verify_invariants.py --all` "
-            "and inspect `~/.local/share/antigravity-harness/runtime/guard/hooks/pre_invocation.py`.",
+            "Run `python3 ~/.local/share/plumbwork/runtime/scripts/verify_invariants.py --all` "
+            "and inspect `~/.local/share/plumbwork/runtime/guard/hooks/pre_invocation.py`.",
             target="claude",
         )
-        self.assertNotIn("~/.local/share/antigravity-harness/runtime/", exported)
+        self.assertNotIn("~/.local/share/plumbwork/runtime/", exported)
         self.assertIn("scripts/verify_invariants.py", exported)
         self.assertIn("guard/hooks/pre_invocation.py", exported)
 
@@ -469,8 +469,8 @@ class TestFableW4AuditRegressionsW3(unittest.TestCase):
                 "HOME": str(self.home),
                 "USERPROFILE": str(self.home),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg),
-                "AGY_GUARD_STATE_DIR": str(self.state),
-                "AGY_GUARD_NOTIFY": "off",
+                "PLUMB_GUARD_STATE_DIR": str(self.state),
+                "PLUMB_GUARD_NOTIFY": "off",
             },
             clear=False,
         )

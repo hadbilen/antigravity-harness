@@ -59,9 +59,9 @@ class HermeticCampaignIsolationCase(unittest.TestCase):
             {
                 "HOME": str(self.tmp),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
-                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+                "PLUMB_GUARD_DATA_DIR": str(self.data_dir),
             },
             clear=False,
         )

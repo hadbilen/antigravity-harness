@@ -73,9 +73,9 @@ class HermeticHookCase(unittest.TestCase):
                 "XDG_STATE_HOME": str(self.tmp / "xdg_state"),
                 "XDG_DATA_HOME": str(self.tmp / "xdg_data"),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
-                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+                "PLUMB_GUARD_DATA_DIR": str(self.data_dir),
             },
             clear=False,
         )
@@ -449,8 +449,8 @@ class TestAC3ReactiveWakeupContinuityAndConsecutiveBuildFilter(HermeticHookCase)
         self.assertIn("[Harness Recovery & Continuity Gate]", _injected_text(r_crash))
 
     def test_build_signal_filter_skips_126_127_short_cli_status_and_resets_on_clean_exit_zero(self) -> None:
-        """Catches `rg` exit 127, `agy-guard doctor` exit 1, and non-consecutive fails triggering `build-error-resolver`."""
-        # 1. `agy-guard doctor` exit 1 + 3x `rg` exit 127 (`command not found`) -> {}
+        """Catches `rg` exit 127, `plumb-guard doctor` exit 1, and non-consecutive fails triggering `build-error-resolver`."""
+        # 1. `plumb-guard doctor` exit 1 + 3x `rg` exit 127 (`command not found`) -> {}
         tx_127 = self.tmp / "tx_127.jsonl"
         tx_127.write_text(
             "\n".join(
@@ -459,7 +459,7 @@ class TestAC3ReactiveWakeupContinuityAndConsecutiveBuildFilter(HermeticHookCase)
                     json.dumps(
                         {
                             "type": "PLANNER_RESPONSE",
-                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "agy-guard doctor"}}],
+                            "tool_calls": [{"name": "run_command", "args": {"CommandLine": "plumb-guard doctor"}}],
                         }
                     ),
                     json.dumps(
@@ -643,9 +643,9 @@ class TestAC4StandaloneHermeticSubprocessIsolation(HermeticHookCase):
                 "XDG_STATE_HOME": str(sentinel_state),
                 "XDG_DATA_HOME": str(sentinel_data),
                 "ANTIGRAVITY_CONFIG_DIR": str(sentinel_cfg),
-                "AGY_GUARD_STATE_DIR": str(sentinel_state),
+                "PLUMB_GUARD_STATE_DIR": str(sentinel_state),
                 "ANTIGRAVITY_STATE_DIR": str(sentinel_state),
-                "AGY_GUARD_DATA_DIR": str(sentinel_data),
+                "PLUMB_GUARD_DATA_DIR": str(sentinel_data),
             }
         )
 
@@ -815,7 +815,7 @@ class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
             "ANTIGRAVITY_BUILTIN_SKILLS_DIR": str(builtin_u),
             "ANTIGRAVITY_PBTXT_FILE": str(pbtxt_u),
             "UPSTREAM_STATE_FILE": str(state_u),
-            "AGY_GUARD_NOTIFY": "off",
+            "PLUMB_GUARD_NOTIFY": "off",
         }
         uw = self._load_watcher_isolated(uw_env)
         local_seed = {
@@ -1298,7 +1298,7 @@ class TestAuditorMutualFalsificationRegressions(HermeticHookCase):
             "ANTIGRAVITY_CONFIG_DIR": str(iso_cfg),
             "UPSTREAM_STATE_FILE": str(iso_state_file),
             "ANTIGRAVITY_PBTXT_FILE": str(self.tmp / "iso.pbtxt"),
-            "AGY_GUARD_NOTIFY": "off",
+            "PLUMB_GUARD_NOTIFY": "off",
         }
         with mock.patch.dict(os.environ, uw_env, clear=False):
             spec = importlib.util.spec_from_file_location(
@@ -1386,7 +1386,7 @@ class TestAuditorMutualFalsificationRegressions(HermeticHookCase):
         )
 
         win_cfg_p = Path("C:/Users/RUNNER~1/AppData/Local/Temp/agy-win-parity/.gemini/config")
-        win_state_p = Path("C:/Users/RUNNER~1/AppData/Local/Temp/agy-win-parity/state/antigravity-harness")
+        win_state_p = Path("C:/Users/RUNNER~1/AppData/Local/Temp/agy-win-parity/state/plumbwork")
         win_cfg_bs = str(PureWindowsPath(win_cfg_p.as_posix()))
         win_state_bs = str(PureWindowsPath(win_state_p.as_posix()))
 

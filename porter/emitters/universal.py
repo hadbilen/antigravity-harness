@@ -14,7 +14,7 @@ from porter.sanitizer import ConstitutionalSanitizer
 
 
 class UniversalEmitter:
-    """Exports Antigravity Harness as a universal AGENTS.md workspace."""
+    """Exports Plumbwork as a universal AGENTS.md workspace."""
 
     TARGET = "universal"
     SKILLS_DIR = ".agents/skills"
@@ -28,7 +28,7 @@ class UniversalEmitter:
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
         plan[output_dir / "AGENTS.md"] = f"""# Universal Engineering Harness (AGENTS.md)
 
-> Exported from Antigravity Harness v{manifest.version}. Load a skill from `{cls.SKILLS_DIR}/`
+> Exported from Plumbwork v{manifest.version}. Load a skill from `{cls.SKILLS_DIR}/`
 > when its description matches the task; run the auditor roles in `{cls.AGENTS_DIR}/` as
 > independent reviews (separate context where the platform supports it) before delivery.
 

@@ -1,6 +1,6 @@
 """
 tests/test_hybrid_plugins.py — Hybrid Modular Plugin Architecture Tests (AC-1..AC-6)
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -435,14 +435,14 @@ class TestSecurityAndNegativeValidationControls(unittest.TestCase):
             self.assertTrue(any("banned brand prefix" in e for e in res.errors), res.errors)
             pj.write_text(json.dumps(orig_manifest), encoding="utf-8")
 
-            # 3. Standalone Markdown violations (tilde path, bare scripts/, broken link, mandatory agy-guard)
+            # 3. Standalone Markdown violations (tilde path, bare scripts/, broken link, mandatory plumb-guard)
             skill_md = base / "skills" / "game-engineering" / "SKILL.md"
             orig_skill = skill_md.read_text(encoding="utf-8")
             skill_md.write_text(
                 orig_skill
                 + "\nSee ~/.gemini/config/skills/harness/SKILL.md and scripts/foo.py and [dead](./missing.md)\n"
-                + "Run `agy-guard ui-slop index.html`.\n"
-                + "```bash\nagy-guard verify\n```\n",
+                + "Run `plumb-guard ui-slop index.html`.\n"
+                + "```bash\nplumb-guard verify\n```\n",
                 encoding="utf-8",
             )
             res = validate_plugin_dir(base, expected_pack="game-engineering")
@@ -640,9 +640,9 @@ class _IsolatedHybridEnvMixin:
                 "USERPROFILE": str(self.home),
                 "LOCALAPPDATA": str(self.tmp / "localappdata"),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg),
-                "AGY_GUARD_STATE_DIR": str(self.state),
-                "AGY_GUARD_DATA_DIR": str(self.data),
-                "AGY_GUARD_NOTIFY": "off",
+                "PLUMB_GUARD_STATE_DIR": str(self.state),
+                "PLUMB_GUARD_DATA_DIR": str(self.data),
+                "PLUMB_GUARD_NOTIFY": "off",
             },
             clear=False,
         )
@@ -1151,7 +1151,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
         self._teardown_sandbox()
 
     def test_cmd_init_hybrid_roundtrip_defensive_getattr_and_non_global_target_isolation(self) -> None:
-        # 1. Seed a live global Flat install via agy-guard init
+        # 1. Seed a live global Flat install via plumb-guard init
         parser = guard_cli.build_parser()
         mcp_path = self.cfg / "mcp_config.json"
         mcp_path.write_text(
@@ -1238,7 +1238,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
             )
         self.assertEqual(rc_mutex, 2)
 
-        # 3. Global agy-guard init --plugins -> idempotent re-run -> --flat-skills lossless revert
+        # 3. Global plumb-guard init --plugins -> idempotent re-run -> --flat-skills lossless revert
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(
                 guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--plugins", "--dry-run"])),
@@ -1325,7 +1325,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
 
     def test_dual_uninstall_removes_only_receipt_tracked_packs_and_warns_when_receipt_missing(self) -> None:
         parser = guard_cli.build_parser()
-        for label in ("install.py", "agy-guard init"):
+        for label in ("install.py", "plumb-guard init"):
             with self.subTest(uninstaller=label):
                 # Clean sandbox cfg for each subtest
                 hermetic.force_rmtree(self.cfg)
@@ -1409,9 +1409,9 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
         adapter.protection_issues.return_value = []
         adapter.is_locked.return_value = True
 
-        # Seed valid hooks, constitution, and 2 native deny rules (agy-guard unlock + --no-verify)
+        # Seed valid hooks, constitution, and 2 native deny rules (plumb-guard unlock + --no-verify)
         (self.cfg / "rules").mkdir(parents=True)
-        (self.cfg / "rules" / "antigravity-constitution.md").write_text("---\ntrigger: always_on\n---\n# C\n", encoding="utf-8")
+        (self.cfg / "rules" / "plumbwork-constitution.md").write_text("---\ntrigger: always_on\n---\n# C\n", encoding="utf-8")
         valid_hook = self.cfg / "valid_hook.py"
         valid_hook.write_text("# ok\n", encoding="utf-8")
         (self.cfg / "hooks.json").write_text(
@@ -1432,7 +1432,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
                 {
                     "userSettings": {
                         "globalPermissionGrants": {
-                            "deny": ["command(agy-guard unlock)", "command(regex:.*--no-verify.*)"]
+                            "deny": ["command(plumb-guard unlock)", "command(regex:.*--no-verify.*)"]
                         }
                     }
                 }
@@ -1450,7 +1450,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
 
         rep_flat = diagnose(env, reg, sentinel_active=True)
         self.assertTrue(rep_flat.healthy, rep_flat.warnings)
-        self.assertIn("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.", rep_flat.infos)
+        self.assertIn("Native Antigravity deny rules cover 'plumb-guard unlock' and '--no-verify'.", rep_flat.infos)
         self.assertFalse(any("agy plugin" in info for info in rep_flat.infos), rep_flat.infos)
 
         # Install ui-refinery plugin pack: existing 2-rule INFO stays intact AND separate agy plugin INFO appears
@@ -1464,7 +1464,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
 
         rep_hyb = diagnose(env, reg, sentinel_active=True)
         self.assertTrue(rep_hyb.healthy, rep_hyb.warnings)
-        self.assertIn("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.", rep_hyb.infos)
+        self.assertIn("Native Antigravity deny rules cover 'plumb-guard unlock' and '--no-verify'.", rep_hyb.infos)
         self.assertTrue(any("agy plugin" in info and "recommended" in info for info in rep_hyb.infos), rep_hyb.infos)
 
         # Adding native agy plugin deny rule switches the separate INFO to confirmed coverage
@@ -1474,7 +1474,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
                     "userSettings": {
                         "globalPermissionGrants": {
                             "deny": [
-                                "command(agy-guard unlock)",
+                                "command(plumb-guard unlock)",
                                 "command(regex:.*--no-verify.*)",
                                 "command(regex:.*agy plugin.*)",
                             ]
@@ -1486,7 +1486,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
         )
         rep_cov = diagnose(env, reg, sentinel_active=True)
         self.assertTrue(rep_cov.healthy, rep_cov.warnings)
-        self.assertIn("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.", rep_cov.infos)
+        self.assertIn("Native Antigravity deny rules cover 'plumb-guard unlock' and '--no-verify'.", rep_cov.infos)
         self.assertIn(
             "Native Antigravity deny rules cover 'agy plugin' mutations for installed harness plugins.",
             rep_cov.infos,
@@ -1724,7 +1724,7 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
         gated_cmds = [
             "agy plugin disable ui-refinery",
             "agy plugin uninstall rust-suite",
-            "agy plugin install ./dist/media-studio-v2.4.0.zip",
+            "agy plugin install ./dist/media-studio-v3.0.0.zip",
             "agy plugin import /tmp/game-engineering",
             "agy plugin install rea",
             "agy plugin import ./rea",
@@ -2217,7 +2217,7 @@ class TestPorterAndMetaAuditHybridParity(_IsolatedHybridEnvMixin, unittest.TestC
         packager = LinuxPackager(repo_root=REPO_ROOT, arch="amd64", out_dir=self.tmp / "pkg_out")
         packager.prepare_payload(stage)
 
-        staged_assets = stage / "usr" / "lib" / "antigravity-guard" / "guard" / "plugin_assets"
+        staged_assets = stage / "usr" / "lib" / "plumb-guard" / "guard" / "plugin_assets"
         for asset_name in PLUGIN_ASSET_FILENAMES:
             svg_file = staged_assets / asset_name
             self.assertTrue(svg_file.is_file(), f"Linux FHS payload missing plugin SVG asset: {svg_file}")
@@ -2226,8 +2226,8 @@ class TestPorterAndMetaAuditHybridParity(_IsolatedHybridEnvMixin, unittest.TestC
                 (REPO_ROOT / "guard" / "plugin_assets" / asset_name).read_bytes(),
             )
 
-        # Building all 4 plugin packs from the staged /usr/share/antigravity-harness payload succeeds
-        staged_share = stage / "usr" / "share" / "antigravity-harness"
+        # Building all 4 plugin packs from the staged /usr/share/plumbwork payload succeeds
+        staged_share = stage / "usr" / "share" / "plumbwork"
         built_root = self.tmp / "built_from_linux_share"
         for pack_name in sorted(PLUGIN_CATALOG):
             built_dir = build_plugin_pack(pack_name, staged_share, built_root / pack_name)
@@ -2340,8 +2340,8 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
             "P=plu; Q=gin; agy $P$Q disable ui-refinery",
             "agy plugin install ./ui-refinery/.",
             "agy plugin install ./ui-refinery/plugin.json",
-            "agy plugin import dist/plugins/ui-refinery-2.4.0.zip",
-            "agy plugin install ui-refinery@2.4.0",
+            "agy plugin import dist/plugins/ui-refinery-3.0.0.zip",
+            "agy plugin install ui-refinery@3.0.0",
             "agy plugin import dist/plugins/ui-r*.zip",
             "agy plugin disable {u,x}i-refin{e,z}ry",
             "agy plugin disable --all",
@@ -2534,7 +2534,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         self.assertEqual(res_to.agy_validate_status, "failed")
 
         # 5. Zip validation: symlinked sibling .sha256 rejected even when sha256_path=None; CRC error caught cleanly
-        zpath, spath = archive_plugin_pack(rust_dir, self.tmp / "rust-suite-v2.4.0.zip")
+        zpath, spath = archive_plugin_pack(rust_dir, self.tmp / "rust-suite-v3.0.0.zip")
         if os.name != "nt":
             spath.unlink()
             os.symlink("/etc/hostname", str(spath))
@@ -2709,7 +2709,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         from guard.plugins import ALLOWED_PLUGIN_MANIFEST_KEYS, PLUGIN_REPOSITORY
 
         # F2: PLUGIN_REPOSITORY is a plain https:// URL string and ALLOWED_PLUGIN_MANIFEST_KEYS matches live v1/plugin.json
-        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/hadbilen/antigravity-harness")
+        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/hadbilen/plumbwork")
         for official_key in ("license", "keywords", "skills", "extensions", "repository", "homepage", "author"):
             self.assertIn(official_key, ALLOWED_PLUGIN_MANIFEST_KEYS)
 
@@ -2721,7 +2721,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
             self.assertTrue(summary[pack_name]["ok"], summary[pack_name])
             pdir = out_root / pack_name
             manifest = json.loads((pdir / "plugin.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["repository"], "https://github.com/hadbilen/antigravity-harness")
+            self.assertEqual(manifest["repository"], "https://github.com/hadbilen/plumbwork")
             self.assertEqual(manifest["license"], "MIT")
 
             # F3: LICENSE present in all 4 packs and README states MIT License
@@ -2764,7 +2764,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         probe_pack = self.tmp / "probe_repo_only"
         probe_pack.mkdir()
         (probe_pack / "plugin.json").write_text(
-            json.dumps({"name": "ui-refinery", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+            json.dumps({"name": "ui-refinery", "repository": "https://github.com/hadbilen/plumbwork"}),
             encoding="utf-8",
         )
         self.assertTrue(is_harness_plugin_dir(probe_pack, expected_pack="ui-refinery"))
@@ -2779,7 +2779,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         pj_path = ge_dir / "plugin.json"
         orig_pj = json.loads(pj_path.read_text(encoding="utf-8"))
 
-        pj_dict_repo = dict(orig_pj, repository={"type": "git", "url": "https://github.com/hadbilen/antigravity-harness"})
+        pj_dict_repo = dict(orig_pj, repository={"type": "git", "url": "https://github.com/hadbilen/plumbwork"})
         pj_path.write_text(json.dumps(pj_dict_repo), encoding="utf-8")
         res_obj_repo = validate_plugin_dir(ge_dir, expected_pack="game-engineering")
         self.assertFalse(res_obj_repo.ok)
@@ -3004,9 +3004,9 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
 
             home_link = link_base / "home"
             cfg_link = home_link / ".gemini" / "config"
-            state_link = link_base / "state" / "antigravity-harness"
+            state_link = link_base / "state" / "plumbwork"
             staging_link = state_link / "staging"
-            home_staging = home_link / ".local" / "state" / "antigravity-harness" / "staging"
+            home_staging = home_link / ".local" / "state" / "plumbwork" / "staging"
             for d in (cfg_link, staging_link, home_staging):
                 d.mkdir(parents=True, exist_ok=True)
             (cfg_link / "DESIGN.md").write_text("# Design\n", encoding="utf-8")
@@ -3016,7 +3016,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
                 {
                     "HOME": str(home_link),
                     "ANTIGRAVITY_CONFIG_DIR": str(cfg_link),
-                    "AGY_GUARD_STATE_DIR": str(state_link),
+                    "PLUMB_GUARD_STATE_DIR": str(state_link),
                 },
             ):
                 r_write = agy_hooks.handle_pre_tool_use(
@@ -3043,7 +3043,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
                         "effort": "high",
                         "toolCall": {
                             "name": "run_command",
-                            "args": {"CommandLine": "cp /tmp/rfc.md ~/.local/state/antigravity-harness/staging/rfc.md"},
+                            "args": {"CommandLine": "cp /tmp/rfc.md ~/.local/state/plumbwork/staging/rfc.md"},
                         },
                     }
                 )
@@ -3071,7 +3071,7 @@ class TestDoctorPluginNameCollisions(_IsolatedHybridEnvMixin, unittest.TestCase)
         adapter.is_locked.return_value = True
 
         (self.cfg / "rules").mkdir(parents=True, exist_ok=True)
-        (self.cfg / "rules" / "antigravity-constitution.md").write_text("---\ntrigger: always_on\n---\n# C\n", encoding="utf-8")
+        (self.cfg / "rules" / "plumbwork-constitution.md").write_text("---\ntrigger: always_on\n---\n# C\n", encoding="utf-8")
         valid_hook = self.cfg / "valid_hook.py"
         valid_hook.write_text("# ok\n", encoding="utf-8")
         (self.cfg / "hooks.json").write_text(
@@ -3092,7 +3092,7 @@ class TestDoctorPluginNameCollisions(_IsolatedHybridEnvMixin, unittest.TestCase)
                 {
                     "userSettings": {
                         "globalPermissionGrants": {
-                            "deny": ["command(agy-guard unlock)", "command(regex:.*--no-verify.*)"]
+                            "deny": ["command(plumb-guard unlock)", "command(regex:.*--no-verify.*)"]
                         }
                     }
                 }
@@ -3838,6 +3838,314 @@ class TestW2UiRefineryThirdPartyPreservationAndCredits(_IsolatedHybridEnvMixin, 
         self.assertFalse(res_fenced.ok)
         self.assertTrue(any("Upstream Credits & Attribution" in e for e in res_fenced.errors), res_fenced.errors)
         (ui_dir / "README.md").write_text(orig_readme, encoding="utf-8")
+
+
+class TestW3PlumbworkCutoverSeams(unittest.TestCase):
+    """AC-4 / AC-5 seam tests: v3.0.0 Plumbwork cutover, doctor legacy-residue, dual-token leaks, concrete fnmatchcase probes."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="agy-w3-plumbwork-")
+        self.tmp = Path(self._tmp.name)
+        self.home = self.tmp / "home"
+        self.cfg = self.home / ".gemini" / "config"
+        self.state = self.tmp / "state" / "plumbwork"
+        self.data = self.tmp / "data" / "plumbwork"
+        for d in (self.home, self.cfg, self.state, self.data):
+            d.mkdir(parents=True, exist_ok=True)
+        self._env = mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.home),
+                "USERPROFILE": str(self.home),
+                "XDG_STATE_HOME": str(self.tmp / "state"),
+                "XDG_DATA_HOME": str(self.tmp / "data"),
+                "ANTIGRAVITY_CONFIG_DIR": str(self.cfg),
+                "PLUMB_GUARD_STATE_DIR": str(self.state),
+                "PLUMB_GUARD_DATA_DIR": str(self.data),
+                "PLUMB_GUARD_NOTIFY": "off",
+            },
+            clear=False,
+        )
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+        self._tmp.cleanup()
+
+    def test_version_sync_and_plumbwork_catalog_metadata(self) -> None:
+        from guard import __version__ as guard_version
+        from guard.environment import CONSTITUTION_RULE_REL
+        from guard.paths import APP_NAME
+        from guard.plugins import PLUGIN_AUTHOR, PLUGIN_HOMEPAGE, PLUGIN_REPOSITORY
+        from porter import __version__ as porter_version
+
+        self.assertEqual(guard_version, "3.0.0")
+        self.assertEqual(porter_version, "3.0.0")
+        self.assertEqual(APP_NAME, "plumbwork")
+        self.assertEqual(CONSTITUTION_RULE_REL, "rules/plumbwork-constitution.md")
+        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/hadbilen/plumbwork")
+        self.assertEqual(PLUGIN_HOMEPAGE, "https://github.com/hadbilen/plumbwork")
+        self.assertEqual(PLUGIN_AUTHOR["url"], "https://github.com/hadbilen/plumbwork")
+
+    def test_doctor_read_only_legacy_residue_warnings_and_third_party_preservation(self) -> None:
+        from guard.doctor import diagnose
+        from guard.environment import EnvironmentRegistry
+
+        # Seed current v3.0.0 constitution + config.json with plumb-guard unlock deny rule
+        (self.cfg / "rules").mkdir(parents=True, exist_ok=True)
+        (self.cfg / "rules" / "plumbwork-constitution.md").write_text(
+            "---\ntrigger: always_on\n---\n# Plumbwork Global Engineering & Behavioral Constitution\n",
+            encoding="utf-8",
+        )
+        (self.cfg / "config.json").write_text(
+            json.dumps(
+                {
+                    "userSettings": {
+                        "globalPermissionGrants": {
+                            "deny": ["command(plumb-guard unlock)", "command(regex:.*--no-verify.*)"]
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        # Seed ALL pre-v3.0 legacy residue artifacts
+        legacy_state = self.tmp / "state" / "antigravity-harness"
+        legacy_data = self.tmp / "data" / "antigravity-harness"
+        legacy_rule = self.cfg / "rules" / "antigravity-constitution.md"
+        legacy_systemd = self.home / ".config" / "systemd" / "user" / "agy-guard-boot.service"
+        legacy_launchd = self.home / "Library" / "LaunchAgents" / "com.antigravity.guard.plist"
+        legacy_plug = self.cfg / "plugins" / "antislop"
+        legacy_skill = self.cfg / "skills" / "antislop"
+
+        legacy_state.mkdir(parents=True)
+        (legacy_state / "marker.txt").write_text("legacy-state\n", encoding="utf-8")
+        legacy_data.mkdir(parents=True)
+        (legacy_data / "marker.txt").write_text("legacy-data\n", encoding="utf-8")
+        legacy_rule.write_text("# legacy\n", encoding="utf-8")
+        legacy_systemd.parent.mkdir(parents=True, exist_ok=True)
+        legacy_systemd.write_text("[Unit]\nDescription=legacy\n", encoding="utf-8")
+        legacy_launchd.parent.mkdir(parents=True, exist_ok=True)
+        legacy_launchd.write_text("<plist/>\n", encoding="utf-8")
+        legacy_plug.mkdir(parents=True)
+        (legacy_plug / "plugin.json").write_text(
+            json.dumps({"name": "antislop", "version": "2.4.0", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+            encoding="utf-8",
+        )
+        legacy_skill.mkdir(parents=True)
+        (legacy_skill / "SKILL.md").write_text(
+            "---\nname: antislop\ndescription: Legacy\n---\nRun `agy-guard ui-slop`.\n",
+            encoding="utf-8",
+        )
+
+        reg = EnvironmentRegistry(config_path=self.state / "environments.json")
+        env = reg.get_environment("antigravity")
+        self.assertIsNotNone(env)
+        rep = diagnose(env, reg, sentinel_active=True)
+        warns = "\n".join(rep.warnings)
+
+        # Native deny rule recognizes plumb-guard unlock + --no-verify
+        self.assertIn("Native Antigravity deny rules cover 'plumb-guard unlock' and '--no-verify'.", rep.infos)
+
+        # All legacy residue warnings emitted
+        self.assertIn("legacy v2.x state directory", warns)
+        self.assertIn("legacy v2.x data directory", warns)
+        self.assertIn("Legacy pre-v3.0 constitution rule", warns)
+        self.assertIn("Legacy pre-v3.0 systemd boot sentinel", warns)
+        self.assertIn("Legacy pre-v3.0 launchd boot sentinel", warns)
+        self.assertIn("Unreceipted legacy harness plugin", warns)
+        self.assertIn("Unreceipted legacy harness skill", warns)
+
+        # Strictly read-only: NONE of the seeded legacy artifacts were deleted or altered
+        self.assertTrue((legacy_state / "marker.txt").is_file())
+        self.assertTrue((legacy_data / "marker.txt").is_file())
+        self.assertTrue(legacy_rule.is_file())
+        self.assertTrue(legacy_systemd.is_file())
+        self.assertTrue(legacy_launchd.is_file())
+        self.assertTrue((legacy_plug / "plugin.json").is_file())
+        self.assertTrue((legacy_skill / "SKILL.md").is_file())
+
+        # Replace legacy artifacts with third-party upstream antislop installs -> ZERO legacy-residue warnings
+        shutil.rmtree(legacy_state)
+        shutil.rmtree(legacy_data)
+        legacy_rule.unlink()
+        legacy_systemd.unlink()
+        legacy_launchd.unlink()
+        shutil.rmtree(legacy_plug)
+        shutil.rmtree(legacy_skill)
+        legacy_plug.mkdir(parents=True)
+        (legacy_plug / "plugin.json").write_text(
+            json.dumps({"name": "antislop", "version": "1.2.0", "repository": "https://github.com/miqdadbadjuber/anti-slop"}),
+            encoding="utf-8",
+        )
+        legacy_skill.mkdir(parents=True)
+        (legacy_skill / "SKILL.md").write_text(
+            "---\nname: antislop\ndescription: Upstream third-party anti-slop\n---\n# Third-party skill\n",
+            encoding="utf-8",
+        )
+        # Also remove plumb-guard unlock deny rule and confirm doctor warns about it
+        (self.cfg / "config.json").write_text(json.dumps({"userSettings": {"globalPermissionGrants": {"deny": []}}}), encoding="utf-8")
+
+        rep_tp = diagnose(env, reg, sentinel_active=True)
+        warns_tp = "\n".join(rep_tp.warnings)
+        self.assertNotIn("Legacy pre-v3.0", warns_tp)
+        self.assertNotIn("Unreceipted legacy harness", warns_tp)
+        self.assertIn("plumb-guard unlock", "\n".join(rep_tp.infos + rep_tp.warnings))
+
+    def test_dual_token_standalone_markdown_leak_rejection(self) -> None:
+        out = self.tmp / "dual_packs"
+        ui_dir = build_plugin_pack("ui-refinery", REPO_ROOT, out / "ui-refinery")
+        skill_md = ui_dir / "skills" / "ui-refinery" / "SKILL.md"
+        orig = skill_md.read_text(encoding="utf-8")
+
+        # 1. Both new plumb-guard/plumbwork AND legacy agy-guard/antigravity-harness inline/path leaks are rejected
+        for label, snippet in (
+            ("new-inline-cmd", "\nRun `plumb-guard verify` before shipping.\n"),
+            ("legacy-inline-cmd", "\nRun `agy-guard verify` before shipping.\n"),
+            ("new-fenced-cmd", "\n```bash\nplumb-guard status\n```\n"),
+            ("legacy-fenced-cmd", "\n```bash\nagy-guard status\n```\n"),
+            ("new-runtime-path", "\nInspect `~/.local/share/plumbwork/runtime/guard/cli.py`.\n"),
+            ("legacy-runtime-path", "\nInspect `~/.local/share/antigravity-harness/runtime/guard/cli.py`.\n"),
+        ):
+            skill_md.write_text(orig + snippet, encoding="utf-8")
+            res = validate_plugin_dir(ui_dir, expected_pack="ui-refinery")
+            self.assertFalse(res.ok, f"Expected validation failure for dual-token leak case {label}")
+            self.assertTrue(len(res.errors) >= 1, f"Expected concrete error for {label}")
+
+        skill_md.write_text(orig, encoding="utf-8")
+        self.assertTrue(validate_plugin_dir(ui_dir, expected_pack="ui-refinery").ok)
+
+    def test_shell_guard_concrete_fnmatchcase_archive_probes_and_facade_budget(self) -> None:
+        from guard import agy_hooks
+
+        # 1. Concrete fnmatchcase probes catch both v3.0.0 and v0.0.0 globs for harness packs
+        for cmd in (
+            "agy plugin install ./dist/ui-refinery-v*.zip",
+            "agy plugin import ./dist/rust-suite-v[0-9].0.0.zip",
+            "agy plugin disable ui-ref*",
+            "agy plugin uninstall media-st*",
+        ):
+            res = agy_hooks.handle_pre_tool_use({"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+            self.assertEqual(res.get("decision"), "force_ask", f"Expected force_ask for {cmd!r}, got {res}")
+
+        # Explicit archive extraction into ~/.gemini/config/plugins with harness pack glob is denied
+        res_extract = agy_hooks.handle_pre_tool_use(
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": "unzip ./dist/ui-refinery-v*.zip -d ~/.gemini/config/plugins"}}}
+        )
+        self.assertEqual(res_extract.get("decision"), "deny", res_extract)
+
+        # Third-party literal plugin disable remains exempt
+        res_tp = agy_hooks.handle_pre_tool_use(
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": "agy plugin disable rea"}}}
+        )
+        self.assertEqual(res_tp.get("decision"), "allow", res_tp)
+
+        # 2. guard/agy_hooks.py stays strictly within the 32,768 UTF-8 byte ceiling (ADR-0015/0017)
+        facade_bytes = (REPO_ROOT / "guard" / "agy_hooks.py").stat().st_size
+        self.assertLessEqual(facade_bytes, 32768, f"guard/agy_hooks.py exceeded 32,768 B budget: {facade_bytes}")
+
+    def test_w3_auditor_remediations_doctor_null_receipt_and_hook_glob_bypass(self) -> None:
+        from guard import agy_hooks
+        from guard.doctor import diagnose
+        from guard.environment import EnvironmentRegistry
+        from guard.hooks import pre_tool_use as ptu
+        from guard.tray import DummyAdapter, create_tray_adapter
+
+        # 1. Doctor handles missing/null/non-list receipt fields without TypeError
+        reg = EnvironmentRegistry(config_path=self.state / "environments.json")
+        env = reg.get_environment("antigravity")
+        self.assertIsNotNone(env)
+        for bad_receipt in (
+            {"target": str(self.cfg)},
+            {"target": str(self.cfg), "installed_plugins": None, "installed": "not-a-list"},
+        ):
+            (self.state / "install_receipt.json").write_text(json.dumps(bad_receipt), encoding="utf-8")
+            rep = diagnose(env, reg, sentinel_active=True)
+            self.assertIsInstance(rep.warnings, list)
+        self.assertTrue(any("not a list" in w for w in rep.warnings), rep.warnings)
+        (self.state / "install_receipt.json").unlink()
+
+        # 2. Glob & shell-var obfuscated admin commands + ${HOME}/early-wildcard/FHS governance mutations are denied
+        for cmd in (
+            "~/.local/bin/plumb-g* unlock",
+            "/usr/bin/plumb-g* unlock",
+            "~/.local/bin/plumb-p* stage /tmp/a.md",
+            "G=plumb-guard; $G unlock",
+            "chmod 777 ${HOME}/.local/state/plumb*/environments.json",
+            "truncate -s 0 ~/.local/bin/p?umb-guard",
+            "chmod 777 /usr/share/plumb*/GEMINI.md",
+            "chmod 777 /usr/lib/plumb*/guard.py",
+        ):
+            res = agy_hooks.handle_pre_tool_use({"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+            self.assertEqual(res.get("decision"), "deny", f"Expected deny for {cmd!r}, got {res}")
+
+        # 3. Inline Python writing directly to plumbwork/staging is allowed; non-Python targeting /usr/bin/plumb-guard is denied
+        res_stage = agy_hooks.handle_pre_tool_use(
+            {
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": (
+                            'python3 -c "from pathlib import Path; '
+                            "Path('~/.local/state/plumbwork/staging/rfc.md').expanduser().write_text('ok')\""
+                        )
+                    },
+                }
+            }
+        )
+        self.assertEqual(res_stage.get("decision"), "allow", res_stage)
+        res_node_bin = agy_hooks.handle_pre_tool_use(
+            {
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "node -e \"require('path').join('/usr', 'bin', 'plumb-guard')\""},
+                }
+            }
+        )
+        self.assertEqual(res_node_bin.get("decision"), "deny", res_node_bin)
+
+        # 4. Leading-wildcard versioned .zip/.tar.gz agy plugin disable/uninstall targets trigger force_ask
+        for cmd in (
+            "agy plugin uninstall ?i-refinery-v2.4.0.zip",
+            "agy plugin disable ?i-refinery-v3.0.0.tar.gz",
+            "agy plugin uninstall *refinery-v3.0.1.zip",
+            "agy plugin uninstall ui-refiner?-3.0.0.zip",
+        ):
+            res = agy_hooks.handle_pre_tool_use({"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+            self.assertEqual(res.get("decision"), "force_ask", f"Expected force_ask for {cmd!r}, got {res}")
+
+        # 5. PLUMBWORK_SHARE_DIR whitespace & relative values stay protected in _targets_governance_dir
+        for raw_val in ("   ", " /opt/plumbwork ", "custom_share"):
+            with mock.patch.dict(os.environ, {"PLUMBWORK_SHARE_DIR": raw_val}, clear=False):
+                self.assertTrue(
+                    ptu._targets_governance_dir("$PLUMBWORK_SHARE_DIR/GEMINI.md"),
+                    f"Failed for PLUMBWORK_SHARE_DIR={raw_val!r}",
+                )
+
+        # 6. Optional qualifier never waives legacy agy-guard; fenced env-prefix & ${HOME} runtime path rejected
+        out = self.tmp / "remed_packs"
+        ui_dir = build_plugin_pack("ui-refinery", REPO_ROOT, out / "ui-refinery")
+        skill_md = ui_dir / "skills" / "ui-refinery" / "SKILL.md"
+        orig = skill_md.read_text(encoding="utf-8")
+        for label, bad in (
+            ("opt-legacy", "\nOptional helper when installed: `agy-guard ui-slop index.html`.\n"),
+            ("fenced-env", "\n```bash\nFOO=1 plumb-guard status\n```\n"),
+            ("braced-home", "\nInspect `${HOME}/.local/share/plumbwork/runtime/guard/cli.py`.\n"),
+        ):
+            skill_md.write_text(orig + bad, encoding="utf-8")
+            vres = validate_plugin_dir(ui_dir, expected_pack="ui-refinery")
+            self.assertFalse(vres.ok, f"Expected validation error for {label}")
+        skill_md.write_text(orig, encoding="utf-8")
+
+        # 7. PLUMB_GUARD_NO_TRAY=1 disables tray across macOS/Windows too
+        for plat in ("Darwin", "Windows"):
+            with mock.patch("guard.tray.platform.system", return_value=plat), mock.patch.dict(
+                os.environ, {"PLUMB_GUARD_NO_TRAY": "1"}, clear=False
+            ):
+                ad = create_tray_adapter(lambda: None, lambda: None, lambda: None)
+                self.assertIsInstance(ad, DummyAdapter)
+                self.assertIn("PLUMB_GUARD_NO_TRAY=1", ad.fallback_reason)
 
 
 if __name__ == "__main__":

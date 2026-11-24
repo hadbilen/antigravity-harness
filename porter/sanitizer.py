@@ -793,9 +793,9 @@ class ConstitutionalSanitizer:
         _home_rt = (
             r"(?:(?:~|\$HOME|\$\{HOME\}|/home/[^/\s`'\"]+|/Users/[^/\s`'\"]+)"
             r"(?:/\.local/share|/Library/Application Support)"
-            r"|\$XDG_DATA_HOME|\$\{XDG_DATA_HOME\}|\$AGY_GUARD_DATA_DIR|\$\{AGY_GUARD_DATA_DIR\}"
+            r"|\$XDG_DATA_HOME|\$\{XDG_DATA_HOME\}|\$PLUMB_GUARD_DATA_DIR|\$\{PLUMB_GUARD_DATA_DIR\}"
             r"|%LOCALAPPDATA%|[A-Za-z]:[/\\]Users[/\\][^/\\\s`'\"]+[/\\]AppData[/\\]Local)"
-            r"[/\\]antigravity-(?:harness|guard)[/\\]runtime"
+            r"[/\\](?:plumbwork|plumb-guard)[/\\]runtime"
         )
         text = re.sub(_home_rt + r"[/\\](guard(?:/|\.py\b)|scripts/|porter(?:/|\.py\b)|skills/)", r"\1", text)
         text = re.sub(_home_rt + r"[/\\]", ".harness/runtime/", text)

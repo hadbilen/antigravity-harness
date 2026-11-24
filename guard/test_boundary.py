@@ -1,6 +1,6 @@
 """
 guard/test_boundary.py — Test & Configuration Trust Boundary and Reproducibility Gate
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Semantics (aligned with GEMINI.md Rule 9):

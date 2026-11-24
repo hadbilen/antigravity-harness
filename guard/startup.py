@@ -6,7 +6,7 @@ desktop sessions, AI IDEs (Antigravity, Cursor, VS Code), or models initialize.
 Platforms supported:
   - Linux: systemd user unit started by the user manager (ordering before the graphical
     session is best-effort, not guaranteed)
-  - macOS: launchd user LaunchAgent (~/Library/LaunchAgents/com.antigravity.guard.plist)
+  - macOS: launchd user LaunchAgent (~/Library/LaunchAgents/com.plumbwork.guard.plist)
   - Windows: Task Scheduler (schtasks /SC ONLOGON)
 
 On drift the sentinel quarantines instead of trusting: it takes a forensic snapshot,
@@ -43,11 +43,11 @@ IS_MACOS = platform.system().lower() == "darwin"
 IS_WINDOWS = platform.system().lower() == "windows"
 
 SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
-SYSTEMD_SERVICE_NAME = "agy-guard-boot.service"
+SYSTEMD_SERVICE_NAME = "plumb-guard-boot.service"
 LAUNCH_AGENT_DIR = Path.home() / "Library" / "LaunchAgents"
-LAUNCH_AGENT_LABEL = "com.antigravity.guard"
-LAUNCH_AGENT_PLIST = "com.antigravity.guard.plist"
-WINDOWS_TASK_NAME = "AntigravityGuardBootSentinel"
+LAUNCH_AGENT_LABEL = "com.plumbwork.guard"
+LAUNCH_AGENT_PLIST = "com.plumbwork.guard.plist"
+WINDOWS_TASK_NAME = "PlumbworkGuardBootSentinel"
 BOOT_DRIFT_KEEP = 3
 
 
@@ -94,13 +94,13 @@ class StartupManager:
         self.integrity_monitor = FileIntegrityMonitor.for_environment(self.environment, os_adapter=self.os_adapter)
 
     def get_guard_argv(self) -> List[str]:
-        """Determines the argv that invokes `agy-guard boot-check` for this installation."""
+        """Determines the argv that invokes `plumb-guard boot-check` for this installation."""
         if getattr(sys, "frozen", False):
             return [sys.executable, "boot-check"]
-        agy_bin = shutil.which("agy-guard")
-        if agy_bin:
-            return [agy_bin, "boot-check"]
-        local_bin = Path.home() / ".local" / "bin" / "agy-guard"
+        guard_bin = shutil.which("plumb-guard")
+        if guard_bin:
+            return [guard_bin, "boot-check"]
+        local_bin = Path.home() / ".local" / "bin" / "plumb-guard"
         if local_bin.is_file():
             return [str(local_bin), "boot-check"]
         py_bin = sys.executable or ("python" if IS_WINDOWS else "python3")
@@ -129,7 +129,7 @@ class StartupManager:
         exec_start = " ".join(self._systemd_quote(a, exec_word=True) for a in self.get_guard_argv())
         env_line = self._systemd_quote(f"ANTIGRAVITY_CONFIG_DIR={self.target_dir}")
         return f"""[Unit]
-Description=Antigravity Guard Boot Sentinel (integrity check + governance lock)
+Description=Plumb Guard Boot Sentinel (integrity check + governance lock)
 # Ordering before the graphical session is best-effort for user units.
 Before=graphical-session.target xdg-desktop-autostart.target
 
@@ -145,13 +145,13 @@ WantedBy=default.target
 
     def render_launchd_plist(self) -> str:
         args_xml = "".join(f"<string>{xml_escape(a)}</string>" for a in self.get_guard_argv())
-        log_file = Path.home() / "Library" / "Logs" / "antigravity_guard_boot.log"
+        log_file = Path.home() / "Library" / "Logs" / "plumb_guard_boot.log"
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.antigravity.guard</string>
+    <string>{LAUNCH_AGENT_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
         {args_xml}
@@ -514,7 +514,7 @@ WantedBy=default.target
         if self._registry_error is not None:
             messages.append(f"[REGISTRY ERROR] {self._registry_error}")
             notifier.notify(
-                title="Antigravity Guard — Corrupt Environment Registry",
+                title="Plumb Guard — Corrupt Environment Registry",
                 message=self._registry_error[:300],
                 severity=NotificationSeverity.CRITICAL,
                 force=True,
@@ -541,7 +541,7 @@ WantedBy=default.target
         else:
             messages.append(f"[LOCK WARN] Could not enforce lock: {lock_msg}")
             notifier.notify(
-                title="Antigravity Guard — Boot Lock Failed",
+                title="Plumb Guard — Boot Lock Failed",
                 message=lock_msg[:300],
                 severity=NotificationSeverity.CRITICAL,
                 force=True,
@@ -553,15 +553,15 @@ WantedBy=default.target
         except Exception as e:  # noqa: BLE001 - a broken check must be reported, not crash the sentinel
             report = None
             messages.append(f"[FIM ERROR] Integrity check failed: {type(e).__name__}: {e}")
-            notifier.notify(title="Antigravity Guard — Boot Integrity Check Failed", message=str(e)[:300],
+            notifier.notify(title="Plumb Guard — Boot Integrity Check Failed", message=str(e)[:300],
                             severity=NotificationSeverity.CRITICAL, force=True)
         if report is not None:
             if report.baseline_status == "missing":
-                messages.append("[FIM WARN] No integrity baseline yet; run 'agy-guard rebaseline' from a terminal.")
+                messages.append("[FIM WARN] No integrity baseline yet; run 'plumb-guard rebaseline' from a terminal.")
             elif report.baseline_status == "pending_review":
                 messages.append(f"[FIM REVIEW] {report.summary()}")
                 notifier.notify(
-                    title="Antigravity Guard — Changes Await Review",
+                    title="Plumb Guard — Changes Await Review",
                     message=report.summary(),
                     severity=NotificationSeverity.WARNING,
                     key="boot-pending-review",
@@ -573,8 +573,8 @@ WantedBy=default.target
                 except Exception as e:  # noqa: BLE001 - evidence capture is best effort, reported below
                     messages.append(f"[QUARANTINE] Forensic snapshot failed: {e}")
                 notifier.notify(
-                    title="Antigravity Guard — Boot Integrity Drift",
-                    message=f"{report.summary()} Review with 'agy-guard verify' before trusting the environment.",
+                    title="Plumb Guard — Boot Integrity Drift",
+                    message=f"{report.summary()} Review with 'plumb-guard verify' before trusting the environment.",
                     severity=NotificationSeverity.CRITICAL,
                     force=True,
                 )

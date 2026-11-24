@@ -95,7 +95,7 @@ In the Antigravity environment, inferential trust is strictly barred. The agent 
 - Execute deterministic checks in the terminal (`gate-check.mjs` or equivalent test commands) for every runnable gate.
 - The session cannot complete while any gate remains failing or missing verified evidence.
 - Abandoned gates must be explicitly logged in `ABANDON: <id> <reason>` format and surfaced for explicit user confirmation.
-- Never execute `<unlazy-dir>/scripts/install-hooks.mjs` in Antigravity: that helper configures Claude Code `.claude/settings*.json` hooks exclusively, whereas Antigravity enforces lifecycle gates natively via `hooks.json` and `~/.local/share/antigravity-harness/runtime/guard/agy_hooks.py` (see [unlazy/references/dispatch.md](unlazy/references/dispatch.md#antigravity-adapter)).
+- Never execute `<unlazy-dir>/scripts/install-hooks.mjs` in Antigravity: that helper configures Claude Code `.claude/settings*.json` hooks exclusively, whereas Antigravity enforces lifecycle gates natively via `hooks.json` and `~/.local/share/plumbwork/runtime/guard/agy_hooks.py` (see [unlazy/references/dispatch.md](unlazy/references/dispatch.md#antigravity-adapter)).
 
 ## Spend attention where it compounds
 

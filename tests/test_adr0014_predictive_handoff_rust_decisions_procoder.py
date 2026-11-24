@@ -22,7 +22,7 @@ W2 coverage:
 W3 coverage:
   - AC-5: `procoder` archival to opt-in `templates/procoder.SKILL.template.md` (`21 -> 20` skills,
           aggregate frontmatter `<= 10,200 / 10,800` B, Porter parity, Apache-2.0 attribution),
-          `CONSOLIDATED_SKILL_SLUGS` stale-install pruning across `install.py` and `agy-guard init`,
+          `CONSOLIDATED_SKILL_SLUGS` stale-install pruning across `install.py` and `plumb-guard init`,
           global `pre_invocation` / `MODE_SKILLS` / `tracked_repositories` (`9 -> 8`) cleanup, and
           retired `"procoder"` upstream ledger reconciliation preserving custom user repos.
   - AC-6: `docs/adr/0014-*.md` structured Provenance header, `docs/adr/README.md` indexing, and
@@ -99,7 +99,7 @@ class TestW1BuiltinBundleChecksumAndCalibration(unittest.TestCase):
             "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
             "ANTIGRAVITY_BUILTIN_SKILLS_DIR": str(self.builtin_skills),
             "UPSTREAM_STATE_FILE": str(self.state_file),
-            "AGY_GUARD_NOTIFY": "off",
+            "PLUMB_GUARD_NOTIFY": "off",
         }
         self.watcher = _load_watcher(self.env)
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -459,7 +459,7 @@ class TestW1PredictiveContextHandoffAdvisory(unittest.TestCase):
                 "HOME": str(self.root / "home"),
                 "USERPROFILE": str(self.root / "home"),
                 "XDG_STATE_HOME": str(self.state_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
             },
@@ -1145,7 +1145,7 @@ class TestW2RustHardenGreenfieldAndRustifyPostParity(unittest.TestCase):
                 "HOME": str(self.root / "home"),
                 "USERPROFILE": str(self.root / "home"),
                 "XDG_STATE_HOME": str(self.state_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
             },
@@ -1512,10 +1512,10 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
                 "USERPROFILE": str(self.root / "home"),
                 "XDG_STATE_HOME": str(self.state_dir),
                 "XDG_DATA_HOME": str(self.data_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_NOTIFY": "off",
+                "PLUMB_GUARD_NOTIFY": "off",
             },
             clear=False,
         )
@@ -1616,7 +1616,7 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
         self.assertTrue((cfg_inst / "templates" / "procoder.SKILL.template.md").is_file())
         self.assertEqual((custom_skill / "SKILL.md").read_text(encoding="utf-8"), "---\nname: my-custom-skill\n---\n# Custom\n")
 
-        # 2. agy-guard init backs up and removes stale skills/procoder while preserving custom user skill
+        # 2. plumb-guard init backs up and removes stale skills/procoder while preserving custom user skill
         cfg_init = self.root / "cfg_guard_init_upgrade"
         stale_procoder_2 = cfg_init / "skills" / "procoder"
         stale_procoder_2.mkdir(parents=True, exist_ok=True)
@@ -1633,7 +1633,7 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
         with mock.patch("guard.cli.request_approval", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             rc = guard_cli.cmd_init(args)
         self.assertEqual(rc, 0)
-        self.assertFalse(stale_procoder_2.exists(), "agy-guard init must prune stale skills/procoder")
+        self.assertFalse(stale_procoder_2.exists(), "plumb-guard init must prune stale skills/procoder")
         self.assertTrue((cfg_init / "templates" / "procoder.SKILL.template.md").is_file())
         self.assertTrue((custom_skill_2 / "SKILL.md").is_file())
 
@@ -1735,7 +1735,7 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
             "XDG_STATE_HOME": str(self.state_dir),
             "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
             "UPSTREAM_STATE_FILE": str(self.state_dir / "w3_watcher_state.json"),
-            "AGY_GUARD_NOTIFY": "off",
+            "PLUMB_GUARD_NOTIFY": "off",
         }
         watcher = _load_watcher(watcher_env)
         rec_w = json.loads(json.dumps(legacy_state))
@@ -1857,7 +1857,7 @@ class TestW4PreFlightAuditRemediations(unittest.TestCase):
             d.mkdir(parents=True, exist_ok=True)
         self.env = {
             "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-            "AGY_GUARD_STATE_DIR": str(self.state_dir),
+            "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
         }
         self._env_patch = mock.patch.dict(os.environ, self.env, clear=False)
         self._env_patch.start()

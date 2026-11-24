@@ -1,24 +1,27 @@
 # Maintainer: Had Bilen <https://github.com/hadbilen>
-pkgname=antigravity-guard
-pkgver=2.4.0
+pkgname=plumb-guard
+pkgver=3.0.0
 pkgrel=1
 pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
 arch=('x86_64' 'aarch64')
-url="https://github.com/hadbilen/antigravity-harness"
+url="https://github.com/hadbilen/plumbwork"
 license=('MIT' 'Apache-2.0')  # Apache-2.0: bundled templates/procoder.SKILL.template.md & refactoring/dependency-upgrade adaptations (see THIRD_PARTY_NOTICES.md)
 depends=('python>=3.10')
+provides=('antigravity-guard')
+replaces=('antigravity-guard')
+conflicts=('antigravity-guard')
 optdepends=(
     'libnotify: Desktop notifications via notify-send'
-    'tk: Desktop GUI interface (agy-guard gui)'
+    'tk: Desktop GUI interface (plumb-guard gui)'
     'python-gobject: Native Ayatana/AppIndicator system tray support'
     'gtk3: Desktop GTK interface support'
 )
-source=("$pkgname-$pkgver.tar.gz::https://github.com/hadbilen/antigravity-harness/archive/refs/tags/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/hadbilen/plumbwork/archive/refs/tags/v$pkgver.tar.gz")
 # Replaced with the real tarball digest by CI at release time (see .github/workflows/ci.yml).
 sha256sums=('@SHA256@')
 
 package() {
-    cd "$srcdir/antigravity-harness-$pkgver"
+    cd "$srcdir"/*-"$pkgver"
 
     # Install library files
     install -dm755 "$pkgdir/usr/lib/$pkgname"
@@ -30,41 +33,41 @@ package() {
 
     # Binary launchers
     install -dm755 "$pkgdir/usr/bin"
-    cat << 'EOF' > "$pkgdir/usr/bin/agy-guard"
+    cat << 'EOF' > "$pkgdir/usr/bin/plumb-guard"
 #!/bin/sh
-exec python3 /usr/lib/antigravity-guard/guard.py "$@"
+exec python3 /usr/lib/plumb-guard/guard.py "$@"
 EOF
-    chmod 755 "$pkgdir/usr/bin/agy-guard"
-    cat << 'EOF' > "$pkgdir/usr/bin/agy-porter"
+    chmod 755 "$pkgdir/usr/bin/plumb-guard"
+    cat << 'EOF' > "$pkgdir/usr/bin/plumb-porter"
 #!/bin/sh
-exec python3 /usr/lib/antigravity-guard/porter.py "$@"
+exec python3 /usr/lib/plumb-guard/porter.py "$@"
 EOF
-    chmod 755 "$pkgdir/usr/bin/agy-porter"
+    chmod 755 "$pkgdir/usr/bin/plumb-porter"
 
     # Desktop entry & Icon
-    install -Dm644 installers/antigravity-guard.desktop "$pkgdir/usr/share/applications/antigravity-guard.desktop"
-    install -Dm644 installers/packaging/antigravity-guard.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/antigravity-guard.svg"
+    install -Dm644 installers/plumb-guard.desktop "$pkgdir/usr/share/applications/plumb-guard.desktop"
+    install -Dm644 installers/packaging/plumb-guard.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/plumb-guard.svg"
 
     # Documentation, Hooks, Manifest & Governance Templates
-    install -dm755 "$pkgdir/usr/share/antigravity-harness"
-    cp GEMINI.md DESIGN.md README.md LICENSE THIRD_PARTY_NOTICES.md hooks.json "$pkgdir/usr/share/antigravity-harness/"
-    python3 -c 'import json, sys; from pathlib import Path; p = Path(sys.argv[1]) / "usr/share/antigravity-harness/hooks.json"; raw = p.read_text(encoding="utf-8"); u, g = "skills/upstream-auditor/scripts/upstream_watcher.py", "guard/agy_hooks.py"; assert u in raw and g in raw, "expected hook script paths missing in hooks.json"; out = raw.replace(u, "/usr/share/antigravity-harness/" + u).replace(g, "/usr/lib/antigravity-guard/" + g); assert isinstance(json.loads(out), dict); p.write_text(out, encoding="utf-8")' "$pkgdir"
-    install -Dm644 .harness/manifest.json "$pkgdir/usr/share/antigravity-harness/.harness/manifest.json"
-    cp -r templates skills agents "$pkgdir/usr/share/antigravity-harness/"
-    find "$pkgdir/usr/share/antigravity-harness/skills" -type f \( -path '*/scripts/*.py' -o -path '*/scripts/*.sh' -o -path '*/scripts/*.mjs' \) -exec chmod 755 {} +
+    install -dm755 "$pkgdir/usr/share/plumbwork"
+    cp GEMINI.md DESIGN.md README.md LICENSE THIRD_PARTY_NOTICES.md hooks.json "$pkgdir/usr/share/plumbwork/"
+    python3 -c 'import json, sys; from pathlib import Path; p = Path(sys.argv[1]) / "usr/share/plumbwork/hooks.json"; raw = p.read_text(encoding="utf-8"); u, g = "skills/upstream-auditor/scripts/upstream_watcher.py", "guard/agy_hooks.py"; assert u in raw and g in raw, "expected hook script paths missing in hooks.json"; out = raw.replace(u, "/usr/share/plumbwork/" + u).replace(g, "/usr/lib/plumb-guard/" + g); assert isinstance(json.loads(out), dict); p.write_text(out, encoding="utf-8")' "$pkgdir"
+    install -Dm644 .harness/manifest.json "$pkgdir/usr/share/plumbwork/.harness/manifest.json"
+    cp -r templates skills agents "$pkgdir/usr/share/plumbwork/"
+    find "$pkgdir/usr/share/plumbwork/skills" -type f \( -path '*/scripts/*.py' -o -path '*/scripts/*.sh' -o -path '*/scripts/*.mjs' \) -exec chmod 755 {} +
 
     # Bash completion
     install -dm755 "$pkgdir/usr/share/bash-completion/completions"
-    cat << 'EOF' > "$pkgdir/usr/share/bash-completion/completions/agy-guard"
-# Bash completion for agy-guard
-_agy_guard_completions() {
+    cat << 'EOF' > "$pkgdir/usr/share/bash-completion/completions/plumb-guard"
+# Bash completion for plumb-guard
+_plumb_guard_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local commands="init status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify code-map ui-slop synthetic-markers verify-invariants gui"
     COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
 }
-complete -F _agy_guard_completions agy-guard
+complete -F _plumb_guard_completions plumb-guard
 EOF
-    chmod 644 "$pkgdir/usr/share/bash-completion/completions/agy-guard"
+    chmod 644 "$pkgdir/usr/share/bash-completion/completions/plumb-guard"
 
     # Licenses
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

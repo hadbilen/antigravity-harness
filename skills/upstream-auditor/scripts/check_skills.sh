@@ -8,11 +8,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && (pwd -W 2>/dev/null || pwd))"
 CONFIG_DIR="${ANTIGRAVITY_CONFIG_DIR:-${HOME}/.gemini/config}"
-STATE_DIR="${AGY_GUARD_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/antigravity-harness}"
+STATE_DIR="${PLUMB_GUARD_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/plumbwork}"
 STATE_FILE="${UPSTREAM_STATE_FILE:-${STATE_DIR}/upstream_state.json}"
 SEED_FILE="${CONFIG_DIR}/skills/upstream-auditor/upstream_state.seed.json"
 BUNDLED_SEED="$(cd "${SCRIPT_DIR}/.." && (pwd -W 2>/dev/null || pwd))/upstream_state.seed.json"
-SYSTEM_SHARE_SEED="${ANTIGRAVITY_SHARE_DIR:-/usr/share/antigravity-harness}/skills/upstream-auditor/upstream_state.seed.json"
+SYSTEM_SHARE_SEED="${PLUMBWORK_SHARE_DIR:-/usr/share/plumbwork}/skills/upstream-auditor/upstream_state.seed.json"
 
 GITHUB_API_BASE="${GITHUB_API_BASE:-https://api.github.com}"
 GITHUB_API_BASE="${GITHUB_API_BASE%/}"
@@ -26,7 +26,7 @@ if [ -f "$SEED_FILE" ]; then
   RESOLVED_SEED="$SEED_FILE"
 elif [ -f "$BUNDLED_SEED" ]; then
   RESOLVED_SEED="$BUNDLED_SEED"
-elif { [ -n "${ANTIGRAVITY_SHARE_DIR:-}" ] || [ -z "${ANTIGRAVITY_CONFIG_DIR:-}" ]; } && [ -f "$SYSTEM_SHARE_SEED" ]; then
+elif { [ -n "${PLUMBWORK_SHARE_DIR:-}" ] || [ -z "${ANTIGRAVITY_CONFIG_DIR:-}" ]; } && [ -f "$SYSTEM_SHARE_SEED" ]; then
   RESOLVED_SEED="$SYSTEM_SHARE_SEED"
 fi
 
@@ -64,9 +64,9 @@ from datetime import datetime, timezone
 
 script_dir = os.environ.get("AGY_SCRIPT_DIR", "")
 repo_candidate = os.path.abspath(os.path.join(script_dir, "..", "..", "..")) if script_dir else ""
-default_data = os.path.join(os.path.expanduser(os.environ.get("XDG_DATA_HOME", "~/.local/share")), "antigravity-harness")
-data_root = os.path.expanduser(os.environ.get("AGY_GUARD_DATA_DIR") or default_data)
-for cand in (repo_candidate, os.path.join(data_root, "runtime"), "/usr/lib/antigravity-guard"):
+default_data = os.path.join(os.path.expanduser((os.environ.get("XDG_DATA_HOME") or "").strip() or "~/.local/share"), "plumbwork")
+data_root = os.path.expanduser((os.environ.get("PLUMB_GUARD_DATA_DIR") or "").strip() or default_data)
+for cand in (repo_candidate, os.path.join(data_root, "runtime"), "/usr/lib/plumb-guard"):
     if cand and os.path.isfile(os.path.join(cand, "porter", "net.py")) and cand not in sys.path:
         sys.path.insert(0, cand)
 

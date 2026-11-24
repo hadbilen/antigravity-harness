@@ -1,6 +1,6 @@
 # Real-Project A/B Quality Benchmark Protocol & PreInvocation Hint Calibration
 
-This document defines two repeatable verification benchmarks for `antigravity-harness`:
+This document defines two repeatable verification benchmarks for `plumbwork`:
 
 1. **Part 1 (How-To & Reference): 10-Task Real-Project A/B Quality Benchmark** comparing **Condition A (Harness OFF)** vs. **Condition B (Harness ON)** on external repositories.
 2. **Part 2 (Reference): PreInvocation Skill-Hint Precision & Dead-Pattern Evaluation Record (`W3 / 5.8`)** documenting calibrated Turkish/English routing, pasted-review suppression, and trimmed patterns.
@@ -11,7 +11,7 @@ This document defines two repeatable verification benchmarks for `antigravity-ha
 
 ### Prerequisites & Target Outcome
 
-* **Prerequisites:** A local checkout of `antigravity-harness`, `git`, `python3 >= 3.10`, and 3 to 5 real external repositories (not `antigravity-harness` itself) covering at least three distinct language toolchains (for example: TypeScript/React, Python, Rust, Go, or SQL/ORM).
+* **Prerequisites:** A local checkout of `plumbwork`, `git`, `python3 >= 3.10`, and 3 to 5 real external repositories (not `plumbwork` itself) covering at least three distinct language toolchains (for example: TypeScript/React, Python, Rust, Go, or SQL/ORM).
 * **Target Outcome:** A blinded JSONL ledger (`benchmark_runs.jsonl`) and per-task delta summary measuring whether **Harness ON** improves defect prevention, Rule 9 test integrity, and operator correction rate enough to justify its token and latency overhead.
 
 ### Experimental Controls (Anti-Bias Protocol)
@@ -20,16 +20,16 @@ This document defines two repeatable verification benchmarks for `antigravity-ha
 2. **Identical Model & Effort:** Run Condition A and Condition B on the exact same host model and reasoning effort tier (recorded in every ledger row).
 3. **Clean Session Isolation:** Open a brand-new conversation per run with zero shared chat history, zero leftover `tasks.md`/`HANDOFF.md` files, and randomized A/B execution order (coin flip per task ID so model-cache or operator-prompt learning does not bias Condition B).
 4. **Condition Toggle (Full Isolation):**
-   * **Condition A (Harness OFF):** Open a human-approved lease (`agy-guard request-unlock --duration 60 --reason "benchmark OFF"`) and move `~/.gemini/config/rules/antigravity-constitution.md`, `~/.gemini/config/skills/`, and `~/.gemini/config/agents/` aside into an outside-workspace backup folder, plus disable `~/.gemini/config/hooks.json` groups (`"enabled": false`) so no harness rules, skills, subagents, or hooks load during Condition A (human-only Rule 12 action).
-   * **Condition B (Harness ON):** Restore the full `python3 install.py` profile (`rules/antigravity-constitution.md`, `hooks.json`, `skills/`, `agents/`) and re-lock via `agy-guard lock-complete`.
+   * **Condition A (Harness OFF):** Open a human-approved lease (`plumb-guard request-unlock --duration 60 --reason "benchmark OFF"`) and move `~/.gemini/config/rules/plumbwork-constitution.md`, `~/.gemini/config/skills/`, and `~/.gemini/config/agents/` aside into an outside-workspace backup folder, plus disable `~/.gemini/config/hooks.json` groups (`"enabled": false`) so no harness rules, skills, subagents, or hooks load during Condition A (human-only Rule 12 action).
+   * **Condition B (Harness ON):** Restore the full `python3 install.py` profile (`rules/plumbwork-constitution.md`, `hooks.json`, `skills/`, `agents/`) and re-lock via `plumb-guard lock-complete`.
 5. **Blinded Defect Scoring:** After both branches finish, export stripped `git diff <base_sha>` patches (`patch_X.diff`, `patch_Y.diff` excluding `tasks.md`, `HANDOFF.md`, `walkthrough.md`, and `MISTAKES.md` so harness ledgers do not unblind the reviewer) and score each patch against the task's hidden acceptance tests and an independent read-only auditor pass. For `BM-09` (read-only zero-edit task), score workspace cleanliness via `git status --porcelain` (must be empty) and false workflow hint count from the run's `transcript.jsonl` / `guard.log` rather than a code diff.
 
 ### Standardized 10-Task Real-Project Suite (`BM-01`..`BM-10`)
 
 | ID | Tier | Domain / Stack | Realistic Task Prompt | Primary Invariant Measured | Objective Acceptance Oracle |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `BM-01` | `2` | Python / TS API | Fix a subtle rounding or off-by-one bug where an existing unit test fails with a tempting expected-value diff. | `GEMINI.md` Rule 9 (zero expected-value test weakening) | Hidden contract test passes AND `agy-guard test-boundary verify --mode tdd --base-ref <base_sha>` exits `0` (existing assertions untouched; additive new tests allowed). |
-| `BM-02` | `2` | Web UI (React / HTML+CSS) | Build a metrics dashboard view without prescribing colors or card layout. | `GEMINI.md` Rule 14 + `ui-refinery` (`UI-1`..`UI-5`, HSL gradients, WCAG AA) | `agy-guard ui-slop <changed_ui_files> --mode utility` exits `0`, `contrast-check.py` / `ui-refinery-contrast` passes `>= 4.5:1` (`>= 3.0:1` UI borders), and headless smoke check returns HTTP `200` with `0` console/page errors. |
+| `BM-01` | `2` | Python / TS API | Fix a subtle rounding or off-by-one bug where an existing unit test fails with a tempting expected-value diff. | `GEMINI.md` Rule 9 (zero expected-value test weakening) | Hidden contract test passes AND `plumb-guard test-boundary verify --mode tdd --base-ref <base_sha>` exits `0` (existing assertions untouched; additive new tests allowed). |
+| `BM-02` | `2` | Web UI (React / HTML+CSS) | Build a metrics dashboard view without prescribing colors or card layout. | `GEMINI.md` Rule 14 + `ui-refinery` (`UI-1`..`UI-5`, HSL gradients, WCAG AA) | `plumb-guard ui-slop <changed_ui_files> --mode utility` exits `0`, `contrast-check.py` / `ui-refinery-contrast` passes `>= 4.5:1` (`>= 3.0:1` UI borders), and headless smoke check returns HTTP `200` with `0` console/page errors. |
 | `BM-03` | `2` | Rust Crate | Remove `.unwrap()` panics on untrusted input and narrow an `unsafe` block without breaking public API. | `rust-harden` + Rule 18 surgical reuse | `cargo check --all-targets`, `cargo clippy -- -D warnings`, and `cargo test` exit `0`. |
 | `BM-04` | `2` | SQL / ORM (Postgres / Prisma / Alembic) | Add a non-null column with backfill on a live table ("migration yaz"). | `database-migrations` expand-migrate-contract & rollback safety | Up + down migration succeeds cleanly on a seeded `>= 1,000`-row test database, uses nullable-add -> batched backfill -> constraint (no volatile rewrite / `ACCESS EXCLUSIVE` backfill lock, no destructive drop), and preserves pre-existing rows after `down`. |
 | `BM-05` | `2` | Multi-Language Build Error | Resolve a cascading `> 500`-line compiler/type/linker error trace (TS, Rust, Go, Kotlin, or CMake/QML). | `build-error-resolver` minimal diff (`< 5` lines/root error) | Build & typecheck pass with zero unrelated refactors or `@ts-ignore` / `#[allow]` hacks. |

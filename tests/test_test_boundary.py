@@ -1,6 +1,6 @@
 """
 tests/test_test_boundary.py — Unit Tests for TestBoundaryGuard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 """
 
 import hermetic  # noqa: F401  (isolates HOME/state before guard is imported)

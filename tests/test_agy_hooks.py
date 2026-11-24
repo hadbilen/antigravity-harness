@@ -43,7 +43,7 @@ class HooksTempCase(unittest.TestCase):
             os.environ,
             {
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
             },
         )
         self._env_patch.start()
@@ -714,20 +714,20 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
     @unittest.skipUnless(os.name != "nt", "POSIX shell commands required")
     def test_blocks_human_only_guard_admin_and_install_commands(self) -> None:
         denied_commands = [
-            "agy-guard unlock",
-            "~/.local/bin/agy-guard unlock",
-            "/usr/local/bin/agy-guard rebaseline",
+            "plumb-guard unlock",
+            "~/.local/bin/plumb-guard unlock",
+            "/usr/local/bin/plumb-guard rebaseline",
             "python3 guard.py rebaseline",
             "python3 -m guard unlock",
-            "agy-guard test-boundary snapshot",
-            "agy-guard snapshot restore snap_1",
-            "agy-guard snapshot prune",
-            "agy-guard porter stage",
-            "agy-guard env policy antigravity relaxed",
-            "agy-guard startup disable",
-            "agy-guard notify disable",
-            "agy-guard doctor --fix",
-            "agy-guard doctor --recover",
+            "plumb-guard test-boundary snapshot",
+            "plumb-guard snapshot restore snap_1",
+            "plumb-guard snapshot prune",
+            "plumb-guard porter stage",
+            "plumb-guard env policy antigravity relaxed",
+            "plumb-guard startup disable",
+            "plumb-guard notify disable",
+            "plumb-guard doctor --fix",
+            "plumb-guard doctor --recover",
             "python3 guard.py doctor --fix",
             "python3 install.py",
             "./install.py",
@@ -750,10 +750,10 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
 
         # Allowed read-only / request commands and plugin subdir operations must return {"decision": "allow"}
         allowed_commands = [
-            "agy-guard status",
-            "agy-guard verify",
-            "agy-guard doctor",
-            "agy-guard request-unlock --reason 'upgrade'",
+            "plumb-guard status",
+            "plumb-guard verify",
+            "plumb-guard doctor",
+            "plumb-guard request-unlock --reason 'upgrade'",
             "python3 install.py --dry-run",
             "./install.py --help",
             "git diff --stat v1.4.0 -- guard/ install.py scripts/",
@@ -792,7 +792,7 @@ class TestPreToolUseBashGuardAndGovernanceShield(HooksTempCase):
     def test_interactive_task_input_gating_and_pasted_model_spoof_defense(self) -> None:
         # 1. manage_task(Action="send_input") and send_command_input enforce Governance Shield & Bash Guard
         for bad_input in (
-            "agy-guard unlock\n",
+            "plumb-guard unlock\n",
             "git commit --no-verify -m bypass\n",
             f"rm {self.cfg_dir / 'GEMINI.md'}\n",
         ):
@@ -985,7 +985,7 @@ class TestStopCompletionGate(HooksTempCase):
     def test_cli_entrypoint_reads_stdin_and_writes_json(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(REPO_ROOT / "guard" / "agy_hooks.py"), "pre-tool-use"],
-            input=json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "agy-guard unlock"}}}),
+            input=json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "plumb-guard unlock"}}}),
             capture_output=True,
             text=True,
             timeout=10,
@@ -1158,9 +1158,9 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
                 "XDG_STATE_HOME": str(self.tmp / "xdg_state"),
                 "XDG_DATA_HOME": str(self.tmp / "xdg_data"),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
-                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+                "PLUMB_GUARD_DATA_DIR": str(self.data_dir),
             },
         )
         self._env_patch.start()
@@ -1228,11 +1228,11 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
 
         # Quoted strings inside grep/git commit messages must NOT false-positive
         res_grep = agy_hooks.handle_pre_tool_use(
-            {"tool_name": "run_command", "tool_input": {"CommandLine": 'grep "agy-guard unlock" README.md'}}
+            {"tool_name": "run_command", "tool_input": {"CommandLine": 'grep "plumb-guard unlock" README.md'}}
         )
         self.assertEqual(res_grep.get("decision"), "allow")
         res_commit_msg = agy_hooks.handle_pre_tool_use(
-            {"tool_name": "run_command", "tool_input": {"CommandLine": 'git commit -m "Document install.py and agy-guard unlock"'}}
+            {"tool_name": "run_command", "tool_input": {"CommandLine": 'git commit -m "Document install.py and plumb-guard unlock"'}}
         )
         self.assertEqual(res_commit_msg.get("decision"), "allow")
 
@@ -1517,8 +1517,8 @@ class TestPorterSanitizerNewPatterns(unittest.TestCase):
             f"cp /tmp/x {cfg}/projects/./../GEMINI.md",
             f"cp /tmp/x {cfg}/plugins/a/../../../config/.harness/manifest.json",
             "cp /tmp/x ~/.gemini/./config/GEMINI.md",
-            "rm ~/.local/state/antigravity-harness/upstream_state.json",
-            "rm $HOME/.local/share/antigravity-harness/runtime/guard/cli.py",
+            "rm ~/.local/state/plumbwork/upstream_state.json",
+            "rm $HOME/.local/share/plumbwork/runtime/guard/cli.py",
             "rm ~/.gemini/config/plugins.json",
             "tee ~/.gemini/config/sidecars_policy.json",
         ):
@@ -2201,7 +2201,7 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
         deny_cases = [
             (
                 "guard_admin_subprocess",
-                {"Script": "import subprocess\nsubprocess.run(['agy-guard', 'unlock'])"},
+                {"Script": "import subprocess\nsubprocess.run(['plumb-guard', 'unlock'])"},
             ),
             (
                 "direct_os_system",
@@ -2434,11 +2434,11 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
 
         isolated_cases = [
             ("isolated_subprocess", {"Script": "import subprocess\nlog('x')"}, "subprocess"),
-            ("isolated_args_guard_admin_str", {"Script": "log('ok')", "Args": {"c": "agy-guard unlock"}}, "agy-guard"),
+            ("isolated_args_guard_admin_str", {"Script": "log('ok')", "Args": {"c": "plumb-guard unlock"}}, "plumb-guard"),
             (
                 "isolated_args_guard_admin_argv",
-                {"Script": "log('ok')", "Args": {"argv": ["agy-guard", "unlock"]}},
-                "agy-guard",
+                {"Script": "log('ok')", "Args": {"argv": ["plumb-guard", "unlock"]}},
+                "plumb-guard",
             ),
             (
                 "isolated_args_git_no_verify",
@@ -2749,7 +2749,7 @@ class TestRunWorkflowAndGitFlagShield(HooksTempCase):
             (
                 "comment_mentioning_install_py_and_unlock",
                 "Gemini 4 Argon (High)",
-                "# See (install.py) and never run agy-guard unlock\nlog('clean')",
+                "# See (install.py) and never run plumb-guard unlock\nlog('clean')",
             ),
             (
                 "persistent_reviewer_mentioning_no_verify",
@@ -4050,7 +4050,7 @@ class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
 
         # With valid harness plugin.json provenance, verified plugin fallback loads cleanly
         (hyb_plug / "plugin.json").write_text(
-            json.dumps({"name": "ui-refinery", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+            json.dumps({"name": "ui-refinery", "repository": "https://github.com/hadbilen/plumbwork"}),
             encoding="utf-8",
         )
         with (

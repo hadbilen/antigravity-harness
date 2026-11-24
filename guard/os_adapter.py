@@ -1,6 +1,6 @@
 """
 guard/os_adapter.py — Cross-Platform OS Write Protection Adapter
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Protection model (honest): this is a user-space permission lock. It stops accidental

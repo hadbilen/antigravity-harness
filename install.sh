@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# install.sh — POSIX entry point for the Antigravity Harness installer.
+# install.sh — POSIX entry point for the Plumbwork installer.
 # All installation logic lives in install.py (single implementation for every platform);
 # this wrapper only locates a Python 3.10+ interpreter and forwards all arguments.
 #

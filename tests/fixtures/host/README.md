@@ -16,9 +16,9 @@ To inspect the exact JSON schema your installed Antigravity build sends on `PreI
    AGY_RECORD_HOST_FIXTURES=1 agy
    ```
 2. **Trigger all three hook events once** inside a throwaway scratch workspace (submit one prompt, run one read-only tool call, and let the turn complete cleanly).
-3. **Inspect the sanitized captures** written atomically under your platform's `guard.paths.state_dir()` (`~/.local/state/antigravity-harness/host_fixtures/` on Linux, `~/Library/Application Support/antigravity-harness/host_fixtures/` on macOS, `%LOCALAPPDATA%\antigravity-harness\host_fixtures\` on Windows; each event overwrites its latest file and silently ignores I/O write errors so live hooks never crash):
+3. **Inspect the sanitized captures** written atomically under your platform's `guard.paths.state_dir()` (`~/.local/state/plumbwork/host_fixtures/` on Linux, `~/Library/Application Support/plumbwork/host_fixtures/` on macOS, `%LOCALAPPDATA%\plumbwork\host_fixtures\` on Windows; each event overwrites its latest file and silently ignores I/O write errors so live hooks never crash):
    ```bash
-   ls -la ~/.local/state/antigravity-harness/host_fixtures/
+   ls -la ~/.local/state/plumbwork/host_fixtures/
    # Expected files when triggered via hooks.json CLI events (pre-invocation / pre-tool-use / stop):
    #   latest_pre-invocation.json
    #   latest_pre-tool-use.json
@@ -45,11 +45,11 @@ from pathlib import Path
 from unittest import mock
 import guard.agy_hooks as agy_hooks
 
-cap = json.loads(Path("~/.local/state/antigravity-harness/host_fixtures/latest_pre-invocation.json").expanduser().read_text("utf-8"))
+cap = json.loads(Path("~/.local/state/plumbwork/host_fixtures/latest_pre-invocation.json").expanduser().read_text("utf-8"))
 payload = dict(cap["payload"])
 with tempfile.TemporaryDirectory() as tmp:
     payload["workspacePaths"] = [tmp]
-    env = {"AGY_GUARD_STATE_DIR": tmp, "AGY_GUARD_NOTIFY": "off", "AGY_RECORD_HOST_FIXTURES": "0"}
+    env = {"PLUMB_GUARD_STATE_DIR": tmp, "PLUMB_GUARD_NOTIFY": "off", "AGY_RECORD_HOST_FIXTURES": "0"}
     with mock.patch.dict(os.environ, env):
         res = agy_hooks.dispatch_hook(cap["hookEventName"], payload)
         print("Event:", cap["hookEventName"], "Keys:", sorted(payload.keys()))

@@ -249,9 +249,9 @@ class TestSimplicityAuditorAndHookRoutingSeam(unittest.TestCase):
         (self.fake_cfg / "GEMINI.md").write_text("# Test Constitution\n", encoding="utf-8")
         self._saved_env = {
             k: os.environ.get(k)
-            for k in ("AGY_GUARD_STATE_DIR", "ANTIGRAVITY_STATE_DIR", "ANTIGRAVITY_CONFIG_DIR")
+            for k in ("PLUMB_GUARD_STATE_DIR", "ANTIGRAVITY_STATE_DIR", "ANTIGRAVITY_CONFIG_DIR")
         }
-        os.environ["AGY_GUARD_STATE_DIR"] = str(self.fake_state)
+        os.environ["PLUMB_GUARD_STATE_DIR"] = str(self.fake_state)
         os.environ["ANTIGRAVITY_STATE_DIR"] = str(self.fake_state)
         os.environ["ANTIGRAVITY_CONFIG_DIR"] = str(self.fake_cfg)
 

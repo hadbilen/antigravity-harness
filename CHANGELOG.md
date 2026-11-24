@@ -1,6 +1,50 @@
 # Changelog
 
-All notable changes to Antigravity Harness are documented in this file.
+All notable changes to Plumbwork (formerly Antigravity Harness) are documented in this file.
+
+## [3.0.0] - 2026-11-24
+Clean major cutover (`ADR-0017`) renaming the harness to **Plumbwork**, its write-protection companion to **Plumb Guard** (`plumb-guard`), its rule transpiler CLI to `plumb-porter`, and its UI/motion design toolkit to **`ui-refinery`** (`motion-physics` references, `ui-refinery_contrast` / `ui-refinery-contrast` MCP, and dual-theme `ui-refinery.svg`), paired with `upstream-auditor` 5-repo synchronization, `rust-harden` dev-profile guidance, JSONC duplicate plugin-`name` collision detection, and read-only pre-`v3.0.0` legacy-residue diagnostics in `plumb-guard doctor`.
+
+### Breaking Changes
+- **Clean `v3.0.0` Brand & Runtime Contract Cutover (`ADR-0017`, Option B: zero runtime `v3.0.x` shims or automatic XDG state migration):**
+  - Renamed CLI launchers and binaries from `agy-guard` / `agy-porter` to `plumb-guard` / `plumb-porter` (plus PyInstaller assets `plumb-guard-{linux,macos,windows}-*` and Linux packages `plumb-guard`).
+  - Renamed environment variables from `AGY_GUARD_{STATE_DIR,DATA_DIR,NOTIFY,NO_TRAY}` and `ANTIGRAVITY_SHARE_DIR` to `PLUMB_GUARD_{STATE_DIR,DATA_DIR,NOTIFY,NO_TRAY}` and `PLUMBWORK_SHARE_DIR`.
+  - Moved per-user XDG directories from `~/.local/{state,share}/antigravity-harness/` to `~/.local/{state,share}/plumbwork/`, system FHS paths from `/usr/lib/antigravity-guard` and `/usr/share/antigravity-harness` to `/usr/lib/plumb-guard` and `/usr/share/plumbwork`, Windows install root to `%LOCALAPPDATA%\Programs\plumb-guard`, global constitution rule file to `~/.gemini/config/rules/plumbwork-constitution.md`, and boot sentinels to `plumb-guard-boot.service` / `com.plumbwork.guard.plist` / `PlumbworkGuardBootSentinel`.
+  - Renamed the UI/design skill and standalone plugin pack from `antislop` to `ui-refinery`, its motion-physics reference from `silk-design` to `motion-physics`, its Cursor rule emitter output to `10-design-ui-refinery.mdc`, and its MCP server contract to `ui-refinery-contrast` (Flat Layout) / `ui-refinery_contrast` (Hybrid Layout via `plugins/ui-refinery/mcp_config.json` key `"contrast"`).
+  - Preserved Antigravity host contracts (`GEMINI.md`, `~/.gemini/config/`, `ANTIGRAVITY_CONFIG_DIR`, `AGY_RECORD_HOST_FIXTURES`, `ANTIGRAVITY_INTEGRITY_FILE`, `antigravity` environment id, `agy plugin`, and `https://antigravity.google/schemas/v1/plugin.json`) and internal Python package paths (`guard/`, `porter/`, `guard/agy_hooks.py`).
+- **Upgrading from `v2.x` to `v3.0.0` (Clean 2-Command Cutover):**
+  1. **Back up first** (human-only): copy `~/.gemini/config`, `~/.local/state/antigravity-harness`, and `~/.local/share/antigravity-harness` to an external backup directory before uninstalling.
+  2. **Uninstall legacy `v2.x`** using your existing `v2.x` checkout or package (`agy-guard init --uninstall` for Linux packages):
+     ```bash
+     python3 install.py --uninstall
+     ```
+  3. **Install `v3.0.0`** from the `v3.0.0` checkout (add `--plugins` for opt-in Hybrid Layout) and inspect any leftover `v2.x` residue with `plumb-guard doctor`:
+     ```bash
+     python3 install.py --plugins   # or: python3 install.py (Flat Layout default)
+     ```
+  - **Linux `.deb` / `.rpm` / Arch upgrades:** `plumb-guard` packages declare `Provides`/`Conflicts`/`Replaces` (and `.rpm` `Obsoletes: antigravity-guard < 3.0.0`) so package managers replace `antigravity-guard` cleanly; run `agy-guard init --uninstall` per user account before upgrading and `plumb-guard init [--plugins]` afterwards.
+  - **Read-only legacy diagnostics:** `plumb-guard doctor` detects leftover `~/.local/{state,share}/antigravity-harness/`, `rules/antigravity-constitution.md`, legacy boot sentinels (`agy-guard-boot.service`, `com.antigravity.guard.plist`), and unreceipted legacy harness `antislop` directories as read-only `[WARN]` items without modifying disk; third-party upstream `antislop` installs are preserved untouched.
+
+### Security
+- **Fail-Closed Provenance Preservation & Dual-Token Standalone Validation (`guard/environment.py`, `guard/doctor.py`, `guard/plugins.py`, `guard/hooks/_shell_guard.py`):**
+  - Kept third-party upstream `plugins/antislop` and `skills/antislop*` / `skills/silk-design` directories and MCP server entries preserved untouched during installation and uninstall via fail-closed receipt + positive harness provenance checks.
+  - Extended `guard/plugins.py` standalone Markdown rewriters and validators to reject both new (`plumb-guard`, `plumbwork`) and legacy (`agy-guard`, `antigravity-harness`) runtime path and CLI leaks.
+  - Added concrete `fnmatchcase` glob probes (`<pack>-v<version>.zip` and `<pack>-v0.0.0.zip`) in `guard/hooks/_shell_guard.py` while maintaining `guard/agy_hooks.py <= 32,768` bytes and `0` net new facade exports.
+  - Updated `guard/doctor.py` native Antigravity `deny` rule checks to verify `plumb-guard unlock` alongside `--no-verify`.
+
+### Added
+- **Architecture Decision Record & Index (`docs/adr/0017-plumbwork-rebrand-and-ui-refinery-separation.md`, `docs/adr/README.md`):**
+  - Recorded `ADR-0017` (including the 5-repository `upstream-auditor` audit ledger covering `anti-slop`, `unlazy`, `everything-claude-code`, `skills`, and `rust-anything`) and added `docs/adr/README.md` indexing `ADR-0001` through `ADR-0017`.
+- **JSONC-Aware Duplicate Plugin `name` Collision Check & Read-Only Legacy-Residue Diagnostics (`guard/doctor.py`):**
+  - Added JSONC-safe `plugin.json` duplicate `name` collision detection across installed global plugins (including invalid/unreadable JSON reporting without crashing) and read-only pre-`v3.0.0` legacy-residue warnings.
+- **Prominent Upstream Attribution in Generated Plugin Packs (`guard/plugins.py`, `skills/ui-refinery/SKILL.md`, `skills/ui-refinery/references/motion-physics.md`):**
+  - Generated `ui-refinery` and `rust-suite` plugin `README.md` files now emit `## Upstream Credits & Attribution` directly after `## Included components`, paired with top-of-file MIT attribution callouts in `skills/ui-refinery/SKILL.md` and `skills/ui-refinery/references/motion-physics.md`.
+
+### Changed
+- **5-Repository Upstream Synchronization & `rust-harden` Dev-Profile Guidance (`skills/upstream-auditor/upstream_state.seed.json`, `skills/rust-harden/references/greenfield-architecture.md`):**
+  - Synced `upstream_state.seed.json` SHAs for `anti-slop`, `unlazy`, `everything-claude-code`, `skills`, and `rust-anything` (retaining `rea` at `rea-agents-6.9.0` matching the installed local runtime) and added Cargo dev-profile and layer-boundary guidance to `skills/rust-harden/references/greenfield-architecture.md`.
+- **Packaging, CI, Meta-Audit & Documentation Alignment (`installers/`, `.github/workflows/ci.yml`, `scripts/meta_audit.py`, `porter/`, `README.md`, `CONTRIBUTING.md`, `GEMINI.md`, `skills/`, `agents/`):**
+  - Synchronized version `3.0.0` across `guard/__init__.py`, `porter/__init__.py`, `installers/packaging/PKGBUILD` (including unquoted `cd "$srcdir"/*-"$pkgver"`), `README.md`, `CHANGELOG.md`, and `.harness/manifest.json`; updated `PLUGIN_HOMEPAGE`/`PLUGIN_REPOSITORY` to `https://github.com/hadbilen/plumbwork`; updated `.github/workflows/ci.yml` (`PLUMB_GUARD_NOTIFY: "off"`, `dist/plumb-guard-*`, `"Plumbwork $TAG"`) and `scripts/meta_audit.py` Pass-7 `PLUMB_GUARD_*` isolation.
 
 ## [2.4.0] - 2026-11-23
 Opt-in `--plugins` Hybrid Modular Plugin Architecture (`ADR-0016`), 4 standalone-clean Antigravity domain plugin packs (`antislop`, `rust-suite`, `media-studio`, `game-engineering`) with dual-theme `128x128` SVG logos, MIT `LICENSE` and pack-scoped `THIRD_PARTY_NOTICES.md`, deterministic cross-OS `.zip` + `.sha256` releases, OS-locked plugin seams inside the existing `antigravity` `enforced` scope, glob-hardened `plugins/` Governance Shield, directory-drop and `agy plugin` CLI gates, live `config.json` toggle awareness in `pre_invocation.py`, hybrid Porter/Meta-Audit parity, and `883` hermetic unit tests (`0/834` legacy tests changed for Hybrid Layout; 1 operator-approved hermetic wall-clock fix in `test_adr0014_predictive_handoff_rust_decisions_procoder.py:315`).

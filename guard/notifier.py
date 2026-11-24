@@ -1,6 +1,6 @@
 """
-guard/notifier.py — Low-Frequency Ergonomic Notification Engine for Antigravity Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+guard/notifier.py — Low-Frequency Ergonomic Notification Engine for Plumb Guard
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Rules:
@@ -40,7 +40,7 @@ def settings_file() -> Path:
 def load_settings() -> Dict[str, bool]:
     data = read_json(settings_file(), default={}) or {}
     settings = {"enabled": bool(data.get("enabled", True)), "quiet": bool(data.get("quiet", False))}
-    env = os.environ.get("AGY_GUARD_NOTIFY", "").strip().lower()
+    env = os.environ.get("PLUMB_GUARD_NOTIFY", "").strip().lower()
     if env in ("0", "off", "false", "disabled"):
         settings["enabled"] = False
     return settings
@@ -73,7 +73,7 @@ class GuardNotifier:
         settings = load_settings() if enabled is None or quiet_mode is None else {}
         self.enabled = settings.get("enabled", True) if enabled is None else bool(enabled)
         self.quiet_mode = settings.get("quiet", False) if quiet_mode is None else bool(quiet_mode)
-        self.terminal_only = os.environ.get("AGY_GUARD_NOTIFY", "").strip().lower() == "terminal"
+        self.terminal_only = os.environ.get("PLUMB_GUARD_NOTIFY", "").strip().lower() == "terminal"
 
         self.cache_file = Path(cache_file).resolve() if cache_file is not None else state_dir() / "notify_cache.json"
         self._cache: Dict[str, float] = {}
@@ -139,7 +139,7 @@ class GuardNotifier:
             return False
         urgency = "critical" if severity == NotificationSeverity.CRITICAL else "normal"
         res = subprocess.run(
-            [notify_send, "-u", urgency, "-a", "Antigravity Guard", "--", title, message],
+            [notify_send, "-u", urgency, "-a", "Plumb Guard", "--", title, message],
             check=False, capture_output=True, timeout=5,
         )
         return res.returncode == 0
@@ -219,7 +219,7 @@ class GuardNotifier:
             self._audit(severity, title, message, delivered="desktop" if dispatched else "terminal")
         if not dispatched:
             bell = "\a" if severity == NotificationSeverity.CRITICAL else ""
-            sys.stderr.write(f"{bell}\n[ANTIGRAVITY GUARD - {severity.value.upper()}] {title}\n  {message}\n")
+            sys.stderr.write(f"{bell}\n[PLUMB GUARD - {severity.value.upper()}] {title}\n  {message}\n")
             sys.stderr.flush()
             dispatched = True
 

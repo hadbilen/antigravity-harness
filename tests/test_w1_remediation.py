@@ -64,7 +64,7 @@ class TestPass1ASecurityCore(SandboxCase):
     """AC-1: #01, #04, #07, #08, #09, #17b, #20a-b."""
 
     def test_01_env_add_collision_global_enforced_load_and_approval_gates(self) -> None:
-        reg_file = self.state / "antigravity-harness" / "environments.json"
+        reg_file = self.state / "plumbwork" / "environments.json"
         reg_file.parent.mkdir(parents=True, exist_ok=True)
         # Tampered registry file attempting to disable global antigravity
         reg_file.write_text(
@@ -148,9 +148,9 @@ class TestPass1ASecurityCore(SandboxCase):
         rc = install.main([])
         self.assertEqual(rc, 0)
 
-        runtime_hook = self.data / "antigravity-harness" / "runtime" / "guard" / "agy_hooks.py"
-        launcher_guard = self.home / ".local" / "bin" / "agy-guard"
-        launcher_porter = self.home / ".local" / "bin" / "agy-porter"
+        runtime_hook = self.data / "plumbwork" / "runtime" / "guard" / "agy_hooks.py"
+        launcher_guard = self.home / ".local" / "bin" / "plumb-guard"
+        launcher_porter = self.home / ".local" / "bin" / "plumb-porter"
         self.assertTrue(runtime_hook.is_file())
         self.assertTrue(launcher_guard.is_file())
         self.assertTrue(launcher_porter.is_file())
@@ -172,7 +172,7 @@ class TestPass1ASecurityCore(SandboxCase):
         launcher_guard.write_text("#!/bin/sh\necho hijacked\n", encoding="utf-8")
         drift_report = fim.verify()
         self.assertFalse(drift_report.is_intact)
-        self.assertTrue(any("agy-guard" in p for p in drift_report.modified), drift_report.modified)
+        self.assertTrue(any("plumb-guard" in p for p in drift_report.modified), drift_report.modified)
 
         # Unlocking the environment unlocks runtime/ and launchers cleanly for re-install
         ok, msg = reg.unlock("antigravity")
@@ -196,7 +196,7 @@ class TestPass1ASecurityCore(SandboxCase):
                     "mcpServers": {
                         "contrast": {
                             "command": "python3",
-                            "args": ["/old/antigravity-harness/skills/antislop-human/contrast-mcp.py"],
+                            "args": ["/old/plumbwork/skills/antislop-human/contrast-mcp.py"],
                             "env": {"API_TOKEN": "topsecret"},
                         }
                     }
@@ -335,7 +335,7 @@ class TestPass1ASecurityCore(SandboxCase):
         custom_agent.parent.mkdir(parents=True, exist_ok=True)
         custom_agent.write_text("# custom agent\n", encoding="utf-8")
 
-        receipt_file = self.state / "antigravity-harness" / "install_receipt.json"
+        receipt_file = self.state / "plumbwork" / "install_receipt.json"
         receipt_file.parent.mkdir(parents=True, exist_ok=True)
         receipt_file.write_text("{corrupt receipt json", encoding="utf-8")
 
@@ -369,7 +369,7 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
             self.assertEqual(parsed.get("decision"), "deny", f"Expected deny for stdin={bad_stdin!r}")
 
         # Stringified or list `toolCall.args` must fail closed instead of silently becoming `{}`
-        for bad_args in ('{"CommandLine": "agy-guard unlock"}', ["agy-guard", "unlock"], 42):
+        for bad_args in ('{"CommandLine": "plumb-guard unlock"}', ["plumb-guard", "unlock"], 42):
             res = agy_hooks.handle_pre_tool_use(
                 {"toolCall": {"name": "run_command", "args": bad_args}}
             )
@@ -379,11 +379,11 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         from guard import agy_hooks
 
         denied_cmds = [
-            "agy-guard env add --name rogue --path /tmp/x --policy disabled",
-            "agy-guard env remove custom_env",
-            '"agy-guard" unlock',
-            "'agy-guard' rebaseline",
-            'bash -c "agy-guard unlock"',
+            "plumb-guard env add --name rogue --path /tmp/x --policy disabled",
+            "plumb-guard env remove custom_env",
+            '"plumb-guard" unlock',
+            "'plumb-guard' rebaseline",
+            'bash -c "plumb-guard unlock"',
             "sh -lc 'python3 install.py'",
             'git commit "--no-verify" -m "msg"',
             '"python3" install.py',
@@ -400,8 +400,8 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         # False-positive controls: read-only git diff & quoted prose commit messages must stay allow
         allowed_cmds = [
             "git diff install.py",
-            'git commit -m "Document install.py and agy-guard unlock"',
-            "agy-guard status",
+            'git commit -m "Document install.py and plumb-guard unlock"',
+            "plumb-guard status",
             "python3 install.py --dry-run",
         ]
         for cmd in allowed_cmds:
@@ -414,7 +414,7 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         r1 = agy_hooks.handle_pre_tool_use(
             {
                 "conversationId": "conv-split-1",
-                "toolCall": {"name": "send_command_input", "args": {"TaskId": "t1", "Input": "agy-guard "}},
+                "toolCall": {"name": "send_command_input", "args": {"TaskId": "t1", "Input": "plumb-guard "}},
             }
         )
         self.assertEqual(r1.get("decision"), "allow")
@@ -470,8 +470,8 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         from guard import agy_hooks
 
         # Direct write_file to launcher, snapshots, and relative path with cwd=self.cfg
-        launcher = self.home / ".local" / "bin" / "agy-guard"
-        snap_target = self.data / "antigravity-harness" / "snapshots" / "s1" / "GEMINI.md"
+        launcher = self.home / ".local" / "bin" / "plumb-guard"
+        snap_target = self.data / "plumbwork" / "snapshots" / "s1" / "GEMINI.md"
         for tgt in (str(launcher), str(snap_target)):
             res = agy_hooks.handle_pre_tool_use(
                 {"toolCall": {"name": "write_file", "args": {"Path": tgt, "Content": "x"}}}
@@ -488,10 +488,10 @@ class TestPass1BHooksAndWorkflowSandbox(SandboxCase):
         self.assertEqual(res_rel_cwd.get("decision"), "deny")
 
         shell_bypasses = [
-            f"mv {self.data / 'antigravity-harness'} {self.sb / 'moved'}",
-            "mv ~/.local/share/antigravity-harness /tmp/hijack",
-            "echo pwn > ~/.local/bin/agy-guard",
-            "rm -f ~/.local/bin/agy-porter",
+            f"mv {self.data / 'plumbwork'} {self.sb / 'moved'}",
+            "mv ~/.local/share/plumbwork /tmp/hijack",
+            "echo pwn > ~/.local/bin/plumb-guard",
+            "rm -f ~/.local/bin/plumb-porter",
             "cp /tmp/x ~/.gem*/config/GEMINI.md",
             'D="$HOME/.gemini/config" && echo pwn > "$D/GEMINI.md"',
             f"cd {self.cfg} && echo pwn > GEMINI.md",
@@ -771,11 +771,11 @@ class TestPass1CStopBoundaryConcurrencyAndScanners(SandboxCase):
             os.close(contend_fd)
 
         # LeaseManager._update_record must NOT resurrect a closed record or overwrite STATE_CLOSING
-        reg = EnvironmentRegistry(config_path=self.state / "antigravity-harness" / "environments.json")
+        reg = EnvironmentRegistry(config_path=self.state / "plumbwork" / "environments.json")
         mgr = LeaseManager(
             registry=reg,
             notifier=GuardNotifier(enabled=False),
-            lease_file=self.state / "antigravity-harness" / "leases.json",
+            lease_file=self.state / "plumbwork" / "leases.json",
             scheduler=lambda l, m: (True, "noop"),
         )
         stale_lease = UnlockLease(

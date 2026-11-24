@@ -116,7 +116,7 @@ def _rewrite_cursor_skill_paths(
 
 
 class CursorEmitter:
-    """Exports Antigravity Harness as native Cursor .mdc rules."""
+    """Exports Plumbwork as native Cursor .mdc rules."""
 
     TARGET = "cursor"
     SKILLS_DIR = ".cursor/skills"

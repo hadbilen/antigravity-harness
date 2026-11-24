@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  AGY_GUARD_NOTIFY: "off"
+  PLUMB_GUARD_NOTIFY: "off"
   PYTHONDONTWRITEBYTECODE: "1"
   PYTHONFAULTHANDLER: "1"
 
@@ -241,13 +241,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bin="$(ls dist/agy-guard-* | grep -v '\.sha256$' | head -1)"
+          bin="$(ls dist/plumb-guard-* | grep -v '\.sha256$' | head -1)"
           "$bin" --version
           "$bin" self-audit --root . --json > /dev/null
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binary-${{ runner.os }}-${{ runner.arch }}
-          path: dist/agy-guard-*
+          path: dist/plumb-guard-*
           if-no-files-found: error
 
   package-linux:
@@ -350,5 +350,5 @@ jobs:
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$REPO"
           else
-            gh release create "$TAG" assets/* --repo "$REPO" --title "Antigravity Harness $TAG" --notes "See CHANGELOG.md. Verify downloads with the accompanying .sha256 files."
+            gh release create "$TAG" assets/* --repo "$REPO" --title "Plumbwork $TAG" --notes "See CHANGELOG.md. Verify downloads with the accompanying .sha256 files."
           fi

@@ -47,8 +47,8 @@ class TestPreToolUseCwdIsolation(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="agy-ptu-cwd-"))
         self.home_dir = self.root / "home"
         self.cfg_dir = self.home_dir / ".gemini" / "config"
-        self.state_dir = self.home_dir / ".local" / "state" / "antigravity-harness"
-        self.data_dir = self.home_dir / ".local" / "share" / "antigravity-harness"
+        self.state_dir = self.home_dir / ".local" / "state" / "plumbwork"
+        self.data_dir = self.home_dir / ".local" / "share" / "plumbwork"
         self.runtime_dir = self.data_dir / "runtime"
         self.unrelated_cwd = self.root / "unrelated_cwd"
 
@@ -82,8 +82,8 @@ class TestPreToolUseCwdIsolation(unittest.TestCase):
                 "HOME": str(self.home_dir),
                 "USERPROFILE": str(self.home_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
-                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_DATA_DIR": str(self.data_dir),
             },
             clear=False,
         )

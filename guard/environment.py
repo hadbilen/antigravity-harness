@@ -1,6 +1,6 @@
 """
 guard/environment.py — Multi-Environment Governance & Protection Registry
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 The registry lives in the per-user state directory (never the current working
@@ -43,12 +43,12 @@ from guard.plugins import (
 )
 
 VALID_POLICIES = ("enforced", "monitored", "disabled")
-_LAUNCHER_MARKER = "antigravity-harness launcher"
-CONSTITUTION_RULE_REL = "rules/antigravity-constitution.md"
+_LAUNCHER_MARKER = "plumbwork launcher"
+CONSTITUTION_RULE_REL = "rules/plumbwork-constitution.md"
 CONSTITUTION_RULE_FRONTMATTER = (
     "---\n"
     "trigger: always_on\n"
-    'description: "Antigravity Global Engineering & Behavioral Constitution (always-on invariants)."\n'
+    'description: "Plumbwork Global Engineering & Behavioral Constitution (always-on invariants)."\n'
     "---\n\n"
 )
 
@@ -56,13 +56,13 @@ CONSTITUTION_RULE_FRONTMATTER = (
 def render_constitution_rule(gemini_src: Path, *, mode: str = "copy") -> str:
     """Renders GEMINI.md as an Antigravity rules/*.md file with trigger: always_on frontmatter."""
     if mode == "link":
-        return f"{CONSTITUTION_RULE_FRONTMATTER}@[Antigravity Constitution]({gemini_src.resolve().as_posix()})\n"
+        return f"{CONSTITUTION_RULE_FRONTMATTER}@[Plumbwork Constitution]({gemini_src.resolve().as_posix()})\n"
     body = gemini_src.read_text(encoding="utf-8").replace("\r\n", "\n")
     return f"{CONSTITUTION_RULE_FRONTMATTER}{body.rstrip()}\n"
 
 
 def is_harness_constitution_file(path: Path, source_root: Optional[Path] = None) -> bool:
-    """True when `path` appears to be an earlier Antigravity Harness GEMINI.md installation."""
+    """True when `path` appears to be a Plumbwork (or legacy v2.x) GEMINI.md installation."""
     if os.path.islink(path):
         if source_root is not None:
             try:
@@ -76,11 +76,14 @@ def is_harness_constitution_file(path: Path, source_root: Optional[Path] = None)
         head = path.read_text(encoding="utf-8", errors="ignore")[:256]
     except OSError:
         return False
-    return "# Antigravity Global Engineering & Behavioral Constitution" in head
+    return (
+        "# Plumbwork Global Engineering & Behavioral Constitution" in head
+        or "# Antigravity Global Engineering & Behavioral Constitution" in head
+    )
 
 
 def has_constitution_file(root: Path) -> bool:
-    """True when `root` contains either legacy `GEMINI.md` or migrated `rules/antigravity-constitution.md`."""
+    """True when `root` contains either legacy `GEMINI.md` or canonical `rules/plumbwork-constitution.md`."""
     return (root / "GEMINI.md").is_file() or (root / CONSTITUTION_RULE_REL).is_file()
 
 # Governance seams of the Antigravity global customization root. Runtime state written by
@@ -105,7 +108,7 @@ ANTIGRAVITY_RUNTIME_ENTRIES = ["config.json", "projects", "sidecars", "plugins",
 # settings.local.json, session and memory files; Cursor's state), which must never be
 # write-protected: locking a whole `.claude` or `.cursor` directory breaks those tools.
 KNOWN_PLATFORMS = {
-    "antigravity": {"name": "Antigravity Harness", "governance_seams": ANTIGRAVITY_GOVERNANCE_SEAMS},
+    "antigravity": {"name": "Plumbwork", "governance_seams": ANTIGRAVITY_GOVERNANCE_SEAMS},
     "claude": {"name": "Claude Code", "governance_seams": ["CLAUDE.md", ".claude/agents", ".claude/commands", ".claude/skills"]},
     "codex": {
         "name": "GPT Codex / Copilot",
@@ -146,7 +149,7 @@ LEGACY_BROAD_SEAMS = {
 }
 
 # Other agents' environments are discovered as "monitored" (integrity reports, no chmod):
-# write-protecting another tool's files is opt-in via `agy-guard env policy <id> enforced`.
+# write-protecting another tool's files is opt-in via `plumb-guard env policy <id> enforced`.
 DISCOVERED_DEFAULT_POLICY = {"antigravity": "enforced"}
 POLICY_STRENGTH = {"disabled": 0, "monitored": 1, "enforced": 2}
 
@@ -168,18 +171,18 @@ def make_env_id(prefix: str, workspace: Path) -> str:
 def antigravity_external_governance_paths(existing_only: bool = False) -> List[Path]:
     """
     Returns external runtime (`data_dir() / "runtime"`) and CLI launcher paths belonging to
-    the global Antigravity Harness installation so they share OS-lock and FIM protection.
+    the global Plumbwork installation so they share OS-lock and FIM protection.
     """
     runtime_root = Path(os.path.abspath(data_dir() / "runtime"))
     candidates: List[Path] = [runtime_root]
     if os.name == "nt":
-        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard"
-        for name in ("agy-guard.cmd", "agy-porter.cmd", "agy-guard.exe"):
+        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard"
+        for name in ("plumb-guard.cmd", "plumb-porter.cmd", "plumb-guard.exe"):
             candidates.append(Path(os.path.abspath(bin_dir / name)))
     else:
         bin_dir = Path.home() / ".local" / "bin"
-        candidates.append(Path(os.path.abspath(bin_dir / "agy-guard")))
-        candidates.append(Path(os.path.abspath(bin_dir / "agy-porter")))
+        candidates.append(Path(os.path.abspath(bin_dir / "plumb-guard")))
+        candidates.append(Path(os.path.abspath(bin_dir / "plumb-porter")))
         porter_alias = Path(os.path.abspath(bin_dir / "porter"))
         include_porter = False
         if not os.path.lexists(porter_alias) or os.path.islink(porter_alias):
@@ -1359,7 +1362,7 @@ def migrate_harness_mcp_config(
                     except (OSError, RuntimeError, ValueError):
                         prefix_res = None
                 is_repo_tree = (
-                    (skills_idx > 0 and parts[skills_idx - 1] == "antigravity-harness")
+                    (skills_idx > 0 and parts[skills_idx - 1] in ("plumbwork", "antigravity-harness"))
                     or (arg_path is not None and _is_within_lexically(arg_path, repo_skills_dir))
                     or (prefix_res is not None and source_dir_res is not None and prefix_res == source_dir_res)
                 )

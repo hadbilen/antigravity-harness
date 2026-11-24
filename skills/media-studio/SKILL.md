@@ -24,7 +24,7 @@ Every audio, video, or animated visual task executes four ordered phases:
      MEDIA_QC="skills/media-studio/scripts/media_qc.py"
      for _p in .claude .cursor .agents .aider; do [ -f "$MEDIA_QC" ] || MEDIA_QC="$_p/skills/media-studio/scripts/media_qc.py"; done
      [ -f "$MEDIA_QC" ] || MEDIA_QC="$HOME/.gemini/config/skills/media-studio/scripts/media_qc.py"
-     [ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py"
+     [ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py"
      python3 "$MEDIA_QC" probe <input_path> --json
      python3 "$MEDIA_QC" check <input_path> --json
      ```
@@ -35,7 +35,7 @@ Every audio, video, or animated visual task executes four ordered phases:
 3. **Stage 3 — Execution (`Process`):**
    * Combine all video and audio transformations into a single unified `-filter_complex` pass (or a lossless float/raw pipe from `Python` into `ffmpeg`) so media never suffers multi-generation lossy re-compression.
 4. **Stage 4 — Objective Quality Control & Visual Inspection (`Verify`):**
-   * Run `python3 "$MEDIA_QC" check <output_path>` (resolving workspace, exported `.claude`/`.cursor`/`.agents`/`.aider`, installed global `~/.gemini/config/skills/media-studio/scripts/media_qc.py`, or system fallback `/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py`), plus `compare <reference> <output>` on visual outputs (`--min-ssim 0.95 --min-psnr 35.0` for lossless-intent transcodes, `--min-ssim 0.85 --min-psnr 24.0` for spatial upscales, or `--min-ssim 0.0 --min-psnr 0.0` aspect/duration lock for faded-cast/tone-mapped restorations) and `keyframes` or `ab-sheet` viewed via `read_file` before declaring completion.
+   * Run `python3 "$MEDIA_QC" check <output_path>` (resolving workspace, exported `.claude`/`.cursor`/`.agents`/`.aider`, installed global `~/.gemini/config/skills/media-studio/scripts/media_qc.py`, or system fallback `/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py`), plus `compare <reference> <output>` on visual outputs (`--min-ssim 0.95 --min-psnr 35.0` for lossless-intent transcodes, `--min-ssim 0.85 --min-psnr 24.0` for spatial upscales, or `--min-ssim 0.0 --min-psnr 0.0` aspect/duration lock for faded-cast/tone-mapped restorations) and `keyframes` or `ab-sheet` viewed via `read_file` before declaring completion.
 
 ---
 
@@ -77,7 +77,7 @@ When repairing noisy, clipped, uneven, or off-spec audio, apply filters in this 
      MEDIA_QC="skills/media-studio/scripts/media_qc.py"
      for _p in .claude .cursor .agents .aider; do [ -f "$MEDIA_QC" ] || MEDIA_QC="$_p/skills/media-studio/scripts/media_qc.py"; done
      [ -f "$MEDIA_QC" ] || MEDIA_QC="$HOME/.gemini/config/skills/media-studio/scripts/media_qc.py"
-     [ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py"
+     [ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py"
      python3 "$MEDIA_QC" master-audio <input> <output> \
        --target-lufs -14.0 --target-tp -1.0 --target-lra 11.0
      ```
@@ -159,7 +159,7 @@ No audio, video, or animated visual file may be delivered solely because `ffmpeg
 MEDIA_QC="skills/media-studio/scripts/media_qc.py"
 for _p in .claude .cursor .agents .aider; do [ -f "$MEDIA_QC" ] || MEDIA_QC="$_p/skills/media-studio/scripts/media_qc.py"; done
 [ -f "$MEDIA_QC" ] || MEDIA_QC="$HOME/.gemini/config/skills/media-studio/scripts/media_qc.py"
-[ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/antigravity-harness/skills/media-studio/scripts/media_qc.py"
+[ -f "$MEDIA_QC" ] || MEDIA_QC="/usr/share/plumbwork/skills/media-studio/scripts/media_qc.py"
 
 # 1. Inspect stream structure and metadata
 python3 "$MEDIA_QC" probe <output_file> --json

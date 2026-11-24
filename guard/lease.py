@@ -1,13 +1,13 @@
 """
 guard/lease.py — Human-in-the-Loop (HITL) Time-Bounded Lease Unlock Protocol
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Lifecycle: approve -> persist record (OPENING) -> unlock -> OPEN -> scheduled relock.
 Closing relocks FIRST; only a successful relock writes a change report and removes the
 record. Changes made during the window are NOT silently trusted: an automatic expiry
 records them as a candidate baseline "pending review" (accepted later with an approved
-`agy-guard rebaseline`); a human closing the window interactively can accept them at once.
+`plumb-guard rebaseline`); a human closing the window interactively can accept them at once.
 A failed relock keeps the record (CLOSE_FAILED), raises a CRITICAL notification and
 schedules bounded retries, so an open environment is never silently forgotten. A lease
 record is only ever removed by the close of that same lease (matched by lease id), and a
@@ -289,7 +289,7 @@ def _terminate_watcher_pid(pid: int) -> None:
     if not re.search(r"\blease-tick\b", low):
         return
     argv0 = Path(low.split()[0]).name if low.split() else ""
-    is_guard_proc = any(tok in low for tok in ("agy-guard", "guard.cli", "guard.py", "--lease-file"))
+    is_guard_proc = any(tok in low for tok in ("plumb-guard", "guard.cli", "guard.py", "--lease-file"))
     is_non_test_python = argv0.startswith("python") and not re.search(
         r"(?:^|\s)(?:-m\s+)?(?:pytest|unittest)\b", low
     )
@@ -309,7 +309,7 @@ def _terminate_watcher_pid(pid: int) -> None:
 
 
 def _spawn_tick(manager: "LeaseManager", wait: int, lease: Optional[UnlockLease] = None) -> Tuple[bool, str]:
-    """Starts a detached `agy-guard lease-tick` that sleeps `wait` seconds, then expires due leases."""
+    """Starts a detached `plumb-guard lease-tick` that sleeps `wait` seconds, then expires due leases."""
     if lease is not None and lease.watcher_pid > 0:
         _terminate_watcher_pid(lease.watcher_pid)
         lease.watcher_pid = 0
@@ -443,9 +443,9 @@ class LeaseManager:
         ok, msg = self.registry.lock()
         error("lease.store_corrupt", reason=reason, moved_to=str(moved) if moved else "", relocked=ok, detail=msg[:1000])
         self.notifier.notify(
-            title="Antigravity Guard — Lease Store Corrupt",
+            title="Plumb Guard — Lease Store Corrupt",
             message=(f"The lease store could not be read ({reason}). All enforced environments were re-locked"
-                     + ("" if ok else " (SOME RE-LOCKS FAILED)") + ". Check 'agy-guard status'."),
+                     + ("" if ok else " (SOME RE-LOCKS FAILED)") + ". Check 'plumb-guard status'."),
             severity=NotificationSeverity.CRITICAL,
             key="lease-store-corrupt",
             force=True,
@@ -540,7 +540,7 @@ class LeaseManager:
 
         if not approved:
             self.notifier.notify(
-                title="Antigravity Guard — Unlock Request Pending",
+                title="Plumb Guard — Unlock Request Pending",
                 message=f"An unlock of {env.name} was requested ({reason}). Approve it from an interactive terminal or the Guard GUI.",
                 severity=NotificationSeverity.WARNING,
                 key=f"lease-request-{env.id}",
@@ -548,7 +548,7 @@ class LeaseManager:
             return (
                 False,
                 "Unlock rejected: human approval is required. A human operator must run "
-                "'agy-guard request-unlock' in an interactive terminal or approve the lease in the Guard GUI.",
+                "'plumb-guard request-unlock' in an interactive terminal or approve the lease in the Guard GUI.",
                 None,
             )
 
@@ -622,10 +622,10 @@ class LeaseManager:
         relock_note = (
             f"Auto-relock scheduled: {sched_msg}."
             if sched_ok
-            else f"WARNING: {sched_msg}. Run 'agy-guard lock-complete --env {env.id}' when finished."
+            else f"WARNING: {sched_msg}. Run 'plumb-guard lock-complete --env {env.id}' when finished."
         )
         self.notifier.notify(
-            title="Antigravity Guard — Lease Granted",
+            title="Plumb Guard — Lease Granted",
             message=f"{env.name} unlocked for {duration_seconds}s ({reason}).",
             severity=NotificationSeverity.INFO,
             key=f"lease-granted-{lease.lease_id}",
@@ -636,7 +636,7 @@ class LeaseManager:
     def _already_leased_message(env: AgentEnvironment, existing: UnlockLease) -> str:
         return (
             f"A lease for {env.name} is already {existing.state} (id {existing.lease_id}, "
-            f"{int(existing.remaining_seconds)}s left). Run 'agy-guard lock-complete --env {env.id}' first."
+            f"{int(existing.remaining_seconds)}s left). Run 'plumb-guard lock-complete --env {env.id}' first."
         )
 
     # ------------------------------------------------------------------
@@ -735,7 +735,7 @@ class LeaseManager:
             self._remove_record(lease)
             warn("lease.closed_unlocked", lease_id=lease.lease_id, env=lease.env_id, policy=env.policy, enabled=env.enabled)
             self.notifier.notify(
-                title="Antigravity Guard — Lease Closed WITHOUT Relock",
+                title="Plumb Guard — Lease Closed WITHOUT Relock",
                 message=f"{lease.env_name} stays writable: its policy is '{env.policy}'"
                         + ("" if env.enabled else " (disabled)") + ".",
                 severity=NotificationSeverity.WARNING,
@@ -758,7 +758,7 @@ class LeaseManager:
                 retry_note = f" Retry {lease.relock_attempts}/{MAX_RELOCK_RETRIES}: {r_msg}." if r_ok else ""
             error("lease.relock_failed", lease_id=lease.lease_id, env=lease.env_id, attempt=lease.relock_attempts, detail=msg[:1000])
             self.notifier.notify(
-                title="Antigravity Guard — RELOCK FAILED",
+                title="Plumb Guard — RELOCK FAILED",
                 message=f"{lease.env_name} could not be re-locked after lease {lease.lease_id}. It is still writable.",
                 severity=NotificationSeverity.CRITICAL,
                 key=f"relock-failed-{lease.lease_id}",
@@ -776,7 +776,7 @@ class LeaseManager:
                 report_note = (
                     f" Pre-existing integrity drift was present before lease {lease.lease_id} "
                     f"({changes} change(s) during the window{report_ref}); "
-                    f"drift remains active until reviewed with 'agy-guard rebaseline'."
+                    f"drift remains active until reviewed with 'plumb-guard rebaseline'."
                 )
             elif changes == 0:
                 report_note = f" 0 change(s) during the window{report_ref}."
@@ -791,18 +791,18 @@ class LeaseManager:
                 try:
                     monitor.save_pending_baseline(f"lease {lease.lease_id}")
                     report_note = (f" {changes} change(s) during the window await review{report_ref}; "
-                                   f"accept them with 'agy-guard rebaseline'.")
+                                   f"accept them with 'plumb-guard rebaseline'.")
                 except OSError as e:
                     warn("lease.pending_baseline_write_failed", lease_id=lease.lease_id, error=str(e))
                     report_note = (f" {changes} change(s) during the window await review (pending baseline write failed: {e})"
-                                   f"{report_ref}; accept them with 'agy-guard rebaseline'.")
+                                   f"{report_ref}; accept them with 'plumb-guard rebaseline'.")
 
         _terminate_watcher_pid(lease.watcher_pid)
         lease.watcher_pid = 0
         self._remove_record(lease)
         audit("lease.closed", lease_id=lease.lease_id, env=lease.env_id, detail=report_note.strip())
         self.notifier.notify(
-            title="Antigravity Guard — Lease Closed",
+            title="Plumb Guard — Lease Closed",
             message=f"Maintenance window for {lease.env_name} closed and re-locked.{report_note}",
             severity=NotificationSeverity.INFO,
             key=f"lease-closed-{lease.lease_id}",

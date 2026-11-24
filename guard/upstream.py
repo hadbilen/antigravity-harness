@@ -1,6 +1,6 @@
 """
 guard/upstream.py — Bridge to Upstream Auditor Watchdog
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -491,7 +491,7 @@ class UpstreamAuditorBridge:
     without requiring LLM token expenditure.
     """
 
-    SYSTEM_SHARE_SEED = Path("/usr/share/antigravity-harness/skills/upstream-auditor/upstream_state.seed.json")
+    SYSTEM_SHARE_SEED = Path("/usr/share/plumbwork/skills/upstream-auditor/upstream_state.seed.json")
 
     def __init__(self, target_dir: Optional[Path] = None):
         explicit_target = target_dir is not None or bool(os.environ.get("ANTIGRAVITY_CONFIG_DIR"))
@@ -506,7 +506,7 @@ class UpstreamAuditorBridge:
         default_state_dir = state_dir()
         skill_dir = self.target_dir / "skills" / "upstream-auditor"
         seed_candidates: List[Path] = [(skill_dir / "upstream_state.seed.json").resolve()]
-        share_env = os.environ.get("ANTIGRAVITY_SHARE_DIR")
+        share_env = os.environ.get("PLUMBWORK_SHARE_DIR")
         if share_env:
             seed_candidates.append(
                 (Path(share_env).expanduser() / "skills" / "upstream-auditor" / "upstream_state.seed.json").resolve()
@@ -702,7 +702,7 @@ class UpstreamAuditorBridge:
             else:
                 return {"name": name, "repo": repo, "branch": branch, "local_sha": local_sha,
                         "remote_sha": "", "status": "Invalid track mode", "commit_message": ""}
-            user_agent = f"AntigravityGuard-Watchdog/{__version__}"
+            user_agent = f"PlumbGuard-Watchdog/{__version__}"
             max_bytes = 262_144
 
             remote_sha = ""

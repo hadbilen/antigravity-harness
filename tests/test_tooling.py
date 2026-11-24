@@ -114,7 +114,7 @@ class TestMetaAudit(TempCase):
         (self.tmp / "guard").mkdir()
         (self.tmp / "guard" / "cli.py").write_text(shutil_copy, encoding="utf-8")
         (self.tmp / "README.md").write_text(
-            "Policies (`enforced`, `exempt`).\n\n```bash\nagy-guard env policy x enforced --bogus\n```\n", encoding="utf-8")
+            "Policies (`enforced`, `exempt`).\n\n```bash\nplumb-guard env policy x enforced --bogus\n```\n", encoding="utf-8")
         engine = MetaAuditEngine(repo_root=self.tmp)
         engine.pass5_cli_doc_sync()
         messages = " ".join(f.message for f in engine.findings if f.severity == "CRITICAL")
@@ -153,7 +153,7 @@ class TestInstaller(TempCase):
         (cfg / "hooks.json").write_text(json.dumps({"my-hook": {"PreToolUse": []}}), encoding="utf-8")
         res = self._run()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        rule_file = cfg / "rules" / "antigravity-constitution.md"
+        rule_file = cfg / "rules" / "plumbwork-constitution.md"
         self.assertTrue(rule_file.is_file())
         self.assertFalse(os.path.islink(rule_file))
         rule_text = rule_file.read_text(encoding="utf-8")
@@ -169,12 +169,12 @@ class TestInstaller(TempCase):
         self.assertIn("SessionStart", hooks["upstream-watchdog"])
         self.assertNotIn("PreInvocation", hooks["upstream-watchdog"])
         self.assertEqual(list(cfg.glob("backup_*")), [], "backups must live outside the config tree")
-        backups = list((self.tmp / "state" / "antigravity-harness" / "backups").glob("install_*/GEMINI.md"))
+        backups = list((self.tmp / "state" / "plumbwork" / "backups").glob("install_*/GEMINI.md"))
         self.assertEqual(len(backups), 1)
         self.assertIn("[LOCKED]", res.stdout)
         if os.name != "nt":
-            launcher = (self.tmp / "home" / ".local" / "bin" / "agy-guard").read_text(encoding="utf-8")
-            self.assertIn("antigravity-harness launcher", launcher)
+            launcher = (self.tmp / "home" / ".local" / "bin" / "plumb-guard").read_text(encoding="utf-8")
+            self.assertIn("plumbwork launcher", launcher)
 
     @unittest.skipUnless(os.name != "nt", "POSIX lock mode required")
     def test_reinstall_over_locked_scope_requires_human_confirmation(self):
@@ -218,7 +218,7 @@ class TestInstaller(TempCase):
 
         res = self._run("--no-lock")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        state = self.tmp / "state" / "antigravity-harness"
+        state = self.tmp / "state" / "plumbwork"
         for name in ("backup_20260101_000000", ".guard_snapshots", ".guard_integrity.json", "guard", "porter.py"):
             self.assertFalse(os.path.lexists(cfg / name), name)
         self.assertTrue((state / "backups" / "backup_20260101_000000" / "skills" / "x" / "SKILL.md").is_file())
@@ -271,13 +271,13 @@ class TestStartupRendering(TempCase):
         target = self.tmp / "my config"
         target.mkdir()
         mgr = StartupManager(target_dir=target)
-        with mock.patch.object(mgr, "get_guard_argv", return_value=["/opt/my tools/agy-guard", "boot-check"]):
+        with mock.patch.object(mgr, "get_guard_argv", return_value=["/opt/my tools/plumb-guard", "boot-check"]):
             unit = mgr.render_systemd_unit()
             plist = mgr.render_launchd_plist()
-        self.assertIn('ExecStart="/opt/my tools/agy-guard" "boot-check"', unit)
+        self.assertIn('ExecStart="/opt/my tools/plumb-guard" "boot-check"', unit)
         systemd_escaped = str(target).replace("\\", "\\\\")  # systemd escapes backslashes (Windows paths)
         self.assertIn(f'Environment="ANTIGRAVITY_CONFIG_DIR={systemd_escaped}"', unit)
-        self.assertIn("<string>/opt/my tools/agy-guard</string>", plist)
+        self.assertIn("<string>/opt/my tools/plumb-guard</string>", plist)
 
     def test_boot_check_quarantines_drift_without_rebaselining(self):
         target = self.tmp / "cfg"

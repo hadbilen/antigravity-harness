@@ -158,9 +158,9 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
             {
                 "HOME": str(self.tmp),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
-                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+                "PLUMB_GUARD_DATA_DIR": str(self.data_dir),
             },
             clear=False,
         )
@@ -539,7 +539,7 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
                 {
                     "conversationId": "cli-ptu-2",
                     "workspace": str(self.ws_dir),
-                    "toolCall": {"name": "run_command", "args": {"CommandLine": "agy-guard unlock"}},
+                    "toolCall": {"name": "run_command", "args": {"CommandLine": "plumb-guard unlock"}},
                 }
             ),
         )
@@ -1168,7 +1168,7 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
             {
                 "conversationId": "conv-buf-2",
                 "workspace": str(self.ws_dir),
-                "toolCall": {"name": "send_command_input", "args": {"TaskId": "t2", "Input": "agy-guard unlock\n"}},
+                "toolCall": {"name": "send_command_input", "args": {"TaskId": "t2", "Input": "plumb-guard unlock\n"}},
             }
         )
         self.assertEqual(deny_chunk.get("decision"), "deny", deny_chunk)
@@ -1176,7 +1176,7 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
     def test_meta_audit_split_layout_pass2_and_pass7_broken_lazy_export_detection(self) -> None:
         from scripts.meta_audit import MetaAuditEngine
 
-        # 1. Split-layout Pass 2 scans AGY_GUARD_DATA_DIR/runtime/guard/hooks/*.py and checks missing submodules
+        # 1. Split-layout Pass 2 scans PLUMB_GUARD_DATA_DIR/runtime/guard/hooks/*.py and checks missing submodules
         split_cfg = self.tmp / "split_cfg"
         split_data = self.tmp / "split_data"
         (split_cfg / "agents").mkdir(parents=True)
@@ -1203,7 +1203,7 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
         )
         (rt_hooks / "pre_tool_use.py").write_text("", encoding="utf-8")
         # Deliberately omit stop_gate.py to verify CRITICAL missing submodule detection + WARNING ghost-split-agent
-        with mock.patch.dict(os.environ, {"AGY_GUARD_DATA_DIR": str(split_data)}, clear=False):
+        with mock.patch.dict(os.environ, {"PLUMB_GUARD_DATA_DIR": str(split_data)}, clear=False):
             eng_split = MetaAuditEngine(repo_root=split_cfg)
             eng_split.pass2_cross_references()
         self.assertTrue(

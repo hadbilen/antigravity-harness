@@ -1,6 +1,6 @@
 """
 tests/test_packaging.py — Test Native Linux Distribution Package Generator
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -38,11 +38,11 @@ class TestLinuxPackaging(unittest.TestCase):
             self.packager.prepare_payload(stage)
 
             # Assert FHS paths
-            self.assertTrue((stage / "usr" / "bin" / "agy-guard").exists())
-            self.assertTrue((stage / "usr" / "share" / "applications" / "antigravity-guard.desktop").exists())
-            self.assertTrue((stage / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "antigravity-guard.svg").exists())
-            self.assertTrue((stage / "usr" / "share" / "antigravity-harness" / "GEMINI.md").exists())
-            self.assertTrue((stage / "usr" / "share" / "bash-completion" / "completions" / "agy-guard").exists())
+            self.assertTrue((stage / "usr" / "bin" / "plumb-guard").exists())
+            self.assertTrue((stage / "usr" / "share" / "applications" / "plumb-guard.desktop").exists())
+            self.assertTrue((stage / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "plumb-guard.svg").exists())
+            self.assertTrue((stage / "usr" / "share" / "plumbwork" / "GEMINI.md").exists())
+            self.assertTrue((stage / "usr" / "share" / "bash-completion" / "completions" / "plumb-guard").exists())
 
     def test_pure_python_deb_archive_generation(self):
         with tempfile.TemporaryDirectory() as tmp_stage:
@@ -100,9 +100,9 @@ class TestLinuxPackaging(unittest.TestCase):
         # If rpmbuild is not available, it returns the generated .spec file
         if result_path.suffix == ".spec":
             content = result_path.read_text(encoding="utf-8")
-            self.assertIn("Name:           antigravity-guard", content)
+            self.assertIn("Name:           plumb-guard", content)
             self.assertIn(f"Version:        {__version__}", content)
-            self.assertIn("/usr/bin/agy-guard", content)
+            self.assertIn("/usr/bin/plumb-guard", content)
 
     def test_arch_package_generation(self):
         arch_pkg = self.packager.build_arch()
@@ -126,6 +126,98 @@ class TestLinuxPackaging(unittest.TestCase):
         self.assertIn("Packaging configuration valid:", res.stdout)
         self.assertIn(f"Version: {__version__}", res.stdout)
         self.assertIn(self.out_dir.name, res.stdout)
+
+    def test_v3_replacement_metadata_across_pkgbuild_deb_rpm_and_arch(self):
+        import io
+        import subprocess
+        import tarfile
+
+        # 1. Arch PKGBUILD: plumb-guard, version 3.0.0, provides/replaces/conflicts, unquoted cd glob
+        pkgbuild = (REPO_ROOT / "installers" / "packaging" / "PKGBUILD").read_text(encoding="utf-8")
+        self.assertIn("pkgname=plumb-guard", pkgbuild)
+        self.assertIn(f"pkgver={__version__}", pkgbuild)
+        self.assertIn("provides=('antigravity-guard')", pkgbuild)
+        self.assertIn("replaces=('antigravity-guard')", pkgbuild)
+        self.assertIn("conflicts=('antigravity-guard')", pkgbuild)
+        self.assertIn('cd "$srcdir"/*-"$pkgver"', pkgbuild)
+        self.assertNotIn('cd "$srcdir/*-$pkgver"', pkgbuild)
+
+        # 2. Debian .deb control metadata: Package, Provides, Conflicts, Replaces
+        deb_path = self.packager.build_deb()
+        self.assertIsNotNone(deb_path)
+        control_text = ""
+        with open(deb_path, "rb") as f:
+            self.assertEqual(f.read(8), b"!<arch>\n")
+            while True:
+                hdr = f.read(60)
+                if len(hdr) < 60:
+                    break
+                name = hdr[:16].decode("ascii").strip().rstrip("/")
+                size = int(hdr[48:58].decode("ascii").strip())
+                data = f.read(size)
+                if size % 2 == 1:
+                    f.read(1)
+                if name.startswith("control.tar"):
+                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
+                        for member in tf.getmembers():
+                            if member.name.endswith("control"):
+                                control_text = tf.extractfile(member).read().decode("utf-8")
+                                break
+                    break
+        self.assertIn("Package: plumb-guard", control_text)
+        self.assertIn("Provides: antigravity-guard", control_text)
+        self.assertIn("Conflicts: antigravity-guard", control_text)
+        self.assertIn("Replaces: antigravity-guard", control_text)
+
+        # 3. RPM .spec metadata: versioned Provides + Obsoletes < 3.0.0 + FHS paths
+        rpm_res = self.packager.build_rpm()
+        self.assertIsNotNone(rpm_res)
+        spec_path = self.out_dir / "plumb-guard.spec"
+        if spec_path.is_file():
+            spec_text = spec_path.read_text(encoding="utf-8")
+            self.assertIn("Name:           plumb-guard", spec_text)
+            self.assertIn("Provides:       antigravity-guard = %{version}-%{release}", spec_text)
+            self.assertIn("Obsoletes:      antigravity-guard < 3.0.0", spec_text)
+            self.assertIn("/usr/bin/plumb-porter", spec_text)
+            self.assertIn("/usr/lib/plumb-guard", spec_text)
+            self.assertIn("/usr/share/plumbwork", spec_text)
+
+        # 4. Arch .PKGINFO metadata: singular conflict = antigravity-guard + provides + replaces
+        arch_pkg = self.packager.build_arch()
+        self.assertIsNotNone(arch_pkg)
+        if arch_pkg.name.endswith(".zst"):
+            raw_tar = subprocess.check_output(["zstd", "-dc", str(arch_pkg)])
+            tf_ctx = tarfile.open(fileobj=io.BytesIO(raw_tar), mode="r:")
+        else:
+            tf_ctx = tarfile.open(arch_pkg, mode="r:xz")
+        with tf_ctx as tf:
+            pkginfo = tf.extractfile(".PKGINFO").read().decode("utf-8")
+        self.assertIn("pkgname = plumb-guard", pkginfo)
+        self.assertIn("provides = antigravity-guard", pkginfo)
+        self.assertIn("replaces = antigravity-guard", pkginfo)
+        self.assertIn("conflict = antigravity-guard", pkginfo)
+        self.assertNotIn("conflicts = antigravity-guard", pkginfo)
+
+    def test_plumb_guard_launchers_and_desktop_assets_present(self):
+        for rel in (
+            "bin/plumb-guard",
+            "bin/plumb-guard.bat",
+            "bin/plumb-guard.ps1",
+            "installers/plumb-guard.desktop",
+            "installers/packaging/plumb-guard.svg",
+        ):
+            self.assertTrue((REPO_ROOT / rel).is_file(), f"Missing W3 launcher/asset: {rel}")
+        for retired in (
+            "bin/agy-guard",
+            "bin/agy-guard.bat",
+            "bin/agy-guard.ps1",
+            "installers/antigravity-guard.desktop",
+            "installers/packaging/antigravity-guard.svg",
+        ):
+            self.assertFalse((REPO_ROOT / retired).exists(), f"Retired legacy file still exists: {retired}")
+        desktop = (REPO_ROOT / "installers" / "plumb-guard.desktop").read_text(encoding="utf-8")
+        self.assertIn("Exec=plumb-guard gui", desktop)
+        self.assertIn("Icon=plumb-guard", desktop)
 
 
 if __name__ == "__main__":

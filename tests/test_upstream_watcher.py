@@ -1,6 +1,6 @@
 """
 tests/test_upstream_watcher.py — Unit Tests for the Upstream Watchdog hook
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 
 Every test runs against throw-away config, builtin-skills and state directories; the network
 is never contacted (urlopen is patched, or the seed tracks no repositories).
@@ -75,7 +75,7 @@ class WatcherTestBase(unittest.TestCase):
             "ANTIGRAVITY_CONFIG_DIR": str(self.config),
             "ANTIGRAVITY_BUILTIN_SKILLS_DIR": str(self.builtin),
             "UPSTREAM_STATE_FILE": str(self.state_file),
-            "AGY_GUARD_NOTIFY": "off",
+            "PLUMB_GUARD_NOTIFY": "off",
         }
         self.watcher = self.load_watcher()
         self.write_seed()
@@ -527,17 +527,20 @@ class TestUpstreamWatcherProcess(WatcherTestBase):
         proc = self.run_process("", None, "--status")
         self.assertIn("No upstream changes detected", proc.stdout)
 
-    @unittest.skipUnless(os.name != "nt", "POSIX shell script stands in for agy-guard")
     def test_desktop_notification_is_spawned_once_per_new_signature(self):
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         log = self.root / "notify.log"
-        fake = bin_dir / "agy-guard"
-        fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$AGY_FAKE_NOTIFY_LOG"\n', encoding="utf-8")
-        fake.chmod(0o755)
+        if os.name == "nt":
+            fake = bin_dir / "plumb-guard.cmd"
+            fake.write_text('@echo off\r\necho %*>>"%AGY_FAKE_NOTIFY_LOG%"\r\n', encoding="utf-8")
+        else:
+            fake = bin_dir / "plumb-guard"
+            fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$AGY_FAKE_NOTIFY_LOG"\n', encoding="utf-8")
+            fake.chmod(0o755)
         extra = {
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
-            "AGY_GUARD_NOTIFY": "",
+            "PLUMB_GUARD_NOTIFY": "",
             "AGY_FAKE_NOTIFY_LOG": str(log),
         }
         self.add_builtin("gamma")

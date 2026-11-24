@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 skills/ui-refinery/scripts/check_ui_slop.py — Deterministic scanner for structural UI/CSS/JSX/HTML slop
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Python standard library only; runs on Python 3.10 and later.
 
 Rule families:
@@ -696,7 +696,7 @@ def _format_summary(reports: Sequence[FileReport]) -> str:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Deterministic structural UI/CSS/JSX/HTML slop scanner for Antigravity Harness."
+        description="Deterministic structural UI/CSS/JSX/HTML slop scanner for Plumbwork."
     )
     parser.add_argument("paths", nargs="+", help="Files or directories to scan, or '-' for stdin.")
     parser.add_argument(

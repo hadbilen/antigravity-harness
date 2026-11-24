@@ -1,6 +1,6 @@
 """
 guard/hooks/_workflow_ast.py — Static AST sandbox & delegation verifier for `run_workflow` (ADR-0010).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -1036,7 +1036,7 @@ def _inspect_workflow_script(
 ) -> Tuple[Dict[str, Any], List[Tuple[str, str]]]:
     """
     Statically inspects a `run_workflow` Python script and its `Args` strings for:
-      - Human-only `agy-guard` admin commands, `install.py`, and git hook bypasses (`Rule 12`)
+      - Human-only `plumb-guard` admin commands, `install.py`, and git hook bypasses (`Rule 12`)
       - Child-process / dynamic-eval / FFI / aliasing escapes (`subprocess`, `os.system`, `eval`, `ctypes` — `Rule 15e`)
       - Direct Python filesystem writes/mutations bypassing `call_tool` & Flight Recorder (`Rule 12`, `15a`, `15e`)
       - Static `call_tool(...)` invocations targeting governance, customization, or destructive commands
@@ -1768,7 +1768,7 @@ def _inspect_workflow_script(
                 {
                     "decision": "deny",
                     "reason": (
-                        "[Harness Workflow Shield] Human-only `agy-guard` administration commands are "
+                        "[Harness Workflow Shield] Human-only `plumb-guard` administration commands are "
                         "prohibited inside `run_workflow` (GEMINI.md Rule 12)."
                     ),
                 },

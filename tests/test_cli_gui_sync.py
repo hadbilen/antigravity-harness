@@ -403,7 +403,7 @@ class TestGuiSyncAndAuditGate(unittest.TestCase):
         from guard import gui
         from guard.audit_log import log_path
 
-        app = gui.AntigravityGuardApp.__new__(gui.AntigravityGuardApp)
+        app = gui.PlumbGuardApp.__new__(gui.PlumbGuardApp)
         app.porter_bridge = PorterBridge(target_dir=self.cfg)
         app.upstream_bridge = mock.MagicMock()
         app.upstream_bridge.get_model_drift_status.return_value = {
@@ -479,15 +479,15 @@ class TestPackagingAndBinariesSync(unittest.TestCase):
             packager = LinuxPackager(repo_root=REPO_ROOT, arch="amd64", out_dir=stage / "out")
             packager.prepare_payload(stage)
 
-            self.assertTrue((stage / "usr" / "bin" / "agy-porter").is_file())
-            self.assertTrue((stage / "usr" / "lib" / "antigravity-guard" / "porter.py").is_file())
-            self.assertTrue((stage / "usr" / "share" / "antigravity-harness" / "hooks.json").is_file())
-            self.assertTrue((stage / "usr" / "share" / "antigravity-harness" / ".harness" / "manifest.json").is_file())
+            self.assertTrue((stage / "usr" / "bin" / "plumb-porter").is_file())
+            self.assertTrue((stage / "usr" / "lib" / "plumb-guard" / "porter.py").is_file())
+            self.assertTrue((stage / "usr" / "share" / "plumbwork" / "hooks.json").is_file())
+            self.assertTrue((stage / "usr" / "share" / "plumbwork" / ".harness" / "manifest.json").is_file())
 
             with mock.patch("installers.packaging.package_linux.shutil.which", return_value=None):
                 spec_path = packager.build_rpm()
             spec_text = spec_path.read_text(encoding="utf-8")
-            self.assertIn("/usr/bin/agy-porter", spec_text)
+            self.assertIn("/usr/bin/plumb-porter", spec_text)
 
 
 if __name__ == "__main__":

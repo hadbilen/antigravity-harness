@@ -477,10 +477,10 @@ Run this loop before delivering copy:
 When you can run code, measure before and after rewriting with the bundled scanner (Python standard library only):
 
 ```bash
-agy-guard synthetic-markers draft.md              # portable CLI (cwd-independent)
-agy-guard synthetic-markers draft.md --summary    # counts and density per 1,000 words
-agy-guard synthetic-markers - --json < draft.md   # machine-readable, reads stdin
-# Canonical installed fallback (when agy-guard is not on PATH):
+plumb-guard synthetic-markers draft.md              # portable CLI (cwd-independent)
+plumb-guard synthetic-markers draft.md --summary    # counts and density per 1,000 words
+plumb-guard synthetic-markers - --json < draft.md   # machine-readable, reads stdin
+# Canonical installed fallback (when plumb-guard is not on PATH):
 python3 ~/.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers.py draft.md
 ```
 

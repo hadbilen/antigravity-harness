@@ -1,6 +1,6 @@
 """
-guard/gui.py — High-Contrast Desktop Interface for Antigravity Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+guard/gui.py — High-Contrast Desktop Interface for Plumb Guard
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Strictly adheres to DESIGN.md (ENERGY 2 / RHYTHM 2 / Dark Zinc Palette).
 """
 
@@ -80,11 +80,11 @@ ACCENT_AMBER = "#F59E0B"
 ACCENT_RED = "#EF4444"
 
 
-class AntigravityGuardApp:
+class PlumbGuardApp:
     def __init__(self, root: tk.Tk):
         _ensure_tk()
         self.root = root
-        self.root.title(f"Antigravity Guard v{__version__}")
+        self.root.title(f"Plumb Guard v{__version__}")
         self.root.geometry("1040x720")
         self.root.minsize(920, 620)
         self.root.configure(bg=BG_CANVAS)
@@ -165,7 +165,7 @@ class AntigravityGuardApp:
             if message != self._last_tick_error:
                 self._last_tick_error = message
                 warn("gui.lease_tick_failed", error=message)
-                self.root.title(f"Antigravity Guard v{__version__} — lease housekeeping failed (see audit log)")
+                self.root.title(f"Plumb Guard v{__version__} — lease housekeeping failed (see audit log)")
         self.root.after(5000, self._lease_tick)
 
     def _gui_approver(self, request: ApprovalRequest) -> bool:
@@ -231,7 +231,7 @@ class AntigravityGuardApp:
         left_box = ttk.Frame(header, style="Card.TFrame")
         left_box.pack(side="left", fill="y")
 
-        title = ttk.Label(left_box, text=f"ANTIGRAVITY GUARD v{__version__}", style="Header.TLabel")
+        title = ttk.Label(left_box, text=f"PLUMB GUARD v{__version__}", style="Header.TLabel")
         title.pack(anchor="w")
 
         self.lbl_subtitle = ttk.Label(left_box, text="OS-Level Governance & Write Protection Suite", style="Muted.TLabel")
@@ -446,7 +446,7 @@ class AntigravityGuardApp:
             style="TCheckbutton",
         )
         chk_tray.pack(anchor="w", pady=(6, 2))
-        ttk.Label(pref_card, text="When enabled, closing or minimizing the window keeps Antigravity Guard active in the system tray.", style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(pref_card, text="When enabled, closing or minimizing the window keeps Plumb Guard active in the system tray.", style="Muted.TLabel").pack(anchor="w")
 
         # Early Boot Sentinel
         st_info = self.startup_mgr.status()
@@ -610,7 +610,7 @@ class AntigravityGuardApp:
             if not request_approval(
                 "env policy",
                 f"Lower the protection of {current.name} from '{current.policy}' to '{next_policy}'?",
-                ["A non-enforced environment is not re-locked by leases, the boot sentinel or 'agy-guard lock'."],
+                ["A non-enforced environment is not re-locked by leases, the boot sentinel or 'plumb-guard lock'."],
             ):
                 return
         try:
@@ -1078,7 +1078,7 @@ def _tkinter_missing_message() -> str:
         "  - Fedora / RHEL   : sudo dnf install python3-tkinter\n"
         "  - Arch Linux      : sudo pacman -S tk\n"
         "  - macOS (Homebrew): brew install python-tk\n"
-        "All CLI governance commands ('agy-guard status', 'agy-guard doctor', etc.) work without tkinter."
+        "All CLI governance commands ('plumb-guard status', 'plumb-guard doctor', etc.) work without tkinter."
     )
 
 
@@ -1092,11 +1092,11 @@ def launch_gui():
     except tk.TclError as exc:
         print(
             f"[ERROR] Desktop GUI unavailable: could not connect to a display server ({exc}).\n"
-            "Set DISPLAY / WAYLAND_DISPLAY in a graphical session, or run CLI commands ('agy-guard status', 'agy-guard doctor').",
+            "Set DISPLAY / WAYLAND_DISPLAY in a graphical session, or run CLI commands ('plumb-guard status', 'plumb-guard doctor').",
             file=sys.stderr,
         )
         return 1
-    app = AntigravityGuardApp(root)
+    app = PlumbGuardApp(root)
     root.mainloop()
     return 0
 

@@ -331,7 +331,7 @@ class TestApprovalGatesAndAudit(TempDirCase):
         reg = EnvironmentRegistry(config_path=self.root / "reg.json", os_adapter=_mock_adapter())
         result = diagnose(reg.get_environment("antigravity"), reg, sentinel_active=True)
         self.assertIsInstance(result.warnings, list)
-        self.assertNotIn("Boot sentinel is not enabled ('agy-guard startup enable').", result.infos)
+        self.assertNotIn("Boot sentinel is not enabled ('plumb-guard startup enable').", result.infos)
 
 
 class TestInstallerHooks(TempDirCase):
@@ -537,7 +537,7 @@ class TestInstallerHooks(TempDirCase):
         self.assertTrue((inst.backup_dir / "skills" / "retired-legacy-skill" / "SKILL.md").is_file())
         receipt = json.loads((install.state_dir() / "install_receipt.json").read_text(encoding="utf-8"))
         self.assertIn("installed", receipt)
-        self.assertIn("rules/antigravity-constitution.md", receipt["installed"])
+        self.assertIn("rules/plumbwork-constitution.md", receipt["installed"])
         self.assertNotIn("GEMINI.md", receipt["installed"])
         self.assertNotIn("MISTAKES.md", receipt["installed"])
 

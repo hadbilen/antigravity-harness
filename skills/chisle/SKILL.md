@@ -76,7 +76,7 @@ Stop at first rung that holds:
 
 Ladder runs *after* understanding problem, not instead. Read fully, then be lazy.
 
-**Bug fix = root cause, not symptom.** Check every caller (`agy-guard code-map callers <symbol>` or `grep`) before editing (`~/.gemini/config/skills/harness/SKILL.md` §3.B). One guard in shared function beats guard in every caller.
+**Bug fix = root cause, not symptom.** Check every caller (`plumb-guard code-map callers <symbol>` or `grep`) before editing (`~/.gemini/config/skills/harness/SKILL.md` §3.B). One guard in shared function beats guard in every caller.
 
 ## Code Rules
 

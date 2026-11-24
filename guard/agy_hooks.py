@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 guard/agy_hooks.py — Native Antigravity 2.0 Lifecycle Hooks CLI Router & Compatibility Facade
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Thin event-scoped lazy dispatcher (`pre-invocation`, `pre-tool-use`, `stop`) and PEP 562
@@ -486,7 +486,7 @@ def main(argv: list[str] | tuple[str, ...] | None = None) -> int:
 
         parser = argparse.ArgumentParser(
             prog="agy_hooks.py",
-            description="Native Antigravity 2.0 lifecycle hooks for Antigravity Harness.",
+            description="Native Antigravity 2.0 lifecycle hooks for Plumbwork.",
         )
         parser.add_argument(
             "event",

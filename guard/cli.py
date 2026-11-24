@@ -1,6 +1,6 @@
 """
-guard/cli.py — Command-Line Interface for Antigravity Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+guard/cli.py — Command-Line Interface for Plumb Guard
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Administration commands that weaken protection or change what Guard does (init, init --uninstall,
@@ -155,7 +155,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     protected = not issues and report.is_intact
 
     print("=" * 64)
-    print(f"       Antigravity Guard (agy-guard) v{__version__} - Status        ")
+    print(f"       Plumb Guard (plumb-guard) v{__version__} - Status        ")
     print("=" * 64)
     print(f"Platform       : {registry.os_adapter.get_platform_name()}")
     print(f"Protection     : {registry.os_adapter.protection_kind()}")
@@ -188,14 +188,14 @@ def _resolve_init_source(explicit_source: Optional[str]) -> Optional[Path]:
     if explicit_source:
         cand = Path(explicit_source).expanduser().resolve()
         return cand if (cand / "GEMINI.md").is_file() and (cand / "skills").is_dir() else None
-    env_share = os.environ.get("ANTIGRAVITY_SHARE_DIR", "").strip()
+    env_share = os.environ.get("PLUMBWORK_SHARE_DIR", "").strip()
     if env_share:
         cand = Path(env_share).expanduser().resolve()
         return cand if (cand / "GEMINI.md").is_file() and (cand / "skills").is_dir() else None
     cli_path = Path(__file__).resolve()
     for cand in (
-        Path("/usr/share/antigravity-harness"),
-        cli_path.parent.parent.parent.parent / "share" / "antigravity-harness",
+        Path("/usr/share/plumbwork"),
+        cli_path.parent.parent.parent.parent / "share" / "plumbwork",
         cli_path.parent.parent,
     ):
         try:
@@ -300,7 +300,7 @@ def _prune_named_backups(prefix: str, keep: int = 10) -> int:
 def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run: bool) -> int:
     is_win = platform.system().lower() == "windows"
     print("=" * 64)
-    print(f"  Antigravity Guard (agy-guard) v{__version__} - User Init Uninstall  ")
+    print(f"  Plumb Guard (plumb-guard) v{__version__} - User Init Uninstall  ")
     print("=" * 64)
     print(f"Target : {target_dir}")
     print("-" * 64)
@@ -308,7 +308,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
     if not dry_run:
         if not request_approval(
             "init --uninstall",
-            f"Uninstall Antigravity Harness governance profile from {target_dir}?",
+            f"Uninstall Plumbwork governance profile from {target_dir}?",
             [
                 str(target_dir),
                 "Custom user files, sidecars, and non-harness hooks in hooks.json are preserved.",
@@ -439,7 +439,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
         )
 
     if not tracked_rel:
-        tracked_rel = ["rules/antigravity-constitution.md", "GEMINI.md", "DESIGN.md", "MISTAKES.md", ".harness/manifest.json"]
+        tracked_rel = [CONSTITUTION_RULE_REL, "GEMINI.md", "DESIGN.md", "MISTAKES.md", ".harness/manifest.json"]
         opt_source = _resolve_init_source(getattr(args, "source", None))
         if opt_source is not None:
             if (opt_source / "agents").is_dir():
@@ -603,7 +603,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
         print("[ERROR] Profile teardown completed with errors.", file=sys.stderr)
         print("=" * 64)
         return 1
-    print(f"[SUCCESS] Uninstalled Antigravity Harness profile at {target_dir}" + (" (dry run)" if dry_run else ""))
+    print(f"[SUCCESS] Uninstalled Plumbwork profile at {target_dir}" + (" (dry run)" if dry_run else ""))
     if not dry_run and uninstall_backup.exists():
         print(f"Removed governance files were archived to: {uninstall_backup}")
     print("=" * 64)
@@ -636,7 +636,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     source_dir = _resolve_init_source(getattr(args, "source", None))
     if source_dir is None:
-        hint = getattr(args, "source", None) or os.environ.get("ANTIGRAVITY_SHARE_DIR") or "/usr/share/antigravity-harness"
+        hint = getattr(args, "source", None) or os.environ.get("PLUMBWORK_SHARE_DIR") or "/usr/share/plumbwork"
         print(f"[ERROR] Governance source assets (GEMINI.md, skills/) not found at {hint}.", file=sys.stderr)
         return 1
     target_resolved = target_dir.resolve()
@@ -671,7 +671,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         explicit_flat = False
 
     print("=" * 64)
-    print(f"    Antigravity Guard (agy-guard) v{__version__} - User Init ({layout})    ")
+    print(f"    Plumb Guard (plumb-guard) v{__version__} - User Init ({layout})    ")
     print("=" * 64)
     print(f"Source : {source_dir}")
     print(f"Target : {target_dir}")
@@ -805,7 +805,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     if not request_approval(
         "init",
-        f"Initialize Antigravity Harness governance in {target_dir}?",
+        f"Initialize Plumbwork governance in {target_dir}?",
         [
             f"Source: {source_dir}",
             f"Target: {target_dir}",
@@ -1313,11 +1313,11 @@ def cmd_init(args: argparse.Namespace) -> int:
                 return 1
             existing_hooks = loaded_hooks
 
-        fhs_hooks = source_dir.parent.parent / "lib" / "antigravity-guard" / "guard" / "agy_hooks.py"
+        fhs_hooks = source_dir.parent.parent / "lib" / "plumb-guard" / "guard" / "agy_hooks.py"
         if fhs_hooks.is_file():
             hooks_script = fhs_hooks.resolve()
         elif getattr(sys, "frozen", False):
-            sys_hooks = Path("/usr/lib/antigravity-guard/guard/agy_hooks.py")
+            sys_hooks = Path("/usr/lib/plumb-guard/guard/agy_hooks.py")
             rt_hooks = data_dir() / "runtime" / "guard" / "agy_hooks.py"
             hooks_script = sys_hooks if sys_hooks.is_file() else (rt_hooks if rt_hooks.is_file() else (source_dir / "guard" / "agy_hooks.py"))
         else:
@@ -1445,7 +1445,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     audit("guard.init", source=str(source_dir), target=str(target_dir), baseline_entries=count)
     print("=" * 64)
-    print(f"[SUCCESS] Initialized Antigravity Harness profile at {target_dir}")
+    print(f"[SUCCESS] Initialized Plumbwork profile at {target_dir}")
     if backup_dir.exists():
         print(f"Replaced files were backed up to: {backup_dir}")
     print("=" * 64)
@@ -1489,7 +1489,7 @@ def cmd_lock(args: argparse.Namespace) -> int:
         if not report.is_intact:
             print(f"[{env.name}] Sealing with unreviewed changes: {report.summary()}")
             _print_report_details(report, indent="  ")
-            print("  Locking does not accept these changes; review them, then run 'agy-guard rebaseline'.")
+            print("  Locking does not accept these changes; review them, then run 'plumb-guard rebaseline'.")
     success, msg = registry.lock(env_id=target)
     overall_ok = lease_ok and success
     combined_msg = (" | ".join(lease_msgs + ([msg] if msg else ""))).strip() if lease_msgs else msg
@@ -1508,13 +1508,13 @@ def cmd_unlock(args: argparse.Namespace) -> int:
         details = [f"{env.name}: {len(env.get_governance_paths(existing_only=True))} governance entries"]
     else:
         details = [e.name for e in registry.list_environments()]
-    details.append("Prefer 'agy-guard request-unlock' for a time-bounded window with automatic relock.")
+    details.append("Prefer 'plumb-guard request-unlock' for a time-bounded window with automatic relock.")
     if not request_approval("unlock", "Remove write protection WITHOUT an automatic relock?", details):
         return _refuse("unlock")
     success, msg = registry.unlock(env_id=target)
     print(f"[{'UNLOCKED' if success else 'ERROR'}] {msg}")
     if success:
-        print("Remember to run 'agy-guard lock' when maintenance is finished.")
+        print("Remember to run 'plumb-guard lock' when maintenance is finished.")
     return 0 if success else 1
 
 
@@ -1715,7 +1715,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         result.infos.insert(0, f"Quarantined corrupt environment registry -> {quarantined_reg} and re-initialized defaults.")
 
     print("=" * 64)
-    print(f"       Antigravity Guard (agy-guard) v{__version__} - Doctor       ")
+    print(f"       Plumb Guard (plumb-guard) v{__version__} - Doctor       ")
     print("=" * 64)
     print(f"Environment    : {env.name} -> {result.root}")
     print(f"Protection     : {registry.os_adapter.protection_kind()}")
@@ -1774,7 +1774,7 @@ def cmd_startup(args: argparse.Namespace) -> int:
         return 0 if ok else 1
     st = manager.status()
     print("=" * 64)
-    print("   Antigravity Guard — Boot Sentinel Status   ")
+    print("   Plumb Guard — Boot Sentinel Status   ")
     print("=" * 64)
     print(f"Platform       : {st['platform']}")
     print(f"Mechanism      : {st['mechanism']}")
@@ -1822,7 +1822,7 @@ def cmd_test_boundary(args: argparse.Namespace) -> int:
             base_ref=getattr(args, "base_ref", None),
         )
         print("=" * 64)
-        print("      Antigravity Guard — Test & Config Boundary Verification     ")
+        print("      Plumb Guard — Test & Config Boundary Verification     ")
         print("=" * 64)
         print(f"Workspace      : {report.workspace_dir}")
         print(f"Baseline       : {report.baseline_source or 'n/a'}")
@@ -1873,7 +1873,7 @@ def cmd_provenance(args: argparse.Namespace) -> int:
             authorized_modifications=set(getattr(args, "authorize", None) or []),
         )
         print("=" * 64)
-        print("        Antigravity Guard — Run Provenance Manifest Generated     ")
+        print("        Plumb Guard — Run Provenance Manifest Generated     ")
         print("=" * 64)
         print(manifest.to_markdown())
         print("=" * 64)
@@ -1888,7 +1888,7 @@ def cmd_provenance(args: argparse.Namespace) -> int:
         print(f"Error reading provenance manifest: {e}")
         return 1
     print("=" * 64)
-    print("         Antigravity Guard — Active Provenance Manifest          ")
+    print("         Plumb Guard — Active Provenance Manifest          ")
     print("=" * 64)
     print(f"Timestamp       : {data.get('session_timestamp')}")
     print(f"Base Commit     : {data.get('git_base_commit')}")
@@ -1906,7 +1906,7 @@ def cmd_env(args: argparse.Namespace) -> int:
 
     if action == "list":
         print("=" * 64)
-        print("          Antigravity Guard — Registered Environments          ")
+        print("          Plumb Guard — Registered Environments          ")
         print("=" * 64)
         for item in registry.get_status_matrix():
             print(f"ID       : {item['id']}")
@@ -1954,7 +1954,7 @@ def cmd_env(args: argparse.Namespace) -> int:
             if not request_approval(
                 "env add",
                 f"Register environment '{name}' with non-enforced policy '{policy_val}'?",
-                ["A non-enforced environment is not write-protected by leases, the boot sentinel or 'agy-guard lock'."],
+                ["A non-enforced environment is not write-protected by leases, the boot sentinel or 'plumb-guard lock'."],
             ):
                 return _refuse("env add")
         env = AgentEnvironment(
@@ -1994,7 +1994,7 @@ def cmd_env(args: argparse.Namespace) -> int:
     if action == "policy":
         policy_val = getattr(args, "policy_val", None) or getattr(args, "value", None)
         if not name or not policy_val:
-            print(f"Error: usage: agy-guard env policy <id> <{'|'.join(VALID_POLICIES)}>", file=sys.stderr)
+            print(f"Error: usage: plumb-guard env policy <id> <{'|'.join(VALID_POLICIES)}>", file=sys.stderr)
             return 1
         if policy_val not in VALID_POLICIES:
             print(f"Error: Invalid policy '{policy_val}'. Must be one of {', '.join(VALID_POLICIES)}.", file=sys.stderr)
@@ -2002,7 +2002,7 @@ def cmd_env(args: argparse.Namespace) -> int:
         current = registry.get_environment(name)
         if current is not None and registry.is_weakening(current.policy, policy_val):
             if not request_approval("env policy", f"Lower the protection of {current.name} from '{current.policy}' to '{policy_val}'?",
-                                    ["A non-enforced environment is not re-locked by leases, the boot sentinel or 'agy-guard lock'."]):
+                                    ["A non-enforced environment is not re-locked by leases, the boot sentinel or 'plumb-guard lock'."]):
                 return _refuse("env policy")
         try:
             if registry.set_policy(name, policy_val):
@@ -2060,7 +2060,7 @@ def cmd_drift(args: argparse.Namespace) -> int:
         targets = registry.list_environments()
     any_drift = False
     print("=" * 64)
-    print("        Antigravity Guard — Multi-Environment Drift Analysis     ")
+    print("        Plumb Guard — Multi-Environment Drift Analysis     ")
     print("=" * 64)
     for env in targets:
         report = _monitor(env, registry).verify()
@@ -2081,9 +2081,11 @@ def _default_audit_root() -> Path:
     cfg = config_dir()
     if (cfg / "skills").is_dir() and has_constitution_file(cfg):
         return cfg
+    from guard.paths import share_dir_candidates
+
     for share_cand in (
-        repo_root.parent.parent / "share" / "antigravity-harness",
-        Path("/usr/share/antigravity-harness"),
+        *share_dir_candidates(),
+        repo_root.parent.parent / "share" / "plumbwork",
     ):
         if (share_cand / "skills").is_dir() and has_constitution_file(share_cand):
             return share_cand.resolve()
@@ -2116,7 +2118,7 @@ def cmd_self_audit(args: argparse.Namespace) -> int:
         return 1 if failed else 0
 
     print("=" * 64)
-    print("    Antigravity Guard — Harness Self-Audit       ")
+    print("    Plumb Guard — Harness Self-Audit       ")
     print("=" * 64)
     print(f"Audited root: {root}")
     for f in findings:
@@ -2152,10 +2154,12 @@ def _resolve_portable_script(rel_path: str) -> Optional[Path]:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         candidates.append((Path(meipass), Path(norm_rel), None, False))
+    from guard.paths import share_dir_candidates
+
     candidates.extend([
-        (cli_root.parent.parent / "share" / "antigravity-harness", Path(norm_rel), None, False),
-        (Path("/usr/share/antigravity-harness"), Path(norm_rel), None, False),
-        (Path("/usr/lib/antigravity-guard"), Path(norm_rel), None, False),
+        *((sh, Path(norm_rel), None, False) for sh in share_dir_candidates()),
+        (cli_root.parent.parent / "share" / "plumbwork", Path(norm_rel), None, False),
+        (Path("/usr/lib/plumb-guard"), Path(norm_rel), None, False),
         (configured_config_dir(), Path(norm_rel), None, True),
     ])
     if plugin_rel is not None and plugin_pack is not None:
@@ -2348,7 +2352,7 @@ def cmd_notify(args: argparse.Namespace) -> int:
     if action == "enable":
         enabled = True
     elif action == "disable":
-        # Gate on the PERSISTED setting: an AGY_GUARD_NOTIFY override in the caller's environment
+        # Gate on the PERSISTED setting: a PLUMB_GUARD_NOTIFY override in the caller's environment
         # must not make a persistent "disable" look like a no-op that needs no approval.
         persisted = read_json(settings_file(), default={}) or {}
         if bool(persisted.get("enabled", True)) and not request_approval(
@@ -2397,8 +2401,8 @@ class _GuardSubparser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agy-guard",
-        description=f"Antigravity Guard v{__version__} - governance write protection, integrity monitoring and staging",
+        prog="plumb-guard",
+        description=f"Plumb Guard v{__version__} - governance write protection, integrity monitoring and staging",
         allow_abbrev=False,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -2411,7 +2415,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--all", "-a", action="store_true", help="Apply to all registered environments")
 
     p = subparsers.add_parser("init", help="Initialize ~/.gemini/config governance profile from system package")
-    p.add_argument("--source", help="Source directory containing governance assets (default: /usr/share/antigravity-harness)")
+    p.add_argument("--source", help="Source directory containing governance assets (default: /usr/share/plumbwork)")
     p.add_argument("--target", help="Target configuration directory (default: ~/.gemini/config)")
     init_layout = p.add_mutually_exclusive_group()
     init_layout.add_argument(

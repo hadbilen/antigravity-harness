@@ -1,6 +1,6 @@
 """
 tests/test_lease.py — Test Lease-Based Human-in-the-Loop Unlock Protocol
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

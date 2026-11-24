@@ -117,11 +117,11 @@ class TestW1Rule9ExpectedValueCircuitBreakerAndNonGitStopGate(unittest.TestCase)
                 "HOME": str(self.root / "home"),
                 "USERPROFILE": str(self.root / "home"),
                 "XDG_STATE_HOME": str(self.state_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
-                "AGY_GUARD_DATA_DIR": str(self.data_dir),
+                "PLUMB_GUARD_DATA_DIR": str(self.data_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_NOTIFY": "off",
+                "PLUMB_GUARD_NOTIFY": "off",
             },
             clear=False,
         )
@@ -277,7 +277,7 @@ class TestW1Rule9ExpectedValueCircuitBreakerAndNonGitStopGate(unittest.TestCase)
             return True, "fake-desktop"
 
         with (
-            mock.patch.dict(os.environ, {"AGY_GUARD_NOTIFY": ""}, clear=False),
+            mock.patch.dict(os.environ, {"PLUMB_GUARD_NOTIFY": ""}, clear=False),
             mock.patch.object(GuardNotifier, "_dispatch_native", fake_native),
         ):
             err12 = io.StringIO()
@@ -399,10 +399,10 @@ class TestW1Py310ArchiveMediaTurnTasksAndCodeMap(unittest.TestCase):
                 "HOME": str(self.root / "home"),
                 "USERPROFILE": str(self.root / "home"),
                 "XDG_STATE_HOME": str(self.state_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_NOTIFY": "off",
+                "PLUMB_GUARD_NOTIFY": "off",
             },
             clear=False,
         )
@@ -871,10 +871,10 @@ class TestFableW4AuditRegressionsW1(unittest.TestCase):
                 "HOME": str(self.home),
                 "USERPROFILE": str(self.home),
                 "XDG_STATE_HOME": str(self.state_dir),
-                "AGY_GUARD_STATE_DIR": str(self.state_dir),
+                "PLUMB_GUARD_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_STATE_DIR": str(self.state_dir),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.cfg_dir),
-                "AGY_GUARD_NOTIFY": "off",
+                "PLUMB_GUARD_NOTIFY": "off",
             },
             clear=False,
         )

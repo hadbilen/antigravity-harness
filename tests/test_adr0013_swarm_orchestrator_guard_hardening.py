@@ -6,7 +6,7 @@ covering ADR-0013 (Campaign 2026-11-21-swarm-orchestrator-guard-hardening, W1..W
         A1 Orchestrator Rule 17 calibration, Swarm runtime seams, and A2 run_workflow AST.
   - W2: swarm_pane 15th builtin parity, SessionStart upstream-watchdog migration,
         lazy pre_tool_use submodules + inv>1 fast-path latency smoke, harness/SKILL.md <= 28 KB.
-  - W3: CWD-independent portable agy-guard tools (code-map, ui-slop, synthetic-markers,
+  - W3: CWD-independent portable plumb-guard tools (code-map, ui-slop, synthetic-markers,
         verify-invariants) + Rule 12 / trace security guards + OS-level Guard fixes
         (startup.py, os_adapter.py, lease.py, tray.py, installers/build_binaries.py) + ADR-0013.
 """
@@ -475,14 +475,14 @@ class TestW3PortableScriptDispatch(_IsolatedCase):
         self.assertEqual(res_inst.returncode, 0, res_inst.stdout + res_inst.stderr)
 
         # Verify runtime carries portable ui-refinery fallback scripts as well as scripts/
-        rt_root = data_dir / "antigravity-harness" / "runtime"
+        rt_root = data_dir / "plumbwork" / "runtime"
         self.assertTrue((rt_root / "scripts" / "code_map.py").is_file())
         self.assertTrue((rt_root / "scripts" / "verify_invariants.py").is_file())
         self.assertTrue((rt_root / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py").is_file())
         self.assertTrue((rt_root / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py").is_file())
 
         if os.name != "nt":
-            launcher = home_dir / ".local" / "bin" / "agy-guard"
+            launcher = home_dir / ".local" / "bin" / "plumb-guard"
             self.assertTrue(launcher.is_file())
             for sub_args in (
                 ["code-map", "gate-syntax", str(ext_ws / "mod.py")],
@@ -498,7 +498,7 @@ class TestW3PortableScriptDispatch(_IsolatedCase):
         fake_cli_file = self.tmp / "bare_lib" / "guard" / "cli.py"
         fake_cli_file.parent.mkdir(parents=True)
         fake_cli_file.write_text("# stub\n", encoding="utf-8")
-        with mock.patch.dict(os.environ, {"ANTIGRAVITY_CONFIG_DIR": str(cfg_dir), "AGY_GUARD_DATA_DIR": str(self.tmp / "empty_data")}), mock.patch.object(
+        with mock.patch.dict(os.environ, {"ANTIGRAVITY_CONFIG_DIR": str(cfg_dir), "PLUMB_GUARD_DATA_DIR": str(self.tmp / "empty_data")}), mock.patch.object(
             guard_cli, "__file__", str(fake_cli_file)
         ):
             resolved = guard_cli._resolve_portable_script("skills/ui-refinery/scripts/check_ui_slop.py")
@@ -517,20 +517,20 @@ class TestW3PortableScriptDispatch(_IsolatedCase):
         outside_evil = self.tmp / "evil_outside.py"
         outside_evil.write_text("import os\nos.chmod('/tmp/x', 0o777)\n", encoding="utf-8")
 
-        # 1. Rule 12: agy-guard verify-invariants --authorize MUST be denied
+        # 1. Rule 12: plumb-guard verify-invariants --authorize MUST be denied
         res_auth = agy_hooks.handle_pre_tool_use(
             {
                 "toolName": "run_command",
-                "toolInput": {"CommandLine": "agy-guard verify-invariants --test-boundary --authorize tests/test_x.py"},
+                "toolInput": {"CommandLine": "plumb-guard verify-invariants --test-boundary --authorize tests/test_x.py"},
                 "cwd": str(ws),
                 "conversationId": "sec-1",
             }
         )
         self.assertEqual(res_auth.get("decision"), "deny", res_auth)
 
-        # 2. External script trace via agy-guard code-map trace MUST be inspected and blocked
+        # 2. External script trace via plumb-guard code-map trace MUST be inspected and blocked
         for cmd in (
-            f"agy-guard code-map trace {outside_evil}",
+            f"plumb-guard code-map trace {outside_evil}",
             f"python3 guard.py code-map trace --root {ws} {outside_evil}",
             f"python3 -m guard.cli code-map trace {outside_evil}",
         ):
@@ -547,10 +547,10 @@ class TestW3PortableScriptDispatch(_IsolatedCase):
 
         # 3. Clean read-only portable tool invocations remain allowed
         for cmd in (
-            "agy-guard code-map callers foo",
-            "agy-guard ui-slop index.html --mode utility",
-            "agy-guard synthetic-markers --profile technical README.md",
-            "agy-guard verify-invariants --all",
+            "plumb-guard code-map callers foo",
+            "plumb-guard ui-slop index.html --mode utility",
+            "plumb-guard synthetic-markers --profile technical README.md",
+            "plumb-guard verify-invariants --all",
         ):
             with self.subTest(allowed=cmd):
                 res_ok = agy_hooks.handle_pre_tool_use(
@@ -654,7 +654,7 @@ class TestW3OSLevelGuardFixes(_IsolatedCase):
             self.assertIn("legacy load denied", msg_fail)
 
             # 4. Disable tries bootout first, then falls back to unload when bootout fails
-            plist = fake_agents / "com.antigravity.guard.plist"
+            plist = fake_agents / "com.plumbwork.guard.plist"
             plist.write_text("<plist/>", encoding="utf-8")
             with mock.patch("guard.startup.subprocess.run") as run_mock:
                 run_mock.side_effect = [
@@ -785,17 +785,17 @@ class TestW3OSLevelGuardFixes(_IsolatedCase):
         headless = detect_linux_display_session({})
         self.assertTrue(headless["is_headless"])
 
-        # 2. Headless and AGY_GUARD_NO_TRAY=1 short-circuit cleanly without loading GTK/pystray
+        # 2. Headless and PLUMB_GUARD_NO_TRAY=1 short-circuit cleanly without loading GTK/pystray
         with mock.patch("guard.tray.platform.system", return_value="Linux"):
-            with mock.patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "", "XDG_SESSION_TYPE": ""}, clear=False):
+            with mock.patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "", "XDG_SESSION_TYPE": "", "PLUMB_GUARD_NO_TRAY": ""}, clear=False):
                 ad_hl = create_tray_adapter(lambda: None, lambda: None, lambda: None)
                 self.assertIsInstance(ad_hl, DummyAdapter)
                 self.assertIn("DISPLAY/WAYLAND_DISPLAY", ad_hl.fallback_reason)
 
-            with mock.patch.dict(os.environ, {"DISPLAY": ":0", "AGY_GUARD_NO_TRAY": "1"}, clear=False):
+            with mock.patch.dict(os.environ, {"DISPLAY": ":0", "PLUMB_GUARD_NO_TRAY": "1"}, clear=False):
                 ad_off = create_tray_adapter(lambda: None, lambda: None, lambda: None)
                 self.assertIsInstance(ad_off, DummyAdapter)
-                self.assertIn("AGY_GUARD_NO_TRAY=1", ad_off.fallback_reason)
+                self.assertIn("PLUMB_GUARD_NO_TRAY=1", ad_off.fallback_reason)
 
             # 3. Pure Wayland with broken GTK init_check isolates failure and records Wayland fallback diagnostics
             fake_gtk = mock.MagicMock()
@@ -804,7 +804,7 @@ class TestW3OSLevelGuardFixes(_IsolatedCase):
             fake_gi_repo = mock.MagicMock(Gtk=fake_gtk, GLib=mock.MagicMock())
             with mock.patch.dict(
                 os.environ,
-                {"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-0", "DISPLAY": "", "AGY_GUARD_NO_TRAY": ""},
+                {"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-0", "DISPLAY": "", "PLUMB_GUARD_NO_TRAY": ""},
                 clear=False,
             ), mock.patch.dict(sys.modules, {"gi": fake_gi, "gi.repository": fake_gi_repo}):
                 ad_wl = create_tray_adapter(lambda: None, lambda: None, lambda: None)
@@ -824,21 +824,21 @@ class TestW3OSLevelGuardFixes(_IsolatedCase):
 
         with mock.patch("guard.tray.platform.system", return_value="Linux"), mock.patch.object(
             sys, "frozen", True, create=True
-        ), mock.patch.dict(os.environ, {"DISPLAY": ":0", "AGY_GUARD_ALLOW_FROZEN_GTK": ""}, clear=False):
+        ), mock.patch.dict(os.environ, {"DISPLAY": ":0", "PLUMB_GUARD_ALLOW_FROZEN_GTK": ""}, clear=False):
             frozen_ay = AyatanaAdapter(lambda: None, lambda: None, lambda: None)
             self.assertFalse(frozen_ay.is_available)
             self.assertIn("Frozen Linux binary", frozen_ay.fallback_reason)
 
         # 5. build_binaries excludes `gi` on Linux onefile builds and bundles portable ui-refinery scripts
         lin_name, lin_cmd = build_binaries.build_pyinstaller_command(REPO_ROOT, "Linux", "x86_64", "/usr/bin/pyinstaller")
-        self.assertEqual(lin_name, "agy-guard-linux-x86_64")
+        self.assertEqual(lin_name, "plumb-guard-linux-x86_64")
         self.assertIn("--exclude-module", lin_cmd)
         self.assertIn("gi", lin_cmd)
         self.assertTrue(any("check_ui_slop.py:skills/ui-refinery/scripts" in tok for tok in lin_cmd), lin_cmd)
         self.assertTrue(any("check_synthetic_markers.py:skills/ui-refinery/scripts" in tok for tok in lin_cmd), lin_cmd)
 
         win_name, win_cmd = build_binaries.build_pyinstaller_command(REPO_ROOT, "Windows", "x86_64", "pyinstaller.exe")
-        self.assertEqual(win_name, "agy-guard-windows-x86_64.exe")
+        self.assertEqual(win_name, "plumb-guard-windows-x86_64.exe")
         self.assertNotIn("gi", win_cmd)
         self.assertTrue(any("check_ui_slop.py;skills/ui-refinery/scripts" in tok for tok in win_cmd), win_cmd)
 
@@ -963,18 +963,18 @@ class TestW4PreFlightAuditAndMutationResilience(_IsolatedCase):
         # 1. ANSI-C quoting parity-flip attacks MUST be blocked
         res_ansic_tasks = _cmd("echo $'x\\'' > tasks.md ; echo $'\\''")
         self.assertEqual(res_ansic_tasks.get("decision"), "force_ask", res_ansic_tasks)
-        res_ansic_admin = _cmd("echo $'x\\'' ; agy-guard unlock ; echo $'\\''")
+        res_ansic_admin = _cmd("echo $'x\\'' ; plumb-guard unlock ; echo $'\\''")
         self.assertEqual(res_ansic_admin.get("decision"), "deny", res_ansic_admin)
 
         # 2. Abbreviated flags, Windows launchers, direct script invocation, and shebang trace MUST be blocked
         for cmd in (
-            "agy-guard verify-invariants --test-boundary --auth tests/test_core.py",
-            "agy-guard --r '' unlock",
-            "agy-guard.exe verify-invariants --test-boundary --authorize tests/test_core.py",
-            "agy-guard.cmd unlock",
+            "plumb-guard verify-invariants --test-boundary --auth tests/test_core.py",
+            "plumb-guard --r '' unlock",
+            "plumb-guard.exe verify-invariants --test-boundary --authorize tests/test_core.py",
+            "plumb-guard.cmd unlock",
             "python3 -m scripts.verify_invariants --test-boundary --authorize tests/test_core.py",
-            f"agy-guard code-map trace --ro . {evil_py}",
-            f"agy-guard --r '' code-map trace {evil_py}",
+            f"plumb-guard code-map trace --ro . {evil_py}",
+            f"plumb-guard --r '' code-map trace {evil_py}",
             f"./guard.py code-map trace {evil_py}",
             f"./scripts/code_map.py trace {evil_py}",
         ):
@@ -1298,7 +1298,7 @@ class TestW4PreFlightAuditAndMutationResilience(_IsolatedCase):
                  mock.patch("guard.os_adapter.os.unlink", side_effect=PermissionError("locked by av")):
                 self.assertFalse(adapter._windows_dir_denied(self.tmp))
 
-        # 3. Lease PID guard: macOS uses `ps -ww`; pytest -k lease-tick & agy-guard gui are NOT killed
+        # 3. Lease PID guard: macOS uses `ps -ww`; pytest -k lease-tick & plumb-guard gui are NOT killed
         with mock.patch("guard.lease.sys.platform", "darwin"), \
              mock.patch("guard.lease.subprocess.run", return_value=mock.Mock(returncode=0, stdout="pytest -k lease-tick\n")) as ps_mock, \
              mock.patch("guard.lease.os.kill") as k_mock:
@@ -1317,7 +1317,7 @@ class TestW4PreFlightAuditAndMutationResilience(_IsolatedCase):
         fake_pystray.Icon = type("Icon", (), {"__module__": "pystray._gtk"})
         with mock.patch("guard.tray.platform.system", return_value="Linux"), \
              mock.patch.object(sys, "frozen", True, create=True), \
-             mock.patch.dict(os.environ, {"DISPLAY": ":0", "WAYLAND_DISPLAY": "", "XDG_SESSION_TYPE": "x11", "AGY_GUARD_NO_TRAY": ""}, clear=False), \
+             mock.patch.dict(os.environ, {"DISPLAY": ":0", "WAYLAND_DISPLAY": "", "XDG_SESSION_TYPE": "x11", "PLUMB_GUARD_NO_TRAY": ""}, clear=False), \
              mock.patch.dict(sys.modules, {"pystray": fake_pystray}):
             ad_frz = create_tray_adapter(lambda: None, lambda: None, lambda: None)
             self.assertIsInstance(ad_frz, DummyAdapter)

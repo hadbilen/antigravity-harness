@@ -224,7 +224,7 @@ class TestAdr0012LowFrictionUxAndGuardSafetySeam(_TempCase):
         (self.fake_cfg / "GEMINI.md").write_text("# Test Constitution\n", encoding="utf-8")
         self._patch_env(
             {
-                "AGY_GUARD_STATE_DIR": str(self.fake_state),
+                "PLUMB_GUARD_STATE_DIR": str(self.fake_state),
                 "ANTIGRAVITY_STATE_DIR": str(self.fake_state),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.fake_cfg),
             }
@@ -351,7 +351,7 @@ class TestAdr0012RestrictedModelAllowlistSeam(_TempCase):
         self.fake_cfg.mkdir(parents=True, exist_ok=True)
         self._patch_env(
             {
-                "AGY_GUARD_STATE_DIR": str(self.fake_state),
+                "PLUMB_GUARD_STATE_DIR": str(self.fake_state),
                 "ANTIGRAVITY_STATE_DIR": str(self.fake_state),
                 "ANTIGRAVITY_CONFIG_DIR": str(self.fake_cfg),
             },
@@ -719,7 +719,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
         fake_state = self.tmp / "pre_inv_state"
         fake_state.mkdir()
         self._patch_env(
-            {"AGY_GUARD_STATE_DIR": str(fake_state), "ANTIGRAVITY_STATE_DIR": str(fake_state)}
+            {"PLUMB_GUARD_STATE_DIR": str(fake_state), "ANTIGRAVITY_STATE_DIR": str(fake_state)}
         )
         for idx, prompt in enumerate(
             (
@@ -885,7 +885,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
         env.update(
             {
                 "ANTIGRAVITY_CONFIG_DIR": str(self.tmp / "cfg"),
-                "AGY_GUARD_STATE_DIR": str(self.tmp / "state"),
+                "PLUMB_GUARD_STATE_DIR": str(self.tmp / "state"),
                 "UPSTREAM_STATE_FILE": str(state_file),
                 "PYTHONPATH": str(shim_dir),
             }

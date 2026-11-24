@@ -1,6 +1,6 @@
 """
 tests/test_notifier.py — Test Low-Frequency Guard Notifier
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

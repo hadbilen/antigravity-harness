@@ -489,7 +489,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         benign_cmd = (
             'python3 -c "'
             "from pathlib import Path; "
-            "p = Path('/home/tugay/Projeler/antigravity-harness/README.md'); "
+            "p = Path('/home/tugay/Projeler/plumbwork/README.md'); "
             "print(p.read_text().replace('a', 'b')[:10])"
             '"'
         )
@@ -498,7 +498,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         real_gov_cmd = (
             'python3 -c "'
             "from pathlib import Path; "
-            "p = Path.home() / '.local' / 'state' / 'antigravity-harness' / 'leases.json'; "
+            "p = Path.home() / '.local' / 'state' / 'plumbwork' / 'leases.json'; "
             "p.write_text('{}')"
             '"'
         )
@@ -547,8 +547,8 @@ class TestW5EvaluationRemediation(unittest.TestCase):
 
         # 2. _unquote_single_tokens, _normalize_shell_paths & _command_mutates_governance Windows + POSIX parity
         self.assertEqual(
-            pre_tool_use._unquote_single_tokens(r"touch D:\a\antigravity-harness\skills\real.md"),
-            "touch D:/a/antigravity-harness/skills/real.md",
+            pre_tool_use._unquote_single_tokens(r"touch D:\a\plumbwork\skills\real.md"),
+            "touch D:/a/plumbwork/skills/real.md",
         )
         self.assertEqual(
             pre_tool_use._unquote_single_tokens(r'touch "C:\Users\runneradmin\skills\real.md"'),
@@ -569,7 +569,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
         )
         self.assertTrue(
             agy_hooks._command_mutates_governance(
-                "python3 -c \"from pathlib import Path; (Path.home() / '.local' / 'state' / 'antigravity-harness' / 'staging').parent.joinpath('leases.json').write_text('{}')\""
+                "python3 -c \"from pathlib import Path; (Path.home() / '.local' / 'state' / 'plumbwork' / 'staging').parent.joinpath('leases.json').write_text('{}')\""
             )
         )
         self.assertTrue(
@@ -711,7 +711,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
                                 },
                                 "antislop-posix": {
                                     "command": "python3",
-                                    "args": ["/tmp/other/antigravity-harness/skills/antislop-human/contrast-mcp.py"],
+                                    "args": ["/tmp/other/plumbwork/skills/antislop-human/contrast-mcp.py"],
                                 },
                             }
                         }

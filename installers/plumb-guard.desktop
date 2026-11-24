@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Plumb Guard
+Comment=OS-Level Governance, Write Protection, & Staging Suite for Plumbwork
+Exec=plumb-guard gui
+Icon=plumb-guard
+Terminal=false
+Categories=Development;Security;Utility;
+Keywords=plumbwork;plumb-guard;guard;security;protection;porter;

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 scripts/meta_audit.py — Meta-Consistency & Self-Audit Engine (GEMINI.md Rule 17)
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Uses the Python standard library; uses PyYAML for frontmatter when it is installed.
 
 Passes:
@@ -49,7 +49,7 @@ KNOWN_EXTERNAL_MD = {
     "MISTAKES.md", "GEMINI.md", "DESIGN.md", "README.md", "CHANGELOG.md", "SECURITY.md",
     "ARCHITECTURE.md", "SECURITY_POSTURE.md", "REPOSTATE.md", "DECISIONS.md",
     "CONTRIBUTING.md", "task.md", "spec.md", "todo.md", "backlog.md", "sprint.md", "ADR.md",
-    "RELEASE.md", "template.md", "GLOSSARY.md", "PRODUCT.md", "antigravity-constitution.md",  # files created in user/config dirs
+    "RELEASE.md", "template.md", "GLOSSARY.md", "PRODUCT.md", "plumbwork-constitution.md",  # files created in user/config dirs
 }
 # `.claude` holds local agent worktrees (full repository copies) and is never harness content.
 SKIP_DIRS = {".git", "node_modules", "export", "__pycache__", "dist", "build", ".harness", ".claude"}
@@ -69,7 +69,7 @@ DEPRECATED_V1_TOOLS = {
     "write_to_file": "write_file",
 }
 _DEPRECATED_V1_TOOL_RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in DEPRECATED_V1_TOOLS) + r")\b")
-_STALE_XDG_GUARD_RE = re.compile(r"~/\.(?:local/(?:share|state)|gemini)/antigravity-guard\b")
+_STALE_XDG_GUARD_RE = re.compile(r"~/\.(?:local/(?:share|state)|gemini)/antigravity-(?:guard|harness)\b")
 _HISTORICAL_LEDGER_NAMES = {"HANDOFF.md", "tasks.md", "MISTAKES.md", "CHANGELOG.md"}
 _BUILTIN_OR_IGNORED_SUBAGENTS = {
     "self",
@@ -779,13 +779,13 @@ class MetaAuditEngine:
 
         constitution_md = self.repo_root / "GEMINI.md"
         if not constitution_md.is_file():
-            alt_rule = self.repo_root / "rules" / "antigravity-constitution.md"
+            alt_rule = self.repo_root / "rules" / "plumbwork-constitution.md"
             if alt_rule.is_file():
                 constitution_md = alt_rule
         resolved_const_text: Optional[str] = None
         if constitution_md.is_file():
             const_rel = self._rel(constitution_md)
-            if constitution_md.name == "antigravity-constitution.md":
+            if constitution_md.name == "plumbwork-constitution.md":
                 from porter.manifest import _read_constitution_text
 
                 resolved_const_text = _read_constitution_text(self.repo_root)
@@ -872,7 +872,7 @@ class MetaAuditEngine:
             config_mapped_heads.add("plugins")
         code_dirs = {"scripts", "guard", "porter", "tests"}
         is_split_layout = not (self.repo_root / "scripts").is_dir() and (
-            (self.repo_root / "GEMINI.md").is_file() or (self.repo_root / "rules" / "antigravity-constitution.md").is_file()
+            (self.repo_root / "GEMINI.md").is_file() or (self.repo_root / "rules" / "plumbwork-constitution.md").is_file()
         )
         runtime_roots: List[Path] = []
         if is_split_layout:
@@ -884,8 +884,8 @@ class MetaAuditEngine:
             except ImportError:
                 pass
             for sys_lib in (
-                self.repo_root.parent.parent / "lib" / "antigravity-guard",
-                Path("/usr/lib/antigravity-guard"),
+                self.repo_root.parent.parent / "lib" / "plumb-guard",
+                Path("/usr/lib/plumb-guard"),
             ):
                 if sys_lib.is_dir() and sys_lib not in runtime_roots and sys_lib != self.repo_root:
                     runtime_roots.append(sys_lib)
@@ -1235,10 +1235,10 @@ class MetaAuditEngine:
             if _is_dead_hybrid_skill_rel(rel_cfg):
                 return [self.repo_root / rel_cfg]
             cands = [self.repo_root / rel_cfg] + [rt / rel_cfg for rt in runtime_roots]
-            if rel_cfg == "rules/antigravity-constitution.md":
+            if rel_cfg == "rules/plumbwork-constitution.md":
                 cands.append(self.repo_root / "GEMINI.md")
             elif rel_cfg == "GEMINI.md":
-                cands.append(self.repo_root / "rules" / "antigravity-constitution.md")
+                cands.append(self.repo_root / "rules" / "plumbwork-constitution.md")
             return cands
 
         for md in self._markdown_files():
@@ -1253,8 +1253,8 @@ class MetaAuditEngine:
                             "WARNING",
                             name,
                             f"{target}:{lineno}",
-                            f"Stale 1.x XDG path `{m_stale.group(0)}` referenced (v2.0 uses `antigravity-harness`)",
-                            "Update XDG path from `antigravity-guard` to `antigravity-harness`.",
+                            f"Stale pre-v3.0 XDG path `{m_stale.group(0)}` referenced (v3.0 uses `plumbwork`)",
+                            "Update XDG path to `plumbwork`.",
                         )
                     if dead_hybrid_skill_re is not None and not target.startswith("plugins/"):
                         for m_dead in dead_hybrid_skill_re.finditer(line):
@@ -1265,7 +1265,7 @@ class MetaAuditEngine:
                                 f"Dead flat plugin-owned skill path `{m_dead.group(0).rstrip('.,:;)`')}` in installed hybrid core file",
                                 "Rewrite via rewrite_core_for_hybrid() to `~/.gemini/config/plugins/<pack>/skills/<slug>/...` or re-run `install.py --plugins`.",
                             )
-                    for m_rt in re.finditer(r"~/\.local/share/antigravity-harness/runtime/([A-Za-z0-9_./-]+)", line):
+                    for m_rt in re.finditer(r"~/\.local/share/plumbwork/runtime/([A-Za-z0-9_./-]+)", line):
                         rel_rt = m_rt.group(1).rstrip(".,:;)`'\"")
                         if rel_rt and "." in rel_rt.rsplit("/", 1)[-1]:
                             rt_candidates = [self.repo_root / rel_rt] + [rt / rel_rt for rt in runtime_roots]
@@ -1274,7 +1274,7 @@ class MetaAuditEngine:
                                     "WARNING",
                                     name,
                                     f"{target}:{lineno}",
-                                    f"Referenced runtime path `~/.local/share/antigravity-harness/runtime/{rel_rt}` does not exist",
+                                    f"Referenced runtime path `~/.local/share/plumbwork/runtime/{rel_rt}` does not exist",
                                     f"Update the runtime path or restore `{rel_rt}`.",
                                 )
                     for m_cfg in re.finditer(r"~/\.gemini/config/([A-Za-z0-9_./-]+)", line):
@@ -1505,7 +1505,7 @@ class MetaAuditEngine:
             for md in sorted(agents_dir.glob("*.md")):
                 if md.is_file():
                     scan_files.append(md)
-        for const_rel in ("GEMINI.md", "rules/antigravity-constitution.md"):
+        for const_rel in ("GEMINI.md", "rules/plumbwork-constitution.md"):
             cp = self.repo_root / const_rel
             if cp.is_file():
                 scan_files.append(cp)
@@ -1537,7 +1537,7 @@ class MetaAuditEngine:
                         name,
                         f"{target}:{lineno}",
                         f"Repo-relative harness path `{bare_path}` inside installed governance file will not resolve in external workspaces",
-                        "Prefix with `~/.gemini/config/` (skills/agents/templates), `~/.local/share/antigravity-harness/runtime/` (guard/porter/scripts), an `agy-guard` CLI command, or a relative `./` link.",
+                        "Prefix with `~/.gemini/config/` (skills/agents/templates), `~/.local/share/plumbwork/runtime/` (guard/porter/scripts), a `plumb-guard` CLI command, or a relative `./` link.",
                     )
 
     _SECTION_DECLARES = re.compile(r"(?i)invocation|trigger|slash|command")
@@ -1576,7 +1576,7 @@ class MetaAuditEngine:
         except ImportError:
             HARNESS_PLUGIN_NAMES = frozenset()
         sources = (
-            [self.repo_root / "GEMINI.md", self.repo_root / "rules" / "antigravity-constitution.md"]
+            [self.repo_root / "GEMINI.md", self.repo_root / "rules" / "plumbwork-constitution.md"]
             + sorted((self.repo_root / ".agents" / "rules").glob("*.md"))
             + sorted((self.repo_root / "agents").glob("*.md"))
             + sorted((self.repo_root / "templates").glob("*.md"))
@@ -1680,12 +1680,12 @@ class MetaAuditEngine:
         thresholds = {}
         from porter.manifest import _read_constitution_text
 
-        for rel in ("GEMINI.md", "rules/antigravity-constitution.md", "skills/harness/SKILL.md", "skills/harness/references/unlazy.md", "skills/unlazy/SKILL.md"):
+        for rel in ("GEMINI.md", "rules/plumbwork-constitution.md", "skills/harness/SKILL.md", "skills/harness/references/unlazy.md", "skills/unlazy/SKILL.md"):
             p = self.repo_root / rel
             if p.is_file():
                 doc_txt = (
                     (_read_constitution_text(self.repo_root) or "")
-                    if rel == "rules/antigravity-constitution.md"
+                    if rel == "rules/plumbwork-constitution.md"
                     else self._read_text(p)
                 )
                 m = re.search(r"(?is)tier\s*3[^\n]*?\n?.{0,300}?(?:>\s*(\d+)\s*files|\b(\d+)\+\s*files)", doc_txt)
@@ -1731,7 +1731,7 @@ class MetaAuditEngine:
                             name,
                             f"plugins/{pack_name}",
                             f"Hybrid plugin pack '{pack_name}' failed validation: {err_msg}",
-                            "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' to rebuild the pack.",
+                            "Re-run 'python3 install.py --plugins' or 'plumb-guard init --plugins' to rebuild the pack.",
                         )
             if not committed.is_file():
                 self._add(
@@ -1739,7 +1739,7 @@ class MetaAuditEngine:
                     name,
                     ".harness/manifest.json",
                     "Installed hybrid profile is missing canonical .harness/manifest.json.",
-                    "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' to restore it.",
+                    "Re-run 'python3 install.py --plugins' or 'plumb-guard init --plugins' to restore it.",
                 )
                 return
             if not engine.is_up_to_date(committed, validate_packs=False):
@@ -1748,7 +1748,7 @@ class MetaAuditEngine:
                     name,
                     ".harness/manifest.json",
                     "Installed hybrid profile core files or plugin packs diverge from canonical .harness/manifest.json.",
-                    "Re-run 'python3 install.py --plugins' or 'agy-guard init --plugins' to refresh installed assets.",
+                    "Re-run 'python3 install.py --plugins' or 'plumb-guard init --plugins' to refresh installed assets.",
                 )
             try:
                 manifest = engine.load_manifest(committed)
@@ -1779,13 +1779,13 @@ class MetaAuditEngine:
                     check_manifest.agents = [a for a in manifest.agents if a.get("name") in m_agents]
                     check_manifest.templates = {k: v for k, v in manifest.templates.items() if k in m_templates}
                 if not engine.is_up_to_date(committed, manifest=check_manifest):
-                    sys_share = Path(os.environ.get("ANTIGRAVITY_SHARE_DIR", "/usr/share/antigravity-harness"))
+                    sys_share = Path((os.environ.get("PLUMBWORK_SHARE_DIR") or "").strip() or "/usr/share/plumbwork")
                     if not (self.repo_root / "install.py").is_file() and (
-                        "share/antigravity-harness" in self.repo_root.as_posix()
+                        "share/plumbwork" in self.repo_root.as_posix()
                         or sys_share.is_dir()
                         or not (REPO_ROOT / "install.py").is_file()
                     ):
-                        fix_msg = "Run 'agy-guard init' to refresh installed governance assets from /usr/share/antigravity-harness."
+                        fix_msg = "Run 'plumb-guard init' to refresh installed governance assets from /usr/share/plumbwork."
                     elif is_split:
                         fix_msg = "Re-run 'python3 install.py' from the source checkout to refresh installed governance assets."
                     else:
@@ -1943,9 +1943,9 @@ class MetaAuditEngine:
         public = commands - {"lease-tick"}
 
         for cmd in sorted(public):
-            if f"agy-guard {cmd}" not in text and f"`{cmd}`" not in text:
+            if f"plumb-guard {cmd}" not in text and f"`{cmd}`" not in text:
                 self._add("WARNING", name, "README.md", f"CLI subcommand '{cmd}' is not documented in README.md",
-                          f"Document 'agy-guard {cmd}'.")
+                          f"Document 'plumb-guard {cmd}'.")
         workflow_line = next((l for l in text.splitlines() if "Full CLI Workflow" in l), "")
         for m in re.finditer(r"`([a-z][a-z-]+)`", workflow_line.split(":", 1)[-1]):
             if m.group(1) not in commands:
@@ -1956,14 +1956,14 @@ class MetaAuditEngine:
         for block in re.findall(r"```(?:bash|sh|shell)?\n(.*?)```", text, re.DOTALL):
             for line in block.splitlines():
                 line = line.split(" #", 1)[0].strip()
-                if line.startswith("agy-guard "):
+                if line.startswith("plumb-guard "):
                     argv = shlex.split(line)[1:]
                     try:
                         parser.parse_args(argv)
                     except SystemExit:
                         self._add("CRITICAL", name, "README.md", f"README example does not parse: `{line}`",
                                   "Fix the example to match the CLI.")
-                elif line.startswith(("python3 porter.py ", "porter.py ", "agy-porter ")):
+                elif line.startswith(("python3 porter.py ", "porter.py ", "plumb-porter ")):
                     tokens = shlex.split(line)
                     porter_argv = tokens[2:] if tokens[0] == "python3" else tokens[1:]
                     if porter_argv and porter_argv[0] not in valid_porter_cmds:
@@ -2002,7 +2002,7 @@ class MetaAuditEngine:
         pkg_linux = self.repo_root / "installers" / "packaging" / "package_linux.py"
         if pkgbuild.is_file():
             pb_text = pkgbuild.read_text(encoding="utf-8", errors="ignore")
-            for req_tok in ("porter.py", "agy-porter", "hooks.json", ".harness/manifest.json", "bash-completion/completions/agy-guard"):
+            for req_tok in ("porter.py", "plumb-porter", "hooks.json", ".harness/manifest.json", "bash-completion/completions/plumb-guard"):
                 if req_tok not in pb_text:
                     self._add(
                         "WARNING",
@@ -2013,7 +2013,7 @@ class MetaAuditEngine:
                     )
         if pkg_linux.is_file():
             pl_text = pkg_linux.read_text(encoding="utf-8", errors="ignore")
-            for req_tok in ("porter.py", "agy-porter", "hooks.json", "manifest.json", "bash-completion"):
+            for req_tok in ("porter.py", "plumb-porter", "hooks.json", "manifest.json", "bash-completion"):
                 if req_tok not in pl_text:
                     self._add(
                         "WARNING",
@@ -2369,7 +2369,7 @@ class MetaAuditEngine:
         direct = self.repo_root / "guard" / "agy_hooks.py"
         if direct.is_file():
             return direct
-        relocated = self.repo_root.parent.parent / "lib" / "antigravity-guard" / "guard" / "agy_hooks.py"
+        relocated = self.repo_root.parent.parent / "lib" / "plumb-guard" / "guard" / "agy_hooks.py"
         if relocated.is_file():
             return relocated
         if not allow_split_fallback:
@@ -2382,8 +2382,8 @@ class MetaAuditEngine:
         except Exception:
             pass
         candidates.extend([
-            Path.home() / ".local" / "share" / "antigravity-harness" / "runtime" / "guard" / "agy_hooks.py",
-            Path("/usr/lib/antigravity-guard/guard/agy_hooks.py"),
+            Path.home() / ".local" / "share" / "plumbwork" / "runtime" / "guard" / "agy_hooks.py",
+            Path("/usr/lib/plumb-guard/guard/agy_hooks.py"),
             REPO_ROOT / "guard" / "agy_hooks.py",
         ])
         for cand in candidates:
@@ -2506,7 +2506,12 @@ class MetaAuditEngine:
                 env_keys = (
                     "HOME",
                     "XDG_STATE_HOME",
-                    "AGY_GUARD_STATE_DIR",
+                    "XDG_DATA_HOME",
+                    "PLUMB_GUARD_STATE_DIR",
+                    "PLUMB_GUARD_DATA_DIR",
+                    "PLUMB_GUARD_NOTIFY",
+                    "PLUMB_GUARD_NO_TRAY",
+                    "PLUMBWORK_SHARE_DIR",
                     "ANTIGRAVITY_STATE_DIR",
                     "ANTIGRAVITY_CONFIG_DIR",
                 )
@@ -2517,15 +2522,22 @@ class MetaAuditEngine:
                     fake_home = tmp_path / "home"
                     fake_cfg = fake_home / ".gemini" / "config"
                     fake_state = tmp_path / "state"
+                    fake_data = tmp_path / "data"
                     fake_ws = tmp_path / "ws"
                     fake_cfg.mkdir(parents=True, exist_ok=True)
                     fake_state.mkdir(parents=True, exist_ok=True)
+                    fake_data.mkdir(parents=True, exist_ok=True)
                     fake_ws.mkdir(parents=True, exist_ok=True)
                     (fake_cfg / "GEMINI.md").write_text("# Test Constitution\n", encoding="utf-8")
                     try:
                         os.environ["HOME"] = str(fake_home)
                         os.environ["XDG_STATE_HOME"] = str(fake_state)
-                        os.environ["AGY_GUARD_STATE_DIR"] = str(fake_state)
+                        os.environ["XDG_DATA_HOME"] = str(fake_data)
+                        os.environ["PLUMB_GUARD_STATE_DIR"] = str(fake_state)
+                        os.environ["PLUMB_GUARD_DATA_DIR"] = str(fake_data)
+                        os.environ["PLUMB_GUARD_NOTIFY"] = "off"
+                        os.environ["PLUMB_GUARD_NO_TRAY"] = "1"
+                        os.environ.pop("PLUMBWORK_SHARE_DIR", None)
                         os.environ["ANTIGRAVITY_STATE_DIR"] = str(fake_state)
                         os.environ["ANTIGRAVITY_CONFIG_DIR"] = str(fake_cfg)
                         if orig_mod_repo is not None:
@@ -2641,7 +2653,7 @@ class MetaAuditEngine:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog="meta_audit", description="Meta-Consistency & Self-Audit Engine for Antigravity Harness")
+    parser = argparse.ArgumentParser(prog="meta_audit", description="Meta-Consistency & Self-Audit Engine for Plumbwork")
     parser.add_argument("--all", action="store_true", help="Run all passes (default)")
     parser.add_argument("--pass", dest="passes", type=int, action="append", choices=range(1, 8), help="Run only pass N (repeatable)")
     parser.add_argument("--strict", action="store_true", help="Fail on WARNING findings too")
@@ -2675,7 +2687,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1 if failed else 0
 
     print("=" * 64)
-    print("    Antigravity Harness — Meta-Audit & Self-Check    ")
+    print("    Plumbwork — Meta-Audit & Self-Check    ")
     print("=" * 64)
     print(f"Target Repository: {engine.repo_root}")
     print(f"Results          : {len(criticals)} Critical, {len(warnings)} Warnings, {len(infos)} Info")

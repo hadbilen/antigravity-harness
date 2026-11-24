@@ -1,6 +1,6 @@
 """
 guard/hooks/stop_gate.py — Stop completion gate, diff/test-boundary scanner & flight-recorder reconciliation (ADR-0008).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -471,12 +471,14 @@ def _load_ui_slop_scanner() -> Any:
         except OSError:
             return False
 
+    from guard.paths import share_dir_candidates
+
     rel = Path("skills") / "ui-refinery" / "scripts" / "check_ui_slop.py"
     plug_rel = Path("plugins") / "ui-refinery" / rel
     candidates: List[Tuple[Path, Path, Optional[str]]] = [
         (_repo_root(), rel, None),
         (data_dir() / "runtime", rel, None),
-        (Path("/usr/share/antigravity-harness"), rel, None),
+        *((sh, rel, None) for sh in share_dir_candidates()),
         (config_dir(), rel, None),
         (config_dir(), plug_rel, "ui-refinery"),
         (configured_config_dir(), rel, None),

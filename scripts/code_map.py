@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 scripts/code_map.py — Zero-Dependency Structural Code Graph, Runtime Tracer & FTS5 Search Engine
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 
 Provides deterministic, standard-library-only capabilities for:
   1. `profile`:      Symbol definition(s), signature, docstring, class hierarchy, callers, and callees.

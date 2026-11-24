@@ -1,6 +1,6 @@
 """
-Antigravity Guard (agy-guard) — OS-Level Governance, Write Protection, & Staging Suite.
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Plumb Guard (plumb-guard) — OS-Level Governance, Write Protection, & Staging Suite.
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-__version__ = "2.4.0"
-__author__ = "Antigravity Team & Contributors"
+__version__ = "3.0.0"
+__author__ = "Plumbwork Contributors"
 
 if TYPE_CHECKING:
     from guard.environment import AgentEnvironment, EnvironmentRegistry

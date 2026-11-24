@@ -13,7 +13,7 @@ Use this skill whenever investigating, reproducing, or fixing defects, regressio
 NEVER propose speculative fixes, wrap code in superficial try/catch blocks, or modify code based on guessing before establishing a deterministic feedback loop that proves the defect.
 
 ## Context Hygiene & Think in Code
-* **Computational Scanning:** When debugging across multiple logs or source files, do not read entire files one by one into conversation context. Execute targeted shell one-liners (`run_command` via Bash, Python, `grep`, `awk`, `jq`), structural dataflow queries (`agy-guard code-map callers <symbol>`, `agy-guard code-map flow <symbol>`; or `python3 ~/.local/share/antigravity-harness/runtime/scripts/code_map.py`), or ranked log searches (`agy-guard code-map fts-search "<query>" <paths...>`) to filter and pull only focal defect lines.
+* **Computational Scanning:** When debugging across multiple logs or source files, do not read entire files one by one into conversation context. Execute targeted shell one-liners (`run_command` via Bash, Python, `grep`, `awk`, `jq`), structural dataflow queries (`plumb-guard code-map callers <symbol>`, `plumb-guard code-map flow <symbol>`; or `python3 ~/.local/share/plumbwork/runtime/scripts/code_map.py`), or ranked log searches (`plumb-guard code-map fts-search "<query>" <paths...>`) to filter and pull only focal defect lines.
 * **Output Filtering:** Use runner flags (`--silent`, `-q`, `--tb=short`) to suppress passing test chatter, but never pipe failing test or compiler output through `head` or `tail` (if a failure trace exceeds 500 lines, route it to `build-error-resolver` per `GEMINI.md` Rule 11, or redirect to a scratch file and read the complete failing block).
 * **Accuracy Priority:** Failing test logs, stack traces, and compiler error output must never be artificially synthesized or truncated; preserve exact failure text.
 
@@ -29,7 +29,7 @@ Label the failure with one or more of: **`CODE`** (application logic is wrong), 
 
 ### Phase 2: Minimize & Isolate
 * Strip away extraneous variables to find the smallest reproducible example (minimal payload, minimal state, minimal file).
-* Identify the exact boundary where expected behavior diverges from actual behavior. Use `agy-guard code-map flow <symbol>` (or `python3 ~/.local/share/antigravity-harness/runtime/scripts/code_map.py flow <symbol>`) to trace backward argument origins (`backflow`) and forward return-value consumers (`forwardflow`) without reading every intermediate file manually.
+* Identify the exact boundary where expected behavior diverges from actual behavior. Use `plumb-guard code-map flow <symbol>` (or `python3 ~/.local/share/plumbwork/runtime/scripts/code_map.py flow <symbol>`) to trace backward argument origins (`backflow`) and forward return-value consumers (`forwardflow`) without reading every intermediate file manually.
 * Distinguish between the **trigger** (what initiated the error), the **fault** (the defective logic or state), and the **symptom** (the visible failure or crash).
 * **Regressions (worked previously):** Identify the last known good commit and bisect between it and the failing commit using the Phase 1 reproduction command (`git bisect run <command>`) rather than reading commit history manually.
 
@@ -39,7 +39,7 @@ Label the failure with one or more of: **`CODE`** (application logic is wrong), 
 * **Hypothesis-bound scripts:** every diagnostic scratch script tests a stated hypothesis. When a script does not confirm it, revise the hypothesis from the evidence before writing the next script; open-ended trial-and-error scripting is progress theater. (Inventory/aggregation scripts required by Constitution Rule 11 are not diagnostic scripts.)
 
 ### Phase 4: Instrument & Verify Hypothesis
-* Add minimal, targeted diagnostic logging, assertions, or run the reproduction script under the structural runtime tracer (`agy-guard code-map trace <repro.py> --json` or `python3 ~/.local/share/antigravity-harness/runtime/scripts/code_map.py trace <repro.py> --json`) to capture actual call edges, concrete argument values, and return values across polymorphic dispatch, comprehensions, and lambdas.
+* Add minimal, targeted diagnostic logging, assertions, or run the reproduction script under the structural runtime tracer (`plumb-guard code-map trace <repro.py> --json` or `python3 ~/.local/share/plumbwork/runtime/scripts/code_map.py trace <repro.py> --json`) to capture actual call edges, concrete argument values, and return values across polymorphic dispatch, comprehensions, and lambdas.
 * Observe the actual state against expectations. Do not modify business logic yet.
 * Confirm which hypothesis matches reality with empirical proof.
 

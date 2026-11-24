@@ -1,6 +1,6 @@
 """
-guard/tray.py — Cross-Platform System Tray Adapter for Antigravity Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+guard/tray.py — Cross-Platform System Tray Adapter for Plumb Guard
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 
 Supports:
 1. AyatanaAppIndicator3 / AppIndicator3 via PyGObject (native on Kubuntu/KDE Plasma, GNOME, XFCE).
@@ -65,7 +65,7 @@ def detect_linux_display_session(env: Optional[Mapping[str, str]] = None) -> Dic
     session_type = (source.get("XDG_SESSION_TYPE") or "").strip().lower()
     wayland_display = (source.get("WAYLAND_DISPLAY") or "").strip()
     x11_display = (source.get("DISPLAY") or "").strip()
-    no_tray_raw = (source.get("AGY_GUARD_NO_TRAY") or "").strip().lower()
+    no_tray_raw = (source.get("PLUMB_GUARD_NO_TRAY") or "").strip().lower()
     is_wayland = session_type == "wayland" or bool(wayland_display)
     has_x11 = bool(x11_display)
     return {
@@ -234,7 +234,7 @@ class AyatanaAdapter(BaseTrayAdapter):
         def _run_gtk():
             try:
                 self.indicator = self._appindicator.Indicator.new(
-                    "antigravity_guard",
+                    "plumb_guard",
                     icon_name,
                     self._appindicator.IndicatorCategory.APPLICATION_STATUS,
                 )
@@ -261,7 +261,7 @@ class AyatanaAdapter(BaseTrayAdapter):
         try:
             menu = self._gtk.Menu()
 
-            item_open = self._gtk.MenuItem(label="Open Antigravity Guard")
+            item_open = self._gtk.MenuItem(label="Open Plumb Guard")
             item_open.connect("activate", lambda w: self._safe_invoke("open", self.on_open))
             menu.append(item_open)
 
@@ -308,7 +308,7 @@ class AyatanaAdapter(BaseTrayAdapter):
         try:
             if self.indicator:
                 if self._icon_file and os.path.isfile(self._icon_file):
-                    self.indicator.set_icon_full(self._icon_file, "Antigravity Guard")
+                    self.indicator.set_icon_full(self._icon_file, "Plumb Guard")
                 self._update_gtk_menu()
         except Exception as exc:  # noqa: BLE001
             self._record_failure(exc)
@@ -382,7 +382,7 @@ class PystrayAdapter(BaseTrayAdapter):
         toggle_text = "Unlock Shield (Maintenance)" if self.is_locked else "Lock Shield Now"
 
         return self._pystray.Menu(
-            self._pystray.MenuItem("Open Antigravity Guard", lambda icon, item: self._safe_invoke("open", self.on_open), default=True),
+            self._pystray.MenuItem("Open Plumb Guard", lambda icon, item: self._safe_invoke("open", self.on_open), default=True),
             self._pystray.Menu.SEPARATOR,
             self._pystray.MenuItem(status_text, lambda icon, item: None, enabled=False),
             self._pystray.MenuItem(toggle_text, lambda icon, item: self._safe_invoke("toggle_lock", self.on_toggle_lock)),
@@ -399,9 +399,9 @@ class PystrayAdapter(BaseTrayAdapter):
 
         try:
             self.icon = self._pystray.Icon(
-                "antigravity_guard",
+                "plumb_guard",
                 icon_img,
-                "Antigravity Guard",
+                "Plumb Guard",
                 self._build_menu(),
             )
 
@@ -463,10 +463,13 @@ def create_tray_adapter(
 ) -> BaseTrayAdapter:
     """Factory creating the optimal tray backend for the current OS and environment."""
     diagnostics: List[str] = []
+    if os.environ.get("PLUMB_GUARD_NO_TRAY", "").strip().lower() in ("1", "true", "yes", "on"):
+        reason = "System tray disabled via PLUMB_GUARD_NO_TRAY=1; using standard window lifecycle."
+        return DummyAdapter(fallback_reason=reason, diagnostics=[reason])
     if platform.system() == "Linux":
         session = detect_linux_display_session()
         if session["disabled_by_env"]:
-            reason = "System tray disabled via AGY_GUARD_NO_TRAY=1; using standard window lifecycle."
+            reason = "System tray disabled via PLUMB_GUARD_NO_TRAY=1; using standard window lifecycle."
             return DummyAdapter(fallback_reason=reason, diagnostics=[reason])
         if session["is_headless"]:
             reason = "No Linux graphical display (DISPLAY/WAYLAND_DISPLAY unset); skipping tray backends."

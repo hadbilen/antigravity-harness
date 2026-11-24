@@ -1,6 +1,6 @@
 """
 guard/hooks/pre_invocation.py — PreInvocation skill-suggest, context routing & recovery gate (ADR-0008).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -736,7 +736,7 @@ _ECOSYSTEM_ROUTING_HINTS_RAW: Tuple[Tuple[str, str, str], ...] = (
             r"(?:beceri|kanca|anayasa)\s+tutarlılık\s+denetim\w*"
             rf"){_PATH_WORD_POST})"
         ),
-        "Subagent `meta-auditor` (`invoke_subagent` with `TypeName=\"meta-auditor\"` + `agy-guard self-audit --strict` (or `python3 scripts/meta_audit.py --strict` in repo checkouts) for harness, skill, hook & Porter meta-consistency verification per GEMINI.md Rule 17)",
+        "Subagent `meta-auditor` (`invoke_subagent` with `TypeName=\"meta-auditor\"` + `plumb-guard self-audit --strict` (or `python3 scripts/meta_audit.py --strict` in repo checkouts) for harness, skill, hook & Porter meta-consistency verification per GEMINI.md Rule 17)",
     ),
     (
         "route:subagent:image-generator",
@@ -2324,12 +2324,14 @@ def _optional_plugin_skill_available(rel_path: str, workspaces: Sequence[Path]) 
     """Checks disk existence for optional `plugins/...` skill files so uninstalled plugins are not hinted."""
     if not rel_path.startswith("plugins/"):
         return True
+    from guard.paths import share_dir_candidates
+
     cfg = configured_config_dir()
     roots: List[Path] = [
         cfg,
         config_dir(),
         _repo_root(),
-        Path("/usr/share/antigravity-harness"),
+        *share_dir_candidates(),
     ]
     for ws in workspaces:
         roots.append(ws)

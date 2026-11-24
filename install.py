@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-install.py — Antigravity Harness Cross-Platform Installer
+install.py — Plumbwork Cross-Platform Installer
 Zero-dependency: uses strictly the Python standard library.
 
 Default (copy mode): governance files (constitution, design contract, agents, skills,
-templates, manifest, hooks) are COPIED into ~/.gemini/config as real files so Antigravity
+templates, manifest, hooks) are COPIED into ~/.gemini/config as real files so Plumb
 Guard can actually write-protect them. Guard's runtime code is copied into the per-user data
 directory and small launchers are placed in ~/.local/bin (or %LOCALAPPDATA% on Windows).
 
 --link (developer mode): governance entries are symlinked to this checkout instead. Guard
-cannot lock symlinked entries; `agy-guard status` reports them as unprotected.
+cannot lock symlinked entries; `plumb-guard status` reports them as unprotected.
 
 The installer is Guard-aware: if the governance scope is locked it asks a human to confirm,
 unlocks, installs, re-establishes the integrity baseline and locks again. Existing files are
@@ -88,8 +88,8 @@ RUNTIME_PORTABLE_SKILL_SCRIPTS = (
     "skills/ui-refinery/scripts/check_ui_slop.py",
     "skills/ui-refinery/scripts/check_synthetic_markers.py",
 )
-LAUNCHER_MARKER = "antigravity-harness launcher"
-RELEASE_BASE = "https://github.com/hadbilen/antigravity-harness/releases/download"
+LAUNCHER_MARKER = "plumbwork launcher"
+RELEASE_BASE = "https://github.com/hadbilen/plumbwork/releases/download"
 BACKUP_RETENTION_KEEP = 10
 _HEX_SHA256_CHARS = frozenset("0123456789abcdef")
 
@@ -205,7 +205,7 @@ def _write_protected(adapter, path: Path) -> bool:
 
 
 def _is_harness_constitution_file(path: Path) -> bool:
-    """True when `path` appears to be an earlier Antigravity Harness GEMINI.md installation."""
+    """True when `path` appears to be an earlier Plumbwork (or legacy v2.x) GEMINI.md installation."""
     return is_harness_constitution_file(path, source_root=SCRIPT_DIR)
 
 
@@ -987,17 +987,17 @@ class Installer:
     def install_launchers(self, runtime: Path) -> None:
         python_bin = sys.executable or ("python" if IS_WINDOWS else "python3")
         if self.dry_run:
-            self.log("[DRY-RUN] launchers agy-guard / agy-porter")
+            self.log("[DRY-RUN] launchers plumb-guard / plumb-porter")
             return
         if IS_WINDOWS:
-            bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard"
-            for name, script in (("agy-guard", "guard.py"), ("agy-porter", "porter.py")):
+            bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard"
+            for name, script in (("plumb-guard", "guard.py"), ("plumb-porter", "porter.py")):
                 body = f'@echo off\r\nrem {LAUNCHER_MARKER}\r\n"{python_bin}" "{runtime / script}" %*\r\n'
                 self._write_launcher(bin_dir / f"{name}.cmd", body, executable=False)
-            self.log(f"[PATH] Add {bin_dir} to your PATH to use agy-guard / agy-porter.")
+            self.log(f"[PATH] Add {bin_dir} to your PATH to use plumb-guard / plumb-porter.")
             return
         bin_dir = Path.home() / ".local" / "bin"
-        for name, script in (("agy-guard", "guard.py"), ("agy-porter", "porter.py")):
+        for name, script in (("plumb-guard", "guard.py"), ("plumb-porter", "porter.py")):
             body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec {shlex.quote(python_bin)} {shlex.quote(str(runtime / script))} "$@"\n'
             self._write_launcher(bin_dir / name, body)
         porter_alias = bin_dir / "porter"
@@ -1005,9 +1005,9 @@ class Installer:
             body = f'#!/bin/sh\n# {LAUNCHER_MARKER}\nexec {shlex.quote(python_bin)} {shlex.quote(str(runtime / "porter.py"))} "$@"\n'
             self._write_launcher(porter_alias, body)
         else:
-            self.log(f"[NOTICE] {porter_alias} belongs to another tool; use 'agy-porter'.")
+            self.log(f"[NOTICE] {porter_alias} belongs to another tool; use 'plumb-porter'.")
         if str(bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
-            self.log(f"[PATH] {bin_dir} is not on PATH; add it to use agy-guard.")
+            self.log(f"[PATH] {bin_dir} is not on PATH; add it to use plumb-guard.")
 
     @staticmethod
     def _lookup_pinned_binary_sha256(binary_name: str) -> str:
@@ -1038,7 +1038,7 @@ class Installer:
         """Installs a standalone binary ONLY after verifying it against a pinned or local .sha256 digest."""
         machine = platform.machine().lower()
         machine = "x86_64" if machine in ("amd64", "x86_64") else ("arm64" if machine in ("arm64", "aarch64") else machine)
-        names = {"Linux": f"agy-guard-linux-{machine}", "Darwin": f"agy-guard-macos-{machine}", "Windows": f"agy-guard-windows-{machine}.exe"}
+        names = {"Linux": f"plumb-guard-linux-{machine}", "Darwin": f"plumb-guard-macos-{machine}", "Windows": f"plumb-guard-windows-{machine}.exe"}
         binary_name = names.get(SYSTEM)
         if not binary_name:
             self.log(f"[NOTICE] No standalone binary is published for {SYSTEM}; using the Python runtime.")
@@ -1047,8 +1047,8 @@ class Installer:
         if pinned and not _is_valid_sha256(pinned):
             self.log(f"[SECURITY] Invalid --sha256 digest format for {binary_name}; expected 64 hex characters.")
             return False
-        dest = (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard" / "agy-guard.exe") if IS_WINDOWS \
-            else Path.home() / ".local" / "bin" / "agy-guard"
+        dest = (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard" / "plumb-guard.exe") if IS_WINDOWS \
+            else Path.home() / ".local" / "bin" / "plumb-guard"
         local = SCRIPT_DIR / "dist" / binary_name
         sums = ""
         try:
@@ -1072,7 +1072,7 @@ class Installer:
                     raise ValueError(f"Disallowed binary release host: {base}")
                 from porter.net import DEADLINE_FACTOR, build_safe_opener, safe_fetch_url, validate_safe_url
 
-                user_agent = f"AntigravityHarness-Installer/{__version__}"
+                user_agent = f"Plumbwork-Installer/{__version__}"
                 sums = safe_fetch_url(
                     f"{base}/{binary_name}.sha256",
                     user_agent=user_agent,
@@ -1165,7 +1165,7 @@ class Installer:
 
 
 def _is_harness_launcher(path: Path, runtime_root: Path, recorded_binary_path: str = "") -> bool:
-    """Returns True only when `path` was created by Antigravity Harness."""
+    """Returns True only when `path` was created by Plumbwork."""
     if not os.path.lexists(path):
         return False
     if os.path.islink(path):
@@ -1191,9 +1191,9 @@ def _is_harness_launcher(path: Path, runtime_root: Path, recorded_binary_path: s
 
 
 def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
-    """Safely uninstalls Antigravity Harness governance, hooks, launchers, and Guard runtime."""
+    """Safely uninstalls Plumbwork governance, hooks, launchers, and Guard runtime."""
     print("=" * 60)
-    print(f"      Antigravity Harness {__version__} Uninstaller")
+    print(f"      Plumbwork {__version__} Uninstaller")
     print("=" * 60)
     print(f"Target   : {target_dir}")
     print("-" * 60)
@@ -1201,7 +1201,7 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     if not dry_run:
         if not request_approval(
             "uninstall",
-            "Uninstall Antigravity Harness governance files, hooks, launchers, and Guard runtime?",
+            "Uninstall Plumbwork governance files, hooks, launchers, and Guard runtime?",
             [
                 str(target_dir),
                 "Custom user files, sidecars, and non-harness hooks in hooks.json are preserved.",
@@ -1446,14 +1446,14 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
                 except OSError:
                     pass
 
-    # 3. Remove launchers ONLY if created by Antigravity Harness.
+    # 3. Remove launchers ONLY if created by Plumbwork.
     runtime_root = data_dir() / "runtime"
     if IS_WINDOWS:
-        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "antigravity-guard"
-        launcher_candidates = [bin_dir / "agy-guard.cmd", bin_dir / "agy-porter.cmd", bin_dir / "agy-guard.exe"]
+        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard"
+        launcher_candidates = [bin_dir / "plumb-guard.cmd", bin_dir / "plumb-porter.cmd", bin_dir / "plumb-guard.exe"]
     else:
         bin_dir = Path.home() / ".local" / "bin"
-        launcher_candidates = [bin_dir / "agy-guard", bin_dir / "agy-porter", bin_dir / "porter"]
+        launcher_candidates = [bin_dir / "plumb-guard", bin_dir / "plumb-porter", bin_dir / "porter"]
     for lpath in launcher_candidates:
         if _is_harness_launcher(lpath, runtime_root, recorded_binary_path=recorded_binary_path):
             if dry_run:
@@ -1524,10 +1524,10 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
 
     print("=" * 60)
     if cleanup_failed:
-        print("[ERROR] Antigravity Harness uninstall completed with cleanup errors.", file=sys.stderr)
+        print("[ERROR] Plumbwork uninstall completed with cleanup errors.", file=sys.stderr)
         print("=" * 60)
         return 1
-    print("[SUCCESS] Antigravity Harness uninstalled." + (" (dry run: nothing was modified)" if dry_run else ""))
+    print("[SUCCESS] Plumbwork uninstalled." + (" (dry run: nothing was modified)" if dry_run else ""))
     if not dry_run and uninstall_backup.exists():
         print(f"Removed governance files were archived to: {uninstall_backup}")
     print("=" * 60)
@@ -1575,7 +1575,7 @@ def release_runtime_state(adapter, target_dir: Path, dry_run: bool = False) -> L
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Antigravity Harness installer")
+    parser = argparse.ArgumentParser(description="Plumbwork installer")
     parser.add_argument("--link", "--dev", action="store_true", dest="link",
                         help="Developer mode: symlink governance files to this checkout (cannot be locked)")
     layout_group = parser.add_mutually_exclusive_group()
@@ -1590,7 +1590,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Install or revert to Flat Layout: all 20 canonical skills under skills/ and restore retired MCP entries",
     )
     parser.add_argument("--from-source", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--binary", action="store_true", help="Also install the checksum-verified standalone agy-guard binary")
+    parser.add_argument("--binary", action="store_true", help="Also install the checksum-verified standalone plumb-guard binary")
     parser.add_argument("--sha256", default="", help="Expected 64-hex SHA-256 digest when downloading --binary from GitHub Releases")
     parser.add_argument("--uninstall", action="store_true", help="Cleanly remove harness governance, hooks, launchers, and runtime")
     parser.add_argument("--no-lock", action="store_true", help="Do not lock the governance scope after installing")
@@ -1608,7 +1608,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     target_dir = raw_target.resolve()
     if not args.uninstall and target_dir == SCRIPT_DIR.resolve():
         print(
-            f"[ERROR] Refusing to install into the Antigravity Harness source checkout itself: {target_dir}",
+            f"[ERROR] Refusing to install into the Plumbwork source checkout itself: {target_dir}",
             file=sys.stderr,
         )
         return 1
@@ -1647,7 +1647,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     print("=" * 60)
-    print(f"      Antigravity Harness {__version__} Installer ({mode} mode, {layout} layout)")
+    print(f"      Plumbwork {__version__} Installer ({mode} mode, {layout} layout)")
     print("=" * 60)
     print(f"Platform : {SYSTEM} ({platform.release()})")
     print(f"Source   : {SCRIPT_DIR}")
@@ -1779,7 +1779,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"[SUCCESS] {msg}")
 
     print("=" * 60)
-    print("[SUCCESS] Antigravity Harness installed." + (" (dry run: nothing was written)" if args.dry_run else ""))
+    print("[SUCCESS] Plumbwork installed." + (" (dry run: nothing was written)" if args.dry_run else ""))
     if installer.backup_dir.exists():
         print(f"Replaced files were backed up to: {installer.backup_dir}")
     if mode == "link":

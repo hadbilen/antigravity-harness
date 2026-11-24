@@ -1,6 +1,6 @@
 """
 guard/hooks/pre_tool_use.py — PreToolUse core router, governance/customization shield & lazy tool-scoped dispatcher (ADR-0008, ADR-0013).
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -600,8 +600,8 @@ def _state_root_candidates() -> List[Path]:
     out: List[Path] = []
     for cand in (
         state_dir(),
-        Path(os.path.abspath(home / ".local" / "state" / "antigravity-harness")),
-        Path(os.path.abspath(home / ".local" / "state" / "antigravity-guard")),
+        Path(os.path.abspath(home / ".local" / "state" / "plumbwork")),
+        Path(os.path.abspath(home / ".local" / "state" / "plumb-guard")),
     ):
         if cand not in out:
             out.append(cand)
@@ -633,8 +633,8 @@ def _governance_roots() -> List[Path]:
         data_dir(),
         data_dir() / "runtime",
         data_dir() / "snapshots",
-        home / ".local" / "bin" / "agy-guard",
-        home / ".local" / "bin" / "agy-porter",
+        home / ".local" / "bin" / "plumb-guard",
+        home / ".local" / "bin" / "plumb-porter",
     ]
     porter_bin = home / ".local" / "bin" / "porter"
     try:
@@ -642,20 +642,23 @@ def _governance_roots() -> List[Path]:
             candidates.append(porter_bin)
         elif porter_bin.is_file():
             porter_head = porter_bin.read_text(encoding="utf-8", errors="ignore")[:512].lower()
-            if "antigravity-harness launcher" in porter_head or "antigravity harness cli launcher" in porter_head:
+            if "plumbwork launcher" in porter_head or "plumbwork cli launcher" in porter_head:
                 candidates.append(porter_bin)
     except OSError:
         candidates.append(porter_bin)
     if os.name == "nt":
         local_app = Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
-        candidates.append(local_app / "Programs" / "antigravity-guard")
+        candidates.append(local_app / "Programs" / "plumb-guard")
     else:
         candidates.extend([
-            Path("/usr/bin/agy-guard"),
-            Path("/usr/bin/agy-porter"),
-            Path("/usr/lib/antigravity-guard"),
-            Path("/usr/share/antigravity-harness"),
+            Path("/usr/bin/plumb-guard"),
+            Path("/usr/bin/plumb-porter"),
+            Path("/usr/lib/plumb-guard"),
+            Path("/usr/share/plumbwork"),
         ])
+    share_env = os.environ.get("PLUMBWORK_SHARE_DIR", "").strip()
+    if share_env:
+        candidates.append(Path(os.path.abspath(Path(share_env).expanduser())))
     candidates.extend(_custom_enforced_governance_roots())
     for candidate in candidates:
         if candidate not in roots:
@@ -891,17 +894,20 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
             return str(Path.home())
         if upper_var == "ANTIGRAVITY_CONFIG_DIR":
             return str(configured_config_dir())
-        if upper_var in ("AGY_GUARD_STATE_DIR", "ANTIGRAVITY_STATE_DIR"):
+        if upper_var in ("PLUMB_GUARD_STATE_DIR", "ANTIGRAVITY_STATE_DIR"):
             return str(state_dir())
-        if upper_var == "AGY_GUARD_DATA_DIR":
+        if upper_var == "PLUMB_GUARD_DATA_DIR":
             return str(data_dir())
+        if upper_var == "PLUMBWORK_SHARE_DIR":
+            raw_share = (os.environ.get("PLUMBWORK_SHARE_DIR") or "").strip()
+            return os.path.abspath(Path(raw_share).expanduser()) if raw_share else "/usr/share/plumbwork"
         val = os.environ.get(raw_var) or os.environ.get(upper_var)
         return val if val else m.group(0)
 
     cleaned = re.sub(
-        r"^(?:\$\{(HOME|USERPROFILE|LOCALAPPDATA|ANTIGRAVITY_CONFIG_DIR|AGY_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|AGY_GUARD_DATA_DIR|XDG_CONFIG_HOME|XDG_STATE_HOME|XDG_DATA_HOME)\}|"
-        r"\$(HOME|USERPROFILE|LOCALAPPDATA|ANTIGRAVITY_CONFIG_DIR|AGY_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|AGY_GUARD_DATA_DIR|XDG_CONFIG_HOME|XDG_STATE_HOME|XDG_DATA_HOME)|"
-        r"%(USERPROFILE|LOCALAPPDATA|ANTIGRAVITY_CONFIG_DIR|AGY_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|AGY_GUARD_DATA_DIR)%)(?=[/\\]|$)",
+        r"^(?:\$\{(HOME|USERPROFILE|LOCALAPPDATA|ANTIGRAVITY_CONFIG_DIR|PLUMB_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|PLUMB_GUARD_DATA_DIR|PLUMBWORK_SHARE_DIR|XDG_CONFIG_HOME|XDG_STATE_HOME|XDG_DATA_HOME)\}|"
+        r"\$(HOME|USERPROFILE|LOCALAPPDATA|ANTIGRAVITY_CONFIG_DIR|PLUMB_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|PLUMB_GUARD_DATA_DIR|PLUMBWORK_SHARE_DIR|XDG_CONFIG_HOME|XDG_STATE_HOME|XDG_DATA_HOME)|"
+        r"%(USERPROFILE|LOCALAPPDATA|ANTIGRAVITY_CONFIG_DIR|PLUMB_GUARD_STATE_DIR|ANTIGRAVITY_STATE_DIR|PLUMB_GUARD_DATA_DIR|PLUMBWORK_SHARE_DIR)%)(?=[/\\]|$)",
         _expand_leading_env,
         cleaned,
         flags=re.IGNORECASE,
@@ -1233,7 +1239,7 @@ def _catalog_top_model_spec() -> Tuple[str, set[str]]:
     allowed = _expand_highest_effort_slug_aliases(top_slug) | peer_slugs
     state_candidates = [
         state_dir() / "upstream_state.json",
-        Path.home() / ".local" / "state" / "antigravity-harness" / "upstream_state.json",
+        Path.home() / ".local" / "state" / "plumbwork" / "upstream_state.json",
     ]
     for st_path in state_candidates:
         if st_path.is_file():
@@ -1309,7 +1315,7 @@ def _extract_transcript_model_setting(payload: Dict[str, Any]) -> str:
     return _extract_transcript_model_and_effort(payload)[0]
 
 def _find_harness_repo_root(path: Path) -> Optional[Path]:
-    """Walks bounded ancestors of `path` (both lexical and resolved) to locate an enclosing Antigravity Harness checkout."""
+    """Walks bounded ancestors of `path` (both lexical and resolved) to locate an enclosing Plumbwork checkout."""
     starts: List[Path] = []
     try:
         starts.append(Path(os.path.abspath(path)))
@@ -1330,7 +1336,7 @@ def _find_harness_repo_root(path: Path) -> Optional[Path]:
     return None
 
 def _workspaces_in_harness_scope(workspaces: Sequence[Path], effective_cwd: Optional[Path]) -> bool:
-    """True when active workspace/cwd context is an `antigravity-harness` source checkout."""
+    """True when active workspace/cwd context is a `plumbwork` source checkout."""
     if effective_cwd is not None:
         return _find_harness_repo_root(effective_cwd) is not None
     if workspaces:
@@ -1346,7 +1352,7 @@ def _workspaces_in_harness_scope(workspaces: Sequence[Path], effective_cwd: Opti
 def _targets_customization_structure(target_path_str: str, workspace: Optional[Path] = None) -> bool:
     """
     Returns True when `target_path_str` targets a harness governance/customization artifact
-    inside an `antigravity-harness` repository checkout or a protected global governance root
+    inside a `plumbwork` repository checkout or a protected global governance root
     (`~/.gemini/config`, `~/.gemini/{GEMINI,AGENTS}.md`, `data_dir()/runtime`).
     External non-harness projects' own `AGENTS.md`, `GEMINI.md`, `SKILL.md`, and `.cursor/`
     files are NOT Rule-17 model-gated (workspace `.agents/hooks.json` remains separately
@@ -1520,11 +1526,13 @@ def _seed_placeholder_diagnostic(placeholder_id: str, *, effort_verified: bool =
         if effort_verified
         else "effort unverified in payload"
     )
+    from guard.paths import share_dir_candidates
+
     seed_paths = [
         _repo_root() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
         configured_config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
         config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        Path("/usr/share/antigravity-harness/skills/upstream-auditor/upstream_state.seed.json"),
+        *(sh / "skills" / "upstream-auditor" / "upstream_state.seed.json" for sh in share_dir_candidates()),
     ]
     for seed_file in seed_paths:
         try:
@@ -2124,7 +2132,7 @@ def _handle_pre_tool_use_core(
             "decision": "deny",
             "reason": (
                 "[Harness Governance Shield] Protected environments registry `environments.json` is corrupt or "
-                "unreadable (failing closed; run `agy-guard doctor` in an interactive terminal)."
+                "unreadable (failing closed; run `plumb-guard doctor` in an interactive terminal)."
             ),
         }
 

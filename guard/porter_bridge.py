@@ -1,6 +1,6 @@
 """
 guard/porter_bridge.py — Bridge to Porter Suitability & Transpilation Engine
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Ingestion is bound to what the operator reviewed: the inspected content hash must match
@@ -36,7 +36,7 @@ from porter.sanitizer import ConstitutionalSanitizer
 
 class PorterBridge:
     """
-    Connects Antigravity Guard with the Porter transpiler and suitability gate.
+    Connects Plumb Guard with the Porter transpiler and suitability gate.
     The target is unlocked ONLY during vetted promotion and re-locked afterwards.
     """
 
@@ -157,7 +157,7 @@ class PorterBridge:
                     "Download the archive and inspect the local file."
                 )
             parsed = urllib.parse.urlparse(source_path_or_url)
-            raw_content = safe_fetch_url(source_path_or_url, user_agent=f"AntigravityGuard/{PORTER_VERSION}")
+            raw_content = safe_fetch_url(source_path_or_url, user_agent=f"PlumbGuard/{PORTER_VERSION}")
             source_name = Path(parsed.path).name or "remote_rule"
         else:
             p = Path(source_path_or_url).resolve()

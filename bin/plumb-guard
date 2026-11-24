@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/agy-guard — POSIX Launcher for Antigravity Guard (Linux/macOS)
+# bin/plumb-guard — POSIX Launcher for Plumb Guard (Linux/macOS)
 set -euo pipefail
 
 # Resolve symlinks to determine real directory
@@ -18,7 +18,7 @@ if command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
 else
-    echo "Error: Python 3 is required to run Antigravity Guard." >&2
+    echo "Error: Python 3 is required to run Plumb Guard." >&2
     exit 1
 fi
 

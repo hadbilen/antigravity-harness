@@ -1,6 +1,6 @@
 """
-tests/test_guard.py — Comprehensive Unit Test Suite for Antigravity Guard
-Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
+tests/test_guard.py — Comprehensive Unit Test Suite for Plumb Guard
+Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 """
 
 import hermetic  # noqa: F401  (must be imported before guard: isolates HOME/state)
@@ -547,7 +547,7 @@ class TestV126Bugfixes(unittest.TestCase):
             self.assertEqual(bridge_legacy.state_file, legacy_file)
 
             # 3. Primary XDG state when it exists
-            primary_dir = (clean_xdg / "antigravity-harness").resolve()
+            primary_dir = (clean_xdg / "plumbwork").resolve()
             primary_dir.mkdir(parents=True)
             primary_file = (primary_dir / "upstream_state.json").resolve()
             primary_file.write_text('{"tracked_repositories": {}}', encoding="utf-8")
