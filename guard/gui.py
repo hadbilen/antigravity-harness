@@ -14,17 +14,41 @@ import sys
 import threading
 from pathlib import Path
 
-# Safe tkinter imports (optional OS package on minimal Linux distributions)
-try:
-    import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
-    _TK_IMPORT_ERROR: Exception | None = None
-except ImportError as _tk_exc:
-    tk = None  # type: ignore[assignment]
-    ttk = None  # type: ignore[assignment]
-    messagebox = None  # type: ignore[assignment]
-    filedialog = None  # type: ignore[assignment]
-    _TK_IMPORT_ERROR = _tk_exc
+# Lazy tkinter imports: avoid loading native Tcl/Tk / Cocoa frameworks on headless imports
+# (CLI startup, design-token checks, or mocked tests), preventing post-import fork_exec
+# deadlocks under macOS + Tcl/Tk 9 (Python 3.14).
+tk = None  # type: ignore[assignment]
+ttk = None  # type: ignore[assignment]
+messagebox = None  # type: ignore[assignment]
+filedialog = None  # type: ignore[assignment]
+_TK_IMPORT_ERROR: Exception | None = None
+_TK_LOADED: bool = False
+
+
+def _ensure_tk() -> bool:
+    """Imports tkinter lazily on first GUI launch; safe to call repeatedly."""
+    global tk, ttk, messagebox, filedialog, _TK_IMPORT_ERROR, _TK_LOADED
+    if _TK_IMPORT_ERROR is not None:
+        return False
+    if _TK_LOADED:
+        return tk is not None
+    _TK_LOADED = True
+    try:
+        import tkinter as _tk
+        from tkinter import filedialog as _filedialog, messagebox as _messagebox, ttk as _ttk
+
+        if tk is None:
+            tk = _tk
+        if ttk is None:
+            ttk = _ttk
+        if messagebox is None:
+            messagebox = _messagebox
+        if filedialog is None:
+            filedialog = _filedialog
+        return True
+    except ImportError as _tk_exc:
+        _TK_IMPORT_ERROR = _tk_exc
+        return False
 
 from guard import __version__
 from guard import approval
@@ -58,6 +82,7 @@ ACCENT_RED = "#EF4444"
 
 class AntigravityGuardApp:
     def __init__(self, root: tk.Tk):
+        _ensure_tk()
         self.root = root
         self.root.title(f"Antigravity Guard v{__version__}")
         self.root.geometry("1040x720")
@@ -1058,6 +1083,7 @@ def _tkinter_missing_message() -> str:
 
 
 def launch_gui():
+    _ensure_tk()
     if tk is None or _TK_IMPORT_ERROR is not None:
         print(_tkinter_missing_message(), file=sys.stderr)
         return 1
