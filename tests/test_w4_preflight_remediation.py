@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 class TestW4PreFlightRemediations(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp(prefix="plumb-w4-remed-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="plumb-w4-remed-")).resolve()
         self.home = self.tmp / "home"
         self.cfg = self.home / ".gemini" / "config"
         self.state = self.tmp / "state"

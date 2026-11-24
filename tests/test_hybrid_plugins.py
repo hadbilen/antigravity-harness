@@ -3289,9 +3289,13 @@ class TestDoctorPluginNameCollisions(_IsolatedHybridEnvMixin, unittest.TestCase)
                 os.chmod(locked_manifest, 0o600)
         else:
             orig_open = os.open
+            locked_manifest_resolved = locked_manifest.resolve()
 
             def _deny_locked(path: object, flags: int, *args: object, **kwargs: object) -> int:
-                if Path(os.fspath(path)) == locked_manifest:
+                cand = Path(os.fspath(path))
+                if cand == locked_manifest or (
+                    "dir_fd" not in kwargs and cand.is_absolute() and cand.resolve() == locked_manifest_resolved
+                ):
                     raise PermissionError(13, "Permission denied", str(path))
                 return orig_open(path, flags, *args, **kwargs)
 

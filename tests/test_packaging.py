@@ -129,6 +129,7 @@ class TestLinuxPackaging(unittest.TestCase):
 
     def test_v3_replacement_metadata_across_pkgbuild_deb_rpm_and_arch(self):
         import io
+        import shutil
         import subprocess
         import tarfile
 
@@ -158,7 +159,18 @@ class TestLinuxPackaging(unittest.TestCase):
                 if size % 2 == 1:
                     f.read(1)
                 if name.startswith("control.tar"):
-                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
+                    if name.endswith(".zst"):
+                        if shutil.which("zstd"):
+                            raw_ctrl = subprocess.check_output(["zstd", "-dc"], input=data)
+                            ctrl_tf = tarfile.open(fileobj=io.BytesIO(raw_ctrl), mode="r:")
+                        elif shutil.which("dpkg-deb"):
+                            control_text = subprocess.check_output(["dpkg-deb", "--field", str(deb_path)], text=True)
+                            break
+                        else:
+                            ctrl_tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
+                    else:
+                        ctrl_tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
+                    with ctrl_tf as tf:
                         for member in tf.getmembers():
                             if member.name.endswith("control"):
                                 control_text = tf.extractfile(member).read().decode("utf-8")

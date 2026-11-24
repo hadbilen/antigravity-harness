@@ -532,8 +532,15 @@ class TestUpstreamWatcherProcess(WatcherTestBase):
         bin_dir.mkdir()
         log = self.root / "notify.log"
         if os.name == "nt":
+            helper = self.root / "fake_notify.py"
+            helper.write_text(
+                "import os, sys\n"
+                "with open(os.environ['AGY_FAKE_NOTIFY_LOG'], 'a', encoding='utf-8') as fh:\n"
+                "    fh.write(' '.join(sys.argv[1:]) + '\\n')\n",
+                encoding="utf-8",
+            )
             fake = bin_dir / "plumb-guard.cmd"
-            fake.write_text('@echo off\r\necho %*>>"%AGY_FAKE_NOTIFY_LOG%"\r\n', encoding="utf-8")
+            fake.write_text(f'@echo off\r\n"{sys.executable}" "{helper}" %*\r\n', encoding="utf-8")
         else:
             fake = bin_dir / "plumb-guard"
             fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$AGY_FAKE_NOTIFY_LOG"\n', encoding="utf-8")

@@ -896,7 +896,7 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
             return str(data_dir())
         if upper_var == "PLUMBWORK_SHARE_DIR":
             raw_share = (os.environ.get("PLUMBWORK_SHARE_DIR") or "").strip()
-            return os.path.abspath(Path(raw_share).expanduser()) if raw_share else "/usr/share/plumbwork"
+            return os.path.abspath(Path(raw_share).expanduser() if raw_share else Path("/usr/share/plumbwork"))
         val = os.environ.get(raw_var) or os.environ.get(upper_var)
         return val if val else m.group(0)
 
@@ -921,9 +921,10 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
         if os.name == "nt" and bool(expanded.root) and not expanded.drive:
             seen_drives: List[str] = []
             for r in _governance_roots():
-                if r.drive and r.drive.upper() not in seen_drives:
-                    seen_drives.append(r.drive.upper())
-                    if _targets_governance_dir(f"{r.drive}{expanded}"):
+                r_drive = r.drive or Path(os.path.abspath(r)).drive
+                if r_drive and r_drive.upper() not in seen_drives:
+                    seen_drives.append(r_drive.upper())
+                    if _targets_governance_dir(f"{r_drive}{expanded}"):
                         return True
             return False
         if base_dir is None:
@@ -935,9 +936,10 @@ def _targets_governance_dir(target_path_str: str, base_dir: Optional[Path] = Non
                     rel_up = stripped_up.lstrip("/\\")
                     seen_drives_up: List[str] = []
                     for r in _governance_roots():
-                        if r.drive and r.drive.upper() not in seen_drives_up:
-                            seen_drives_up.append(r.drive.upper())
-                            if _targets_governance_dir(f"{r.drive}\\{rel_up}"):
+                        r_drive = r.drive or Path(os.path.abspath(r)).drive
+                        if r_drive and r_drive.upper() not in seen_drives_up:
+                            seen_drives_up.append(r_drive.upper())
+                            if _targets_governance_dir(f"{r_drive}\\{rel_up}"):
                                 return True
                     return False
                 expanded = Path("/") / expanded

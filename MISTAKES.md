@@ -14,6 +14,18 @@ Per Rule 10 of the Antigravity Constitution, each entry must contain the followi
 
 <!-- Entries are prepended below this line -->
 
+### 2026-11-24: Pre-Release `v3.0.0` `workflow_dispatch` CI (`#45479659704`) Caught 5 Cross-OS & Multi-Python Defects Masked by Single-Host Linux Python 3.14 Testing
+- **Date & Incident:** On `feat/v3-plumbwork-ui-refinery` (`098aa1c`), local `907/907` tests passed on Linux Python `3.14.8`, but remote 5-job `workflow_dispatch` CI (`#45479659704`) failed across Ubuntu Python `3.10`–`3.13`, macOS `3.12`, and Windows `3.10`–`3.14` with 5 deterministic code/test-portability defects:
+  1. **Multi-Drive Windows `$PLUMBWORK_SHARE_DIR` Gap (`guard/hooks/pre_tool_use.py`):** When `PLUMBWORK_SHARE_DIR` was whitespace-only (`"   "`), `_expand_leading_env` returned bare `"/usr/share/plumbwork"` (no drive letter) and `_targets_governance_dir` only probed `r.drive` (`C:` home roots), whereas `is_within` resolved `Path("/usr/share/plumbwork")` against the `D:` workspace drive, returning `False` on `windows-2022`.
+  2. **Python `3.10`–`3.13` `.deb` `control.tar.zst` Parsing (`tests/test_packaging.py`):** `dpkg-deb` on Ubuntu `24.04` emits `control.tar.zst`; `tarfile.open(..., mode="r:*")` natively supports zstd only in Python `>= 3.14`.
+  3. **macOS `/var` -> `/private/var` & Windows `RUNNER~1` Path Resolution (`tests/test_hybrid_plugins.py`, `tests/test_w4_preflight_remediation.py`):** Unresolved `tempfile.mkdtemp()` paths diverged from canonical `.resolve()` paths in `doctor.py`'s `_deny_locked` Windows mock and `guard/cli.py`'s `_resolve_portable_script`.
+  4. **Windows `cmd.exe` CP1252 `echo %*` Mangling (`tests/test_upstream_watcher.py`):** The Windows fake `plumb-guard.cmd` echoed `"Plumbwork — upstream change"` in CP1252 (`0x97`), raising `UnicodeDecodeError` under `read_text(encoding="utf-8")`.
+- **Root Cause:** Local verification ran exclusively on a single-drive Linux Python `3.14.8` workstation where `tarfile` silently supports zstd, `/tmp` has no symlink alias, and `cmd.exe` codepages/8.3 short paths do not exist.
+- **Impact:** Pre-merge `workflow_dispatch` CI failed on 10 of 15 matrix cells (caught safely before merging to `main` or tagging `v3.0.0`, validating `ADR-0017` D8's pre-merge 5-job CI gate).
+- **Preventive Invariant:**
+  1. Always absolutize fallback FHS paths in `_expand_leading_env` (`os.path.abspath(Path("/usr/share/plumbwork"))`) and derive Windows drive letters via `r.drive or Path(os.path.abspath(r)).drive` in `_targets_governance_dir`.
+  2. Never rely on Python `3.14`-only `tarfile` zstd auto-detection in tests (decompress `.zst` via `zstd -dc` / `dpkg-deb --field`), always compare canonical `.resolve()` paths in `tempfile.mkdtemp()` test fixtures/mocks, and write UTF-8 via Python helpers rather than `cmd.exe echo %*` in Windows test doubles.
+
 ### 2026-11-23: Live `--plugins` Canary Exposed Antigravity Auto-Prefixing of Plugin MCP Server Keys (`antislop_antislop_contrast`)
 - **Date & Incident:** During the live `v2.4.0` `--plugins` canary (`AC-7`), Antigravity registered `plugins/antislop/mcp_config.json` (`"mcpServers": {"antislop_contrast": ...}`) as `antislop_antislop_contrast` (mirroring `plugins/rea/mcp_config.json` key `"rea"` -> `rea_rea`), causing a mismatch with `guard/hooks/pre_invocation.py` and `plugins/antislop/skills/antislop/SKILL.md` (`ServerName="antislop_contrast"`).
 - **Root Cause:** Followed static `plugin/SKILL.md` advice ("prefix a plugin's servers with the plugin name") without checking live `<mcp_servers>` prefixing behavior; Antigravity automatically prefixes every plugin MCP key with `<plugin_dir>_`.
