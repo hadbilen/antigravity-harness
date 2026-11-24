@@ -30,7 +30,7 @@ When a user provides an external file (e.g. `.mdc`, `.cursorrules`, `CLAUDE.md`,
 
 1. **Run Inspection (Dry-Run / Read-Only):**
    ```bash
-   porter inspect <file_or_url>
+   plumb-porter inspect <file_or_url>
    # Or from the repository checkout:
    python3 porter.py inspect <file_or_url>
    ```
@@ -48,7 +48,7 @@ When a user provides an external file (e.g. `.mdc`, `.cursorrules`, `CLAUDE.md`,
    - `[3]` Cancel.
 4. **Execute Mutation Upon User Confirmation:**
    ```bash
-   porter import <file_or_url> --as-skill <name>
+   plumb-porter import <file_or_url> --as-skill <name>
    # Or from the repository checkout:
    python3 porter.py import <file_or_url> --as-skill <name>
    # To stage into a live Guard-protected configuration (human confirmation required):
@@ -70,7 +70,7 @@ When the user asks to prepare or export the project for teammates or external ag
    - `all`: Exports all supported targets simultaneously.
 2. **Compile Manifest & Export:**
    ```bash
-   porter export --target <target> --out <destination_directory>
+   plumb-porter export --target <target> --out <destination_directory>
    # Or from the repository checkout:
    python3 porter.py export --target <target> --out <destination_directory>
    ```
@@ -83,7 +83,7 @@ When the user asks to prepare or export the project for teammates or external ag
 
 To generate or refresh the lossless machine-readable snapshot:
 ```bash
-porter manifest
+plumb-porter manifest
 # Or from the repository checkout:
 python3 porter.py manifest
 ```

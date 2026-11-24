@@ -15,7 +15,7 @@ import textwrap
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from guard.paths import HOOK_LOCK_TIMEOUT, is_within
+from guard.paths import HOOK_LOCK_TIMEOUT, is_within, share_dir_candidates, windows_launcher_dir
 
 from . import pre_tool_use as _ptu
 from .pre_tool_use import _normalize_shell_paths
@@ -33,7 +33,7 @@ from .common import (
     json,
 )
 
-_PY_INTERP_OPTS = r"(?:-(?![A-Za-z0-9]*[mc]\b)(?:[WXx]\s+\S+|[A-Za-z0-9]+(?:=\S+)?)\s+)*"
+_PY_INTERP_OPTS = r"(?:-(?![A-Za-z0-9]*[mc]\b)(?:[WXx]\s+\S+|\d+(?:\.\d+)?(?:-\d+)?|[A-Za-z0-9]+(?:=\S+)?)\s+)*"
 
 _SINGLE_WRAPPER_PAT = (
     r"(?:[^\s;|&`]*/)?"
@@ -62,11 +62,11 @@ _SUBPARSER_OPTS = (
     r"(?:=\S+|\s+(?!snapshot\b|restore\b|prune\b|stage\b|import\b|policy\b|add\b|remove\b|enable\b|disable\b)--?[^\s;|`]+|\s+(?!snapshot\b|restore\b|prune\b|stage\b|import\b|policy\b|add\b|remove\b|enable\b|disable\b)[^\s;|`-]\S*)?)*"
 )
 
-# Human-only Guard administration subcommands (GEMINI.md Rule 12)
+# Human-only Guard administration subcommands & root-redirect env overrides (GEMINI.md Rule 12)
 _GUARD_ADMIN_BODY = (
     rf"{_CMD_WRAPPER_PREFIX}"
     r"(?:"
-    rf"(?:(?:[^\s;|&`]*[/\\])?python3?(?:\.\d+)?(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+guard(?:\.cli)?\b|(?:[^\s;|&`]*[/\\])?(?:guard\.py|guard[/\\]cli\.py))|(?:[^\s;|&`]*[/\\])?(?:guard\.py|guard[/\\]cli\.py|plumb-guard(?:\.(?:exe|cmd|bat|ps1))?))\s+"
+    rf"(?:(?:[^\s;|&`]*[/\\])?(?:python3?(?:\.\d+)?|py)(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+guard(?:\.cli)?\b|(?:[^\s;|&`]*[/\\])?(?:guard\.py|guard[/\\]cli\.py))|(?:[^\s;|&`]*[/\\])?(?:guard\.py|guard[/\\]cli\.py|plumb-guard(?:\.(?:exe|cmd|bat|ps1))?))\s+"
     r"(?:--?[A-Za-z0-9_-]+(?:=\S+|\s+(?!unlock\b|rebaseline\b|test-boundary\b|provenance\b|verify-invariants\b|snapshot\b|porter\b|env\b|startup\b|notify\b|doctor\b|init\b)[^\s;|&`]+)?\s+)*"
     r"(?:"
     r"unlock\b|"
@@ -85,8 +85,14 @@ _GUARD_ADMIN_BODY = (
     r"doctor\b[^\n;|&`]*\s--(?:fix|rec[a-z-]*)\b|"
     r"init\b(?!(?![^\n;|&`]*--uninst[a-z-]*\b)[^\n;|&`]*(?:--dry-run\b|--help\b|-h\b))"
     r")|"
-    rf"(?:(?:[^\s;|&`]*[/\\])?python3?(?:\.\d+)?(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+porter\b|(?:[^\s;|&`]*[/\\])?porter\.py)|(?:[^\s;|&`]*[/\\])?(?:porter\.py|(?:plumb-)?porter(?:\.(?:exe|cmd|bat|ps1))?)){_SUBPARSER_OPTS}\s+(?:stage\b|import\b[^\n;|&`]*\s--force\b)|"
-    rf"(?:(?:[^\s;|&`]*[/\\])?python3?(?:\.\d+)?(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+scripts\.verify_invariants\b|(?:[^\s;|&`]*[/\\])?verify_invariants\.py)|(?:[^\s;|&`]*[/\\])?verify_invariants\.py)\b[^\n;|&`]*\s--auth[a-z-]*(?:\b|=)"
+    rf"(?:(?:[^\s;|&`]*[/\\])?(?:python3?(?:\.\d+)?|py)(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+porter\b|(?:[^\s;|&`]*[/\\])?porter\.py)|(?:[^\s;|&`]*[/\\])?(?:porter\.py|(?:plumb-)?porter(?:\.(?:exe|cmd|bat|ps1))?)){_SUBPARSER_OPTS}\s+(?:stage\b|import\b[^\n;|&`]*\s--force\b)|"
+    rf"(?:(?:[^\s;|&`]*[/\\])?(?:python3?(?:\.\d+)?|py)(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+scripts\.verify_invariants\b|(?:[^\s;|&`]*[/\\])?verify_invariants\.py)|(?:[^\s;|&`]*[/\\])?verify_invariants\.py)\b[^\n;|&`]*\s--auth[a-z-]*(?:\b|=)|"
+    r"(?:export\s+|env\s+(?:-[A-Za-z0-9-]+\s+)*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
+    r"(?:PLUMBWORK_SHARE_DIR|PLUMB_GUARD_DATA_DIR|PLUMB_GUARD_STATE_DIR|ANTIGRAVITY_CONFIG_DIR|XDG_DATA_HOME|XDG_STATE_HOME)=\S+(?:[^\n`]*?(?:[\s;&|()]+))"
+    r"(?:"
+    rf"(?:[^\s;|&`]*[/\\])?(?:python3?(?:\.\d+)?|py)(?:\.exe)?\s+{_PY_INTERP_OPTS}(?:-[A-Za-z0-9]*m\s+(?:guard(?:\.cli)?|porter)\b|(?:[^\s;|&`]*[/\\])?(?:guard\.py|guard[/\\]cli\.py|porter\.py)\b)|"
+    r"(?:[^\s;|&`]*[/\\])?(?:guard\.py|guard[/\\]cli\.py|porter\.py|plumb-guard(?:\.(?:exe|cmd|bat|ps1))?|plumb-porter(?:\.(?:exe|cmd|bat|ps1))?)\b"
+    r")"
     r")"
 )
 
@@ -107,8 +113,8 @@ _GUARD_API_TOKEN_PAT = (
 # Inline or piped Python (`python -c`, `python -uc`, heredoc, or `... | python3`) invoking human-only Guard or Installer APIs directly
 _GUARD_INLINE_PY_RE = _LazyRegex(
     r"(?:"
-    rf"\bpython3?(?:\.\d+)?\b[^\n;|&`]*(?:\s-[A-Za-z0-9]*c\b|<<-?\s*['\"]?[A-Za-z0-9_]+['\"]?)[\s\S]*?{_GUARD_API_TOKEN_PAT}|"
-    rf"{_GUARD_API_TOKEN_PAT}[\s\S]*?\|\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?python3?(?:\.\d+)?\b"
+    rf"\b(?:python3?(?:\.\d+)?|py)(?:\.exe)?\b[^\n;|&`]*(?:\s-[A-Za-z0-9]*c\b|<<-?\s*['\"]?[A-Za-z0-9_]+['\"]?)[\s\S]*?{_GUARD_API_TOKEN_PAT}|"
+    rf"{_GUARD_API_TOKEN_PAT}[\s\S]*?\|\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*[/\\])?(?:python3?(?:\.\d+)?|py)(?:\.exe)?\b"
     r")",
     re.IGNORECASE,
 )
@@ -1024,8 +1030,26 @@ def _expand_simple_shell_vars(cmd: str) -> str:
             break
     return expanded
 
-def _normalize_governance_globs(cmd: str) -> str:
-    """Canonicalizes wildcard-obfuscated governance path prefixes and Guard/Porter launchers."""
+def _normalize_governance_globs(
+    cmd: str,
+    *,
+    return_variants: bool = False,
+    admin_variants: bool = False,
+) -> Any:
+    """
+    Canonicalizes wildcard-obfuscated governance path prefixes, Guard/Porter launchers, and root installer globs.
+    Returns `str` by default; `return_variants=True` returns all multi-match glob candidates;
+    `admin_variants=True` returns `[masked, *expanded_glob_variants]` for Rule 12 checks.
+    """
+    if admin_variants:
+        masked = _mask_quoted_operators(cmd)
+        out_variants: List[str] = [masked]
+        expanded = _normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(masked)))
+        for v in _normalize_governance_globs(expanded, return_variants=True):
+            if v not in out_variants:
+                out_variants.append(v)
+        return out_variants
+
     out = re.sub(r"(?:~|\$HOME|\$\{HOME\})/\.gem[^\s;|&'\"/]*/conf[^\s;|&'\"/]*", "~/.gemini/config", cmd)
     out = re.sub(
         r"(?:~|\$HOME|\$\{HOME\})/\.gem[^\s;|&'\"/]*/(GEMINI|AGENTS)\.md\b",
@@ -1039,60 +1063,121 @@ def _normalize_governance_globs(cmd: str) -> str:
         out,
     )
     out = re.sub(r"(?:~|\$HOME|\$\{HOME\})/\.local/bin/plumb-p[^\s;|&'\"/]*", "~/.local/bin/plumb-porter", out)
-    out = re.sub(r"(?:~|\$HOME|\$\{HOME\})/\.local/bin/plumb(?:-g|\*|\?|\[)[^\s;|&'\"/]*", "~/.local/bin/plumb-guard", out)
+    out = re.sub(r"(?:~|\$HOME|\$\{HOME\})/\.local/bin/plumb-g[^\s;|&'\"/]*", "~/.local/bin/plumb-guard", out)
     out = re.sub(r"(?:~|\$HOME|\$\{HOME\})/\.local/bin/por\?ter|(?:~|\$HOME|\$\{HOME\})/\.local/bin/por\*[^\s;|&'\"/]*", "~/.local/bin/porter", out)
     out = re.sub(r"/usr/bin/plumb-p[^\s;|&'\"/]*", "/usr/bin/plumb-porter", out)
-    out = re.sub(r"/usr/bin/plumb(?:-g|\*|\?|\[)[^\s;|&'\"/]*", "/usr/bin/plumb-guard", out)
+    out = re.sub(r"/usr/bin/plumb-g[^\s;|&'\"/]*", "/usr/bin/plumb-guard", out)
     out = re.sub(r"/usr/share/plumb[^\s;|&'\"/]*", "/usr/share/plumbwork", out)
     out = re.sub(r"/usr/lib/plumb[^\s;|&'\"/]*", "/usr/lib/plumb-guard", out)
 
-    if any(ch in out for ch in "*?["):
-        import fnmatch
-        from guard.paths import share_dir_candidates
+    if not any(ch in out for ch in "*?["):
+        return [out] if return_variants else out
 
-        home_str = str(Path.home()).rstrip("/")
-        concrete_targets = [
-            "~/.gemini/config",
-            "~/.gemini/GEMINI.md",
-            "~/.gemini/AGENTS.md",
-            "~/.local/state/plumbwork",
-            "~/.local/share/plumbwork",
-            "~/.local/bin/plumb-guard",
-            "~/.local/bin/plumb-porter",
-            "~/.local/bin/porter",
-            "/usr/bin/plumb-guard",
-            "/usr/bin/plumb-porter",
-            "/usr/lib/plumb-guard",
-            "/usr/share/plumbwork",
-            *(str(p) for p in share_dir_candidates()),
-        ]
-        if home_str:
-            concrete_targets.extend([
-                f"{home_str}/.gemini/config",
-                f"{home_str}/.local/state/plumbwork",
-                f"{home_str}/.local/share/plumbwork",
-                f"{home_str}/.local/bin/plumb-guard",
-                f"{home_str}/.local/bin/plumb-porter",
-                f"{home_str}/.local/bin/porter",
-            ])
+    import fnmatch
 
-        def _rewrite_glob_token(m: re.Match[str]) -> str:
-            tok = m.group(0)
-            if not any(ch in tok for ch in "*?["):
-                return tok
-            norm_tok = re.sub(r"^(?:\$\{HOME\}|\$HOME)(?=/|$)", "~", tok)
-            parts = norm_tok.split("/")
-            for cand in concrete_targets:
-                c_parts = cand.split("/")
-                if len(parts) < len(c_parts):
-                    continue
-                if all(fnmatch.fnmatchcase(cp, tp) for cp, tp in zip(c_parts, parts[: len(c_parts)])):
-                    tail = parts[len(c_parts) :]
-                    return cand + ("/" + "/".join(tail) if tail else "")
-            return tok
+    match_fn = fnmatch.fnmatch if os.name == "nt" else fnmatch.fnmatchcase
+    home_str = Path.home().as_posix().rstrip("/")
+    raw_targets: List[str] = [
+        "~/.gemini/config",
+        "~/.gemini/GEMINI.md",
+        "~/.gemini/AGENTS.md",
+        "~/.local/state/plumbwork",
+        "~/.local/share/plumbwork",
+        "~/.local/bin/plumb-guard",
+        "~/.local/bin/plumb-porter",
+        "~/.local/bin/porter",
+        "/usr/bin/plumb-guard",
+        "/usr/bin/plumb-porter",
+        "/usr/lib/plumb-guard",
+        "install.py",
+        "./install.py",
+    ]
+    if home_str:
+        raw_targets.extend([
+            f"{home_str}/.gemini/config",
+            f"{home_str}/.gemini/GEMINI.md",
+            f"{home_str}/.gemini/AGENTS.md",
+            f"{home_str}/.local/state/plumbwork",
+            f"{home_str}/.local/share/plumbwork",
+            f"{home_str}/.local/bin/plumb-guard",
+            f"{home_str}/.local/bin/plumb-porter",
+            f"{home_str}/.local/bin/porter",
+        ])
+    for dyn in (
+        *_ptu._config_root_candidates(),
+        *_ptu._state_root_candidates(),
+        data_dir(),
+        *share_dir_candidates(),
+        windows_launcher_dir(),
+        *_ptu._custom_enforced_governance_roots(),
+    ):
+        s_posix = Path(dyn).as_posix().rstrip("/")
+        if s_posix:
+            raw_targets.append(s_posix)
+    concrete_targets = list(dict.fromkeys(raw_targets))
 
-        out = re.sub(r"[^\s;|&'\"()]+", _rewrite_glob_token, out)
-    return out
+    _prefix_re = re.compile(r"^((?:[0-9&]?>>?\|?|<)|[A-Za-z_][A-Za-z0-9_]*=)(.+)$")
+    alt_variants: List[str] = []
+
+    def _match_token_candidates(tok: str) -> List[str]:
+        if not any(ch in tok for ch in "*?["):
+            return [tok]
+        prefix = ""
+        body = tok
+        pm = _prefix_re.match(body)
+        if pm:
+            prefix, body = pm.group(1), pm.group(2)
+            if not any(ch in body for ch in "*?["):
+                return [tok]
+        norm_tok = re.sub(r"^(?:\$\{HOME\}|\$HOME)(?=[/\\]|$)", "~", body).replace("\\", "/")
+        parts = norm_tok.split("/")
+        matches: List[str] = []
+        for cand in concrete_targets:
+            c_parts = cand.split("/")
+            if len(parts) < len(c_parts):
+                continue
+            if all(match_fn(cp, tp) for cp, tp in zip(c_parts, parts[: len(c_parts)])):
+                tail = parts[len(c_parts) :]
+                rewritten = prefix + cand + ("/" + "/".join(tail) if tail else "")
+                if rewritten not in matches:
+                    matches.append(rewritten)
+        return matches or [tok]
+
+    token_matches: List[Tuple[int, int, List[str]]] = []
+    for m in re.finditer(r"[^\s;|&'\"()]+", out):
+        cands = _match_token_candidates(m.group(0))
+        if cands[0] != m.group(0) or len(cands) > 1:
+            token_matches.append((m.start(), m.end(), cands))
+
+    if not token_matches:
+        return [out] if return_variants else out
+
+    def _apply_choice(choice_fn: Callable[[int, List[str]], str]) -> str:
+        pieces: List[str] = []
+        cursor = 0
+        for idx, (s_pos, e_pos, cands) in enumerate(token_matches):
+            pieces.append(out[cursor:s_pos])
+            pieces.append(choice_fn(idx, cands))
+            cursor = e_pos
+        pieces.append(out[cursor:])
+        return "".join(pieces)
+
+    primary = _apply_choice(lambda _i, cands: cands[0])
+    if not return_variants:
+        return primary
+    alt_variants.append(primary)
+    for idx, (_s, _e, cands) in enumerate(token_matches):
+        if len(cands) <= 1:
+            continue
+        for alt in cands[1:4]:
+            v = _apply_choice(lambda j, cs, target_idx=idx, target_val=alt: target_val if j == target_idx else cs[0])
+            if v not in alt_variants:
+                alt_variants.append(v)
+            if len(alt_variants) >= 6:
+                break
+        if len(alt_variants) >= 6:
+            break
+    return alt_variants
 
 _SHELL_MUTATION_INDICATOR_RE = _LazyRegex(
     r"(?:"
@@ -2395,7 +2480,9 @@ def _command_mutates_governance(cmd: str) -> bool:
     """Detects shell commands that write, copy, move, delete, or chmod inside protected governance or Guard state/runtime trees."""
     ro_scrubbed_cmd, saw_unverified_interp, mutating_py_sources = _scrub_verified_readonly_python_invocations(cmd)
     unquoted_expanded = _normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(ro_scrubbed_cmd)))
-    norm_cmd = _normalize_shell_paths(_normalize_governance_globs(unquoted_expanded))
+    glob_rewritten = _normalize_governance_globs(unquoted_expanded)
+    had_glob_rewrite = glob_rewritten != unquoted_expanded
+    norm_cmd = _normalize_shell_paths(glob_rewritten)
     has_dotdot_escape = bool(_SHELL_DOTDOT_TOKEN_RE.search(norm_cmd))
 
     def _path_spellings(p: Path) -> List[str]:
@@ -2490,8 +2577,7 @@ def _command_mutates_governance(cmd: str) -> bool:
                 custom_root_tokens.append(f"$HOME/{rel_home}")
         except ValueError:
             pass
-    share_env = os.environ.get("PLUMBWORK_SHARE_DIR", "").strip()
-    share_env_tokens = _path_spellings(Path(share_env).expanduser()) if share_env else []
+    share_tokens = [sp for sh in share_dir_candidates() for sp in _path_spellings(sh)]
     guard_roots = list(
         dict.fromkeys(
             state_roots
@@ -2513,8 +2599,7 @@ def _command_mutates_governance(cmd: str) -> bool:
                 "/usr/bin/plumb-guard",
                 "/usr/bin/plumb-porter",
                 "/usr/lib/plumb-guard",
-                "/usr/share/plumbwork",
-                *share_env_tokens,
+                *share_tokens,
                 *(
                     [
                         *_path_spellings(home / ".local" / "bin" / "porter"),
@@ -2525,7 +2610,7 @@ def _command_mutates_governance(cmd: str) -> bool:
                     else []
                 ),
                 *(
-                    _path_spellings(Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local")) / "Programs" / "plumb-guard")
+                    _path_spellings(windows_launcher_dir())
                     if os.name == "nt"
                     else []
                 ),
@@ -2537,9 +2622,11 @@ def _command_mutates_governance(cmd: str) -> bool:
     if not any(tok in norm_cmd for tok in roots):
         return False
     # Strip references to non-governance runtime subdirectories under ~/.gemini/config
-    # ONLY when no `..`/`.parent` traversal, link creation (`ln`), or archive extraction (`tar`/`unzip`) is present.
+    # ONLY when no `..`/`.parent` traversal, link creation (`ln`), archive extraction (`tar`/`unzip`),
+    # or wildcard-obfuscated `plugins/` path rewrite is present.
     scrubbed = norm_cmd
-    if not has_parent_escape and not re.search(r"\b(?:ln|tar|unzip)\b", scrubbed):
+    skip_plugin_scrub = had_glob_rewrite and "/plugins/" in norm_cmd
+    if not has_parent_escape and not skip_plugin_scrub and not re.search(r"\b(?:ln|tar|unzip)\b", scrubbed):
         for root in cfg_roots:
             if root in scrubbed:
                 for rx_sub, repl_sub in _compiled_cfg_subdir_patterns(root):
@@ -2607,7 +2694,7 @@ def _command_mutates_customization_structure(cmd: str, *, harness_scope: bool = 
 
     ro_cmd = _neutralize_ro_exec_argv(ro_cmd)
     mut_py_cust = [_neutralize_ro_exec_argv(ms) for ms in mut_py_cust]
-    norm_cmd = _normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(ro_cmd)))
+    norm_cmd = _normalize_governance_globs(_normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(ro_cmd))))
     masked_cmd = _mask_quoted_operators(norm_cmd)
     has_subshell_c = bool(re.search(r"\b(?:ba|z|da|k)?sh\s+-(?:[A-Za-z]*c)\b", norm_cmd))
     verb_haystack = norm_cmd if has_subshell_c else masked_cmd
@@ -2654,9 +2741,12 @@ def _command_mutates_customization_structure(cmd: str, *, harness_scope: bool = 
         for mut_src in mut_py_cust:
             if re.search(target_pat, mut_src):
                 return True
-    if re.search(
-        r"(?:\b(?:plumb-porter|porter(?:\.py)?)|python3?(?:\.\d+)?\s+-m\s+porter)\s+manifest\b(?![^\n;|&]*--check)",
-        norm_cmd,
+    if any(
+        re.search(
+            rf"(?:\b(?:plumb-porter|porter(?:\.py)?)|(?:python3?(?:\.\d+)?|py)(?:\.exe)?\s+{_PY_INTERP_OPTS}-[A-Za-z0-9]*m\s+porter){_SUBPARSER_OPTS}\s+manifest\b(?![^\n;|&]*--check)",
+            cand_v,
+        )
+        for cand_v in _normalize_governance_globs(norm_cmd, return_variants=True)
     ):
         return True
     return False
@@ -3404,7 +3494,7 @@ def _inspect_external_script_command(
         ),
         data_dir() / "runtime" / "scripts",
         data_dir() / "runtime" / "skills",
-        *(sh_dir / "skills" for sh_dir in __import__("guard.paths", fromlist=["share_dir_candidates"]).share_dir_candidates()),
+        *(sh_dir / "skills" for sh_dir in share_dir_candidates()),
         Path("/usr/lib/plumb-guard/scripts"),
         Path.home() / ".gemini" / "antigravity" / "builtin" / "skills",
     ]
@@ -3839,21 +3929,27 @@ def _detect_harness_plugin_cli_mutation(sub_cmd: str) -> Optional[Tuple[str, str
 
                 _ver_low = str(_guard_ver).lower()
                 _stem = re.sub(r"(?:\.(?:zip|tar\.gz|tgz))$", "", clean_item)
-                _stem_nover = re.sub(r"[-_@]v?[\d.*?\[\]]+(?:[.-][\da-z.*?\[\]]+)*$", "", _stem)
+                _stem_nover = re.sub(r"[-_@]v?[\d.*?\[\]!]+(?:[.-][\da-z.*?\[\]!]+)*$", "", _stem)
+                _prefix_delim = re.split(r"(?:[-_.]v(?=[0-9*?\[\]!])|@)", _stem, maxsplit=1)[0]
                 for pack in sorted_packs:
                     if (
                         fnmatch.fnmatchcase(pack, clean_item)
                         or (_stem != clean_item and fnmatch.fnmatchcase(pack, _stem))
                         or (_stem_nover != clean_item and fnmatch.fnmatchcase(pack, _stem_nover))
+                        or (_prefix_delim and _prefix_delim != clean_item and fnmatch.fnmatchcase(pack, _prefix_delim))
                         or fnmatch.fnmatchcase(f"{pack}.zip", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}.tar.gz", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}.tgz", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}-v{_ver_low}.zip", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}-v0.0.0.zip", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}-v2.4.0.zip", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}-v{_ver_low}.tar.gz", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}-v0.0.0.tar.gz", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}-v{_ver_low}.tgz", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}-v0.0.0.tgz", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}-{_ver_low}.zip", clean_item)
                         or fnmatch.fnmatchcase(f"{pack}-0.0.0.zip", clean_item)
+                        or fnmatch.fnmatchcase(f"{pack}@latest", clean_item)
                     ):
                         return pack
         return None
@@ -3864,7 +3960,7 @@ def _detect_harness_plugin_cli_mutation(sub_cmd: str) -> Optional[Tuple[str, str
         if "agy" not in low_clean or "plugin" not in low_clean:
             return None
     expanded_vars = _expand_simple_shell_vars(cleaned)
-    text = re.sub(r"\$'", "'", expanded_vars)
+    text = _normalize_governance_globs(re.sub(r"\$'", "'", expanded_vars))
     # Inspect unquoted `echo/printf ... | sh` pipelines as well.
     m_pipe_sh = re.search(
         r"(?:^|[;&|()\n`])\s*(?:echo|printf)\b(?:\s+-[neE]+)*\s+([^\n|;&]+?)\s*\|\s*"
@@ -4008,7 +4104,7 @@ def _detect_plugin_directory_drop(
     if (
         not cwd_under_cfg
         and "plugins" not in low_clean
-        and not any(ch in cleaned for ch in "\"'\\$`")
+        and not any(ch in cleaned for ch in "\"'\\$`*?[")
     ):
         return None
     if not any(ch in cleaned for ch in "\"'\\$`") and not any(
@@ -4017,7 +4113,7 @@ def _detect_plugin_directory_drop(
         return None
 
     expanded_vars = _expand_simple_shell_vars(cleaned)
-    text = re.sub(r"\$'", "'", expanded_vars)
+    text = _normalize_governance_globs(re.sub(r"\$'", "'", expanded_vars))
 
     m_pipe_sh = re.search(
         r"(?:^|[;&|()\n`])\s*(?:echo|printf)\b(?:\s+-[neE]+)*\s+([^\n|;&]+?)\s*\|\s*"
@@ -4411,14 +4507,11 @@ def _handle_command_pre_tool_use(
         pending_cmd_force_ask: Optional[Dict[str, Any]] = None
         for sub_cmd, sub_cwd in candidate_cmds:
             cur_cwd = sub_cwd if sub_cwd is not None else effective_cwd
-            masked_cmd = _mask_quoted_operators(sub_cmd)
-            admin_norm_cmd = _normalize_governance_globs(
-                _normalize_shell_paths(_unquote_single_tokens(_expand_simple_shell_vars(masked_cmd)))
-            )
+            admin_variants = _normalize_governance_globs(sub_cmd, admin_variants=True)
+            masked_cmd = admin_variants[0]
 
             if (
-                _GUARD_ADMIN_RE.search(masked_cmd)
-                or _GUARD_ADMIN_RE.search(admin_norm_cmd)
+                any(_GUARD_ADMIN_RE.search(v) for v in admin_variants)
                 or _GUARD_INLINE_PY_RE.search(sub_cmd)
             ):
                 return {
@@ -4426,13 +4519,13 @@ def _handle_command_pre_tool_use(
                     "reason": (
                         "[Harness Governance Shield] Guard administration commands (`plumb-guard unlock`, "
                         "`rebaseline`, `test-boundary snapshot`, `--authorize`, `snapshot restore/prune`, `porter stage`, `porter import --force`, "
-                        "`env policy/add/remove`, `startup enable/disable`, `notify disable`, `doctor --fix/--recover`, `init`) are reserved exclusively "
+                        "`env policy/add/remove`, `startup enable/disable`, `notify disable`, `doctor --fix/--recover`, `init`, or Guard root env overrides) are reserved exclusively "
                         "for the human operator (GEMINI.md Rule 12). You may only run `plumb-guard request-unlock` "
                         "or read-only status/verify/`--dry-run` commands."
                     ),
                 }
 
-            if _INSTALL_PY_RE.search(masked_cmd):
+            if any(_INSTALL_PY_RE.search(v) for v in admin_variants):
                 return {
                     "decision": "deny",
                     "reason": (

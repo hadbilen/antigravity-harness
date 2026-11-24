@@ -809,20 +809,23 @@ def _iter_jsonl_tail_entries(
         if raise_on_error:
             raise
         return
+    fh = None
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
-            os.close(fd)
             return
         fh = os.fdopen(fd, "rb")
+        fd = -1
     except OSError:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
         if raise_on_error:
             raise
         return
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
     try:
         with fh:
             fh.seek(0, os.SEEK_END)

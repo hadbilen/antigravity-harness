@@ -164,7 +164,7 @@ directly to read-only `~/.gemini/config/` or the Guard-protected runtime file `~
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "35b54dc",
+      "last_synced_commit": "7f6a03d",
       "target_skills": ["ui-refinery"]
     },
     "rea": {

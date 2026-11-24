@@ -173,14 +173,14 @@ class TestLinuxPackaging(unittest.TestCase):
         rpm_res = self.packager.build_rpm()
         self.assertIsNotNone(rpm_res)
         spec_path = self.out_dir / "plumb-guard.spec"
-        if spec_path.is_file():
-            spec_text = spec_path.read_text(encoding="utf-8")
-            self.assertIn("Name:           plumb-guard", spec_text)
-            self.assertIn("Provides:       antigravity-guard = %{version}-%{release}", spec_text)
-            self.assertIn("Obsoletes:      antigravity-guard < 3.0.0", spec_text)
-            self.assertIn("/usr/bin/plumb-porter", spec_text)
-            self.assertIn("/usr/lib/plumb-guard", spec_text)
-            self.assertIn("/usr/share/plumbwork", spec_text)
+        self.assertTrue(spec_path.is_file(), f"Expected RPM spec file to be generated at {spec_path}")
+        spec_text = spec_path.read_text(encoding="utf-8")
+        self.assertIn("Name:           plumb-guard", spec_text)
+        self.assertIn("Provides:       antigravity-guard = %{version}-%{release}", spec_text)
+        self.assertIn("Obsoletes:      antigravity-guard < 3.0.0", spec_text)
+        self.assertIn("/usr/bin/plumb-porter", spec_text)
+        self.assertIn("/usr/lib/plumb-guard", spec_text)
+        self.assertIn("/usr/share/plumbwork", spec_text)
 
         # 4. Arch .PKGINFO metadata: singular conflict = antigravity-guard + provides + replaces
         arch_pkg = self.packager.build_arch()

@@ -10,20 +10,133 @@ own bookkeeping and so that working-directory changes never select a different s
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import stat
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator, List, Optional
+from typing import Any, Callable, Iterator, List, Optional, Tuple
 
 APP_NAME = "plumbwork"
 IS_WINDOWS = os.name == "nt"
 
 
 def _env_path(name: str) -> Optional[Path]:
-    value = os.environ.get(name)
+    value = (os.environ.get(name) or "").strip()
     return Path(value).expanduser() if value else None
+
+
+def windows_launcher_dir() -> Path:
+    """Canonical Windows per-user launcher directory (`%LOCALAPPDATA%\\Programs\\plumb-guard`)."""
+    local_app = _env_path("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+    return Path(os.path.abspath(local_app / "Programs" / "plumb-guard"))
+
+
+def read_regular_file_nofollow(
+    path: Path,
+    max_bytes: int,
+    *,
+    dir_fd: Optional[int] = None,
+) -> Tuple[str, Optional[bytes], Optional[str]]:
+    """
+    Safely reads a regular non-symlink file up to `max_bytes` using `O_NOFOLLOW | O_NONBLOCK`
+    and `os.fstat` verification. Returns `(status, raw_bytes, detail)` where `status` is one of
+    `"ok"`, `"missing"`, `"symlink"`, `"not_regular"`, `"oversized"`, or `"error"`.
+    """
+    try:
+        path_str = os.fspath(path)
+    except (OSError, TypeError, ValueError) as exc:
+        return "error", None, str(exc)
+    if "\x00" in path_str:
+        return "error", None, "NUL byte in path"
+    try:
+        if dir_fd is None and os.path.islink(path_str):
+            return "symlink", None, "symlink"
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        if dir_fd is None:
+            fd = os.open(path_str, flags)
+        else:
+            fd = os.open(path_str, flags, dir_fd=dir_fd)
+    except (FileNotFoundError, NotADirectoryError):
+        return "missing", None, None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return "symlink", None, "symlink"
+        if (
+            isinstance(exc, PermissionError)
+            and dir_fd is None
+            and not os.path.islink(path_str)
+            and os.path.isdir(path_str)
+        ):
+            return "not_regular", None, "not a regular file"
+        return "error", None, str(exc)
+
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return "not_regular", None, "not a regular file"
+        if st.st_size > max_bytes:
+            return "oversized", None, f"{st.st_size} bytes > {max_bytes}"
+        with os.fdopen(fd, "rb") as fh:
+            fd = -1
+            raw = fh.read(max_bytes + 1)
+    except (OSError, ValueError) as exc:
+        return "error", None, str(exc)
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    if len(raw) > max_bytes:
+        return "oversized", None, f">{max_bytes} bytes"
+    return "ok", raw, None
+
+
+def is_safe_regular_subpath(base_dir: Path, rel_path: Path, *, check_owner: bool = True) -> bool:
+    """
+    Verifies `base_dir / rel_path` is a regular file with no symlink `base_dir` or subpath
+    components, no POSIX world-writable file/directory bits (`0o002`), and (when `check_owner`
+    is True on POSIX) owned by root or the current effective UID.
+    """
+    try:
+        base_st = os.lstat(base_dir)
+        if not stat.S_ISDIR(base_st.st_mode):
+            return False
+        is_posix = os.name != "nt" and hasattr(os, "geteuid")
+        euid = os.geteuid() if is_posix else None
+        if is_posix:
+            if base_st.st_mode & 0o002:
+                return False
+            if check_owner and base_st.st_uid not in (0, euid):
+                return False
+        cur = base_dir
+        parts = rel_path.parts
+        if not parts:
+            return False
+        for idx, part in enumerate(parts):
+            if part in ("", ".", ".."):
+                return False
+            cur = cur / part
+            st = os.lstat(cur)
+            if stat.S_ISLNK(st.st_mode):
+                return False
+            is_last = idx == len(parts) - 1
+            if is_last:
+                if not stat.S_ISREG(st.st_mode):
+                    return False
+            else:
+                if not stat.S_ISDIR(st.st_mode):
+                    return False
+            if is_posix:
+                if st.st_mode & 0o002:
+                    return False
+                if check_owner and st.st_uid not in (0, euid):
+                    return False
+        return True
+    except OSError:
+        return False
 
 
 def configured_config_dir() -> Path:

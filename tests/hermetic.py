@@ -26,11 +26,11 @@ os.environ["XDG_STATE_HOME"] = str(_ROOT / "state")
 os.environ["XDG_DATA_HOME"] = str(_ROOT / "data")
 os.environ["ANTIGRAVITY_CONFIG_DIR"] = str(_ROOT / ".gemini" / "config")
 os.environ["PLUMB_GUARD_NOTIFY"] = "off"
-os.environ["PLUMB_GUARD_NO_TRAY"] = "1"
 for _var in (
     "ANTIGRAVITY_INTEGRITY_FILE",
     "PLUMB_GUARD_STATE_DIR",
     "PLUMB_GUARD_DATA_DIR",
+    "PLUMB_GUARD_NO_TRAY",
     "PLUMBWORK_SHARE_DIR",
     "UPSTREAM_STATE_FILE",
     "ANTIGRAVITY_MODEL",

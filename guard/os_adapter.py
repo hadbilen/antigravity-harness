@@ -66,8 +66,8 @@ class OSProtectionAdapter:
     def __init__(self, target_dir: Optional[Union[Path, str]] = None, mode_store: Optional[Union[Path, str]] = None):
         self.system = platform.system().lower()
         if target_dir is None:
-            config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
-            self.target_dir = Path(config_env).resolve() if config_env else Path.home() / ".gemini" / "config"
+            config_env = (os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip()
+            self.target_dir = Path(config_env).expanduser().resolve() if config_env else Path.home() / ".gemini" / "config"
         else:
             self.target_dir = Path(target_dir).resolve()
         self._mode_store_path = Path(mode_store) if mode_store else None
@@ -152,8 +152,11 @@ class OSProtectionAdapter:
 
     @staticmethod
     def _iter_tree(root: Path) -> Iterator[Path]:
-        """Yields every entry beneath `root` without following symlinks (sorted, deterministic)."""
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        """Yields every entry beneath `root` without following symlinks (sorted, deterministic, surfaces walk OSError)."""
+        def _raise_walk_error(exc: OSError) -> None:
+            raise exc
+
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False, onerror=_raise_walk_error):
             dirnames.sort()
             for name in dirnames:
                 yield Path(dirpath) / name

@@ -491,7 +491,7 @@ def _rewrite_ui_refinery_agy_guard(text: str, plugin_rel_path: str) -> str:
     # 4. DESIGN.md bare `scripts/meta_audit.py` reference
     text = text.replace(
         "The harness self-audit (`scripts/meta_audit.py`, Pass 6) recomputes every row",
-        f"The bundled contrast self-test (`python3 {contrast_rel} --selftest`) recomputes every row",
+        f"The bundled contrast helper (`python3 {contrast_rel} <fg> <bg>`; `--selftest` checks `human-a11y.md`) verifies every row",
     )
 
     # 5. motion-physics/references/templates.md internal template path relative to templates.md
@@ -1286,31 +1286,19 @@ def _local_tag(tag: str) -> str:
 
 def validate_svg_logo(svg_path: Path) -> List[str]:
     """Validates an SVG logo for XML safety, <= 16 KiB size, [12, 116] bounds, and >= 3.0:1 dual-theme WCAG contrast."""
-    errors: List[str] = []
-    if os.path.islink(svg_path) or not svg_path.is_file():
-        return [f"SVG logo missing or symlink: {svg_path}"]
+    from guard.paths import read_regular_file_nofollow
 
-    try:
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        fd = os.open(os.fspath(svg_path), flags)
-        try:
-            st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode):
-                return [f"SVG logo is not a regular file: {svg_path}"]
-            with os.fdopen(fd, "rb") as fh:
-                fd = -1
-                raw_bytes = fh.read(MAX_SVG_LOGO_BYTES + 1)
-        finally:
-            if fd >= 0:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-    except (OSError, ValueError) as exc:
-        return [f"Could not read SVG logo {svg_path}: {exc}"]
-    if len(raw_bytes) > MAX_SVG_LOGO_BYTES:
+    errors: List[str] = []
+    status, raw_bytes, detail = read_regular_file_nofollow(svg_path, max_bytes=MAX_SVG_LOGO_BYTES)
+    if status in ("missing", "symlink"):
+        return [f"SVG logo missing or symlink: {svg_path}"]
+    if status == "not_regular":
+        return [f"SVG logo is not a regular file: {svg_path}"]
+    if status == "oversized":
         errors.append(f"SVG logo exceeds {MAX_SVG_LOGO_BYTES} bytes: >{MAX_SVG_LOGO_BYTES} bytes")
         return errors
+    if status != "ok" or raw_bytes is None:
+        return [f"Could not read SVG logo {svg_path}: {detail}"]
 
     try:
         content = raw_bytes.decode("utf-8")
@@ -1517,7 +1505,7 @@ _TILDE_CONFIG_RE = re.compile(r"~/\.gemini/config/")
 _FLAT_HOME_SKILLS_RE = re.compile(r"\$HOME/\.gemini/config/skills/")
 _RUNTIME_PATH_RE = re.compile(
     r"(?:(?:~|\$HOME|\$\{HOME\})/\.local/(?:(?:share|state)/(?:antigravity-(?:harness|guard)|plumbwork|plumb-guard)/|bin/(?:agy|plumb)-(?:guard|porter)\b)"
-    r"|/usr/(?:lib/(?:antigravity-guard|plumb-guard)|share/antigravity-harness)(?:/|\b))"
+    r"|/usr/(?:lib/(?:antigravity-guard|plumb-guard)|share/antigravity-harness|share/plumbwork(?!/skills/media-studio/scripts/media_qc\.py\b))(?:/|\b))"
 )
 _INLINE_GUARD_CMD_RE = re.compile(r"`(?:agy-guard|plumb-guard|agy-porter|plumb-porter)\b[^`]*`")
 _LEGACY_GUARD_CMD_RE = re.compile(r"\b(?:agy-guard|agy-porter)\b")
@@ -1723,7 +1711,11 @@ def _validate_markdown_standalone(md_path: Path, plugin_dir: Path, errors: List[
                 )
 
         if in_fence:
-            if not stripped.startswith("#") and _FENCED_GUARD_CMD_RE.search(stripped):
+            if _LEGACY_GUARD_CMD_RE.search(stripped):
+                m_leg = _LEGACY_GUARD_CMD_RE.search(stripped)
+                tok = m_leg.group(0) if m_leg else "agy-guard"
+                errors.append(f"{rel}:{lineno}: legacy `{tok}` reference inside code fence")
+            elif not stripped.startswith("#") and _FENCED_GUARD_CMD_RE.search(stripped):
                 m_fc = re.search(r"\b(?:agy-guard|plumb-guard|agy-porter|plumb-porter)\b", stripped)
                 tok = m_fc.group(0) if m_fc else stripped.split()[0]
                 errors.append(f"{rel}:{lineno}: mandatory uncommented `{tok}` command inside code fence")
@@ -1784,7 +1776,11 @@ def validate_plugin_dir(
 
     # 1. Tree hygiene (symlinks, forbidden files/dirs, POSIX script permissions)
     md_files: List[Path] = []
-    for dirpath, dirnames, filenames in os.walk(plugin_dir, followlinks=False):
+
+    def _on_walk_err(exc: OSError) -> None:
+        errors.append(f"Unreadable directory during plugin validation ({exc})")
+
+    for dirpath, dirnames, filenames in os.walk(plugin_dir, followlinks=False, onerror=_on_walk_err):
         cur = Path(dirpath)
         for d in sorted(dirnames):
             dp = cur / d

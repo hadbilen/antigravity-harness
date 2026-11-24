@@ -767,7 +767,7 @@ _ECOSYSTEM_ROUTING_HINTS_RAW: Tuple[Tuple[str, str, str], ...] = (
             r"(?:claude\s+code|codex|cursor|gemini\s+cli)\s+ayarlarını\s+içe\s+aktar\w*"
             rf"){_PATH_WORD_POST})"
         ),
-        "Built-in Skill `migrate-agent-settings` (read `~/.gemini/antigravity/builtin/skills/migrate-agent-settings/SKILL.md`; obey GEMINI.md Rules 12, 15g & 16: keep `npx` dependencies pinned, pass imported rules through `porter inspect`, and obtain human confirmation before plugin writes)",
+        "Built-in Skill `migrate-agent-settings` (read `~/.gemini/antigravity/builtin/skills/migrate-agent-settings/SKILL.md`; obey GEMINI.md Rule 12 & maintainer Rule 15g/16: keep `npx` dependencies pinned, pass imported rules through `plumb-porter inspect`, and obtain human confirmation before plugin writes)",
     ),
     (
         "route:builtin:mcp-app-development",

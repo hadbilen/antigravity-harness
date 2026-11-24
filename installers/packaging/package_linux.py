@@ -80,7 +80,11 @@ class LinuxPackager:
         return self._build_deb_pure_python(stage, target_deb)
 
     def validate_inputs(self) -> None:
-        """Fail closed if explicit --binary or mandatory repository payload entries are absent."""
+        """Fail closed if version format, explicit --binary, or mandatory repository payload entries are invalid/absent."""
+        import re
+
+        if not isinstance(self.version, str) or not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+~-]{0,63}", self.version):
+            raise ValueError(f"Invalid package version string (refusing spec/control injection): {self.version!r}")
         if self.binary_path is not None and not self.binary_path.is_file():
             raise FileNotFoundError(f"Explicit --binary path does not exist: {self.binary_path}")
         for pkg in ("guard", "porter", "scripts"):
@@ -202,12 +206,21 @@ class LinuxPackager:
                         if sc.suffix in (".py", ".sh", ".mjs") and sc.is_file() and not sc.is_symlink():
                             sc.chmod(0o755)
 
+        # Normalize packaged permissions (strip group/world write bits before script chmod)
+        if os.name != "nt":
+            for p in staging_dir.rglob("*"):
+                if not os.path.islink(p):
+                    try:
+                        p.chmod(p.stat().st_mode & ~0o022)
+                    except OSError:
+                        pass
+
         # 5. Bash completion
         comp_content = """# Bash completion for plumb-guard
 _plumb_guard_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local commands="init status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify code-map ui-slop synthetic-markers verify-invariants gui"
-    COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+    COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
 }
 complete -F _plumb_guard_completions plumb-guard
 """
@@ -266,6 +279,7 @@ Description: OS-Level Governance, Write Protection, & Multi-Environment Integrit
             tarinfo.gid = 0
             tarinfo.uname = "root"
             tarinfo.gname = "root"
+            tarinfo.mode = tarinfo.mode & ~0o022
             return tarinfo
 
         # 1. debian-binary

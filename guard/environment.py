@@ -31,7 +31,9 @@ from guard.paths import (
     is_within,
     path_key,
     read_json_strict,
+    read_regular_file_nofollow,
     state_dir,
+    windows_launcher_dir,
 )
 from guard.plugins import (
     HARNESS_PLUGIN_NAMES,
@@ -176,7 +178,7 @@ def antigravity_external_governance_paths(existing_only: bool = False) -> List[P
     runtime_root = Path(os.path.abspath(data_dir() / "runtime"))
     candidates: List[Path] = [runtime_root]
     if os.name == "nt":
-        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard"
+        bin_dir = windows_launcher_dir()
         for name in ("plumb-guard.cmd", "plumb-porter.cmd", "plumb-guard.exe"):
             candidates.append(Path(os.path.abspath(bin_dir / name)))
     else:
@@ -316,32 +318,8 @@ def _read_regular_file_nofollow(
     dir_fd: Optional[int] = None,
 ) -> Optional[str]:
     """Reads a bounded regular UTF-8 file without following symlinks (fail-closed -> None)."""
-    try:
-        if dir_fd is None and os.path.islink(path):
-            return None
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        if dir_fd is None:
-            fd = os.open(os.fspath(path), flags)
-        else:
-            fd = os.open(os.fspath(path), flags, dir_fd=dir_fd)
-    except (OSError, ValueError):
-        return None
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_size > max_bytes:
-            return None
-        with os.fdopen(fd, "rb") as fh:
-            fd = -1
-            raw = fh.read(max_bytes + 1)
-    except (OSError, ValueError):
-        return None
-    finally:
-        if fd >= 0:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-    if len(raw) > max_bytes:
+    status, raw, _detail = read_regular_file_nofollow(path, max_bytes=max_bytes, dir_fd=dir_fd)
+    if status != "ok" or raw is None:
         return None
     try:
         return raw.decode("utf-8")
@@ -531,6 +509,96 @@ def can_retire_legacy_harness_skill_dir(
     return is_legacy_harness_skill_dir(path)
 
 
+_UNINSTALL_PROTECTED_FILES: FrozenSet[str] = frozenset({"hooks.json", "config.json", "mcp_config.json"})
+_UNINSTALL_PROTECTED_CONTAINERS: FrozenSet[str] = frozenset(
+    {"plugins", "skills", "agents", "rules", "templates", ".harness", "sidecars", "projects", "cache"}
+)
+
+
+def _canonical_uninstall_parts(raw_item: str) -> Optional[List[str]]:
+    """Normalizes a receipt/uninstall relative path into clean parts, rejecting traversal, containers, and protected host files."""
+    if not isinstance(raw_item, str) or "\x00" in raw_item:
+        return None
+    if Path(raw_item).is_absolute():
+        return None
+    norm_s = raw_item.replace("\\", "/")
+    if norm_s.startswith("/") or re.match(r"^[A-Za-z]:", norm_s):
+        return None
+    raw_parts = [seg for seg in norm_s.split("/") if seg]
+    if any(seg == ".." for seg in raw_parts):
+        return None
+    rel_parts = [seg for seg in raw_parts if seg != "."]
+    if not rel_parts:
+        return None
+    if len(rel_parts) == 1 and (
+        rel_parts[0] in _UNINSTALL_PROTECTED_FILES or rel_parts[0] in _UNINSTALL_PROTECTED_CONTAINERS
+    ):
+        return None
+    return rel_parts
+
+
+def extract_receipt_uninstall_entries(rec: Dict[str, Any]) -> List[str]:
+    """Extracts sanitized, canonical relative uninstall targets from an install receipt."""
+    tracked: List[str] = []
+    seen: set[str] = set()
+
+    def _add(rel_posix: str) -> None:
+        if rel_posix not in seen:
+            seen.add(rel_posix)
+            tracked.append(rel_posix)
+
+    if isinstance(rec.get("installed"), list):
+        for raw_item in rec["installed"]:
+            if not isinstance(raw_item, str):
+                continue
+            parts = _canonical_uninstall_parts(raw_item)
+            if not parts:
+                continue
+            if parts[0] == "plugins":
+                if len(parts) == 2 and parts[1] in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
+                    _add(f"plugins/{parts[1]}")
+            else:
+                _add("/".join(parts))
+
+    if isinstance(rec.get("installed_plugins"), list):
+        for p in rec["installed_plugins"]:
+            if isinstance(p, str) and p in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
+                _add(f"plugins/{p}")
+    return tracked
+
+
+def resolve_safe_uninstall_entry(
+    target_dir: Path,
+    target_resolved: Path,
+    rel_item: str,
+) -> Optional[Tuple[Path, Path, List[str]]]:
+    """
+    Validates one uninstall target inside `target_dir`: rejects traversal, symlink ancestors,
+    escaped targets, protected host config files, and bare container directories.
+    Returns `(entry_path, rel_dest, rel_parts)` or `None`.
+    """
+    rel_parts = _canonical_uninstall_parts(rel_item)
+    if not rel_parts:
+        return None
+    cur_anc = target_dir
+    for seg in rel_parts[:-1]:
+        cur_anc = cur_anc / seg
+        if os.path.islink(cur_anc):
+            return None
+    entry = target_dir.joinpath(*rel_parts)
+    try:
+        parent_resolved = entry.parent.resolve()
+        if not (parent_resolved == target_resolved or parent_resolved.is_relative_to(target_resolved)):
+            return None
+        if not os.path.islink(entry):
+            entry_resolved = entry.resolve()
+            if entry_resolved == target_resolved or not entry_resolved.is_relative_to(target_resolved):
+                return None
+    except OSError:
+        return None
+    return entry, Path(*rel_parts), rel_parts
+
+
 def read_install_receipt(
     receipt_path: Optional[Path] = None,
     *,
@@ -538,14 +606,16 @@ def read_install_receipt(
 ) -> Optional[Dict[str, Any]]:
     """Reads `install_receipt.json` safely, optionally checking that its `target` matches `target_dir`."""
     rpath = Path(receipt_path) if receipt_path is not None else (state_dir() / "install_receipt.json")
-    if os.path.islink(rpath) or not rpath.is_file():
+    status, raw_bytes, detail = read_regular_file_nofollow(rpath, max_bytes=1024 * 1024)
+    if status == "missing":
         return None
-    raw_text = _read_regular_file_nofollow(rpath, max_bytes=1024 * 1024)
-    if raw_text is None:
+    if status != "ok" or raw_bytes is None:
+        print(f"[WARN] Could not read install receipt {rpath} ({status}: {detail}).", file=sys.stderr)
         return None
     try:
+        raw_text = raw_bytes.decode("utf-8")
         data = json.loads(raw_text)
-    except (ValueError, RecursionError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         print(f"[WARN] Could not parse install receipt {rpath} ({exc}).", file=sys.stderr)
         return None
     if not isinstance(data, dict):
@@ -554,11 +624,13 @@ def read_install_receipt(
     if target_dir is not None:
         rec_target = data.get("target")
         if not isinstance(rec_target, str) or not rec_target.strip():
+            print(f"[WARN] Install receipt {rpath} has missing or invalid 'target' field.", file=sys.stderr)
             return None
         try:
             if Path(rec_target).expanduser().resolve() != Path(target_dir).expanduser().resolve():
                 return None
-        except OSError:
+        except OSError as exc:
+            print(f"[WARN] Could not resolve install receipt target {rec_target!r} ({exc}).", file=sys.stderr)
             return None
     return data
 
@@ -572,12 +644,14 @@ def antigravity_plugin_governance_seams(
     """
     Returns sorted `plugins/<pack>` governance seams for `HARNESS_PLUGIN_NAMES` packs
     that exist under `root/plugins/` (without following a symlinked `plugins/` root or non-harness packs)
-    or are recorded in `install_receipt.json["installed_plugins"]` for `root`.
+    or are recorded in `install_receipt.json["installed_plugins"]` for `root` (unless replaced on disk
+    by a symlink or non-harness third-party directory).
     """
     resolved_root = Path(root).expanduser()
     plugins_dir = resolved_root / "plugins"
+    plugins_dir_is_link = os.path.islink(plugins_dir)
     active: set[str] = set()
-    if not os.path.islink(plugins_dir):
+    if not plugins_dir_is_link:
         for pack in HARNESS_PLUGIN_NAMES:
             pdir = plugins_dir / pack
             if os.path.islink(pdir) or not pdir.is_dir():
@@ -585,13 +659,19 @@ def antigravity_plugin_governance_seams(
             if os.path.lexists(pdir / "plugin.json") and not is_harness_plugin_dir(pdir, expected_pack=pack):
                 continue
             active.add(pack)
-    if include_receipt:
+    if include_receipt and not plugins_dir_is_link:
         receipt = read_install_receipt(receipt_path=receipt_path, target_dir=resolved_root)
         if receipt is not None:
             rec_plugins = receipt.get("installed_plugins")
             if isinstance(rec_plugins, list):
                 for item in rec_plugins:
                     if isinstance(item, str) and item in HARNESS_PLUGIN_NAMES:
+                        pdir = plugins_dir / item
+                        if os.path.lexists(pdir):
+                            if os.path.islink(pdir) or not pdir.is_dir():
+                                continue
+                            if os.path.lexists(pdir / "plugin.json") and not is_harness_plugin_dir(pdir, expected_pack=item):
+                                continue
                         active.add(item)
     return [f"plugins/{pack}" for pack in sorted(active)]
 

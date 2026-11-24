@@ -494,10 +494,10 @@ class UpstreamAuditorBridge:
     SYSTEM_SHARE_SEED = Path("/usr/share/plumbwork/skills/upstream-auditor/upstream_state.seed.json")
 
     def __init__(self, target_dir: Optional[Path] = None):
-        explicit_target = target_dir is not None or bool(os.environ.get("ANTIGRAVITY_CONFIG_DIR"))
+        config_env = (os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip()
+        explicit_target = target_dir is not None or bool(config_env)
         if target_dir is None:
-            config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
-            self.target_dir = Path(config_env).resolve() if config_env else Path.home() / ".gemini" / "config"
+            self.target_dir = Path(config_env).expanduser().resolve() if config_env else Path.home() / ".gemini" / "config"
         else:
             self.target_dir = Path(target_dir).resolve()
 
@@ -506,7 +506,7 @@ class UpstreamAuditorBridge:
         default_state_dir = state_dir()
         skill_dir = self.target_dir / "skills" / "upstream-auditor"
         seed_candidates: List[Path] = [(skill_dir / "upstream_state.seed.json").resolve()]
-        share_env = os.environ.get("PLUMBWORK_SHARE_DIR")
+        share_env = (os.environ.get("PLUMBWORK_SHARE_DIR") or "").strip()
         if share_env:
             seed_candidates.append(
                 (Path(share_env).expanduser() / "skills" / "upstream-auditor" / "upstream_state.seed.json").resolve()
@@ -515,9 +515,9 @@ class UpstreamAuditorBridge:
             seed_candidates.append(self.SYSTEM_SHARE_SEED)
         self.seed_file: Optional[Path] = next((p for p in seed_candidates if p.is_file()), None)
 
-        state_file_env = os.environ.get("UPSTREAM_STATE_FILE")
+        state_file_env = (os.environ.get("UPSTREAM_STATE_FILE") or "").strip()
         if state_file_env:
-            self.state_file = Path(state_file_env).resolve()
+            self.state_file = Path(state_file_env).expanduser().resolve()
         else:
             candidate_state = (default_state_dir / "upstream_state.json").resolve()
             legacy_state = (skill_dir / "upstream_state.json").resolve()

@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 from guard.environment import (
     CONSTITUTION_RULE_REL,
+    LEGACY_HARNESS_SKILL_SLUGS,
     AgentEnvironment,
     EnvironmentRegistry,
     RegistryError,
@@ -30,7 +31,7 @@ from guard.environment import (
 )
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
 from guard.notifier import load_settings
-from guard.paths import data_dir, move_aside, read_json, state_dir
+from guard.paths import data_dir, move_aside, read_json, read_regular_file_nofollow, state_dir, windows_launcher_dir
 from guard.plugins import HARNESS_PLUGIN_NAMES
 
 
@@ -405,73 +406,45 @@ def _strip_jsonc(raw: str) -> str:
     return "".join(cleaned)
 
 
-def _read_plugin_manifest_jsonc(manifest_path: Path, warnings: List[str]) -> Tuple[str, Optional[dict]]:
+def _read_plugin_manifest_jsonc(
+    manifest_path: Path,
+    warnings: List[str],
+    *,
+    dir_fd: Optional[int] = None,
+    display_path: Optional[Path] = None,
+) -> Tuple[str, Optional[dict]]:
     """Safely reads a regular non-symlink `plugin.json` (<= 256 KiB) with JSONC support."""
-    try:
-        path_str = os.fspath(manifest_path)
-    except (OSError, TypeError, ValueError) as exc:
-        warnings.append(f"Could not inspect plugin manifest {manifest_path} ({exc}).")
-        return "invalid", None
-    if "\x00" in path_str:
-        warnings.append(f"Invalid NUL byte in plugin manifest path {manifest_path!r}.")
-        return "invalid", None
-    try:
-        if os.path.islink(path_str):
-            warnings.append(f"Refusing symlinked plugin manifest {manifest_path}; skipped duplicate-name check.")
-            return "invalid", None
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        fd = os.open(path_str, flags)
-    except (FileNotFoundError, NotADirectoryError):
+    shown = display_path or manifest_path
+    status, raw_bytes, detail = read_regular_file_nofollow(
+        manifest_path,
+        max_bytes=_MAX_PLUGIN_MANIFEST_BYTES,
+        dir_fd=dir_fd,
+    )
+    if status == "missing":
         return "missing", None
-    except OSError as exc:
-        if exc.errno == errno.ELOOP:
-            warnings.append(f"Refusing symlinked plugin manifest {manifest_path}; skipped duplicate-name check.")
-        elif isinstance(exc, PermissionError) and not os.path.islink(path_str) and os.path.isdir(path_str):
-            warnings.append(f"Plugin manifest {manifest_path} is not a regular file; skipped duplicate-name check.")
-        else:
-            warnings.append(f"Could not read plugin manifest {manifest_path} ({exc}).")
+    if status == "symlink":
+        warnings.append(f"Refusing symlinked plugin manifest {shown}; skipped duplicate-name check.")
         return "invalid", None
-
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            os.close(fd)
-            warnings.append(f"Plugin manifest {manifest_path} is not a regular file; skipped duplicate-name check.")
-            return "invalid", None
-        if st.st_size > _MAX_PLUGIN_MANIFEST_BYTES:
-            os.close(fd)
-            warnings.append(
-                f"Plugin manifest {manifest_path} exceeds 256 KiB size limit ({st.st_size} bytes); skipped duplicate-name check."
-            )
-            return "invalid", None
-        fh = os.fdopen(fd, "rb")
-    except OSError as exc:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        warnings.append(f"Could not read plugin manifest {manifest_path} ({exc}).")
+    if status == "not_regular":
+        warnings.append(f"Plugin manifest {shown} is not a regular file; skipped duplicate-name check.")
         return "invalid", None
-
-    try:
-        with fh:
-            raw_bytes = fh.read(_MAX_PLUGIN_MANIFEST_BYTES + 1)
-    except OSError as exc:
-        warnings.append(f"Could not read plugin manifest {manifest_path} ({exc}).")
+    if status == "oversized":
+        warnings.append(
+            f"Plugin manifest {shown} exceeds 256 KiB size limit ({detail}); skipped duplicate-name check."
+        )
         return "invalid", None
-
-    if len(raw_bytes) > _MAX_PLUGIN_MANIFEST_BYTES:
-        warnings.append(f"Plugin manifest {manifest_path} exceeds 256 KiB size limit; skipped duplicate-name check.")
+    if status != "ok" or raw_bytes is None:
+        warnings.append(f"Could not read plugin manifest {shown} ({detail}).")
         return "invalid", None
 
     try:
         data = json.loads(_strip_jsonc(raw_bytes.decode("utf-8")))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
-        warnings.append(f"Plugin manifest {manifest_path} is not valid JSON/JSONC ({exc}).")
+        warnings.append(f"Plugin manifest {shown} is not valid JSON/JSONC ({exc}).")
         return "invalid", None
 
     if not isinstance(data, dict):
-        warnings.append(f"Plugin manifest {manifest_path} root must be a JSON object.")
+        warnings.append(f"Plugin manifest {shown} root must be a JSON object.")
         return "invalid", None
     return "ok", data
 
@@ -479,24 +452,68 @@ def _read_plugin_manifest_jsonc(manifest_path: Path, warnings: List[str]) -> Tup
 def _check_plugin_name_collisions(plugins_dir: Path, pack_dirs: List[Path], warnings: List[str]) -> None:
     """Warns when two or more plugin directories resolve to the same case-insensitive `plugin.json['name']`."""
     by_name: Dict[str, List[Tuple[str, str]]] = {}
-    for pack_dir in pack_dirs:
-        manifest_path = pack_dir / "plugin.json"
-        status, data = _read_plugin_manifest_jsonc(manifest_path, warnings)
-        if status != "ok" or data is None:
-            continue
-        if "name" not in data:
-            resolved_name = pack_dir.name
-        else:
-            raw_name = data["name"]
-            if not isinstance(raw_name, str):
-                warnings.append(
-                    f"Plugin manifest {manifest_path} has non-string 'name' ({type(raw_name).__name__}); "
-                    "skipped duplicate-name check."
-                )
+    dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    use_dir_fd = hasattr(os, "O_DIRECTORY") and os.name != "nt"
+    plugins_fd: Optional[int] = None
+    if use_dir_fd:
+        try:
+            plugins_fd = os.open(os.fspath(plugins_dir), dir_flags)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                warnings.append(f"Refusing symlinked plugins directory {plugins_dir}; skipped duplicate-name check.")
+            else:
+                warnings.append(f"Could not open plugins directory {plugins_dir} ({exc}); skipped duplicate-name check.")
+            return
+    try:
+        for pack_dir in pack_dirs:
+            manifest_path = pack_dir / "plugin.json"
+            if plugins_fd is not None:
+                pack_fd = -1
+                try:
+                    pack_fd = os.open(pack_dir.name, dir_flags, dir_fd=plugins_fd)
+                    status, data = _read_plugin_manifest_jsonc(
+                        Path("plugin.json"),
+                        warnings,
+                        dir_fd=pack_fd,
+                        display_path=manifest_path,
+                    )
+                except (FileNotFoundError, NotADirectoryError):
+                    continue
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        warnings.append(f"Refusing symlinked plugin directory {pack_dir}; skipped duplicate-name check.")
+                    else:
+                        warnings.append(f"Could not inspect plugin directory {pack_dir} ({exc}).")
+                    continue
+                finally:
+                    if pack_fd >= 0:
+                        try:
+                            os.close(pack_fd)
+                        except OSError:
+                            pass
+            else:
+                status, data = _read_plugin_manifest_jsonc(manifest_path, warnings)
+            if status != "ok" or data is None:
                 continue
-            stripped = raw_name.strip()
-            resolved_name = stripped if stripped else pack_dir.name
-        by_name.setdefault(resolved_name.lower(), []).append((pack_dir.name, resolved_name))
+            if "name" not in data:
+                resolved_name = pack_dir.name
+            else:
+                raw_name = data["name"]
+                if not isinstance(raw_name, str):
+                    warnings.append(
+                        f"Plugin manifest {manifest_path} has non-string 'name' ({type(raw_name).__name__}); "
+                        "skipped duplicate-name check."
+                    )
+                    continue
+                stripped = raw_name.strip()
+                resolved_name = stripped if stripped else pack_dir.name
+            by_name.setdefault(resolved_name.lower(), []).append((pack_dir.name, resolved_name))
+    finally:
+        if plugins_fd is not None:
+            try:
+                os.close(plugins_fd)
+            except OSError:
+                pass
 
     for key in sorted(by_name):
         entries = by_name[key]
@@ -586,10 +603,16 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
             f"Re-run {repair_hint} with --plugins or --flat-skills to resolve shadowing."
         )
 
-    plugin_mcp = plugins_dir / "ui-refinery" / "mcp_config.json"
+    ui_refinery_dir = plugins_dir / "ui-refinery"
+    plugin_mcp = ui_refinery_dir / "mcp_config.json"
     global_mcp = root / "mcp_config.json"
     try:
-        has_plugin_mcp = not os.path.islink(plugin_mcp) and plugin_mcp.is_file()
+        has_plugin_mcp = (
+            not os.path.islink(ui_refinery_dir)
+            and ui_refinery_dir.is_dir()
+            and not os.path.islink(plugin_mcp)
+            and plugin_mcp.is_file()
+        )
     except OSError as exc:
         warnings.append(f"Could not inspect plugin MCP config {plugin_mcp} ({exc}).")
         has_plugin_mcp = False
@@ -599,7 +622,15 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
         warnings.append(f"Could not inspect global MCP config {global_mcp} ({exc}).")
         has_global_mcp = False
     if has_plugin_mcp and has_global_mcp:
-        mcp_data = read_json(global_mcp, default=None)
+        mcp_status, mcp_raw, _mcp_detail = read_regular_file_nofollow(global_mcp, max_bytes=2 * 1024 * 1024)
+        mcp_data = None
+        if mcp_status == "ok" and mcp_raw is not None:
+            try:
+                parsed_mcp = json.loads(mcp_raw.decode("utf-8"))
+                if isinstance(parsed_mcp, dict):
+                    mcp_data = parsed_mcp
+            except (UnicodeDecodeError, ValueError, RecursionError):
+                mcp_data = None
         if mcp_data is None:
             warnings.append(
                 f"Could not parse {global_mcp} as valid JSON while {plugin_mcp} is active; "
@@ -1009,19 +1040,30 @@ def _check_legacy_residue(root: Path, warnings: List[str]) -> None:
             if exists and not _same_path(legacy_dir, active_dir):
                 warnings.append(
                     f"Legacy pre-v3.0 residue detected ({label}: {legacy_dir}); "
-                    "Plumbwork v3.0.0 uses 'plumbwork' XDG directories. Run legacy '--uninstall' or remove it manually."
+                    "Plumbwork v3.0.0 uses 'plumbwork' XDG directories. Archive/remove it manually once Plumbwork v3 is verified (or run legacy '--uninstall' first if v2.x is still active)."
                 )
         except OSError as exc:
             warnings.append(f"Could not inspect legacy residue path {legacy_dir} ({exc}).")
 
-    legacy_rule = root / "rules" / "antigravity-constitution.md"
+    rules_parent = root / "rules"
+    legacy_rule = rules_parent / "antigravity-constitution.md"
     try:
-        exists, _ = _lstat_exists(legacy_rule)
-        if exists:
-            warnings.append(
-                f"Legacy pre-v3.0 constitution rule {legacy_rule} remains on disk alongside Plumbwork "
-                f"('{CONSTITUTION_RULE_REL}'); remove it manually or run legacy '--uninstall' to avoid duplicate rule loading."
-            )
+        rules_exists, rules_st = _lstat_exists(rules_parent)
+        if rules_exists and rules_st is not None:
+            if stat.S_ISLNK(rules_st.st_mode):
+                warnings.append(f"Refusing symlinked rules directory {rules_parent}; skipped legacy constitution check.")
+            elif stat.S_ISDIR(rules_st.st_mode):
+                exists, rule_st = _lstat_exists(legacy_rule)
+                if exists and rule_st is not None:
+                    if stat.S_ISLNK(rule_st.st_mode):
+                        warnings.append(
+                            f"Refusing symlinked legacy pre-v3.0 constitution rule {legacy_rule}; remove it manually."
+                        )
+                    else:
+                        warnings.append(
+                            f"Legacy pre-v3.0 constitution rule {legacy_rule} remains on disk alongside Plumbwork "
+                            f"('{CONSTITUTION_RULE_REL}'); remove it manually or run legacy '--uninstall' to avoid duplicate rule loading."
+                        )
     except OSError as exc:
         warnings.append(f"Could not inspect legacy constitution rule {legacy_rule} ({exc}).")
 
@@ -1039,6 +1081,62 @@ def _check_legacy_residue(root: Path, warnings: List[str]) -> None:
         except OSError as exc:
             warnings.append(f"Could not inspect legacy boot sentinel {sentinel_path} ({exc}).")
 
+    if os.name == "nt":
+        if shutil.which("schtasks"):
+            import subprocess
+
+            try:
+                res_task = subprocess.run(
+                    ["schtasks", "/Query", "/TN", "AntigravityGuardBootSentinel"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if res_task.returncode == 0:
+                    warnings.append(
+                        "Legacy pre-v3.0 Windows Task Scheduler boot sentinel 'AntigravityGuardBootSentinel' remains registered; "
+                        "delete it with 'schtasks /Delete /TN AntigravityGuardBootSentinel /F' and enable 'plumb-guard startup enable'."
+                    )
+            except (OSError, subprocess.SubprocessError) as exc:
+                warnings.append(f"Could not inspect legacy Windows boot sentinel ({exc}).")
+
+    if os.name == "nt":
+        legacy_win_dir = windows_launcher_dir().parent / "antigravity-guard"
+        try:
+            exists, _ = _lstat_exists(legacy_win_dir)
+            if exists:
+                warnings.append(
+                    f"Legacy pre-v3.0 Windows launcher directory remains on disk ({legacy_win_dir}); "
+                    "remove it manually once Plumbwork v3 is verified."
+                )
+        except OSError as exc:
+            warnings.append(f"Could not inspect legacy launcher directory {legacy_win_dir} ({exc}).")
+    else:
+        local_bin = home / ".local" / "bin"
+        for l_name in ("agy-guard", "agy-porter"):
+            l_path = local_bin / l_name
+            try:
+                exists, _ = _lstat_exists(l_path)
+                if exists:
+                    warnings.append(
+                        f"Legacy pre-v3.0 CLI launcher remains on disk ({l_path}); "
+                        "remove it manually and use 'plumb-guard' / 'plumb-porter'."
+                    )
+            except OSError as exc:
+                warnings.append(f"Could not inspect legacy launcher {l_path} ({exc}).")
+        legacy_porter_alias = local_bin / "porter"
+        try:
+            exists, p_st = _lstat_exists(legacy_porter_alias)
+            if exists and p_st is not None and not stat.S_ISLNK(p_st.st_mode) and stat.S_ISREG(p_st.st_mode):
+                st_p, raw_p, _ = read_regular_file_nofollow(legacy_porter_alias, max_bytes=4096)
+                if st_p == "ok" and raw_p is not None and b"antigravity-harness launcher" in raw_p:
+                    warnings.append(
+                        f"Legacy pre-v3.0 'porter' alias launcher remains on disk ({legacy_porter_alias}); "
+                        "remove it manually or reinstall to refresh it for 'plumb-porter'."
+                    )
+        except OSError as exc:
+            warnings.append(f"Could not inspect legacy launcher {legacy_porter_alias} ({exc}).")
+
     receipt = read_install_receipt(target_dir=root)
     raw_plugins = receipt.get("installed_plugins") if isinstance(receipt, dict) else None
     if raw_plugins is not None and not isinstance(raw_plugins, list):
@@ -1047,7 +1145,11 @@ def _check_legacy_residue(root: Path, warnings: List[str]) -> None:
     raw_installed = receipt.get("installed") if isinstance(receipt, dict) else None
     if raw_installed is not None and not isinstance(raw_installed, list):
         warnings.append("Install receipt 'installed' field is not a list; treating legacy skills as unreceipted.")
-    rec_installed = {p for p in raw_installed if isinstance(p, str)} if isinstance(raw_installed, list) else set()
+    rec_installed = (
+        {p.replace("\\", "/").strip("/") for p in raw_installed if isinstance(p, str)}
+        if isinstance(raw_installed, list)
+        else set()
+    )
 
     plugins_parent = root / "plugins"
     legacy_plug = plugins_parent / "antislop"
@@ -1059,6 +1161,7 @@ def _check_legacy_residue(root: Path, warnings: List[str]) -> None:
                 os.listdir(legacy_plug)  # surface PermissionError on unreadable directory
                 if (
                     "antislop" not in rec_plugins
+                    and "plugins/antislop" not in rec_installed
                     and is_harness_plugin_dir(legacy_plug, expected_pack="antislop", allow_legacy_names=True)
                 ):
                     warnings.append(
@@ -1069,23 +1172,27 @@ def _check_legacy_residue(root: Path, warnings: List[str]) -> None:
         warnings.append(f"Could not inspect legacy plugin path {legacy_plug} ({exc}).")
 
     skills_parent = root / "skills"
-    legacy_skill = skills_parent / "antislop"
     try:
         parent_exists, parent_st = _lstat_exists(skills_parent)
         if parent_exists and parent_st is not None and not stat.S_ISLNK(parent_st.st_mode):
-            skill_exists, skill_st = _lstat_exists(legacy_skill)
-            if skill_exists and skill_st is not None and not stat.S_ISLNK(skill_st.st_mode) and stat.S_ISDIR(skill_st.st_mode):
-                os.listdir(legacy_skill)  # surface PermissionError on unreadable directory
-                if (
-                    "skills/antislop" not in rec_installed
-                    and is_legacy_harness_skill_dir(legacy_skill)
-                ):
-                    warnings.append(
-                        f"Unreceipted legacy harness skill {legacy_skill} remains on disk (superseded by ui-refinery); "
-                        "remove it manually if no longer needed (third-party upstream antislop installs are preserved)."
-                    )
+            for slug in sorted(LEGACY_HARNESS_SKILL_SLUGS):
+                legacy_skill = skills_parent / slug
+                try:
+                    skill_exists, skill_st = _lstat_exists(legacy_skill)
+                    if skill_exists and skill_st is not None and not stat.S_ISLNK(skill_st.st_mode) and stat.S_ISDIR(skill_st.st_mode):
+                        os.listdir(legacy_skill)  # surface PermissionError on unreadable directory
+                        if (
+                            f"skills/{slug}" not in rec_installed
+                            and is_legacy_harness_skill_dir(legacy_skill)
+                        ):
+                            warnings.append(
+                                f"Unreceipted legacy harness skill {legacy_skill} remains on disk (superseded by ui-refinery); "
+                                "remove it manually if no longer needed (third-party upstream antislop installs are preserved)."
+                            )
+                except OSError as exc:
+                    warnings.append(f"Could not inspect legacy skill path {legacy_skill} ({exc}).")
     except OSError as exc:
-        warnings.append(f"Could not inspect legacy skill path {legacy_skill} ({exc}).")
+        warnings.append(f"Could not inspect legacy skills directory {skills_parent} ({exc}).")
 
 
 def _check_workspace_hooks_collision(ws_root: Path, warnings: List[str]) -> None:
@@ -1111,7 +1218,7 @@ def _check_workspace_hooks_collision(ws_root: Path, warnings: List[str]) -> None
 
 def _repair_command_hint() -> str:
     has_install_py = (Path(__file__).resolve().parent.parent / "install.py").is_file()
-    if has_install_py and not os.environ.get("PLUMBWORK_SHARE_DIR"):
+    if has_install_py and not os.environ.get("PLUMBWORK_SHARE_DIR", "").strip():
         return "'python3 install.py'"
     return "'plumb-guard init'"
 
@@ -1223,7 +1330,8 @@ def diagnose(env: AgentEnvironment, registry: EnvironmentRegistry, sentinel_acti
     if watcher_log.is_file():
         try:
             tail = watcher_log.read_text(encoding="utf-8", errors="replace")[-4000:]
-        except OSError:
+        except OSError as exc:
+            warnings.append(f"Could not read auto-relock watcher log {watcher_log} ({exc}).")
             tail = ""
         if "RELOCK FAILED" in tail or "Traceback" in tail:
             warnings.append(f"The auto-relock watcher reported errors recently; see {watcher_log}.")

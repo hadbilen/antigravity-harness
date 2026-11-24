@@ -566,7 +566,7 @@ def _inspect_delegation_rule12_text(
         _command_mutates_governance,
         _command_mutates_governance_in_cwd,
         _extract_shell_c_payloads,
-        _mask_quoted_operators,
+        _normalize_governance_globs,
     )
     deleg_bases: List[Path] = []
     for _db in (effective_cwd, workspace, *workspaces):
@@ -577,8 +577,13 @@ def _inspect_delegation_rule12_text(
         if ext and ext not in candidates:
             candidates.append(ext)
     for cand in candidates:
-        masked = _mask_quoted_operators(cand)
-        if _DELEGATION_GUARD_ADMIN_RE.search(masked) or _GUARD_INLINE_PY_RE.search(cand) or re.search(_GUARD_API_TOKEN_PAT, cand):
+        admin_variants = _normalize_governance_globs(cand, admin_variants=True)
+        masked = admin_variants[0]
+        if (
+            any(_DELEGATION_GUARD_ADMIN_RE.search(v) for v in admin_variants)
+            or _GUARD_INLINE_PY_RE.search(cand)
+            or re.search(_GUARD_API_TOKEN_PAT, cand)
+        ):
             return {
                 "decision": "deny",
                 "reason": (
@@ -586,7 +591,7 @@ def _inspect_delegation_rule12_text(
                     f"prohibited inside `{tool_label}` (GEMINI.md Rule 12)."
                 ),
             }
-        if _DELEGATION_INSTALL_EXEC_RE.search(masked):
+        if any(_DELEGATION_INSTALL_EXEC_RE.search(v) for v in admin_variants):
             return {
                 "decision": "deny",
                 "reason": (

@@ -468,9 +468,6 @@ def create_tray_adapter(
         return DummyAdapter(fallback_reason=reason, diagnostics=[reason])
     if platform.system() == "Linux":
         session = detect_linux_display_session()
-        if session["disabled_by_env"]:
-            reason = "System tray disabled via PLUMB_GUARD_NO_TRAY=1; using standard window lifecycle."
-            return DummyAdapter(fallback_reason=reason, diagnostics=[reason])
         if session["is_headless"]:
             reason = "No Linux graphical display (DISPLAY/WAYLAND_DISPLAY unset); skipping tray backends."
             return DummyAdapter(fallback_reason=reason, diagnostics=[reason])

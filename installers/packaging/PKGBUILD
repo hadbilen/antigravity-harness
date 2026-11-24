@@ -63,7 +63,7 @@ EOF
 _plumb_guard_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local commands="init status lock unlock verify rebaseline env request-unlock lock-complete drift self-audit snapshot porter upstream test-boundary provenance startup boot-check doctor notify code-map ui-slop synthetic-markers verify-invariants gui"
-    COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+    COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
 }
 complete -F _plumb_guard_completions plumb-guard
 EOF

@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover
     _default_tomllib = None  # type: ignore[assignment]
 
-from guard.paths import HOOK_LOCK_TIMEOUT, data_dir, is_within
+from guard.paths import HOOK_LOCK_TIMEOUT, is_safe_regular_subpath, is_within, share_dir_candidates
 
 from .common import (
     MAX_STRIKES,
@@ -43,6 +43,7 @@ from .common import (
     _extract_ws_flight_conversations,
     _facade,
     _facade_attr,
+    data_dir,
     _flight_recorder_file,
     _is_auxiliary_readonly_context,
     _is_git_repo_workspace,
@@ -450,58 +451,54 @@ def _load_ui_slop_scanner() -> Any:
     if _UI_SLOP_SCANNER_LOADED and _UI_SLOP_SCANNER_MOD is not None:
         return _UI_SLOP_SCANNER_MOD
 
-    def _is_safe_script(base_dir: Path, rel_path: Path, *, require_plugin_pack: Optional[str] = None) -> bool:
-        try:
-            cur = base_dir
-            for part in rel_path.parts:
-                cur = cur / part
-                if os.path.islink(cur):
-                    return False
-            st = os.lstat(cur)
-            if not stat.S_ISREG(st.st_mode):
-                return False
-            if os.name != "nt" and (st.st_mode & 0o002):
-                return False
-            if require_plugin_pack is not None:
-                from guard.environment import is_harness_plugin_dir
-
-                if not is_harness_plugin_dir(base_dir / "plugins" / require_plugin_pack, expected_pack=require_plugin_pack):
-                    return False
-            return True
-        except OSError:
-            return False
-
-    from guard.paths import share_dir_candidates
-
+    setattr(_load_ui_slop_scanner, "_last_error", None)
     rel = Path("skills") / "ui-refinery" / "scripts" / "check_ui_slop.py"
     plug_rel = Path("plugins") / "ui-refinery" / rel
+    fhs_share = Path("/usr/share/plumbwork")
     candidates: List[Tuple[Path, Path, Optional[str]]] = [
         (_repo_root(), rel, None),
+        (fhs_share, rel, None),
         (data_dir() / "runtime", rel, None),
-        *((sh, rel, None) for sh in share_dir_candidates()),
+        *((sh, rel, None) for sh in share_dir_candidates() if sh != fhs_share),
         (config_dir(), rel, None),
         (config_dir(), plug_rel, "ui-refinery"),
         (configured_config_dir(), rel, None),
         (configured_config_dir(), plug_rel, "ui-refinery"),
     ]
+    failed_reasons: List[str] = []
     for base_dir, sub_rel, req_pack in candidates:
         script_path = base_dir / sub_rel
-        if _is_safe_script(base_dir, sub_rel, require_plugin_pack=req_pack):
-            try:
-                spec = importlib.util.spec_from_file_location("_agy_check_ui_slop", script_path)
-                if spec is not None and spec.loader is not None:
-                    mod = importlib.util.module_from_spec(spec)
-                    sys.modules[spec.name] = mod
-                    try:
-                        spec.loader.exec_module(mod)
-                    except BaseException:
-                        sys.modules.pop(spec.name, None)
-                        raise
-                    _UI_SLOP_SCANNER_MOD = mod
-                    _UI_SLOP_SCANNER_LOADED = True
-                    return mod
-            except Exception:
+        existed = os.path.lexists(script_path)
+        if not is_safe_regular_subpath(base_dir, sub_rel):
+            if existed:
+                failed_reasons.append(f"unsafe path/permissions: {script_path}")
+            continue
+        if req_pack is not None:
+            from guard.environment import is_harness_plugin_dir
+
+            if not is_harness_plugin_dir(base_dir / "plugins" / req_pack, expected_pack=req_pack):
+                if existed:
+                    failed_reasons.append(f"unverified plugin provenance: {script_path}")
                 continue
+        try:
+            spec = importlib.util.spec_from_file_location("_agy_check_ui_slop", script_path)
+            if spec is not None and spec.loader is not None:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = mod
+                try:
+                    spec.loader.exec_module(mod)
+                except BaseException:
+                    sys.modules.pop(spec.name, None)
+                    raise
+                _UI_SLOP_SCANNER_MOD = mod
+                _UI_SLOP_SCANNER_LOADED = True
+                setattr(_load_ui_slop_scanner, "_last_error", None)
+                return mod
+        except Exception as exc:
+            failed_reasons.append(f"import error on {script_path} ({type(exc).__name__}: {exc})")
+            continue
+    if failed_reasons:
+        setattr(_load_ui_slop_scanner, "_last_error", failed_reasons[0])
     return None
 
 def validate_ui_slop_content(norm_path: str, content: str) -> List[str]:
@@ -515,6 +512,12 @@ def validate_ui_slop_content(norm_path: str, content: str) -> List[str]:
         return []
     mod = _load_ui_slop_scanner()
     if mod is None or not hasattr(mod, "scan_text"):
+        last_err = getattr(_load_ui_slop_scanner, "_last_error", None)
+        if last_err:
+            return [
+                f"UI slop scanner unavailable for `{norm_path}` ({last_err}) "
+                "— verify `skills/ui-refinery/scripts/check_ui_slop.py` safety and health."
+            ]
         return []
     try:
         report = mod.scan_text(content, path=norm_path, mode="auto")

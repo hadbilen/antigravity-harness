@@ -47,12 +47,14 @@ from guard.environment import (
     StateFileSnapshot,
     can_retire_harness_plugin_dir,
     can_retire_legacy_harness_skill_dir,
+    extract_receipt_uninstall_entries,
     has_constitution_file,
     is_harness_constitution_file,
     is_harness_plugin_dir,
     migrate_harness_mcp_config,
     read_install_receipt,
     render_constitution_rule,
+    resolve_safe_uninstall_entry,
     restore_state_files,
     snapshot_state_files,
     stage_hybrid_skill_tree,
@@ -68,6 +70,8 @@ from guard.paths import (
     configured_config_dir,
     copy_entry,
     data_dir,
+    is_safe_regular_subpath,
+    share_dir_candidates,
     read_json,
     state_dir,
 )
@@ -368,9 +372,13 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
             lease_mgr = LeaseManager(registry=registry)
             try:
                 if lease_mgr.get_active_lease("antigravity") is not None:
-                    lease_mgr.complete_lease(env_id="antigravity", interactive=False)
-            except Exception:
-                pass
+                    ok_lc, msg_lc = lease_mgr.complete_lease(env_id="antigravity", interactive=False)
+                    if not ok_lc:
+                        print(f"[ERROR] Could not close active antigravity lease: {msg_lc}", file=sys.stderr)
+                        cleanup_failed = True
+            except Exception as exc:
+                print(f"[ERROR] Lease check/close failed during uninstall: {exc}", file=sys.stderr)
+                cleanup_failed = True
             if reg_global_env is not None:
                 ok_u, msg_u = registry.unlock("antigravity")
                 if not ok_u and target_dir.exists():
@@ -411,25 +419,7 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
     rec = read_install_receipt(receipt_path=receipt_path, target_dir=target_dir)
     if rec is not None:
         receipt_matches_target = True
-        if isinstance(rec.get("installed"), list):
-            for raw_item in rec["installed"]:
-                if not isinstance(raw_item, str):
-                    continue
-                norm_i = raw_item.replace("\\", "/").strip("/")
-                if not norm_i or ".." in Path(norm_i).parts or Path(raw_item).is_absolute():
-                    continue
-                if norm_i == "plugins" or norm_i.startswith("plugins/"):
-                    sub_parts = norm_i.split("/")
-                    if len(sub_parts) == 2 and sub_parts[1] in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
-                        tracked_rel.append(norm_i)
-                else:
-                    tracked_rel.append(norm_i)
-        if isinstance(rec.get("installed_plugins"), list):
-            for p in rec["installed_plugins"]:
-                if isinstance(p, str) and p in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
-                    rel_p = f"plugins/{p}"
-                    if rel_p not in tracked_rel:
-                        tracked_rel.append(rel_p)
+        tracked_rel = extract_receipt_uninstall_entries(rec)
 
     if not receipt_matches_target and os.path.lexists(target_dir / "plugins"):
         print(
@@ -491,38 +481,11 @@ def _uninstall_init_profile(args: argparse.Namespace, target_dir: Path, dry_run:
                         _stash_entry(hooks_path, Path("hooks.json"))
 
     for rel_item in tracked_rel:
-        norm_rel = rel_item.replace("\\", "/").strip("/")
-        if not norm_rel or norm_rel == "hooks.json":
+        resolved_entry = resolve_safe_uninstall_entry(target_dir, target_resolved, rel_item)
+        if resolved_entry is None:
             continue
-        cand_path = Path(rel_item)
-        rel_obj = Path(norm_rel)
-        if cand_path.is_absolute() or rel_obj.is_absolute() or ".." in rel_obj.parts or norm_rel in (".",):
-            continue
-        rel_parts = [p for p in rel_obj.parts if p not in ("", ".")]
-        if not rel_parts:
-            continue
-        cur_anc = target_dir
-        has_sym_anc = False
-        for seg in rel_parts[:-1]:
-            cur_anc = cur_anc / seg
-            if os.path.islink(cur_anc):
-                has_sym_anc = True
-                break
-        if has_sym_anc:
-            continue
-        entry = target_dir.joinpath(*rel_parts)
-        try:
-            parent_resolved = entry.parent.resolve()
-            if not (parent_resolved == target_resolved or parent_resolved.is_relative_to(target_resolved)):
-                continue
-            if not os.path.islink(entry):
-                entry_resolved = entry.resolve()
-                if entry_resolved == target_resolved or not entry_resolved.is_relative_to(target_resolved):
-                    continue
-        except OSError:
-            continue
+        entry, rel_dest, rel_parts = resolved_entry
         if os.path.lexists(entry):
-            rel_dest = Path(*rel_parts)
             if len(rel_parts) >= 2 and rel_parts[0] == "plugins":
                 pack_name = rel_parts[1]
                 pack_root = target_dir / "plugins" / pack_name
@@ -881,9 +844,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         lease_mgr = LeaseManager(registry=registry)
         try:
             if lease_mgr.get_active_lease("antigravity") is not None:
-                lease_mgr.complete_lease(env_id="antigravity", interactive=False)
-        except Exception:
-            pass
+                ok_lc, msg_lc = lease_mgr.complete_lease(env_id="antigravity", interactive=False)
+                if not ok_lc:
+                    print(f"[WARN] Could not close active antigravity lease before init: {msg_lc}", file=sys.stderr)
+        except Exception as exc:
+            print(f"[WARN] Lease check/close failed before init: {exc}", file=sys.stderr)
         registry.unlock("antigravity")
     if target_dir.exists() and not os.path.islink(target_dir):
         registry.os_adapter.unlock(target_dir, recursive=False)
@@ -897,7 +862,8 @@ def cmd_init(args: argparse.Namespace) -> int:
                     for pack_name in sorted(HARNESS_PLUGIN_NAMES):
                         pdir = rt_entry / pack_name
                         if os.path.lexists(pdir) and not os.path.islink(pdir):
-                            registry.os_adapter.unlock(pdir, recursive=True)
+                            if not os.path.lexists(pdir / "plugin.json") or is_harness_plugin_dir(pdir, expected_pack=pack_name):
+                                registry.os_adapter.unlock(pdir, recursive=True)
                     for legacy_pack in sorted(LEGACY_HARNESS_PLUGIN_NAMES):
                         lpdir = rt_entry / legacy_pack
                         if is_harness_plugin_dir(lpdir, expected_pack=legacy_pack, allow_legacy_names=True):
@@ -1322,6 +1288,13 @@ def cmd_init(args: argparse.Namespace) -> int:
             hooks_script = sys_hooks if sys_hooks.is_file() else (rt_hooks if rt_hooks.is_file() else (source_dir / "guard" / "agy_hooks.py"))
         else:
             hooks_script = Path(__file__).resolve().parent / "agy_hooks.py"
+        if not hooks_script.is_file() or os.path.islink(hooks_script):
+            _rollback_init()
+            print(
+                f"[ERROR] Hook runtime script missing or symlinked ({hooks_script}); aborted and rolled back.",
+                file=sys.stderr,
+            )
+            return 1
 
         watcher_script = target_dir / "skills" / "upstream-auditor" / "scripts" / "upstream_watcher.py"
         if getattr(sys, "frozen", False):
@@ -2146,58 +2119,40 @@ def _resolve_portable_script(rel_path: str) -> Optional[Path]:
             plugin_pack = pack
             plugin_rel = f"plugins/{pack}/{norm_rel}"
 
-    # Trusted immutable code roots first, then verified config/plugin fallbacks
-    candidates: List[Tuple[Path, Path, Optional[str], bool]] = [
-        (cli_root, Path(norm_rel), None, False),
-        (data_dir() / "runtime", Path(norm_rel), None, False),
+    # Trusted immutable code roots first (never let env overrides shadow FHS system installs),
+    # then user runtime and verified config/plugin fallbacks — all checked via is_safe_regular_subpath.
+    candidates: List[Tuple[Path, Path, Optional[str]]] = [
+        (cli_root, Path(norm_rel), None),
     ]
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        candidates.append((Path(meipass), Path(norm_rel), None, False))
-    from guard.paths import share_dir_candidates
-
+        candidates.append((Path(meipass), Path(norm_rel), None))
     candidates.extend([
-        *((sh, Path(norm_rel), None, False) for sh in share_dir_candidates()),
-        (cli_root.parent.parent / "share" / "plumbwork", Path(norm_rel), None, False),
-        (Path("/usr/lib/plumb-guard"), Path(norm_rel), None, False),
-        (configured_config_dir(), Path(norm_rel), None, True),
+        (cli_root.parent.parent / "share" / "plumbwork", Path(norm_rel), None),
+        (Path("/usr/lib/plumb-guard"), Path(norm_rel), None),
+        (Path("/usr/share/plumbwork"), Path(norm_rel), None),
+        (data_dir() / "runtime", Path(norm_rel), None),
+        *((sh, Path(norm_rel), None) for sh in share_dir_candidates() if sh != Path("/usr/share/plumbwork")),
+        (configured_config_dir(), Path(norm_rel), None),
     ])
     if plugin_rel is not None and plugin_pack is not None:
-        candidates.append((configured_config_dir(), Path(plugin_rel), plugin_pack, True))
-    candidates.append((config_dir(), Path(norm_rel), None, True))
+        candidates.append((configured_config_dir(), Path(plugin_rel), plugin_pack))
+    candidates.append((config_dir(), Path(norm_rel), None))
     if plugin_rel is not None and plugin_pack is not None:
-        candidates.append((config_dir(), Path(plugin_rel), plugin_pack, True))
+        candidates.append((config_dir(), Path(plugin_rel), plugin_pack))
 
     seen: set[str] = set()
-    for base_dir, sub_rel, req_pack, strict_fallback in candidates:
+    for base_dir, sub_rel, req_pack in candidates:
         cand = base_dir / sub_rel
         key = str(cand)
         if key in seen:
             continue
         seen.add(key)
-        try:
-            if strict_fallback:
-                cur = base_dir
-                has_sym = False
-                for part in sub_rel.parts:
-                    cur = cur / part
-                    if os.path.islink(cur):
-                        has_sym = True
-                        break
-                if has_sym:
-                    continue
-                st = os.lstat(cand)
-                if not stat.S_ISREG(st.st_mode):
-                    continue
-                if os.name != "nt" and (st.st_mode & 0o002):
-                    continue
-                if req_pack is not None and not is_harness_plugin_dir(base_dir / "plugins" / req_pack, expected_pack=req_pack):
-                    continue
-                return cand
-            if not os.path.islink(cand) and cand.is_file():
-                return cand
-        except OSError:
+        if not is_safe_regular_subpath(base_dir, sub_rel):
             continue
+        if req_pack is not None and not is_harness_plugin_dir(base_dir / "plugins" / req_pack, expected_pack=req_pack):
+            continue
+        return cand
     return None
 
 

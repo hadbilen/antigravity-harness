@@ -56,11 +56,13 @@ from guard.environment import (  # noqa: E402
     StateFileSnapshot,
     can_retire_harness_plugin_dir,
     can_retire_legacy_harness_skill_dir,
+    extract_receipt_uninstall_entries,
     is_harness_constitution_file,
     is_harness_plugin_dir,
     migrate_harness_mcp_config,
     read_install_receipt,
     render_constitution_rule,
+    resolve_safe_uninstall_entry,
     restore_state_files,
     snapshot_state_files,
     stage_hybrid_skill_tree,
@@ -68,7 +70,7 @@ from guard.environment import (  # noqa: E402
 )
 from guard.integrity import FileIntegrityMonitor  # noqa: E402
 from guard.lease import LeaseManager  # noqa: E402
-from guard.paths import atomic_write_json, atomic_write_text, copy_entry, data_dir, state_dir  # noqa: E402
+from guard.paths import atomic_write_json, atomic_write_text, copy_entry, data_dir, state_dir, windows_launcher_dir  # noqa: E402
 from guard.plugins import (  # noqa: E402
     HARNESS_PLUGIN_NAMES,
     PLUGIN_ASSET_FILENAMES,
@@ -990,7 +992,7 @@ class Installer:
             self.log("[DRY-RUN] launchers plumb-guard / plumb-porter")
             return
         if IS_WINDOWS:
-            bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard"
+            bin_dir = windows_launcher_dir()
             for name, script in (("plumb-guard", "guard.py"), ("plumb-porter", "porter.py")):
                 body = f'@echo off\r\nrem {LAUNCHER_MARKER}\r\n"{python_bin}" "{runtime / script}" %*\r\n'
                 self._write_launcher(bin_dir / f"{name}.cmd", body, executable=False)
@@ -1047,7 +1049,7 @@ class Installer:
         if pinned and not _is_valid_sha256(pinned):
             self.log(f"[SECURITY] Invalid --sha256 digest format for {binary_name}; expected 64 hex characters.")
             return False
-        dest = (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard" / "plumb-guard.exe") if IS_WINDOWS \
+        dest = (windows_launcher_dir() / "plumb-guard.exe") if IS_WINDOWS \
             else Path.home() / ".local" / "bin" / "plumb-guard"
         local = SCRIPT_DIR / "dist" / binary_name
         sums = ""
@@ -1113,9 +1115,19 @@ class Installer:
         try:
             fd = os.open(str(tmp), flags, 0o755)
             try:
-                os.write(fd, data)
+                with os.fdopen(fd, "wb") as fh:
+                    fd = -1
+                    written = fh.write(data)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                if written != len(data) or tmp.stat().st_size != len(data):
+                    raise OSError(f"Short binary write ({written}/{len(data)} bytes)")
             finally:
-                os.close(fd)
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
             if not IS_WINDOWS:
                 os.chmod(str(tmp), 0o755)
             os.replace(tmp, dest)
@@ -1244,9 +1256,13 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     if not dry_run:
         try:
             if lease_mgr.get_active_lease("antigravity") is not None:
-                lease_mgr.complete_lease(env_id="antigravity", interactive=False)
-        except Exception:
-            pass
+                ok_lc, msg_lc = lease_mgr.complete_lease(env_id="antigravity", interactive=False)
+                if not ok_lc:
+                    print(f"[ERROR] Could not close active antigravity lease: {msg_lc}", file=sys.stderr)
+                    cleanup_failed = True
+        except Exception as exc:
+            print(f"[ERROR] Lease check/close failed during uninstall: {exc}", file=sys.stderr)
+            cleanup_failed = True
         if env is not None:
             ok_unlock, msg_unlock = registry.unlock("antigravity")
             if not ok_unlock:
@@ -1291,25 +1307,7 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     rec = read_install_receipt(receipt_path=receipt_path, target_dir=target_dir)
     if rec is not None:
         receipt_matches_target = True
-        if isinstance(rec.get("installed"), list):
-            for raw_item in rec["installed"]:
-                if not isinstance(raw_item, str):
-                    continue
-                norm_i = raw_item.replace("\\", "/").strip("/")
-                if not norm_i or ".." in Path(norm_i).parts or Path(raw_item).is_absolute():
-                    continue
-                if norm_i == "plugins" or norm_i.startswith("plugins/"):
-                    sub_parts = norm_i.split("/")
-                    if len(sub_parts) == 2 and sub_parts[1] in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
-                        tracked_rel.append(norm_i)
-                else:
-                    tracked_rel.append(norm_i)
-        if isinstance(rec.get("installed_plugins"), list):
-            for p in rec["installed_plugins"]:
-                if isinstance(p, str) and p in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
-                    rel_p = f"plugins/{p}"
-                    if rel_p not in tracked_rel:
-                        tracked_rel.append(rel_p)
+        tracked_rel = extract_receipt_uninstall_entries(rec)
         if isinstance(rec.get("binary_path"), str):
             recorded_binary_path = rec["binary_path"]
 
@@ -1374,39 +1372,11 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     # 2. Remove receipt-tracked governance files/directories (preserving untracked user files).
     target_resolved = target_dir.resolve()
     for rel_item in tracked_rel:
-        norm_rel = rel_item.replace("\\", "/").strip("/")
-        if not norm_rel or norm_rel == "hooks.json":
+        resolved_entry = resolve_safe_uninstall_entry(target_dir, target_resolved, rel_item)
+        if resolved_entry is None:
             continue
-        cand_path = Path(rel_item)
-        rel_obj = Path(norm_rel)
-        if cand_path.is_absolute() or rel_obj.is_absolute() or ".." in rel_obj.parts or norm_rel in (".",):
-            continue
-        rel_parts = [p for p in rel_obj.parts if p not in ("", ".")]
-        if not rel_parts:
-            continue
-        # Reject any symlink ancestor between target_dir and entry's parent
-        cur_anc = target_dir
-        has_sym_anc = False
-        for seg in rel_parts[:-1]:
-            cur_anc = cur_anc / seg
-            if os.path.islink(cur_anc):
-                has_sym_anc = True
-                break
-        if has_sym_anc:
-            continue
-        entry = target_dir.joinpath(*rel_parts)
-        try:
-            parent_resolved = entry.parent.resolve()
-            if not (parent_resolved == target_resolved or parent_resolved.is_relative_to(target_resolved)):
-                continue
-            if not os.path.islink(entry):
-                entry_resolved = entry.resolve()
-                if entry_resolved == target_resolved or not entry_resolved.is_relative_to(target_resolved):
-                    continue
-        except OSError:
-            continue
+        entry, rel_dest, rel_parts = resolved_entry
         if os.path.lexists(entry):
-            rel_dest = Path(*rel_parts)
             if len(rel_parts) >= 2 and rel_parts[0] == "plugins":
                 pack_name = rel_parts[1]
                 pack_root = target_dir / "plugins" / pack_name
@@ -1449,7 +1419,7 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     # 3. Remove launchers ONLY if created by Plumbwork.
     runtime_root = data_dir() / "runtime"
     if IS_WINDOWS:
-        bin_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "plumb-guard"
+        bin_dir = windows_launcher_dir()
         launcher_candidates = [bin_dir / "plumb-guard.cmd", bin_dir / "plumb-porter.cmd", bin_dir / "plumb-guard.exe"]
     else:
         bin_dir = Path.home() / ".local" / "bin"
@@ -1598,7 +1568,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing")
     args = parser.parse_args(argv)
 
-    raw_target = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser()
+    cfg_env = (os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip()
+    raw_target = Path(cfg_env).expanduser() if cfg_env else (Path.home() / ".gemini" / "config")
     if os.path.islink(raw_target):
         print(
             f"[ERROR] Refusing to install into symlinked configuration directory: {raw_target}",

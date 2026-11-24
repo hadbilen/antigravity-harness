@@ -10,8 +10,12 @@ $HarnessDir = Resolve-Path (Join-Path $ScriptDir "..")
 $GuardScript = Join-Path $HarnessDir "guard.py"
 
 $PythonCmd = Get-Command python -ErrorAction SilentlyContinue
+$PythonArgs = @()
 if (-not $PythonCmd) {
     $PythonCmd = Get-Command py -ErrorAction SilentlyContinue
+    if ($PythonCmd) {
+        $PythonArgs = @("-3")
+    }
 }
 
 if (-not $PythonCmd) {
@@ -19,5 +23,5 @@ if (-not $PythonCmd) {
     exit 1
 }
 
-& $PythonCmd.Source $GuardScript @ScriptArgs
+& $PythonCmd.Source @PythonArgs $GuardScript @ScriptArgs
 exit $LASTEXITCODE

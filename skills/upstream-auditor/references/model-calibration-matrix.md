@@ -1,6 +1,6 @@
 # Model Calibration Matrix: Full-Harness Suitability & Pruning Protocol
 
-This reference governs how `/audit-upstream --model` (and `/audit-upstream --all` when a model change is detected) evaluates the entire Plumbwork against a newly released Large Language Model (LLM) to determine:
+This reference governs how `/audit-upstream --model` (and `/audit-upstream --all` when a model change is detected) evaluates the entire Plumbwork harness against a newly released Large Language Model (LLM) to determine:
 1. Which prompt clauses or scaffolding rules are now **redundant (`PRUNE` or `CONDENSE`)** because the new model satisfies them natively,
 2. Which numeric thresholds or behavioral directives **conflict with or under-utilize (`RE-THRESHOLD` or `ADAPT`)** the new model's capabilities, and
 3. Which rules are **permanent architectural governance (`RETAIN: IMMUTABLE`)** that must never be removed regardless of model intelligence.
@@ -41,7 +41,7 @@ Because Antigravity routes distinct capabilities across multi-agent and `native_
 | **`Fast` / Auxiliary** | `Flash` / `Haiku` tiers (`gemini-flash-worker-agy`, `*-flash-*`, `browser` `Model: "flash"`, `monitor` via `swarm_monitor` using `CronExpression: "*/3 * * * *"` + `IsDaemon: true`, opt-in `narrator`) | `MC-04` (mechanical copy/comment tells), `MC-05` (short overview copy) | Permanently barred (`deny` with actionable approved-model guidance under `A1`) from customization/governance writes (`.agents/rules/harness-maintainer.md` Rule 17 `PreToolUse` gate); never loosen `MC-02` or `MC-03` guardrails for `Fast` models based on flagship probe results. |
 
 #### Rule 17 `(model_suffix, effort)` & `A1` Orchestrator Enforcement Policy Matrix (`~/.local/share/plumbwork/runtime/guard/agy_hooks.py`)
-When a session or delegated call targets customization/governance files inside an `plumbwork` checkout (`.agents/rules/harness-maintainer.md` Rule 17; global `~/.gemini/config/` is always `deny` under Governance Shield), `~/.local/share/plumbwork/runtime/guard/agy_hooks.py` (`_evaluate_customization_model_and_effort` and `_check_delegated_model_gate`) enforces `approved_customization_models` (`["gemini-4-neon-xhigh", "gemini-4-carbon-high"]`), the `A1` Orchestrator/Flash calibration, and declared effort suffixes (`(XHigh)` vs `(High)`):
+When a session or delegated call targets customization/governance files inside a `plumbwork` checkout (`.agents/rules/harness-maintainer.md` Rule 17; global `~/.gemini/config/` is always `deny` under Governance Shield), `~/.local/share/plumbwork/runtime/guard/agy_hooks.py` (`_evaluate_customization_model_and_effort` and `_check_delegated_model_gate`) enforces `approved_customization_models` (`["gemini-4-neon-xhigh", "gemini-4-carbon-high"]`), the `A1` Orchestrator/Flash calibration, and declared effort suffixes (`(XHigh)` vs `(High)`):
 
 | Model Class / Approved Suffix | Runtime `effort` | `PreToolUse` Decision | Rationale |
 | :--- | :--- | :--- | :--- |

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scripts/meta_audit.py — Meta-Consistency & Self-Audit Engine (GEMINI.md Rule 17)
+scripts/meta_audit.py — Meta-Consistency & Self-Audit Engine (.agents/rules/harness-maintainer.md Rule 17)
 Part of Plumbwork (https://github.com/hadbilen/plumbwork)
 Uses the Python standard library; uses PyYAML for frontmatter when it is installed.
 

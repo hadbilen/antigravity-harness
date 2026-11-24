@@ -120,14 +120,18 @@ def is_installed_hybrid_root(root: Path) -> bool:
 
 
 def _read_bounded_regular_file(path: Path, max_bytes: int = _MAX_CONSTITUTION_BYTES) -> Optional[str]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    import stat
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
+        if os.path.islink(path):
+            return None
         fd = os.open(str(path), flags)
     except OSError:
         return None
     try:
         st = os.fstat(fd)
-        if not os.path.isfile(path) or st.st_size > max_bytes:
+        if not stat.S_ISREG(st.st_mode) or st.st_size > max_bytes:
             return None
         with os.fdopen(fd, "rb") as fh:
             fd = -1
@@ -192,7 +196,8 @@ def default_harness_root(fallback: Optional[Path] = None) -> Path:
         from guard.paths import config_dir
         cfg = config_dir()
     except ImportError:
-        cfg = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
+        cfg_env = (os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip()
+        cfg = (Path(cfg_env).expanduser() if cfg_env else Path.home() / ".gemini" / "config").resolve()
     if (cfg / "skills").is_dir() and _has_constitution(cfg):
         return cfg
     env_share = os.environ.get("PLUMBWORK_SHARE_DIR", "").strip()
@@ -201,7 +206,7 @@ def default_harness_root(fallback: Optional[Path] = None) -> Path:
         share_cands.append(Path(env_share).expanduser())
     share_cands.extend([
         root.parent.parent / "share" / "plumbwork",
-        Path(__file__).resolve().parent.parent.parent / "share" / "plumbwork",
+        Path(__file__).resolve().parent.parent.parent.parent / "share" / "plumbwork",
         Path("/usr/share/plumbwork"),
     ])
     for share_cand in share_cands:

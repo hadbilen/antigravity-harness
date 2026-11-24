@@ -299,7 +299,7 @@ def safe_fetch_url(
     if not user_agent:
         from porter import __version__
 
-        user_agent = f"Antigravity-Porter/{__version__}"
+        user_agent = f"Plumb-Porter/{__version__}"
     total = float(deadline) if deadline is not None else float(timeout) * DEADLINE_FACTOR
     if total <= 0:
         raise ValueError("deadline must be positive")

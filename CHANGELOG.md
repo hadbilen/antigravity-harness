@@ -22,8 +22,9 @@ Clean major cutover (`ADR-0017`) renaming the harness to **Plumbwork**, its writ
      ```bash
      python3 install.py --plugins   # or: python3 install.py (Flat Layout default)
      ```
+  4. **Post-cutover cleanup & out-of-order recovery:** Legacy `--uninstall` archives removed files inside `~/.local/state/antigravity-harness/backups/`; once `v3.0.0` is verified (`plumb-guard status && plumb-guard doctor`), remove the old `~/.local/{state,share}/antigravity-harness` directories (and any leftover `~/.local/bin/agy-{guard,porter}` or Windows `%LOCALAPPDATA%\Programs\antigravity-guard` launchers) manually. If `git pull` or a Linux package upgrade ran before legacy `--uninstall`, remove `~/.gemini/config/rules/antigravity-constitution.md`, disable/delete legacy boot sentinels (`agy-guard-boot.service`, `com.antigravity.guard.plist`, or Windows `schtasks /Delete /TN AntigravityGuardBootSentinel /F`), and re-run `plumb-guard init [--plugins]` + `plumb-guard doctor`.
   - **Linux `.deb` / `.rpm` / Arch upgrades:** `plumb-guard` packages declare `Provides`/`Conflicts`/`Replaces` (and `.rpm` `Obsoletes: antigravity-guard < 3.0.0`) so package managers replace `antigravity-guard` cleanly; run `agy-guard init --uninstall` per user account before upgrading and `plumb-guard init [--plugins]` afterwards.
-  - **Read-only legacy diagnostics:** `plumb-guard doctor` detects leftover `~/.local/{state,share}/antigravity-harness/`, `rules/antigravity-constitution.md`, legacy boot sentinels (`agy-guard-boot.service`, `com.antigravity.guard.plist`), and unreceipted legacy harness `antislop` directories as read-only `[WARN]` items without modifying disk; third-party upstream `antislop` installs are preserved untouched.
+  - **Read-only legacy diagnostics:** `plumb-guard doctor` detects leftover `~/.local/{state,share}/antigravity-harness/`, `rules/antigravity-constitution.md`, legacy boot sentinels (`agy-guard-boot.service`, `com.antigravity.guard.plist`, Windows `AntigravityGuardBootSentinel`), legacy CLI launchers, and unreceipted legacy harness `antislop` / `silk-design` directories as read-only `[WARN]` items without modifying disk; third-party upstream `antislop` installs are preserved untouched.
 
 ### Security
 - **Fail-Closed Provenance Preservation & Dual-Token Standalone Validation (`guard/environment.py`, `guard/doctor.py`, `guard/plugins.py`, `guard/hooks/_shell_guard.py`):**
@@ -34,7 +35,7 @@ Clean major cutover (`ADR-0017`) renaming the harness to **Plumbwork**, its writ
 
 ### Added
 - **Architecture Decision Record & Index (`docs/adr/0017-plumbwork-rebrand-and-ui-refinery-separation.md`, `docs/adr/README.md`):**
-  - Recorded `ADR-0017` (including the 5-repository `upstream-auditor` audit ledger covering `anti-slop`, `unlazy`, `everything-claude-code`, `skills`, and `rust-anything`) and added `docs/adr/README.md` indexing `ADR-0001` through `ADR-0017`.
+  - Recorded `ADR-0017` (including the 5-repository `upstream-auditor` audit ledger covering `mattpocock/skills`, `miqdadbadjuber/anti-slop`, `JayPokale/Chisle`, `affaan-m/everything-claude-code`, and `morluto/rea`) and added `docs/adr/README.md` indexing `ADR-0001` through `ADR-0017`.
 - **JSONC-Aware Duplicate Plugin `name` Collision Check & Read-Only Legacy-Residue Diagnostics (`guard/doctor.py`):**
   - Added JSONC-safe `plugin.json` duplicate `name` collision detection across installed global plugins (including invalid/unreadable JSON reporting without crashing) and read-only pre-`v3.0.0` legacy-residue warnings.
 - **Prominent Upstream Attribution in Generated Plugin Packs (`guard/plugins.py`, `skills/ui-refinery/SKILL.md`, `skills/ui-refinery/references/motion-physics.md`):**
@@ -42,7 +43,7 @@ Clean major cutover (`ADR-0017`) renaming the harness to **Plumbwork**, its writ
 
 ### Changed
 - **5-Repository Upstream Synchronization & `rust-harden` Dev-Profile Guidance (`skills/upstream-auditor/upstream_state.seed.json`, `skills/rust-harden/references/greenfield-architecture.md`):**
-  - Synced `upstream_state.seed.json` SHAs for `anti-slop`, `unlazy`, `everything-claude-code`, `skills`, and `rust-anything` (retaining `rea` at `rea-agents-6.9.0` matching the installed local runtime) and added Cargo dev-profile and layer-boundary guidance to `skills/rust-harden/references/greenfield-architecture.md`.
+  - Synced `upstream_state.seed.json` SHAs for `mattpocock-skills` (`abeeaf9`), `anti-slop` (`7f6a03d`), `Chisle` (`69e2a3b`), and `everything-claude-code` (`4adeee6`), keeping `rea` pinned at `rea-agents-6.9.0` matching the installed local runtime (`unlazy` unchanged at `1667149`; out-of-scope `rust-anything` kept pinned at `v2.1.0`), and added Cargo dev-profile and layer-boundary guidance to `skills/rust-harden/references/greenfield-architecture.md`.
 - **Packaging, CI, Meta-Audit & Documentation Alignment (`installers/`, `.github/workflows/ci.yml`, `scripts/meta_audit.py`, `porter/`, `README.md`, `CONTRIBUTING.md`, `GEMINI.md`, `skills/`, `agents/`):**
   - Synchronized version `3.0.0` across `guard/__init__.py`, `porter/__init__.py`, `installers/packaging/PKGBUILD` (including unquoted `cd "$srcdir"/*-"$pkgver"`), `README.md`, `CHANGELOG.md`, and `.harness/manifest.json`; updated `PLUGIN_HOMEPAGE`/`PLUGIN_REPOSITORY` to `https://github.com/hadbilen/plumbwork`; updated `.github/workflows/ci.yml` (`PLUMB_GUARD_NOTIFY: "off"`, `dist/plumb-guard-*`, `"Plumbwork $TAG"`) and `scripts/meta_audit.py` Pass-7 `PLUMB_GUARD_*` isolation.
 

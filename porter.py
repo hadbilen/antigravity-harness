@@ -48,7 +48,8 @@ def fetch_target_content(target: str) -> str:
 
 
 def _is_live_config(path: Path) -> bool:
-    live = Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser().resolve()
+    cfg_env = (os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip()
+    live = (Path(cfg_env).expanduser() if cfg_env else Path.home() / ".gemini" / "config").resolve()
     try:
         path.resolve().relative_to(live)
         return True

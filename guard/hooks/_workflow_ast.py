@@ -1760,10 +1760,13 @@ def _inspect_workflow_script(
             "`run_workflow` is prohibited (GEMINI.md Rule 15e)."
         )
 
-    # 1. Human-only Guard admin, install.py, and git hook bypasses across workflow Args & non-prose candidates
+    # 1. Human-only Guard admin, env-override, install.py, and git hook bypasses across workflow Args & non-prose candidates
+    from ._shell_guard import _normalize_governance_globs
+
     for text in cmd_candidates:
-        masked_text = _mask_quoted_operators(text)
-        if _GUARD_ADMIN_RE.search(masked_text) or _GUARD_INLINE_PY_RE.search(text):
+        admin_variants = _normalize_governance_globs(text, admin_variants=True)
+        masked_text = admin_variants[0]
+        if any(_GUARD_ADMIN_RE.search(v) for v in admin_variants) or _GUARD_INLINE_PY_RE.search(text):
             return (
                 {
                     "decision": "deny",
@@ -1774,7 +1777,7 @@ def _inspect_workflow_script(
                 },
                 [],
             )
-        if _WORKFLOW_INSTALL_EXEC_RE.search(masked_text):
+        if any(_WORKFLOW_INSTALL_EXEC_RE.search(v) for v in admin_variants):
             return (
                 {
                     "decision": "deny",

@@ -193,7 +193,7 @@ def _inspect_mcp_tool_call(
             _command_mutates_governance,
             _command_mutates_governance_in_cwd,
             _extract_shell_c_payloads,
-            _mask_quoted_operators,
+            _normalize_governance_globs,
         )
     for s in strings:
         stripped_esc = _MCP_DEBUGGER_ESCAPE_RE.sub("", s).strip()
@@ -206,8 +206,13 @@ def _inspect_mcp_tool_call(
                     cand_cmds.append(ext_c)
 
         for c_str in cand_cmds:
-            masked_c = _mask_quoted_operators(c_str)
-            if _GUARD_ADMIN_RE.search(masked_c) or _GUARD_INLINE_PY_RE.search(c_str) or re.search(_GUARD_API_TOKEN_PAT, c_str):
+            admin_variants = _normalize_governance_globs(c_str, admin_variants=True)
+            masked_c = admin_variants[0]
+            if (
+                any(_GUARD_ADMIN_RE.search(v) for v in admin_variants)
+                or _GUARD_INLINE_PY_RE.search(c_str)
+                or re.search(_GUARD_API_TOKEN_PAT, c_str)
+            ):
                 return {
                     "decision": "deny",
                     "reason": (
@@ -215,7 +220,7 @@ def _inspect_mcp_tool_call(
                         f"(`{effective_label}`) is prohibited (GEMINI.md Rule 12)."
                     ),
                 }
-            if _INSTALL_PY_RE.search(masked_c):
+            if any(_INSTALL_PY_RE.search(v) for v in admin_variants):
                 return {
                     "decision": "deny",
                     "reason": (

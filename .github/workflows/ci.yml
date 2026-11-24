@@ -273,6 +273,10 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ "$REPO" != "hadbilen/plumbwork" ]; then
+            echo "::error::Tagged v3.0+ releases require renaming GitHub repository to hadbilen/plumbwork first (ADR-0017 D8); got '$REPO'."
+            exit 1
+          fi
           version="${TAG#v}"
           curl -fsSL "https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz" -o source.tar.gz
           sum="$(sha256sum source.tar.gz | cut -d' ' -f1)"
@@ -280,7 +284,19 @@ jobs:
           grep -q "$sum" dist-packages/PKGBUILD
       - name: Checksums
         shell: bash
-        run: cd dist-packages && for f in *; do [ -f "$f" ] && sha256sum "$f" > "$f.sha256"; done; ls -la
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd dist-packages
+          count=0
+          for f in *; do
+            if [ -f "$f" ] && [[ "$f" != *.sha256 ]]; then
+              sha256sum "$f" > "$f.sha256"
+              count=$((count + 1))
+            fi
+          done
+          [ "$count" -gt 0 ] || { echo "::error::No package artifacts found to checksum in dist-packages"; exit 1; }
+          ls -la
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-packages

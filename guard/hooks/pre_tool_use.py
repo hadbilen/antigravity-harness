@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from guard.paths import HOOK_LOCK_TIMEOUT, is_within, read_json
+from guard.paths import HOOK_LOCK_TIMEOUT, is_within, read_json, share_dir_candidates, windows_launcher_dir
 
 from .common import (
     _CONV_ID_FALLBACK_RE,
@@ -647,18 +647,14 @@ def _governance_roots() -> List[Path]:
     except OSError:
         candidates.append(porter_bin)
     if os.name == "nt":
-        local_app = Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
-        candidates.append(local_app / "Programs" / "plumb-guard")
+        candidates.append(windows_launcher_dir())
     else:
         candidates.extend([
             Path("/usr/bin/plumb-guard"),
             Path("/usr/bin/plumb-porter"),
             Path("/usr/lib/plumb-guard"),
-            Path("/usr/share/plumbwork"),
         ])
-    share_env = os.environ.get("PLUMBWORK_SHARE_DIR", "").strip()
-    if share_env:
-        candidates.append(Path(os.path.abspath(Path(share_env).expanduser())))
+    candidates.extend(share_dir_candidates())
     candidates.extend(_custom_enforced_governance_roots())
     for candidate in candidates:
         if candidate not in roots:
@@ -1526,14 +1522,7 @@ def _seed_placeholder_diagnostic(placeholder_id: str, *, effort_verified: bool =
         if effort_verified
         else "effort unverified in payload"
     )
-    from guard.paths import share_dir_candidates
-
-    seed_paths = [
-        _repo_root() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        configured_config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        config_dir() / "skills" / "upstream-auditor" / "upstream_state.seed.json",
-        *(sh / "skills" / "upstream-auditor" / "upstream_state.seed.json" for sh in share_dir_candidates()),
-    ]
+    seed_paths = _upstream_seed_candidates()
     for seed_file in seed_paths:
         try:
             if seed_file.is_file():

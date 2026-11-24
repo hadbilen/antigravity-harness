@@ -56,8 +56,8 @@ class StartupManager:
 
     def __init__(self, target_dir: Optional[Path] = None, registry: Optional[EnvironmentRegistry] = None):
         if target_dir is None:
-            config_env = os.environ.get("ANTIGRAVITY_CONFIG_DIR")
-            self.target_dir = Path(os.path.abspath(config_env)) if config_env else Path.home() / ".gemini" / "config"
+            config_env = (os.environ.get("ANTIGRAVITY_CONFIG_DIR") or "").strip()
+            self.target_dir = Path(os.path.abspath(Path(config_env).expanduser())) if config_env else Path.home() / ".gemini" / "config"
         else:
             self.target_dir = Path(os.path.abspath(target_dir))
 
@@ -100,9 +100,28 @@ class StartupManager:
         guard_bin = shutil.which("plumb-guard")
         if guard_bin:
             return [guard_bin, "boot-check"]
-        local_bin = Path.home() / ".local" / "bin" / "plumb-guard"
-        if local_bin.is_file():
-            return [str(local_bin), "boot-check"]
+        if IS_WINDOWS:
+            from guard.paths import data_dir, windows_launcher_dir
+
+            win_dir = windows_launcher_dir()
+            for name in ("plumb-guard.exe", "plumb-guard.cmd"):
+                cand = win_dir / name
+                if cand.is_file():
+                    return [str(cand), "boot-check"]
+            rt_guard = data_dir() / "runtime" / "guard.py"
+            if rt_guard.is_file():
+                py_bin = sys.executable or "python"
+                return [py_bin, str(rt_guard), "boot-check"]
+        else:
+            local_bin = Path.home() / ".local" / "bin" / "plumb-guard"
+            if local_bin.is_file():
+                return [str(local_bin), "boot-check"]
+            from guard.paths import data_dir
+
+            rt_guard = data_dir() / "runtime" / "guard.py"
+            if rt_guard.is_file():
+                py_bin = sys.executable or "python3"
+                return [py_bin, str(rt_guard), "boot-check"]
         py_bin = sys.executable or ("python" if IS_WINDOWS else "python3")
         return [py_bin, "-m", "guard.cli", "boot-check"]
 
@@ -197,17 +216,22 @@ WantedBy=default.target
         return True, f"Configured and enabled systemd user service: {service_file}"
 
     def _disable_linux(self) -> Tuple[bool, str]:
+        problems: List[str] = []
         if shutil.which("systemctl"):
-            try:
-                subprocess.run(["systemctl", "--user", "disable", SYSTEMD_SERVICE_NAME], check=False, capture_output=True, timeout=15)
-                subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True, timeout=15)
-            except (OSError, subprocess.SubprocessError):
-                pass
+            for cmd in (["systemctl", "--user", "disable", SYSTEMD_SERVICE_NAME], ["systemctl", "--user", "daemon-reload"]):
+                try:
+                    res = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=15)
+                    if res.returncode != 0:
+                        detail = (res.stderr or res.stdout or "").strip() or f"exit {res.returncode}"
+                        problems.append(f"{' '.join(cmd)}: {detail}")
+                except (OSError, subprocess.SubprocessError) as exc:
+                    problems.append(f"{' '.join(cmd)}: {exc}")
 
         service_file = SYSTEMD_USER_DIR / SYSTEMD_SERVICE_NAME
         if service_file.exists():
             service_file.unlink(missing_ok=True)
-            return True, f"Removed systemd user service: {service_file}"
+            note = f" (systemctl warnings: {'; '.join(problems)})" if problems else ""
+            return True, f"Removed systemd user service: {service_file}{note}"
         return True, "Early startup service was not enabled."
 
     def _status_linux(self) -> Dict[str, Any]:
@@ -231,7 +255,7 @@ WantedBy=default.target
             "platform": "Linux",
             "mechanism": "systemd user unit (started by the user manager)",
             "installed": is_installed,
-            "active": is_active if shutil.which("systemctl") else is_installed,
+            "active": is_active,
             "target_path": str(service_file),
         }
 

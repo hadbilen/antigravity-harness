@@ -19,14 +19,14 @@ of five or more words are blanked out character by character, so reported line n
 always point at the original file.
 
 Usage:
-  python3 scripts/check_synthetic_markers.py PATH [PATH ...]      # files or directories (.md .txt .html)
-  cat draft.md | python3 scripts/check_synthetic_markers.py -     # read standard input
-  python3 scripts/check_synthetic_markers.py PATH --summary       # per-rule table and density
-  python3 scripts/check_synthetic_markers.py PATH --json          # machine-readable output
-  python3 scripts/check_synthetic_markers.py PATH --lang auto|en|tr
-  python3 scripts/check_synthetic_markers.py PATH --strict        # also report sub-threshold singletons
-  python3 scripts/check_synthetic_markers.py PATH --profile technical   # engineering docs
-  python3 scripts/check_synthetic_markers.py PATH --source human       # em dashes by cluster only
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH [PATH ...]      # files or directories (.md .txt .html)
+  cat draft.md | python3 skills/ui-refinery/scripts/check_synthetic_markers.py -     # read standard input
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH --summary       # per-rule table and density
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH --json          # machine-readable output
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH --lang auto|en|tr
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH --strict        # also report sub-threshold singletons
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH --profile technical   # engineering docs
+  python3 skills/ui-refinery/scripts/check_synthetic_markers.py PATH --source human       # em dashes by cluster only
 
 Exit codes: 0 clean (or below cluster thresholds), 1 findings, 2 read or argument error.
 """

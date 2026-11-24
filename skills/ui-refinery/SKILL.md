@@ -291,7 +291,7 @@ The 40 rules fall into three groups with different enforcement standards:
 - **Fix:**
   - Set explicit `width` and `height` (or `aspect-ratio`) on every `<img>`, `<video>`, and `<iframe>`, and reserve space for asynchronous embeds/banners.
   - Render above-the-fold hero `<img>` elements directly in HTML with `fetchpriority="high"` and never `loading="lazy"`.
-  - Keep non-critical scripts `defer`/`async` or interaction-loaded rather than render-blocking in `<head>`; pin any third-party script or bundle cleanly (`GEMINI.md` Rule 12), preserving only the host-required isolated `generative_ui` Tailwind allowance (`Rule 15c`).
+  - Keep non-critical scripts `defer`/`async` or interaction-loaded rather than render-blocking in `<head>`; pin any third-party script or bundle cleanly (`GEMINI.md` Rule 12), preserving only the host-required isolated `generative_ui` Tailwind allowance.
   - Never report unmeasured Lighthouse or Core Web Vitals scores (R-36); report `"not measured"` when browser profiling has not run.
 
 ---
@@ -468,7 +468,7 @@ Before delivering any UI work, evaluate against the 4 delivery blocks. Every ite
 - [ ] Full keyboard accessibility with visible focus rings (R-32)
 - [ ] Both light and dark themes function correctly (R-34)
 - [ ] Accessible semantics & interaction affordances satisfied: native controls (`<button>` / `<a href>`), `cursor: pointer`, accessible names/labels/`alt`, distinct states, `prefers-reduced-motion` support, and full-document landmarks/zoom preservation when shipping a full HTML page (R-39)
-- [ ] Performance mechanisms satisfied: explicit media dimensions, eager `fetchpriority="high"` hero image, pinned non-blocking scripts (`Rule 12` / `Rule 15c`), and zero unmeasured Web Vitals claims (R-40, R-36)
+- [ ] Performance mechanisms satisfied: explicit media dimensions, eager `fetchpriority="high"` hero image, pinned non-blocking scripts (`GEMINI.md` Rule 12, except the host-required isolated `generative_ui` Tailwind allowance), and zero unmeasured Web Vitals claims (R-40, R-36)
 
 ### Block 2: Purpose-Gate & Positive Geometric Locks
 - [ ] Deterministic UI slop scanner (`plumb-guard ui-slop` or `python3 ~/.gemini/config/skills/ui-refinery/scripts/check_ui_slop.py`) exits with `0` findings (`UI-1` through `UI-5`)
