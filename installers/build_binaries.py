@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import List, Tuple
 
 PORTABLE_SKILL_SCRIPTS = (
-    "skills/antislop/scripts/check_ui_slop.py",
-    "skills/antislop/scripts/check_synthetic_markers.py",
+    "skills/ui-refinery/scripts/check_ui_slop.py",
+    "skills/ui-refinery/scripts/check_synthetic_markers.py",
 )
 
 PORTABLE_PLUGIN_ASSETS = (
-    "guard/plugin_assets/antislop.svg",
+    "guard/plugin_assets/ui-refinery.svg",
     "guard/plugin_assets/rust-suite.svg",
     "guard/plugin_assets/media-studio.svg",
     "guard/plugin_assets/game-engineering.svg",

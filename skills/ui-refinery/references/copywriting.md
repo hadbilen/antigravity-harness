@@ -1,12 +1,12 @@
-# antislop-copywriting
+# copy-polish
 
-> Anti Slop: Rules for AI Coding Agents. Copy & Text skill
+> UI Refinery: Rules for AI Coding Agents. Copy & Text module
 
-> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill deep-dives the copy and text concern: headlines, CTAs, tone, value propositions, and the patterns that make AI-written prose easy to spot. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly writing or auditing marketing copy, product copy, landing-page text, or de-AI prose rewrites.
+> Part of the `ui-refinery` system. Read together with the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`). This module deep-dives the copy and text concern: headlines, CTAs, tone, value propositions, and the patterns that make AI-written prose easy to spot. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly writing or auditing marketing copy, product copy, landing-page text, or de-AI prose rewrites.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when explicitly writing or auditing marketing prose, landing-page copy, or de-AI text rewrites (do not co-load automatically on routine UI layout edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate) and the hard bans (R-02, R-15, R-16, R-17, R-18, R-36, R-38). This skill holds copy-specific depth that the core does not.
+- Load on demand alongside the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`) when explicitly writing or auditing marketing prose, landing-page copy, or de-AI text rewrites (do not co-load automatically on routine UI layout edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate) and the hard bans (R-02, R-15, R-16, R-17, R-18, R-36, R-38). This module holds copy-specific depth that the core does not.
 - Every pattern has the same shape: **The pattern**, **Why it reads as AI**, **Before** (the slop), **After** (the fix), with the governing core rule cited as R-XX.
 - Two rules apply to everything below:
   - **Never invent facts** (R-17, R-36, R-38). A rewrite adds no fact, name, number, date, quote, or citation that is not in the source text or supplied by the user. Specificity comes from the source or the user, not from the rewrite. If a sentence needs real detail to work, ask for it or write the plain version without it.
@@ -227,7 +227,7 @@
 - **The pattern:** invented numbers, testimonials, names, dates, or features that look realistic but are not real.
 - **Why it reads as AI:** a specific-looking fabrication is worse than a vague claim, because it reads as honest while being false. This is the one pattern that is a defect even when it sounds more human.
 - **Before:**
-  > Trusted by 10,000+ teams. "Antislop cut our review time in half." - Sarah Chen, VP Engineering at [fictional company].
+  > Trusted by 10,000+ teams. "Acme cut our review time in half." - Sarah Chen, VP Engineering at [fictional company].
 - **After:**
   > If no real customer exists, write no number and no quote. Say what the product does instead. Any real statistic needs a real source (R-17, R-36).
 - **Rule:** R-17, R-18, R-36, R-38, C-5.
@@ -279,7 +279,7 @@
 - **After:**
   > It blends OKRs, KPIs, and visual strategy tools for planning.
 - **Rule:** R-36.
-- **Carve-out:** the structural labels inside the antislop rules themselves (the `**FORBIDDEN**` / `**REQUIRED**` markers in the `antislop` core skill) are documentation conventions, not the mechanical bold-every-key-term pattern above, and are exempt.
+- **Carve-out:** the structural labels inside the `ui-refinery` rules themselves (the `**FORBIDDEN**` / `**REQUIRED**` markers in the `ui-refinery` core skill) are documentation conventions, not the mechanical bold-every-key-term pattern above, and are exempt.
 
 ### Excessive Quotation Marks
 
@@ -303,7 +303,7 @@
 - **After:**
   > The update improves the interface, speeds up load times, and encrypts data in transit.
 - **Rule:** R-36.
-- **Carve-out:** the `- **Tell:**` / `- **Why:**` / `- **Fix:**` headers that structure every antislop skill entry are a documentation convention, not the header-restates-the-item habit above, and are exempt.
+- **Carve-out:** the `- **Tell:**` / `- **Why:**` / `- **Fix:**` headers that structure every `ui-refinery` module entry are a documentation convention, not the header-restates-the-item habit above, and are exempt.
 
 ### Title Case in List Elements
 
@@ -344,7 +344,7 @@
 
 ## Turkish Synthetic Markers (`TR-1` to `TR-7`)
 
-When authoring or reviewing Turkish copy, product UI strings, or technical documentation (`--lang tr` or `--lang auto`), apply the same anti-slop discipline to machine-translated calques and Turkish brochure tropes:
+When authoring or reviewing Turkish copy, product UI strings, or technical documentation (`--lang tr` or `--lang auto`), apply the same de-AI prose discipline to machine-translated calques and Turkish brochure tropes:
 
 ### `TR-1`: Turkish Negative Parallelism (`Sadece X değil, aynı zamanda Y`)
 
@@ -481,7 +481,7 @@ agy-guard synthetic-markers draft.md              # portable CLI (cwd-independen
 agy-guard synthetic-markers draft.md --summary    # counts and density per 1,000 words
 agy-guard synthetic-markers - --json < draft.md   # machine-readable, reads stdin
 # Canonical installed fallback (when agy-guard is not on PATH):
-python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py draft.md
+python3 ~/.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers.py draft.md
 ```
 
 * `--source agent` (default) applies R-02/R-16 strictly: every unapproved em dash in copy you wrote is a finding. Use `--source human` for text the user supplied; em dashes are then flagged only in clusters, and per R-37 you surface them instead of rewriting them silently.

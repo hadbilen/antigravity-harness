@@ -5,7 +5,7 @@ description: >-
   wide changes, and proof that the pinning tests can fail. Invoke with /refactoring or when asked to refactor,
   restructure, extract, rename across files, or migrate callers ("refactor et", "yeniden düzenle", "sadeleştir",
   "parçala", "kod tekrarını kaldır"). Not for bug fixes (use 'diagnosing-bugs'), new features (use 'harness'), or
-  comment-only cleanup (use 'antislop' code-comments).
+  comment-only cleanup (use 'ui-refinery' code-comments).
 ---
 
 # Refactoring: Behavior-Preserving Change

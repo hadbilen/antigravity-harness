@@ -581,7 +581,7 @@ class UpstreamAuditorBridge:
                     "repo": "miqdadbadjuber/anti-slop",
                     "branch": "main",
                     "last_synced_commit": "7f6a03d",
-                    "target_skills": ["antislop"],
+                    "target_skills": ["ui-refinery"],
                 },
                 "Chisle": {
                     "repo": "JayPokale/Chisle",
@@ -599,7 +599,7 @@ class UpstreamAuditorBridge:
                     "repo": "bendrape1-byte/silk-design",
                     "branch": "main",
                     "last_synced_commit": "0f530f0",
-                    "target_skills": ["skills/antislop/references/silk-design.md"],
+                    "target_skills": ["skills/ui-refinery/references/motion-physics.md"],
                 },
                 "everything-claude-code": {
                     "repo": "affaan-m/everything-claude-code",

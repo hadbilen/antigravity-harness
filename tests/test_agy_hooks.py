@@ -206,13 +206,13 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             ("Bir fikrim var, hızlı prototip olarak tek dosya html üretelim.", "vibecoder"),
             ("Let's do vibe coding and build a single-file prototype for this idea.", "vibecoder"),
             ("Tarayıcıda çalışan 2d oyun ve fizik döngüsü tasarlayalım.", "game-engineering"),
-            ("Run the ui delivery gate and anti-slop filter on this page.", "antislop"),
-            ("Bu ekranda görsel slop ve kart simetrisi için bileşen denetimi yap.", "antislop-ui"),
-            ("Landing page için pazarlama metni yaz ve yapay zeka dilini temizle.", "antislop-copywriting"),
-            ("Run an accessibility audit and check contrast ratios for WCAG compliance.", "antislop-human"),
-            ("Mobilde yatay taşma var, dokunma hedefi boyutlarını ve mobil yerleşim yapısını düzelt.", "antislop-layoutmobile"),
-            ("Clean comments and apply comment hygiene across these files.", "antislop-code"),
-            ("Vitrin sayfası tasarla, kinetik tasarım ve akıcı kaydırma kullan.", "silk-design"),
+            ("Run the ui delivery gate and design quality gate on this page.", "ui-refinery"),
+            ("Bu ekranda görsel slop ve kart simetrisi için bileşen denetimi yap.", "ui-audit"),
+            ("Landing page için pazarlama metni yaz ve yapay zeka dilini temizle.", "copy-polish"),
+            ("Run an accessibility audit and check contrast ratios for WCAG compliance.", "a11y-check"),
+            ("Mobilde yatay taşma var, dokunma hedefi boyutlarını ve mobil yerleşim yapısını düzelt.", "mobile-layout"),
+            ("Clean comments and apply comment hygiene across these files.", "code-comments"),
+            ("Vitrin sayfası tasarla, kinetik tasarım ve akıcı kaydırma kullan.", "motion-physics"),
             ("Sistem için akış şeması oluştur ve mimariyi görselleştir.", "visualizer"),
             ("Bu .cursorrules dosyasındaki kuralları dönüştür ve başka ajana uyarla.", "porter"),
             ("Write a zero-downtime migration with database rollback safety.", "database-migrations"),
@@ -236,7 +236,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
             ),
             (
                 "Perform a wcag contrast and color contrast ratio check on our palette.",
-                "ServerName=\"antislop-contrast\"",
+                "ServerName=\"ui-refinery-contrast\"",
             ),
             (
                 "Kimlik doğrulama ve yetkilendirme sınırı ile kriptografi katmanını güncelleyelim.",
@@ -536,16 +536,16 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
         self.assertIn("`sweetspot`", msg_slug)
         self.assertLess(msg_slug.index("`chisle`"), msg_slug.index("`sweetspot`"))
 
-        # Hyphenated skill slug (`silk-design`) gets Priority 1, whereas generic English word (`audit`) stays Priority 0
+        # Hyphenated skill slug (`motion-physics`) gets Priority 1, whereas generic English word (`audit`) stays Priority 0
         res_hyph = agy_hooks.handle_pre_invocation(
             {
                 "conversationId": "conv-prio-hyph",
-                "prompt": "Sistem bozuldu ve boolean trap var ama vitrin için silk-design kullan.",
+                "prompt": "Sistem bozuldu ve boolean trap var ama vitrin için motion-physics kullan.",
             }
         )
         msg_hyph = res_hyph["injectSteps"][0]["systemMessage"]["systemMessage"]
-        self.assertIn("`silk-design`", msg_hyph)
-        self.assertLess(msg_hyph.index("`silk-design`"), msg_hyph.index("`diagnosing-bugs`"))
+        self.assertIn("`motion-physics`", msg_hyph)
+        self.assertLess(msg_hyph.index("`motion-physics`"), msg_hyph.index("`diagnosing-bugs`"))
 
         res_generic_word = agy_hooks.handle_pre_invocation(
             {
@@ -590,7 +590,7 @@ class TestPreInvocationSkillSuggest(HooksTempCase):
         msg_meta_eco = res_meta_eco["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("Subagent `meta-auditor`", msg_meta_eco)
         self.assertIn('ServerName="rea_rea"', msg_meta_eco)
-        self.assertNotIn("antislop-contrast", msg_meta_eco)
+        self.assertNotIn("ui-refinery-contrast", msg_meta_eco)
 
     def test_explicit_slash_rehints_on_new_turn_without_mid_turn_spam_and_turn_gap_cooldown(self) -> None:
         hints_file = self.state_dir / "hook_hints.json"
@@ -3055,7 +3055,7 @@ class TestW1RoutingAndContextSignals(HooksTempCase):
                 ("Invoke build-error-resolver on this module.", "Subagent `build-error-resolver`"),
                 ("Run security-boundary-verifier and contract-change-auditor.", "`security-boundary-verifier`"),
                 ("Render a widget using generative_ui or native_swarm.", "generative_ui"),
-                ("Inspect theme contrast using antislop-contrast.", "antislop-contrast"),
+                ("Inspect theme contrast using ui-refinery-contrast.", "ui-refinery-contrast"),
                 ("Unpack target binary with rea_rea.", 'ServerName="rea_rea"'),
             ]
             for idx, (prompt, expected) in enumerate(slug_cases):
@@ -3126,8 +3126,8 @@ class TestW1RoutingAndContextSignals(HooksTempCase):
             ("Kod tekrarını kaldır ve fonksiyonları yeniden düzenle.", "`refactoring`"),
             ("Unpack app.asar and disassemble the compiled executable.", 'ServerName="rea_rea"'),
             ("Derlenmiş ikili dosyayı disassemble ve decompile et.", 'ServerName="rea_rea"'),
-            ("Check the color contrast ratio for WCAG compliance.", "antislop-contrast"),
-            ("Butonlardaki renk kontrastı oranını denetle.", "antislop-contrast"),
+            ("Check the color contrast ratio for WCAG compliance.", "ui-refinery-contrast"),
+            ("Butonlardaki renk kontrastı oranını denetle.", "ui-refinery-contrast"),
             ("Verify the authentication boundary and eliminate TOCTOU race condition.", "`security-boundary-verifier`"),
             ("Kimlik doğrulama ve yetkilendirme sınırını denetle.", "`security-boundary-verifier`"),
             ("Review this breaking wire protocol change and migration rollback safety.", "`contract-change-auditor`"),
@@ -3153,7 +3153,7 @@ class TestW1RoutingAndContextSignals(HooksTempCase):
             "Auto-renew OAuth access tokens every thirty minutes in session.",
             "Show me src/rustify/worker.py and app/game-engineering/runner.py.",
             "Open docs/deep-grill/notes.md and lib/test-design/helpers.py.",
-            "Compare foo/antislop-contrast/styles.css with bar/media-studio/clip.py.",
+            "Compare foo/ui-refinery-contrast/styles.css with bar/media-studio/clip.py.",
             "Inspect src/build-error-resolver/parser.py around line twelve.",
             "Format this JSON config file using two-space indentation.",
             "Rename local loop variable i to idx in this tiny helper.",
@@ -3780,12 +3780,13 @@ class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
 
     def test_consolidated_slash_triggers_route_to_reference_files(self) -> None:
         slash_cases = [
-            ("/antislop-ui", "skills/antislop/references/ui.md"),
-            ("/antislop-copywriting", "skills/antislop/references/copywriting.md"),
-            ("/antislop-human", "skills/antislop/references/human-a11y.md"),
-            ("/antislop-layoutmobile", "skills/antislop/references/layoutmobile.md"),
-            ("/antislop-code", "skills/antislop/references/code-comments.md"),
-            ("/silk-design", "skills/antislop/references/silk-design.md"),
+            ("/ui-refinery", "skills/ui-refinery/SKILL.md"),
+            ("/ui-audit", "skills/ui-refinery/references/ui.md"),
+            ("/copy-polish", "skills/ui-refinery/references/copywriting.md"),
+            ("/a11y-check", "skills/ui-refinery/references/human-a11y.md"),
+            ("/mobile-layout", "skills/ui-refinery/references/layoutmobile.md"),
+            ("/code-comments", "skills/ui-refinery/references/code-comments.md"),
+            ("/motion-physics", "skills/ui-refinery/references/motion-physics.md"),
             ("/marathon", "skills/harness/references/marathon.md"),
             ("/unlazy", "skills/harness/references/unlazy.md"),
             ("/adr", "skills/harness/references/adr.md"),
@@ -3803,6 +3804,35 @@ class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
                 self.assertIn("injectSteps", res)
                 msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
                 self.assertIn(expected_rel, msg)
+
+        # Negative trigger tests: retired upstream names (/antislop*, /silk-design, anti-slop, silk-design) must NOT route ui-refinery
+        retired_prompts = [
+            "/antislop",
+            "/antislop-ui",
+            "/antislop-copywriting",
+            "/antislop-human",
+            "/antislop-layoutmobile",
+            "/antislop-code",
+            "/silk-design",
+            "Run antislop on this module.",
+            "Run anti-slop filter on this page.",
+            "Use silk-design on this showcase.",
+        ]
+        for idx, retired_prompt in enumerate(retired_prompts):
+            with self.subTest(retired_prompt=retired_prompt):
+                res_ret = agy_hooks.handle_pre_invocation(
+                    {"conversationId": f"conv-retired-trigger-{idx}", "prompt": retired_prompt}
+                )
+                msg_ret = (
+                    res_ret.get("injectSteps", [{}])[0]
+                    .get("systemMessage", {})
+                    .get("systemMessage", "")
+                    if res_ret.get("injectSteps")
+                    else ""
+                )
+                self.assertNotIn("ui-refinery", msg_ret, f"Retired prompt {retired_prompt!r} routed ui-refinery: {msg_ret}")
+                self.assertNotIn("motion-physics", msg_ret, f"Retired prompt {retired_prompt!r} routed motion-physics: {msg_ret}")
+                self.assertNotIn("ui-refinery-contrast", msg_ret, f"Retired prompt {retired_prompt!r} routed contrast MCP: {msg_ret}")
 
     def test_mid_turn_gt_128kb_transcript_stays_silent_and_invocation_num_one_overrides(self) -> None:
         ws = self.tmp / "ws_heavy_mid"
@@ -3969,15 +3999,16 @@ class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
         self.assertIn("build-error-resolver", res_mypy["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_governance_target_file_uri_and_stop_gate_dotdot_header_normalization(self) -> None:
+        from guard.hooks import stop_gate as stop_gate_mod
         from guard.hooks.pre_tool_use import _targets_governance_dir, _text_mutates_governance_path
         from guard.hooks.stop_gate import _unquote_git_diff_path, validate_ui_slop_content
 
-        self.assertFalse(_targets_governance_dir(f"file://{REPO_ROOT}/skills/antislop/SKILL.md"))
-        self.assertTrue(_targets_governance_dir(f"file://{self.cfg_dir}/skills/antislop/SKILL.md"))
+        self.assertFalse(_targets_governance_dir(f"file://{REPO_ROOT}/skills/ui-refinery/SKILL.md"))
+        self.assertTrue(_targets_governance_dir(f"file://{self.cfg_dir}/skills/ui-refinery/SKILL.md"))
         self.assertFalse(_targets_governance_dir("conversation://2a58cc06-97be-4445-a438-e90bad62f94f"))
         self.assertFalse(
             _text_mutates_governance_path(
-                f"Edit [SKILL.md](file://{REPO_ROOT}/skills/antislop/SKILL.md) in the repo.",
+                f"Edit [SKILL.md](file://{REPO_ROOT}/skills/ui-refinery/SKILL.md) in the repo.",
                 [REPO_ROOT],
                 REPO_ROOT,
                 REPO_ROOT,
@@ -3988,11 +4019,95 @@ class TestOptionAMidTurnSilenceAndSearchExitNonEscalation(HooksTempCase):
         slop_sample = '<div className="bg-gradient-to-r from-purple-600 via-pink-500 to-indigo-600">Trusted by 10,000+ teams</div>'
         self.assertEqual(
             validate_ui_slop_content(
-                "skills/antislop/references/silk-design/assets/demo.tsx", slop_sample
+                "skills/ui-refinery/references/motion-physics/assets/demo.tsx", slop_sample
             ),
             [],
         )
         self.assertTrue(validate_ui_slop_content("src/Hero.tsx", slop_sample))
+
+        # Hybrid plugin fallback: _load_ui_slop_scanner resolves verified plugins/ui-refinery only,
+        # prioritizes runtime over config_dir, and rejects unverified/symlinked plugin scripts (SEC-01)
+        hyb_cfg = self.tmp / "hyb_scanner_cfg"
+        hyb_plug = hyb_cfg / "plugins" / "ui-refinery"
+        hyb_script = hyb_plug / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py"
+        hyb_script.parent.mkdir(parents=True, exist_ok=True)
+        hyb_script.write_text(
+            "def scan_content(text, mode='auto'):\n    return [{'rule': 'HYB-TEST', 'message': 'loaded'}]\n",
+            encoding="utf-8",
+        )
+        empty_root = self.tmp / "empty_scanner_root"
+        empty_root.mkdir(exist_ok=True)
+        # Without harness plugin.json provenance, config plugin fallback is rejected
+        with (
+            mock.patch.object(stop_gate_mod, "_UI_SLOP_SCANNER_MOD", None),
+            mock.patch.object(stop_gate_mod, "_UI_SLOP_SCANNER_LOADED", False),
+            mock.patch.object(stop_gate_mod, "_repo_root", return_value=empty_root),
+            mock.patch.object(stop_gate_mod, "config_dir", return_value=hyb_cfg),
+            mock.patch.object(stop_gate_mod, "configured_config_dir", return_value=hyb_cfg),
+            mock.patch.object(stop_gate_mod, "data_dir", return_value=empty_root),
+        ):
+            self.assertIsNone(stop_gate_mod._load_ui_slop_scanner())
+
+        # With valid harness plugin.json provenance, verified plugin fallback loads cleanly
+        (hyb_plug / "plugin.json").write_text(
+            json.dumps({"name": "ui-refinery", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+            encoding="utf-8",
+        )
+        with (
+            mock.patch.object(stop_gate_mod, "_UI_SLOP_SCANNER_MOD", None),
+            mock.patch.object(stop_gate_mod, "_UI_SLOP_SCANNER_LOADED", False),
+            mock.patch.object(stop_gate_mod, "_repo_root", return_value=empty_root),
+            mock.patch.object(stop_gate_mod, "config_dir", return_value=hyb_cfg),
+            mock.patch.object(stop_gate_mod, "configured_config_dir", return_value=hyb_cfg),
+            mock.patch.object(stop_gate_mod, "data_dir", return_value=empty_root),
+        ):
+            loaded = stop_gate_mod._load_ui_slop_scanner()
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.scan_content("<div></div>")[0]["rule"], "HYB-TEST")
+
+        # Runtime takes precedence over config_dir fallback
+        rt_data = self.tmp / "rt_precedence_data"
+        rt_script = rt_data / "runtime" / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py"
+        rt_script.parent.mkdir(parents=True, exist_ok=True)
+        rt_script.write_text(
+            "def scan_content(text, mode='auto'):\n    return [{'rule': 'RT-FIRST', 'message': 'runtime'}]\n",
+            encoding="utf-8",
+        )
+        with (
+            mock.patch.object(stop_gate_mod, "_UI_SLOP_SCANNER_MOD", None),
+            mock.patch.object(stop_gate_mod, "_UI_SLOP_SCANNER_LOADED", False),
+            mock.patch.object(stop_gate_mod, "_repo_root", return_value=empty_root),
+            mock.patch.object(stop_gate_mod, "config_dir", return_value=hyb_cfg),
+            mock.patch.object(stop_gate_mod, "configured_config_dir", return_value=hyb_cfg),
+            mock.patch.object(stop_gate_mod, "data_dir", return_value=rt_data),
+        ):
+            loaded_rt = stop_gate_mod._load_ui_slop_scanner()
+            self.assertIsNotNone(loaded_rt)
+            assert loaded_rt is not None
+            self.assertEqual(loaded_rt.scan_content("<div></div>")[0]["rule"], "RT-FIRST")
+
+        # Upgraded flat profile with legacy key "antislop-contrast" pointing to skills/ui-refinery/scripts/contrast-mcp.py (CC-05)
+        legacy_flat_cfg = self.tmp / "legacy_flat_key_cfg"
+        legacy_flat_cfg.mkdir(parents=True, exist_ok=True)
+        (legacy_flat_cfg / "mcp_config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "antislop-contrast": {
+                            "command": "python3",
+                            "args": [str(legacy_flat_cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        with mock.patch.dict(os.environ, {"ANTIGRAVITY_CONFIG_DIR": str(legacy_flat_cfg)}):
+            res_flat_key = agy_hooks.handle_pre_invocation(
+                {"conversationId": "conv-cc05-flat-key", "prompt": "Check the color contrast ratio for WCAG compliance."}
+            )
+            self.assertIn('ServerName="antislop-contrast"', res_flat_key["injectSteps"][0]["systemMessage"]["systemMessage"])
 
 
 class TestW1MultiAgentIsolationAndShellRedir(HooksTempCase):

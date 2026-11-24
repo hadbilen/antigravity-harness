@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/badge/release-v2.4.0-blue.svg)](https://github.com/hadbilen/antigravity-harness/releases)
 [![CI](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/antigravity-harness/actions/workflows/ci.yml)
 [![Runtime](https://img.shields.io/badge/core%20runtime-Python%20stdlib%20only-brightgreen.svg)](#dependencies)
-[![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20antislop-orange.svg)](DESIGN.md)
+[![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20ui--refinery-orange.svg)](DESIGN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **A behavioral constitution, auditor subagents, a rule transpiler, and a write-protection /
@@ -75,7 +75,7 @@ governance tree). `agy-guard status` shows which protection kind is active
 ### Governance write shield (`guard/os_adapter.py`, `guard/environment.py`)
 Guard locks the **governance seams** of `~/.gemini/config/` (`rules/` including `rules/antigravity-constitution.md`,
 `DESIGN.md`, `AGENTS.md`, `GEMINI.md` if present, `hooks.json`, `mcp_config.json`, `skills/`, `agents/`, `templates/`, `.harness/`,
-plus the 4 harness plugin directories `plugins/antislop`, `plugins/rust-suite`, `plugins/media-studio`, and `plugins/game-engineering` when installed in opt-in `--plugins` Hybrid Layout)
+plus the 4 harness plugin directories `plugins/ui-refinery`, `plugins/rust-suite`, `plugins/media-studio`, and `plugins/game-engineering` when installed in opt-in `--plugins` Hybrid Layout)
 together with the installed Guard runtime (`~/.local/share/antigravity-harness/runtime/`) and user launchers
 (`~/.local/bin/agy-guard`, `agy-porter`, `porter`). Harness-internal `MISTAKES.md` stays in this source repository and is
 not installed globally into `~/.gemini/config/`. Antigravity's
@@ -158,7 +158,7 @@ one is not stopped; the integrity baseline reports it.
 * `agy-guard doctor [--fix]` (checks in `guard/doctor.py`) reports protection gaps, legacy baselines/snapshots
   inside the config tree, world-writable sources, symlink installs, dangling or external symlinks under `plugins/`
   and `.agents/skills/`, hybrid duplicate `skills/<slug>` + `plugins/<pack>/skills/<slug>` shadowing and stale global
-  `contrast-mcp.py` entries alongside `plugins/antislop/mcp_config.json`, `hooks.json` schema/executable/script-path existence and `"enabled": false` states,
+  `contrast-mcp.py` entries alongside `plugins/ui-refinery/mcp_config.json`, `hooks.json` schema/executable/script-path existence and `"enabled": false` states,
   dual `GEMINI.md` + `rules/antigravity-constitution.md` double-load warnings, workspace `.agents/hooks.json`
   collisions, `install_receipt.json` version alignment, relock-watcher errors, risky Antigravity permission grants
   (counts only), and native Antigravity `deny` rule recommendations (`agy-guard unlock`, `--no-verify`, plus optional `agy plugin` guidance when harness packs are installed).
@@ -168,7 +168,7 @@ one is not stopped; the integrity baseline reports it.
   administration actions go through the same approval gate (and audit log) as the CLI, snapshot files open as
   read-only `.txt` copies (never executed), and the window only hides to the tray while a tray icon is running.
 * **Event-scoped lifecycle hooks (`hooks.json`, `guard/__init__.py`, `guard/agy_hooks.py`, `guard/hooks/`):** `guard/__init__.py` uses PEP 562 lazy `__getattr__` exports and `guard/agy_hooks.py` acts as a readable, byte-budgeted (`<= 32 KiB`, `<= 160` chars/line) lazy CLI router and compatibility facade (with a lightweight `invocationNum > 1` fast path) loading only the active lifecycle and tool-scoped submodule (`guard/hooks/pre_invocation.py`, `guard/hooks/pre_tool_use.py` with on-demand `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, and `_workflow_ast.py`, or `guard/hooks/stop_gate.py`, sharing `guard/hooks/common.py`) per invocation (`ADR-0008`, `ADR-0010`, `ADR-0013`, `ADR-0015`):
-  * **`PreInvocation` (`pre_invocation.py`):** calibrated bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `antislop-contrast` / `antislop_contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`, `ADR-0011`, `ADR-0015`, `ADR-0016`) emitting installed-layout-safe paths (`~/.gemini/config/...` or `~/.gemini/config/plugins/<pack>/...`), live `config.json["plugins"][<pack>]["enabled"]` toggle awareness suppressing disabled or removed harness packs, explicit `/slash` priority, pasted-review and read-only meta-question false-positive suppression, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]` (with `marathon` `Campaign ID` isolation and stale-ledger anti-merge guidance), dynamic predictive context-window handoff advisories (post-`CHECKPOINT` active token headroom vs. incoming job cost without fixed `%` cutoffs, delivering Tier-1 `0`-token `user_markdown` and one-time Tier-2 latched `systemMessage` per `ADR-0014`), and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
+  * **`PreInvocation` (`pre_invocation.py`):** calibrated bilingual (`EN` / `TR`) skill, subagent, MCP server (`rea_rea`, `ui-refinery-contrast` / `ui-refinery_contrast`), and plugin auto-routing via native `systemMessage` (`ADR-0005`, `ADR-0006`, `ADR-0011`, `ADR-0015`, `ADR-0016`) emitting installed-layout-safe paths (`~/.gemini/config/...` or `~/.gemini/config/plugins/<pack>/...`), live `config.json["plugins"][<pack>]["enabled"]` toggle awareness suppressing disabled or removed harness packs, explicit `/slash` priority, pasted-review and read-only meta-question false-positive suppression, tiered hint saturation, bounded workspace & `transcriptPath` tail streaming, interrupted-session `[Harness Recovery & Continuity Gate]` (with `marathon` `Campaign ID` isolation and stale-ledger anti-merge guidance), dynamic predictive context-window handoff advisories (post-`CHECKPOINT` active token headroom vs. incoming job cost without fixed `%` cutoffs, delivering Tier-1 `0`-token `user_markdown` and one-time Tier-2 latched `systemMessage` per `ADR-0014`), and transcript-aware mid-turn / reactive-wakeup silence plus true-consecutive `build-error-resolver` filtering (`ADR-0009`, `ADR-0010`).
   * **`PreToolUse` (`pre_tool_use.py`, `_shell_guard.py`, `_swarm_guard.py`, `_mcp_guard.py`, `_write_guard.py`, `_workflow_ast.py`):** Governance Shield (unconditional `deny` on `~/.gemini/config` governance seams, `~/.gemini/{GEMINI,AGENTS}.md`, `plugins/` root/dot/glob patterns, and all paths inside harness plugin packs while preserving third-party plugins, including unified `ast.parse` pure read-only Python inline/heredoc verification per `ADR-0010` and `ADR-0016`), Top-Catalog Model & Highest-Effort Customization Gate (Rule 17, scoped strictly to `antigravity-harness` checkouts so external user projects can edit their own `AGENTS.md`/`GEMINI.md`/`SKILL.md` on any model, with `known_placeholder_models` diagnostics, fail-closed `MODEL_PLACEHOLDER_*` escalation, and `swarm`, `define_subagent`, `post_message`, `send_message`, `schedule`, and `run_workflow` AST checks per `ADR-0005`, `ADR-0007`, & `ADR-0010`), `GEMINI.md` Rule 9 `tasks.md` `## Authorized Test Modifications` gating (with standardized 3-sentence plain-language operator headers *What changes / If approved / If denied* across all `force_ask` prompts plus exact test path(s) and diff summaries per `ADR-0015`, while permitting clean `[COMPLETE]` stale-campaign resets once prior authorized tests are committed), `force_ask` gating on directory drops (`cp -r`, `rsync`, `git clone`, `mv`, cwd `tar -x`/`unzip`) into `~/.gemini/config/plugins/<any>`, all `agy plugin (install|import)` commands, and `agy plugin (disable|uninstall)` commands targeting harness packs (third-party `disable`/`uninstall` exempt), tiered MCP execution gating (`ADR-0004`), and command-boundary Bash Guard.
   * **`Stop` (`stop_gate.py`):** diff, untracked-file, and linked-worktree `TestBoundaryGuard` integrity verification (tautological assertions, operator/matcher relaxation, `C9` test-runner sniffing, unapproved test skips, malformed `.json`/`.toml`/`.svg` syntax, `UI-1`–`UI-5` slop, and broken local Markdown links) guarded by a 3-strike circuit breaker.
 * **Upstream watchdog (`skills/upstream-auditor/scripts/upstream_watcher.py`):** the `SessionStart` hook monitors model drift, `builtin/skills` SHA-256, `~/.gemini/antigravity/builtin/.checksum` bundle drift (`ADR-0014`), and 8 tracked external repositories, sending an operator-only notice once per change (a desktop notification plus `metadata.user_markdown` on `systemMessage` with an empty `systemMessage` body so the operator sees it without injecting maintenance text into the agent prompt); `agy-guard upstream ack` (or `upstream_watcher.py --ack`) silences it until something changes again, and `agy-guard upstream status` (or `upstream_watcher.py --status`) shows the current reasons. Network checks have a hard deadline.
@@ -263,7 +263,7 @@ boilerplate is deduplicated across `agents/*.md` and injected standalone during 
 
 ## 5. Modular Skill Ecosystem (`/skills`)
 
-20 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `antislop`, `technical-writing`, and `audit` per `ADR-0009` and `ADR-0011`, `disable-model-invocation: true` applied to explicit-only skills `audit`, `retro`, `chisle`, and `upstream-auditor` plus installed-layout-safe paths verified by `meta_audit.py` per `ADR-0015`, and `procoder` archived as opt-in `templates/procoder.SKILL.template.md` per `ADR-0014`):
+20 capability packages (with 14 specialized reference modules consolidated on-demand under `harness`, `ui-refinery`, `technical-writing`, and `audit` per `ADR-0009` and `ADR-0011`, `disable-model-invocation: true` applied to explicit-only skills `audit`, `retro`, `chisle`, and `upstream-auditor` plus installed-layout-safe paths verified by `meta_audit.py` per `ADR-0015`, and `procoder` archived as opt-in `templates/procoder.SKILL.template.md` per `ADR-0014`):
 
 * **`harness`:** engineering harness, verification gates, Low-Friction Turbo UX (`Reversible-First` defaults and 3-Class Hard Ask Gate preserving `guard/` Layer A safety), Tier-3 Pre-Code Plan Gate (`YAGNI` Brake), Swarm vs. `unlazy` vs. `marathon` topology routing (`ADR-0007`, `ADR-0012`, `ADR-0013`), and task lifecycle (reading opt-in `REPOSTATE.md`, `DECISIONS.md`, `ARCHITECTURE.md`, and `SECURITY_POSTURE.md` when present, plus opt-in `templates/vulkan.SKILL.template.md` and `templates/procoder.SKILL.template.md`), with on-demand reference modules for `context-and-artifacts`, `multi-agent-orchestration`, `marathon` (`/marathon` multi-window goal planning, `Campaign ID` isolation, append-only `## Completed Windows Log`, and `HANDOFF.md` orchestration), `unlazy` (`/unlazy` Tier-3 `>8` files Depth Tree and ledger verification), `adr` (`/adr` with structured `Proposed By`/`Approved By`/`Authority` decision provenance), `mistake-proofing` (`/mistake-proofing`), `dependency-upgrade` (`/dependency-upgrade`), and `test-design` (`/test-design`).
 * **`sweetspot`:** controlled, behavior-preserving performance, memory (`RAM`), disk/artifact footprint, and network download/upload bandwidth & round-trip latency optimization (`--all`, `--time`, `--memory`, `--disk`, `--net` with Controllable vs. Uncontrollable External Path classification) governed by the 3-Zone Sweet-Spot Honesty Gate (`Zone 1: Controlled`, `Zone 2: Trade-Off / Identity-Shifting [Approval Required]`, `Zone 3: Already at Sweet Spot [Null-Action]`).
@@ -277,7 +277,7 @@ boilerplate is deduplicated across `agents/*.md` and injected standalone during 
 * **`deep-grill`:** Socratic trade-off interviewer: product and business-rule boundaries first,
   `[NEEDS CLARIFICATION: ...]` parking, paraphrase check-ins, a decision ledger ending in exit criteria.
 * **`chisle`:** terse, zero-fluff development mode with YAGNI/ladder-first code discipline (never bypasses verification gates or locked acceptance criteria).
-* **`antislop`:** core 40-rule UI/copy filter + structural UI scanner (`check_ui_slop.py`), bundling on-demand reference modules and tools for UI geometry (`/antislop-ui`), code-comment hygiene (`/antislop-code`), prose scanning (`/antislop-copywriting` + `check_synthetic_markers.py` for English and Turkish), WCAG contrast (`/antislop-human` + `contrast-check.py` / `contrast-mcp.py`), mobile layout (`/antislop-layoutmobile`), and kinetic motion (`/silk-design`).
+* **`ui-refinery`:** core 40-rule UI/copy filter + structural UI scanner (`check_ui_slop.py`), bundling on-demand reference modules and tools for UI geometry (`/ui-audit`), code-comment hygiene (`/code-comments`), prose scanning (`/copy-polish` + `check_synthetic_markers.py` for English and Turkish), WCAG contrast (`/a11y-check` + `contrast-check.py` / `contrast-mcp.py`), mobile layout (`/mobile-layout`), and kinetic motion (`/motion-physics`).
 * **`technical-writing`:** Diataxis documentation, executable example verification, and `/visualizer` diagramming (`skills/technical-writing/references/visualizer.md`; Mermaid or built-in `generative_ui`).
 * **`audit`:** read-only structural, consistency, and security boundary audit engine (with automatic `REPOSTATE.md`, `ARCHITECTURE.md`, and `SECURITY_POSTURE.md` Phase 0.B control grounding per `ADR-0011` and `ADR-0012`), bundling `/security-review` pre-deployment and cloud-infrastructure checklists (`skills/audit/references/security-review.md`).
 * **`upstream-auditor`:** model catalog, built-in Antigravity runtime (`builtin/skills` + `builtin/.checksum`), and 8-repository upstream drift auditor (supporting branch commits, consolidated sub-reference targets, and `"track": "release"` tag tracking such as `morluto/rea` and `erkamyaman/rust-anything`).
@@ -288,14 +288,14 @@ Third-party origins and licenses are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_
 ### Bilingual Architecture (Canonical English + Native Turkish Intent Bridge)
 While all core invariants, formal specifications, architectural decision records (`docs/adr/`), and agent contracts are canonical English (`GEMINI.md` Rule 6), Antigravity Harness provides **first-class bilingual intent recognition**:
 * **Zero-Friction Prompt Matching:** Skill hint tables (`guard/agy_hooks.py` / `guard/hooks/pre_invocation.py`) and frontmatter triggers accept both standard English commands/phrases and native Turkish colloquial intents (`"hata var"`, `"sadeleştir"`, `"hızlandır"`, `"veri analizi"`).
-* **Localized Anti-Slop Scanner:** `skills/antislop/scripts/check_synthetic_markers.py` features automatic language detection (`detect_language`) and dedicated Turkish LLM synthetic-marker detection rules (`TR-1` through `TR-7`) alongside universal English markers.
+* **Localized Synthetic-Prose Scanner:** `skills/ui-refinery/scripts/check_synthetic_markers.py` features automatic language detection (`detect_language`) and dedicated Turkish LLM synthetic-marker detection rules (`TR-1` through `TR-7`) alongside universal English markers.
 * **Extensibility:** The bilingual intent tables serve as a reference implementation for contributors wishing to bridge additional languages into Antigravity 2.0 lifecycle hooks.
 
 ---
 
 ## 6. Baseline Design Contract (`DESIGN.md`)
 
-* Three domain-aware UI archetypes (`MODE: UTILITY`, `MODE: EDITORIAL`, and `MODE: GAME & INTERACTIVE`), backed by deterministic structural verification (`skills/antislop/scripts/check_ui_slop.py`, `UI-1`–`UI-5`, including HSL CSS gradient hue-range detection in `UI-3`).
+* Three domain-aware UI archetypes (`MODE: UTILITY`, `MODE: EDITORIAL`, and `MODE: GAME & INTERACTIVE`), backed by deterministic structural verification (`skills/ui-refinery/scripts/check_ui_slop.py`, `UI-1`–`UI-5`, including HSL CSS gradient hue-range detection in `UI-3`).
 * Every visual element passes a one-sentence functional justification test.
 * WCAG AA: 4.5:1 text, 3:1 control borders and disabled text; the "Measured Contrast Pairs" table is
   recomputed by the self-audit, so stated ratios cannot drift from reality.
@@ -335,7 +335,7 @@ antigravity-harness/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 10 auditor subagent definitions
 ├── skills/                                # 20 top-level skills + on-demand references/ & scripts/
-├── tests/                                 # Hermetic unittest suite (888 tests)
+├── tests/                                 # Hermetic unittest suite (894 tests)
 └── templates/                             # ARCHITECTURE, DECISIONS, HANDOFF, MISTAKES, REPOSTATE, SECURITY_POSTURE, procoder.SKILL, vulkan.SKILL & config templates
 ```
 
@@ -393,7 +393,7 @@ Each release publishes 4 standalone-clean plugin packs (`.zip` + `.zip.sha256`) 
 
 | Pack (`dir`) | Display Name | Bundled Skills & Extras |
 | :--- | :--- | :--- |
-| `antislop` | **AntiSlop UI** | `antislop`, `vibecoder`, `DESIGN.md`, `contrast-mcp.py` (`antislop_contrast` MCP) |
+| `ui-refinery` | **UI Refinery** | `ui-refinery`, `vibecoder`, `DESIGN.md`, `contrast-mcp.py` (`ui-refinery_contrast` MCP) |
 | `rust-suite` | **Rust Suite** | `rustify`, `rust-harden`, `vulkan.SKILL.template.md` |
 | `media-studio` | **Media Studio** | `media-studio`, `media_qc.py` (requires `ffmpeg`/`ffprobe` on `PATH`) |
 | `game-engineering` | **Game Engineering** | `game-engineering` |
@@ -402,8 +402,8 @@ To install a standalone pack from GitHub Releases (or build all 4 locally from s
 
 ```bash
 # Verify checksum and extract into global ~/.gemini/config/plugins/ (or project .agents/plugins/)
-sha256sum -c antislop-v2.4.0.zip.sha256
-unzip antislop-v2.4.0.zip -d ~/.gemini/config/plugins/
+sha256sum -c ui-refinery-v2.4.0.zip.sha256
+unzip ui-refinery-v2.4.0.zip -d ~/.gemini/config/plugins/
 
 # Build, archive, and offline-validate all 4 standalone packs from a source checkout
 python3 scripts/build_plugins.py --out dist/plugins --validate --zip
@@ -412,8 +412,8 @@ python3 scripts/build_plugins.py --out dist/plugins --validate --zip
 > **Canonical Home:** Antigravity plugins cannot install `agy-guard`/`agy-porter` PATH binaries, OS-level read-only locks, or global constitutional governance (`ADR-0016`). Use the standalone `.zip` packs when you only need a single domain toolkit; use `python3 install.py --plugins` (or `agy-guard init --plugins`) from this repository for the full constitutional harness and write-protection boundary.
 
 **`agy plugin` security boundary (`ADR-0016`):**
-- The 4 harness plugin directories (`plugins/antislop`, `plugins/rust-suite`, `plugins/media-studio`, `plugins/game-engineering`) are OS-locked and FIM-monitored inside the `antigravity` `enforced` scope, while `~/.gemini/config/plugins/` stays writable for Marketplace and third-party plugins (such as `rea`).
-- Toggling a harness pack in the Antigravity UI writes only to `~/.gemini/config/config.json` (never modifying files inside `plugins/<pack>/`); `PreInvocation` reads that state to suppress disabled plugin skill hints and `antislop_contrast` MCP hints, while `Stop` (`stop_gate.py`) resolves `check_ui_slop.py` from OS-locked `runtime/` (or `/usr/share/antigravity-harness` on Linux packages) independent of `config.json`.
+- The 4 harness plugin directories (`plugins/ui-refinery`, `plugins/rust-suite`, `plugins/media-studio`, `plugins/game-engineering`) are OS-locked and FIM-monitored inside the `antigravity` `enforced` scope, while `~/.gemini/config/plugins/` stays writable for Marketplace and third-party plugins (such as `rea`).
+- Toggling a harness pack in the Antigravity UI writes only to `~/.gemini/config/config.json` (never modifying files inside `plugins/<pack>/`); `PreInvocation` reads that state to suppress disabled plugin skill hints and `ui-refinery_contrast` MCP hints, while `Stop` (`stop_gate.py`) resolves `check_ui_slop.py` from OS-locked `runtime/` (or `/usr/share/antigravity-harness` on Linux packages) independent of `config.json`.
 - `PreToolUse` denies direct writes, glob/dot/command-substitution escapes, `git clone` into protected roots, and explicit archive extraction targeting `~/.gemini/config/plugins/` root or harness packs; gates directory drops (`cp -r/-R/-a`, `rsync`, `git clone`, `mv`, cwd `tar -x`/`unzip`) targeting `~/.gemini/config/plugins/<any>`, all `agy plugin (install|import)` commands, and `agy plugin (disable|uninstall)` commands targeting harness packs behind 3-sentence `force_ask` confirmation (leaving third-party `disable`/`uninstall` exempt).
 - **Downgrade & MCP backup note:** Before downgrading a `--plugins` install back to `v2.3.0`, run `python3 install.py --flat-skills` (or `agy-guard init --flat-skills`) first so plugin seams are pruned and flat skills/MCP entries are restored; any custom `env` or extra CLI flags on retired `contrast-mcp.py` entries are preserved in the external pre-migration backup (`~/.local/state/antigravity-harness/backups/`).
 
@@ -550,7 +550,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (888 tests)
+# Hermetic unit test suite (894 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

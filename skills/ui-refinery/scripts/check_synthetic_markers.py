@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-skills/antislop/scripts/check_synthetic_markers.py — Deterministic scanner for signs of machine-generated prose
+skills/ui-refinery/scripts/check_synthetic_markers.py — Deterministic scanner for signs of machine-generated prose
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Python standard library only; runs on Python 3.10 and later.
 
@@ -10,7 +10,7 @@ Rule families (IDs are stable and match the purifier catalogue):
   3.1–3.8   formatting           (Title Case headings, bold overuse, em dashes, tiny tables ...)
   4.1–4.3   chat leftovers       (assistant phrasing, knowledge-cutoff hedging, placeholders)
   5.1–5.2   older-model habits   (didactic filler, summary openers)
-  6.1–6.7   antislop copy rules  (fake candour, signposting, staccato drama, shouting, cadence ...)
+  6.1–6.7   ui-refinery copy rules (fake candour, signposting, staccato drama, shouting, cadence ...)
   TR-1–TR-7 Turkish mode         (negative parallelism, brochure vocabulary, bureaucratic passive ...)
 
 Before scanning, YAML frontmatter, fenced and inline code, HTML comments and tags, link

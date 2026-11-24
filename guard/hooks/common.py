@@ -38,8 +38,8 @@ _DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
 # Lightweight hot-path mirrors of guard/plugins.py (verified in scripts/meta_audit.py Pass 5)
 # so PreInvocation and PreToolUse avoid importing xml/zipfile/porter.frontmatter (~120 ms).
 _PLUGIN_SKILL_TO_PACK: Dict[str, str] = {
-    "antislop": "antislop",
-    "vibecoder": "antislop",
+    "ui-refinery": "ui-refinery",
+    "vibecoder": "ui-refinery",
     "rustify": "rust-suite",
     "rust-harden": "rust-suite",
     "media-studio": "media-studio",

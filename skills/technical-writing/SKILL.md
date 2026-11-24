@@ -4,7 +4,7 @@ description: >-
   Technical documentation architecture, Diataxis mode separation (Tutorial, How-To, Reference, Explanation), executable
   example verification, API reference completeness, changelog discipline, and architecture/flow diagramming. Invoke with
   /technical-writing or /visualizer, or on "teknik dokümantasyon", "kullanım kılavuzu", "doküman yaz", "sürüm notları".
-  Not for marketing landing pages (use 'antislop') or architectural decision records (use 'harness' ADR).
+  Not for marketing landing pages (use 'ui-refinery') or architectural decision records (use 'harness' ADR).
 ---
 
 # Technical Writing: Verified, Mode-Separated Documentation
@@ -42,7 +42,7 @@ Code blocks and shell commands in documentation are executable contracts, not de
 - **Lead with the Prerequisite and Outcome:** Open every guide with what must already be installed or configured and what state the reader will reach at the end.
 - **One Concept Per Step:** Each numbered step performs one logical action and states how to verify it before moving on.
 - **Terminology Clarity:** Spell out unfamiliar domain terms or protocols in full before introducing an acronym on first use so newcomer tutorials and guides never rely on unexplained shorthand.
-- **Anti-Slop Technical Profile:** Run `agy-guard synthetic-markers --profile technical` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical`, with `--lang tr` or `--lang auto` for Turkish documentation) on drafted Markdown files to strip signposting announcements (*"In this section we will explore"*, *"İşte bilmeniz gerekenler"*), chatbot leftovers, and brochure inflation while preserving normal engineering tables and lists (`~/.gemini/config/skills/antislop/references/copywriting.md`).
+- **Synthetic-Marker Technical Profile:** Run `agy-guard synthetic-markers --profile technical` (or `python3 ~/.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers.py --profile technical`, with `--lang tr` or `--lang auto` for Turkish documentation) on drafted Markdown files to strip signposting announcements (*"In this section we will explore"*, *"İşte bilmeniz gerekenler"*), chatbot leftovers, and brochure inflation while preserving normal engineering tables and lists (`~/.gemini/config/skills/ui-refinery/references/copywriting.md`).
 
 ## 4. Changelog & Release Note Discipline (`CHANGELOG.md`)
 
@@ -63,4 +63,4 @@ Before delivering technical documentation, verify:
 - [ ] Every documented CLI flag, configuration key, and function signature was verified against the codebase source of truth.
 - [ ] Code snippets and structured configuration blocks were executed or syntax-parsed, or declared under `Not verified` (`GEMINI.md` Rule 8).
 - [ ] Relative links and repository paths resolve cleanly (`agy-guard self-audit` / `~/.local/share/antigravity-harness/runtime/scripts/meta_audit.py` Pass 2).
-- [ ] `agy-guard synthetic-markers --profile technical <file>` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_synthetic_markers.py --profile technical <file>`) exits `0`.
+- [ ] `agy-guard synthetic-markers --profile technical <file>` (or `python3 ~/.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers.py --profile technical <file>`) exits `0`.

@@ -1,7 +1,7 @@
 # Animated backgrounds — 13 of them
 
 Ambient motion behind content. Subtle by design (opacities 5–20%) — they add life without competing.
-Three are shipped in `references/silk-design/assets/`; all 13 follow one pattern, so you can build any from the recipe.
+Three are shipped in `references/motion-physics/assets/`; all 13 follow one pattern, so you can build any from the recipe.
 
 ## The shared pattern (every background)
 ```tsx
@@ -19,7 +19,7 @@ const Background = ({ position }: { position: "fixed" | "absolute" }) => (
 - `position="fixed"` for a whole-page ambient; `"absolute"` to scope it to one section (the mask fades it
   in/out at the section's top/bottom so it doesn't hard-edge).
 - Colors come from tokens (`bg-background-accent/15`, `bg-primary-cta`) so it recolors with the theme.
-- Motion comes from the keyframes in `references/silk-design/assets/animations.css` — no JS.
+- Motion comes from the keyframes in `references/motion-physics/assets/animations.css` — no JS.
 
 ## The catalog
 
@@ -39,8 +39,8 @@ const Background = ({ position }: { position: "fixed" | "absolute" }) => (
 | **ColumnWave** | columns lighting up in sequence | grid of columns | `@keyframes cell-wave-pulse` (staggered opacity) |
 | **Grid dots** | dotted grid | `radial-gradient` dot pattern, low opacity | static |
 
-✅ = shipped in `references/silk-design/assets/`. The rest: build from the pattern above + the named keyframe (all
-keyframes are already in `references/silk-design/assets/animations.css`). Aurora, Noise, and a subtle RadialGradient are the safest defaults for most sites.
+✅ = shipped in `references/motion-physics/assets/`. The rest: build from the pattern above + the named keyframe (all
+keyframes are already in `references/motion-physics/assets/animations.css`). Aurora, Noise, and a subtle RadialGradient are the safest defaults for most sites.
 
 ## Choosing one
 - Dark, techy, premium → Aurora, LightRays, GradientBars.

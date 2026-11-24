@@ -66,7 +66,7 @@ Unseeded `Math.random()` makes procedural maps, loot drops, and enemy spawns imp
 
 ## 5. Game Feel ("Juice") & `MODE: GAME & INTERACTIVE` Vitality
 
-A mechanically working game still feels like AI programmer art if inputs have no physical weight and the HUD looks like a SaaS dashboard. Apply `DESIGN.md` §2.1 (`MODE: GAME & INTERACTIVE`), `~/.gemini/config/skills/antislop/SKILL.md` (`Game & Interactive Canvas Vitality`), and the following rules:
+A mechanically working game still feels like AI programmer art if inputs have no physical weight and the HUD looks like a SaaS dashboard. Apply `DESIGN.md` §2.1 (`MODE: GAME & INTERACTIVE`), `~/.gemini/config/skills/ui-refinery/SKILL.md` (`Game & Interactive Canvas Vitality`), and the following rules:
 
 1. **Viewport Budget (`>= 85%` Canvas):** The interactive playfield owns at least 85% of the viewport. Never wrap a `<canvas>` inside a padded marketing page with a 3-card feature grid below it unless explicitly requested.
 2. **Diegetic HUD Over SaaS Cards:** Anchor HUD indicators (health, ammo, score, minimap, cooldowns) to screen edges (`8px–16px` safe inset) using translucent dark plates (`var(--surface-hud-scrim)`, defined as `--surface-hud-scrim: rgba(10, 14, 23, 0.78)` in `DESIGN.md` §3), crisp `1px` specular borders, or angled/chamfered bars. Never use white SaaS `.card` boxes or `Inter` admin tables over the playfield.
@@ -92,7 +92,7 @@ Before declaring any game or interactive simulation task complete, run all four 
    ```bash
    agy-guard ui-slop <paths> --mode game
    # Or from installed global config:
-   python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py <paths> --mode game
+   python3 ~/.gemini/config/skills/ui-refinery/scripts/check_ui_slop.py <paths> --mode game
    ```
    Zero `UI-1`–`UI-5` findings are permitted on delivery.
 4. **Type, Lint, Asset QC & Test Suite:** Pass the project's standard typecheck, lint, `media_qc.py` external asset checks (when applicable), and unit/headless simulation test gates with zero errors (`~/.gemini/config/skills/harness/SKILL.md` §3B).

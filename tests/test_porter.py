@@ -772,7 +772,8 @@ class TestDeadlineTimeoutMapping(unittest.TestCase):
         from porter.emitters.cursor import _globs_for
 
         self.assertEqual(_globs_for("test-design"), "**/*.test.*, **/*.spec.*, **/tests/**")
-        self.assertIn("*.tsx", _globs_for("silk-design"))
+        self.assertIn("*.tsx", _globs_for("motion-physics"))
+        self.assertIn("*.tsx", _globs_for("ui-refinery"))
 
         sample = (
             "Read (`~/.gemini/config/GEMINI.md`), `~/.gemini/config/MISTAKES.md`, "
@@ -813,12 +814,21 @@ class TestDeadlineTimeoutMapping(unittest.TestCase):
         import json
 
         analyzer = SuitabilityAnalyzer(harness_root=REPO_ROOT)
-        for slug in ("unlazy", "silk-design", "marathon", "security-review", "visualizer"):
+        for slug in ("unlazy", "motion-physics", "marathon", "security-review", "visualizer"):
             report = analyzer.analyze("Follow clear verification steps.\n", source_identifier=f"{slug}.md")
             self.assertTrue(
                 any(slug in json.dumps(item).lower() for item in report.redundancies),
                 f"Expected consolidated skill '{slug}' redundancy in {report.redundancies}",
             )
+
+        # Third-party upstream slugs (`antislop`, `silk-design`, `antislop-*`) are NOT blocked as consolidated harness slugs
+        for ext_slug in ("antislop", "silk-design", "antislop-ui"):
+            with self.subTest(third_party_slug=ext_slug):
+                ext_report = analyzer.analyze("Follow WCAG AA contrast.\n", source_identifier=f"{ext_slug}.md")
+                self.assertFalse(
+                    any(ext_slug in json.dumps(item).lower() for item in ext_report.redundancies),
+                    f"Third-party slug '{ext_slug}' must not be flagged as consolidated harness skill: {ext_report.redundancies}",
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             fake_root = Path(tmp) / "repo"
@@ -837,6 +847,33 @@ class TestDeadlineTimeoutMapping(unittest.TestCase):
             )
             self.assertNotEqual(res.returncode, 0)
             self.assertIn("consolidated ADR-0009", res.stderr)
+
+            # Third-party `antislop` and `silk-design` imports succeed without consolidated-slug rejection
+            for third_party_slug in ("antislop", "silk-design"):
+                with self.subTest(porter_import_slug=third_party_slug):
+                    res_ext = subprocess.run(
+                        [sys.executable, str(REPO_ROOT / "porter.py"), "import", str(ext_rule), "--as-skill", third_party_slug, "--dry-run"],
+                        env={**os.environ, "ANTIGRAVITY_HARNESS_ROOT": str(fake_root)},
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(res_ext.returncode, 0, res_ext.stderr)
+                    self.assertNotIn("consolidated ADR-0009", res_ext.stderr)
+
+    def test_cursor_emitter_plans_10_design_ui_refinery_mdc_not_antislop(self):
+        from porter.emitters.cursor import CursorEmitter
+
+        manifest = ManifestEngine(harness_root=REPO_ROOT).build_manifest(deterministic=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "cursor_export"
+            planned, _links = CursorEmitter.plan(manifest, out_dir)
+            rules_dir = out_dir / ".cursor" / "rules"
+            self.assertIn(rules_dir / "10-design-ui-refinery.mdc", planned)
+            self.assertNotIn(rules_dir / "10-design-antislop.mdc", planned)
+            design_mdc = planned[rules_dir / "10-design-ui-refinery.mdc"]
+            self.assertIn("UI Design Contract & UI Refinery Filter", design_mdc)
+            self.assertIn(rules_dir / "skill-ui-refinery.mdc", planned)
+            self.assertNotIn(rules_dir / "skill-antislop.mdc", planned)
 
 
 if __name__ == "__main__":

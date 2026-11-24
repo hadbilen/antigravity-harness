@@ -26,12 +26,12 @@ _MUTATING_AGENT_TOOLS = frozenset({
 })
 
 _CONSOLIDATED_SKILL_DESCRIPTIONS: Dict[str, Tuple[str, str]] = {
-    "antislop-ui": ("antislop", "Visual UI composition, Anti-Boxification, and HUD rules (consolidated into antislop)"),
-    "antislop-copywriting": ("antislop", "Copywriting, tone, de-AI prose rewrites, and synthetic markers (consolidated into antislop)"),
-    "antislop-human": ("antislop", "Accessibility, WCAG AA contrast verification, and component states (consolidated into antislop)"),
-    "antislop-layoutmobile": ("antislop", "Mobile layout, horizontal overflow, tap targets, and responsive reflow (consolidated into antislop)"),
-    "antislop-code": ("antislop", "Code-comment hygiene removing generic AI-slop comments (consolidated into antislop)"),
-    "silk-design": ("antislop", "Kinetic motion, smooth-scrolling, fluid typography, and MOTION 3 toolkit (consolidated into antislop)"),
+    "ui-audit": ("ui-refinery", "Visual UI composition, Anti-Boxification, and HUD rules (consolidated into ui-refinery)"),
+    "copy-polish": ("ui-refinery", "Copywriting, tone, de-AI prose rewrites, and synthetic markers (consolidated into ui-refinery)"),
+    "a11y-check": ("ui-refinery", "Accessibility, WCAG AA contrast verification, and component states (consolidated into ui-refinery)"),
+    "mobile-layout": ("ui-refinery", "Mobile layout, horizontal overflow, tap targets, and responsive reflow (consolidated into ui-refinery)"),
+    "code-comments": ("ui-refinery", "Code-comment hygiene removing generic AI-slop comments (consolidated into ui-refinery)"),
+    "motion-physics": ("ui-refinery", "Kinetic motion, smooth-scrolling, fluid typography, and MOTION 3 toolkit (consolidated into ui-refinery)"),
     "marathon": ("harness", "Multi-window goal planning, window partitioning, and HANDOFF.md orchestration (consolidated into harness)"),
     "unlazy": ("harness", "Tier-3 deep completion engine, Depth Tree, and acceptance gates (consolidated into harness)"),
     "architecture-decision-records": ("harness", "Architecture Decision Records in docs/adr/ for Tier 3 decisions (consolidated into harness)"),

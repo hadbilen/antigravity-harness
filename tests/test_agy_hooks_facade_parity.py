@@ -1318,7 +1318,7 @@ class TestAgyHooksFacadeParity(unittest.TestCase):
         # 6. PreToolUse call_mcp_tool lazily loads ONLY _mcp_guard
         d_mcp = _probe(
             "import json, sys, guard.agy_hooks as h\n"
-            f"res = h.dispatch_hook('pre-tool-use', {{'workspace': {str(self.ws_dir)!r}, 'toolCall': {{'name': 'call_mcp_tool', 'args': {{'ServerName': 'antislop-contrast', 'ToolName': 'check_contrast', 'Arguments': {{}}}}}}}})\n"
+            f"res = h.dispatch_hook('pre-tool-use', {{'workspace': {str(self.ws_dir)!r}, 'toolCall': {{'name': 'call_mcp_tool', 'args': {{'ServerName': 'ui-refinery-contrast', 'ToolName': 'check_contrast', 'Arguments': {{}}}}}}}})\n"
             "mods = sorted(m for m in sys.modules if m.startswith('guard.hooks.'))\n"
             "print(json.dumps({'res': res, 'mods': mods}))\n"
         )

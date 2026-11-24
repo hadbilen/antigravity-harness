@@ -102,7 +102,7 @@ class TestAC1CampaignTemplateAndMarathonContract(unittest.TestCase):
     def test_handoff_template_and_marathon_skill_define_campaign_isolation_and_pass_antislop(self) -> None:
         template_path = REPO_ROOT / "templates" / "HANDOFF.template.md"
         marathon_path = REPO_ROOT / "skills" / "harness" / "references" / "marathon.md"
-        scanner_path = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py"
+        scanner_path = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py"
 
         template_text = template_path.read_text(encoding="utf-8")
         marathon_text = marathon_path.read_text(encoding="utf-8")

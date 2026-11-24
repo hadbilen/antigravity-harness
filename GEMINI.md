@@ -38,7 +38,7 @@ Always-on invariants only. Procedures live in skills (`harness`, `diagnosing-bug
 11. **Context Hygiene:** Pull slices (`grep`, `jq`, `awk`), aggregate 5+ files via scratch scripts, avoid raw dumps, and route >50 KB docs to `research` and >500-line traces to `build-error-resolver`.
 12. **Security & Confirmation:** Confirm destructive, persistent or irreversible ops; never emit secrets; pin deps and forbid `curl | bash` or `npx -y pkg@latest`. Keep `~/.gemini/config/` governance trees read-only.
 13. **Three-Round Circuit Breaker:** Cap edits per fix pass to `max(1 file, ~10% of affected files/symbols)`; after 3 repeating failures or A/B flips, halt, change one assumption once, then offer 2–3 options or delegate; write `HANDOFF.md` only on milestones, circuit breakers, >500-line traces or repeated corrections.
-14. **Interface Design:** User Interface (UI) work follows local `DESIGN.md` (else `~/.gemini/config/DESIGN.md`) and passes `antislop`.
+14. **Interface Design:** User Interface (UI) work follows local `DESIGN.md` (else `~/.gemini/config/DESIGN.md`) and passes `ui-refinery`.
 18. **Surgical Changes & Reuse:** Trace every changed line to the request or verified defect; preserve unrelated comments/formatting alongside external edits; reuse existing helpers/types first.
 
 *(Harness-repository maintainer rules (Rule 12 Guard/Porter admin addendum and Rules 15–17) live in `.agents/rules/harness-maintainer.md` inside the `antigravity-harness` checkout.)*

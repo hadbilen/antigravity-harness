@@ -1,12 +1,12 @@
-# antislop-ui
+# ui-audit
 
-> Anti Slop: Rules for AI Coding Agents. UI & Visual skill
+> UI Refinery: Rules for AI Coding Agents. UI & Visual module
 
-> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill deep-dives the UI/visual concern: color, layout, components, decoration, structural flow, and motion. It references core rules by number and never duplicates or renumbers them. Load on demand when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit.
+> Part of the `ui-refinery` system. Read together with the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`). This module deep-dives the UI/visual concern: color, layout, components, decoration, structural flow, and motion. It references core rules by number and never duplicates or renumbers them. Load on demand when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit (do not auto-load all `antislop-*` supplements simultaneously on routine edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds UI-specific depth.
+- Load on demand alongside the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`) when building multi-section layouts, showcase/editorial pages, game HUDs, or conducting a deep visual slop audit (do not auto-load all `ui-refinery` supplements simultaneously on routine edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this module holds UI-specific depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - The Delivery Gate in the core remains the gate. The "UI Skill Checklist" at the end of this file is the UI-specific supplement to run alongside it.
 
@@ -85,7 +85,7 @@
 
 - **Tell:** 3 or more sibling containers sharing identical width, height, padding, class signatures, and internal DOM skeleton (`icon + title + paragraph`).
 - **Why:** uniform cards flatten the content. When every feature is a card with an icon, the features with real weight and the ones without look the same.
-- **Fix:** enforce the **Sibling Symmetry Cap** (R-14, `UI-1`): allow at most 2 identical-width sibling cards side by side. When presenting 3+ items, use an asymmetric **Focus + Support** split (`55%–65%` dominant focal panel paired with `35%–45%` compact list rows or table) and verify with `agy-guard ui-slop` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`).
+- **Fix:** enforce the **Sibling Symmetry Cap** (R-14, `UI-1`): allow at most 2 identical-width sibling cards side by side. When presenting 3+ items, use an asymmetric **Focus + Support** split (`55%–65%` dominant focal panel paired with `35%–45%` compact list rows or table) and verify with `agy-guard ui-slop` (or `python3 ~/.gemini/config/skills/ui-refinery/scripts/check_ui_slop.py`).
 
 ### Bento Grid
 
@@ -287,10 +287,10 @@ The patterns above are landing-page shapes. These are the app-side equivalents: 
 
 ## UI Skill Checklist
 
-Run these alongside the core Delivery Gate (`agy-guard ui-slop` or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) when the task is UI work. All answers must be **yes**:
+Run these alongside the core Delivery Gate (`agy-guard ui-slop` or `python3 ~/.gemini/config/skills/ui-refinery/scripts/check_ui_slop.py`) when the task is UI work. All answers must be **yes**:
 
 - [ ] Is the palette derived from `DESIGN.md` (with the matching Domain Mode: `UTILITY`, `EDITORIAL`, or `GAME & INTERACTIVE`) or a written brand identity, not the default gradient set? (R-01, R-29)
-- [ ] Does `agy-guard ui-slop` (or `python3 ~/.gemini/config/skills/antislop/scripts/check_ui_slop.py`) exit with `0` findings (`UI-1` through `UI-5`)?
+- [ ] Does `agy-guard ui-slop` (or `python3 ~/.gemini/config/skills/ui-refinery/scripts/check_ui_slop.py`) exit with `0` findings (`UI-1` through `UI-5`)?
 - [ ] Does the layout respect the **Anti-Boxification** rule (at most 1 primary bordered card group per viewport, zero nested `card-in-card` boxes `UI-2`) and the **Sibling Symmetry Cap** (at most 2 identical sibling cards side by side; 3+ items use `55%–65%` focal + `35%–45%` support topology `UI-1`)? (R-05, R-14)
 - [ ] At `ENERGY >= 3`, does the primary display heading maintain at least a `3.5:1` size ratio over body copy? (R-06)
 - [ ] Is the accent used at the key moment only, not spread across every element? (core Part 3, one deliberate accent)

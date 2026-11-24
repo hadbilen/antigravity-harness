@@ -130,23 +130,23 @@ class PluginSpec:
 
 
 PLUGIN_CATALOG: Dict[str, PluginSpec] = {
-    "antislop": PluginSpec(
-        name="antislop",
-        display_name="AntiSlop UI",
+    "ui-refinery": PluginSpec(
+        name="ui-refinery",
+        display_name="UI Refinery",
         description=(
             "UI design quality filter, WCAG AA contrast MCP and CLI checkers, de-AI prose scanner, "
-            "kinetic showcase patterns, and single-file HTML rapid prototyping."
+            "kinetic motion patterns, and single-file HTML rapid prototyping."
         ),
-        skills=("antislop", "vibecoder"),
-        logo_asset="antislop.svg",
+        skills=("ui-refinery", "vibecoder"),
+        logo_asset="ui-refinery.svg",
         suggested_prompts=(
             "Audit this UI component and CSS for visual slop, mobile overflow, and WCAG AA contrast",
             "Scan this draft documentation or landing copy for synthetic AI markers and rewrite cleanly",
             "Prototype a self-contained single-file HTML interactive tool or game using /vibecoder",
         ),
-        extra_files=(("DESIGN.md", "skills/antislop/references/DESIGN.md"),),
+        extra_files=(("DESIGN.md", "skills/ui-refinery/references/DESIGN.md"),),
         mcp_server_name="contrast",
-        mcp_script_rel="skills/antislop/scripts/contrast-mcp.py",
+        mcp_script_rel="skills/ui-refinery/scripts/contrast-mcp.py",
         third_party_upstreams=("miqdadbadjuber/anti-slop", "bendrape1-byte/silk-design"),
     ),
     "rust-suite": PluginSpec(
@@ -359,11 +359,11 @@ def _rel_within_plugin(from_plugin_rel: str, to_plugin_rel: str) -> str:
 # Standalone-Clean Plugin Markdown Rewriter (D4)
 # ---------------------------------------------------------------------------
 
-_ANTISLOP_BUNDLE_NOTE_MARKER = "> **Plugin Bundle Note:**"
-_ANTISLOP_BUNDLE_NOTE = (
+_UI_REFINERY_BUNDLE_NOTE_MARKER = "> **Plugin Bundle Note:**"
+_UI_REFINERY_BUNDLE_NOTE = (
     "> **Plugin Bundle Note:** When no project-local `DESIGN.md` exists, default visual tokens ship "
     "inside this plugin at [references/DESIGN.md](./references/DESIGN.md). Deterministic WCAG AA "
-    "contrast checks are available via the bundled `antislop_contrast` MCP server (`check_contrast`) "
+    "contrast checks are available via the bundled `ui-refinery_contrast` MCP server (`check_contrast`) "
     "or `python3 ./scripts/contrast-check.py`."
 )
 
@@ -416,69 +416,69 @@ def _concept_name_for_external_path(kind: str, rest: str) -> str:
     return slug
 
 
-def _rewrite_antislop_agy_guard(text: str, plugin_rel_path: str) -> str:
-    ui_rel = _rel_within_plugin(plugin_rel_path, "skills/antislop/scripts/check_ui_slop.py")
-    synth_rel = _rel_within_plugin(plugin_rel_path, "skills/antislop/scripts/check_synthetic_markers.py")
-    contrast_rel = _rel_within_plugin(plugin_rel_path, "skills/antislop/scripts/contrast-check.py")
+def _rewrite_ui_refinery_agy_guard(text: str, plugin_rel_path: str) -> str:
+    ui_rel = _rel_within_plugin(plugin_rel_path, "skills/ui-refinery/scripts/check_ui_slop.py")
+    synth_rel = _rel_within_plugin(plugin_rel_path, "skills/ui-refinery/scripts/check_synthetic_markers.py")
+    contrast_rel = _rel_within_plugin(plugin_rel_path, "skills/ui-refinery/scripts/contrast-check.py")
 
-    # 1. Fenced bash fallback blocks in antislop/SKILL.md and references/copywriting.md
+    # 1. Fenced bash fallback blocks in ui-refinery/SKILL.md and references/copywriting.md
     text = re.sub(
-        r"^agy-guard ui-slop ([^\n]+)$",
+        r"^(?:agy-guard|plumb-guard) ui-slop ([^\n]+)$",
         rf"python3 {ui_rel} \1",
         text,
         flags=re.MULTILINE,
     )
     text = re.sub(
-        r"^# Canonical installed fallback \(when agy-guard is not on PATH\):\n"
-        r"python3 ~/\.gemini/config/skills/antislop/scripts/check_ui_slop\.py ([^\n]+)$",
+        r"^# Canonical installed fallback \(when (?:agy-guard|plumb-guard) is not on PATH\):\n"
+        r"python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py ([^\n]+)$",
         r"# Optional (when agy-guard is installed): agy-guard ui-slop \1",
         text,
         flags=re.MULTILINE,
     )
     text = re.sub(
-        r"^agy-guard synthetic-markers ([^\n]+)$",
+        r"^(?:agy-guard|plumb-guard) synthetic-markers ([^\n]+)$",
         rf"python3 {synth_rel} \1",
         text,
         flags=re.MULTILINE,
     )
     text = re.sub(
-        r"^# Canonical installed fallback \(when agy-guard is not on PATH\):\n"
-        r"python3 ~/\.gemini/config/skills/antislop/scripts/check_synthetic_markers\.py ([^\n]+)$",
+        r"^# Canonical installed fallback \(when (?:agy-guard|plumb-guard) is not on PATH\):\n"
+        r"python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers\.py ([^\n]+)$",
         r"# Optional (when agy-guard is installed): agy-guard synthetic-markers \1",
         text,
         flags=re.MULTILINE,
     )
 
-    # 2. Inline dual invocations (`agy-guard ...` or `python3 ~/.gemini/config/skills/antislop/scripts/...`)
+    # 2. Inline dual invocations (`agy-guard ...` or `python3 ~/.gemini/config/skills/ui-refinery/scripts/...`)
     text = re.sub(
-        r"`agy-guard synthetic-markers`\s+or\s+`python3 ~/\.gemini/config/skills/antislop/scripts/check_synthetic_markers\.py`",
+        r"`(?:agy-guard|plumb-guard) synthetic-markers`\s+or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_synthetic_markers\.py`",
         f"`python3 {synth_rel}` (or optional `agy-guard synthetic-markers`)",
         text,
     )
     text = re.sub(
-        r"\(`agy-guard ui-slop`\s+or\s+`python3 ~/\.gemini/config/skills/antislop/scripts/check_ui_slop\.py`\)",
+        r"\(`(?:agy-guard|plumb-guard) ui-slop`\s+or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py`\)",
         f"(`python3 {ui_rel}`, or optional `agy-guard ui-slop`)",
         text,
     )
     text = re.sub(
-        r"`agy-guard ui-slop`\s*\(or\s+`python3 ~/\.gemini/config/skills/antislop/scripts/check_ui_slop\.py`\)",
+        r"`(?:agy-guard|plumb-guard) ui-slop`\s*\(or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py`\)",
         f"`python3 {ui_rel}` (or optional `agy-guard ui-slop`)",
         text,
     )
     text = re.sub(
-        r"`agy-guard ui-slop ([^`]+)`\s*\(or\s+`python3 ~/\.gemini/config/skills/antislop/scripts/check_ui_slop\.py \1`\)",
+        r"`(?:agy-guard|plumb-guard) ui-slop ([^`]+)`\s*\(or\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py \1`\)",
         rf"`python3 {ui_rel} \1` (or optional `agy-guard ui-slop`)",
         text,
     )
     text = re.sub(
-        r"`agy-guard ui-slop ([^`]+)`\s*\(([^;)]+);\s*fallback\s+`python3 ~/\.gemini/config/skills/antislop/scripts/check_ui_slop\.py`\)",
+        r"`(?:agy-guard|plumb-guard) ui-slop ([^`]+)`\s*\(([^;)]+);\s*fallback\s+`python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py`\)",
         rf"`python3 {ui_rel} \1` (\2; optional `agy-guard ui-slop`)",
         text,
     )
 
     # 3. human-a11y.md repo-checkout duplicate contrast-check line
     text = re.sub(
-        r"^# Or from the repository checkout:\npython3 skills/antislop/scripts/contrast-check\.py \"#FFFFFF\" \"#777777\"\n",
+        r"^# Or from the repository checkout:\npython3 skills/ui-refinery/scripts/contrast-check\.py \"#FFFFFF\" \"#777777\"\n",
         "",
         text,
         flags=re.MULTILINE,
@@ -494,16 +494,16 @@ def _rewrite_antislop_agy_guard(text: str, plugin_rel_path: str) -> str:
         f"The bundled contrast self-test (`python3 {contrast_rel} --selftest`) recomputes every row",
     )
 
-    # 5. silk-design/references/templates.md internal template path relative to templates.md
-    if plugin_rel_path == "skills/antislop/references/silk-design/references/templates.md":
+    # 5. motion-physics/references/templates.md internal template path relative to templates.md
+    if plugin_rel_path == "skills/ui-refinery/references/motion-physics/references/templates.md":
         text = text.replace(
-            "`references/silk-design/templates/Reference<N>/theme.css`",
+            "`references/motion-physics/templates/Reference<N>/theme.css`",
             "`../templates/Reference<N>/theme.css`",
         )
-    if plugin_rel_path == "skills/antislop/SKILL.md":
+    if plugin_rel_path == "skills/ui-refinery/SKILL.md":
         text = text.replace(
-            "(`references/silk-design/assets/`, `references/silk-design/references/`, `references/silk-design/templates/`)",
-            "(`./references/silk-design/assets/`, `./references/silk-design/references/`, `./references/silk-design/templates/`)",
+            "(`references/motion-physics/assets/`, `references/motion-physics/references/`, `references/motion-physics/templates/`)",
+            "(`./references/motion-physics/assets/`, `./references/motion-physics/references/`, `./references/motion-physics/templates/`)",
         )
     return text
 
@@ -534,11 +534,11 @@ def _rewrite_rust_suite_agy_guard(text: str) -> str:
 
 def _rewrite_game_engineering_agy_guard(text: str) -> str:
     text = re.sub(
-        r"^(?P<indent>[ \t]*)agy-guard ui-slop <paths> --mode game\n"
+        r"^(?P<indent>[ \t]*)(?:agy-guard|plumb-guard) ui-slop <paths> --mode game\n"
         r"(?P=indent)# Or from installed global config:\n"
-        r"(?P=indent)python3 ~/\.gemini/config/skills/antislop/scripts/check_ui_slop\.py <paths> --mode game",
-        r"\g<indent># When the optional antislop plugin is installed:\n"
-        r"\g<indent>python3 <path/to/antislop/scripts/check_ui_slop.py> <paths> --mode game\n"
+        r"(?P=indent)python3 ~/\.gemini/config/skills/ui-refinery/scripts/check_ui_slop\.py <paths> --mode game",
+        r"\g<indent># When the optional ui-refinery plugin is installed:\n"
+        r"\g<indent>python3 <path/to/ui-refinery/scripts/check_ui_slop.py> <paths> --mode game\n"
         r"\g<indent># Optional (when agy-guard is installed): agy-guard ui-slop <paths> --mode game",
         text,
         flags=re.MULTILINE,
@@ -571,8 +571,8 @@ def _rewrite_media_studio_paths(text: str, plugin_rel_path: str) -> str:
     return text
 
 
-def _inject_antislop_bundle_note(text: str) -> str:
-    if _ANTISLOP_BUNDLE_NOTE_MARKER in text:
+def _inject_ui_refinery_bundle_note(text: str) -> str:
+    if _UI_REFINERY_BUNDLE_NOTE_MARKER in text:
         return text
     lines = text.split("\n")
     in_fm = False
@@ -586,9 +586,9 @@ def _inject_antislop_bundle_note(text: str) -> str:
             continue
         if line.startswith("# "):
             lines.insert(idx + 1, "")
-            lines.insert(idx + 2, _ANTISLOP_BUNDLE_NOTE)
+            lines.insert(idx + 2, _UI_REFINERY_BUNDLE_NOTE)
             return "\n".join(lines)
-    return _ANTISLOP_BUNDLE_NOTE + "\n\n" + text
+    return _UI_REFINERY_BUNDLE_NOTE + "\n\n" + text
 
 
 def rewrite_plugin_markdown(text: str, pack_name: str, plugin_rel_path: str) -> str:
@@ -601,8 +601,8 @@ def rewrite_plugin_markdown(text: str, pack_name: str, plugin_rel_path: str) -> 
 
     if pack_name == "media-studio":
         out = _rewrite_media_studio_paths(out, rel_norm)
-    elif pack_name == "antislop":
-        out = _rewrite_antislop_agy_guard(out, rel_norm)
+    elif pack_name == "ui-refinery":
+        out = _rewrite_ui_refinery_agy_guard(out, rel_norm)
     elif pack_name == "rust-suite":
         out = _rewrite_rust_suite_agy_guard(out)
     elif pack_name == "game-engineering":
@@ -630,8 +630,8 @@ def rewrite_plugin_markdown(text: str, pack_name: str, plugin_rel_path: str) -> 
     out = re.sub(r"`([a-z][a-z0-9-]*)`\s*\(`\1`\)", r"`\1`", out)
     out = re.sub(r"(/marathon)\s*\(`marathon`\)", r"\1", out)
 
-    if pack_name == "antislop" and rel_norm == "skills/antislop/SKILL.md":
-        out = _inject_antislop_bundle_note(out)
+    if pack_name == "ui-refinery" and rel_norm == "skills/ui-refinery/SKILL.md":
+        out = _inject_ui_refinery_bundle_note(out)
 
     return out
 
@@ -677,6 +677,25 @@ def rewrite_core_for_hybrid(text: str, rel_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_UPSTREAM_CREDIT_METADATA: Dict[str, Tuple[str, str, str]] = {
+    "miqdadbadjuber/anti-slop": (
+        "https://github.com/miqdadbadjuber/anti-slop",
+        "MIT",
+        "40-rule UI, copy, accessibility, mobile layout, and code-comment quality filter & WCAG contrast tooling",
+    ),
+    "bendrape1-byte/silk-design": (
+        "https://github.com/bendrape1-byte/silk-design",
+        "MIT",
+        "Kinetic motion (`MOTION 3`), fluid typography, and showcase reference templates (`motion-physics`)",
+    ),
+    "erkamyaman/rust-anything": (
+        "https://github.com/erkamyaman/rust-anything",
+        "MIT",
+        "Cross-language Rust porting patterns, semantic traps, `known-diffs.jsonl`, and Rust hardening conventions",
+    ),
+}
+
+
 def render_plugin_readme(spec: PluginSpec, version: str) -> str:
     """Generates a concise, factual per-plugin README.md with zero dead paths."""
     lines: List[str] = [
@@ -697,6 +716,22 @@ def render_plugin_readme(spec: PluginSpec, version: str) -> str:
             f"- MCP server `{spec.mcp_server_name}` (exposed by Antigravity as `{runtime_mcp_name}`): "
             f"[mcp_config.json](./mcp_config.json) (stdio entry `./{spec.mcp_script_rel}`)"
         )
+    if spec.third_party_upstreams:
+        lines.extend([
+            "",
+            "## Upstream Credits & Attribution",
+            "",
+            "Portions of this plugin are adapted from the following MIT-licensed upstream projects "
+            "(full license texts and copyright notices ship in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)):",
+            "",
+        ])
+        for upstream in spec.third_party_upstreams:
+            meta = _UPSTREAM_CREDIT_METADATA.get(upstream)
+            if meta is not None:
+                url, lic, scope_desc = meta
+                lines.append(f"- [{upstream}]({url}) ({lic}): {scope_desc}")
+            else:
+                lines.append(f"- [{upstream}](https://github.com/{upstream}) (MIT)")
     lines.extend([
         "",
         "## Standalone installation",
@@ -706,7 +741,7 @@ def render_plugin_readme(spec: PluginSpec, version: str) -> str:
         f"`plugins/{spec.name}/plugin.json`.",
         "2. Open Antigravity Customizations to verify the plugin appears and toggle it on or off at any time.",
     ])
-    if spec.mcp_server_name or spec.name in ("antislop", "media-studio"):
+    if spec.mcp_server_name or spec.name in ("ui-refinery", "media-studio"):
         lines.append(
             "3. Bundled scripts and stdio MCP servers require Python `3.10+` on `PATH` "
             "(on Windows, ensure `python3` or a local `python` executable is configured in `mcp_config.json`)."
@@ -1250,9 +1285,27 @@ def validate_svg_logo(svg_path: Path) -> List[str]:
     if os.path.islink(svg_path) or not svg_path.is_file():
         return [f"SVG logo missing or symlink: {svg_path}"]
 
-    raw_bytes = svg_path.read_bytes()
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(os.fspath(svg_path), flags)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                return [f"SVG logo is not a regular file: {svg_path}"]
+            with os.fdopen(fd, "rb") as fh:
+                fd = -1
+                raw_bytes = fh.read(MAX_SVG_LOGO_BYTES + 1)
+        finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+    except (OSError, ValueError) as exc:
+        return [f"Could not read SVG logo {svg_path}: {exc}"]
     if len(raw_bytes) > MAX_SVG_LOGO_BYTES:
-        errors.append(f"SVG logo exceeds {MAX_SVG_LOGO_BYTES} bytes: {len(raw_bytes)} bytes")
+        errors.append(f"SVG logo exceeds {MAX_SVG_LOGO_BYTES} bytes: >{MAX_SVG_LOGO_BYTES} bytes")
+        return errors
 
     try:
         content = raw_bytes.decode("utf-8")
@@ -1457,8 +1510,8 @@ _MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 _BARE_SCRIPTS_RE = re.compile(r"(?<![A-Za-z0-9_./~$-])scripts/[A-Za-z0-9_./-]+")
 _TILDE_CONFIG_RE = re.compile(r"~/\.gemini/config/")
 _FLAT_HOME_SKILLS_RE = re.compile(r"\$HOME/\.gemini/config/skills/")
-_RUNTIME_PATH_RE = re.compile(r"~/\.local/share/antigravity-harness/")
-_INLINE_AGY_GUARD_RE = re.compile(r"`agy-guard\b[^`]*`")
+_RUNTIME_PATH_RE = re.compile(r"(?:~|\$HOME)/\.local/share/(?:antigravity-harness|plumbwork)/")
+_INLINE_AGY_GUARD_RE = re.compile(r"`(?:agy-guard|plumb-guard)\b[^`]*`")
 _OPTIONAL_QUALIFIER_RE = re.compile(r"(?i)\b(?:optional|when\s+[^\n`]*installed|if\s+available)\b")
 _BACKTICK_REL_PATH_RE = re.compile(r"`(\.\.?/[A-Za-z0-9_./-]+\.(?:md|py|sh|css|json|svg))`")
 
@@ -1648,8 +1701,9 @@ def _validate_markdown_standalone(md_path: Path, plugin_dir: Path, errors: List[
             errors.append(f"{rel}:{lineno}: forbidden ~/.gemini/config/ path inside standalone plugin")
         if _FLAT_HOME_SKILLS_RE.search(line):
             errors.append(f"{rel}:{lineno}: forbidden flat $HOME/.gemini/config/skills/ path inside standalone plugin")
-        if _RUNTIME_PATH_RE.search(line):
-            errors.append(f"{rel}:{lineno}: forbidden ~/.local/share/antigravity-harness/ path inside standalone plugin")
+        m_rt = _RUNTIME_PATH_RE.search(line)
+        if m_rt:
+            errors.append(f"{rel}:{lineno}: forbidden runtime path `{m_rt.group(0)}` inside standalone plugin")
         if _BARE_SCRIPTS_RE.search(line):
             errors.append(f"{rel}:{lineno}: bare scripts/... path without explicit ./ or ../ prefix")
         if rel != "README.md":
@@ -1659,8 +1713,11 @@ def _validate_markdown_standalone(md_path: Path, plugin_dir: Path, errors: List[
                 )
 
         if in_fence:
-            if stripped.startswith("agy-guard ") or stripped == "agy-guard":
-                errors.append(f"{rel}:{lineno}: mandatory uncommented `agy-guard` command inside code fence")
+            if (
+                stripped.startswith(("agy-guard ", "plumb-guard "))
+                or stripped in ("agy-guard", "plumb-guard")
+            ):
+                errors.append(f"{rel}:{lineno}: mandatory uncommented `{stripped.split()[0]}` command inside code fence")
             continue
 
         for m in _INLINE_AGY_GUARD_RE.finditer(line):
@@ -1674,10 +1731,10 @@ def _validate_markdown_standalone(md_path: Path, plugin_dir: Path, errors: List[
             target_part = href.split("#", 1)[0]
             if not target_part:
                 continue
-            resolved = (md_path.parent / target_part).resolve()
             try:
+                resolved = (md_path.parent / target_part).resolve()
                 resolved.relative_to(plugin_root_res)
-            except ValueError:
+            except (OSError, RuntimeError, ValueError):
                 errors.append(f"{rel}:{lineno}: markdown link escapes plugin root: {href}")
                 continue
             if not resolved.exists():
@@ -1687,10 +1744,10 @@ def _validate_markdown_standalone(md_path: Path, plugin_dir: Path, errors: List[
             rel_tok = m.group(1)
             if any(ch in rel_tok for ch in "<>*{}"):
                 continue
-            resolved = (md_path.parent / rel_tok).resolve()
             try:
+                resolved = (md_path.parent / rel_tok).resolve()
                 resolved.relative_to(plugin_root_res)
-            except ValueError:
+            except (OSError, RuntimeError, ValueError):
                 errors.append(f"{rel}:{lineno}: relative path escapes plugin root: {rel_tok}")
                 continue
             if not resolved.exists():
@@ -1747,7 +1804,7 @@ def validate_plugin_dir(
     else:
         try:
             manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             errors.append(f"Invalid JSON in plugin.json: {exc}")
         else:
             pack_name = _validate_manifest_dict(manifest_data, plugin_dir, expected_pack, errors)
@@ -1765,10 +1822,57 @@ def validate_plugin_dir(
             elif spec is not None:
                 if "MIT License" not in readme_text or "./LICENSE" not in readme_text:
                     errors.append("README.md for harness plugin pack must state MIT License and link ./LICENSE")
-                if spec.third_party_upstreams and "./THIRD_PARTY_NOTICES.md" not in readme_text:
-                    errors.append(
-                        f"README.md for '{pack_name}' must link ./THIRD_PARTY_NOTICES.md for bundled third-party works"
-                    )
+                if spec.third_party_upstreams:
+                    if "./THIRD_PARTY_NOTICES.md" not in readme_text:
+                        errors.append(
+                            f"README.md for '{pack_name}' must link ./THIRD_PARTY_NOTICES.md for bundled third-party works"
+                        )
+                    credits_heading = "## Upstream Credits & Attribution"
+                    heading_lines: Dict[str, int] = {}
+                    readme_lines = readme_text.splitlines()
+                    in_rfence = False
+                    rfence_char = ""
+                    for idx, raw_ln in enumerate(readme_lines):
+                        s_ln = raw_ln.strip()
+                        if s_ln.startswith(("```", "~~~")):
+                            fch = s_ln[0]
+                            if not in_rfence:
+                                in_rfence = True
+                                rfence_char = fch
+                            elif fch == rfence_char:
+                                in_rfence = False
+                                rfence_char = ""
+                            continue
+                        if not in_rfence and s_ln in (
+                            "## Included components",
+                            credits_heading,
+                            "## Standalone installation",
+                        ):
+                            heading_lines.setdefault(s_ln, idx)
+                    inc_ln = heading_lines.get("## Included components", -1)
+                    cred_ln = heading_lines.get(credits_heading, -1)
+                    inst_ln = heading_lines.get("## Standalone installation", -1)
+                    if cred_ln == -1:
+                        errors.append(
+                            f"README.md for '{pack_name}' must include prominent `{credits_heading}` section"
+                        )
+                    else:
+                        if inc_ln == -1 or cred_ln < inc_ln:
+                            errors.append(
+                                f"README.md for '{pack_name}' must place `{credits_heading}` after `## Included components`"
+                            )
+                        if inst_ln == -1 or cred_ln > inst_ln:
+                            errors.append(
+                                f"README.md for '{pack_name}' must place `{credits_heading}` before `## Standalone installation`"
+                            )
+                        credits_slice = "\n".join(
+                            readme_lines[cred_ln : inst_ln if inst_ln > cred_ln else len(readme_lines)]
+                        )
+                        for upstream in spec.third_party_upstreams:
+                            if upstream not in credits_slice:
+                                errors.append(
+                                    f"README.md for '{pack_name}' missing upstream credit for {upstream!r} under `{credits_heading}`"
+                                )
         except (OSError, UnicodeDecodeError) as exc:
             errors.append(f"Unreadable README.md at plugin root: {exc}")
 
@@ -1826,8 +1930,8 @@ def validate_plugin_dir(
     # 4. Skills structure & YAML frontmatter
     skills_dir = plugin_dir / "skills"
     found_skills: List[str] = []
-    if not skills_dir.is_dir():
-        errors.append("Missing skills/ directory")
+    if os.path.islink(skills_dir) or not skills_dir.is_dir():
+        errors.append("Missing or symlinked skills/ directory")
     else:
         for child in sorted(skills_dir.iterdir()):
             if os.path.islink(child) or not child.is_dir():
@@ -1870,7 +1974,7 @@ def validate_plugin_dir(
     if mcp_path.is_file() and not os.path.islink(mcp_path):
         try:
             mcp_data = json.loads(mcp_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             errors.append(f"Invalid JSON in mcp_config.json: {exc}")
         else:
             servers = mcp_data.get("mcpServers") if isinstance(mcp_data, dict) else None

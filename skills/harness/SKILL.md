@@ -118,7 +118,7 @@ Review the full diff across four passes before running final gates:
 1. **Completeness Pass:** Every scoped requirement and `AC-1..N` is implemented with zero stubs or deferred items.
 2. **Domain & Seam Review Pass:** Verify public seam contracts, types, and boundary invariants (`~/.gemini/config/skills/harness/references/mistake-proofing.md`).
 3. **Defect & Resilience Hunt Pass:** Hunt unhandled edge cases, silent error swallowing, race conditions, and resource leaks.
-4. **Surgical Polish Pass:** Verify naming clarity, comment hygiene (`~/.gemini/config/skills/antislop/references/code-comments.md`), and zero unrelated edits (`GEMINI.md` Rule 18).
+4. **Surgical Polish Pass:** Verify naming clarity, comment hygiene (`~/.gemini/config/skills/ui-refinery/references/code-comments.md`), and zero unrelated edits (`GEMINI.md` Rule 18).
 
 ### B. Sequential Verification Pipeline
 
@@ -138,7 +138,7 @@ Execute and verify outputs in order after code or document changes:
    * Run test suite (`npm test`, `pytest`, `go test ./...`, `cargo test`) at contract seams (`test-design`).
    * Route non-obvious failures to `diagnosing-bugs`.
    * **4a. Test Integrity & Mutation Guard:** Inspect test diffs and untracked files (§2); unauthorized assertion edits block exit.
-   * **4b. UI, Visual & Document Gate:** Run `antislop` Delivery Gate (`GEMINI.md` Rule 14), `agy-guard ui-slop <paths> --mode <utility|editorial|game>`, and one entry-point smoke check.
+   * **4b. UI, Visual & Document Gate:** Run `ui-refinery` Delivery Gate (`GEMINI.md` Rule 14), `agy-guard ui-slop <paths> --mode <utility|editorial|game>`, and one entry-point smoke check.
    * **Render-and-Inspect:** Re-read generated `.pdf`/`.svg`/`.docx`/`.xlsx`/`.pptx`/LaTeX/Typst/images via `read_file` or parser to verify zero clipping, overflow, or broken geometry.
 5. **Independent Auditor Pre-flight:**
    * Mandatory for Tier 3 or `GEMINI.md` Critical Exceptions (§5.A, §5.B).
@@ -260,7 +260,7 @@ Full contracts, role specs, and swarm mechanics: [references/multi-agent-orchest
   * Present explicit options (`Merge locally`, `Prepare Pull Request`, or `Keep branch as-is`) unless already authorized.
 * **First Production Version from a `vibecoder` Prototype:**
   * Treat promotion as Tier 3 regardless of file count (optionally via `~/.gemini/config/skills/harness/references/marathon.md`).
-  * Read `PRODUCT.md` (or embedded `<script type="application/json" id="vibecoder-promotion-spec">` Section 1F), surface implicit choices in `AC-1..N`, and enforce `antislop` Delivery Gate.
+  * Read `PRODUCT.md` (or embedded `<script type="application/json" id="vibecoder-promotion-spec">` Section 1F), surface implicit choices in `AC-1..N`, and enforce `ui-refinery` Delivery Gate.
   * For `"mode": "game"` prototypes, co-load `~/.gemini/config/skills/game-engineering/SKILL.md` and `~/.gemini/config/skills/media-studio/SKILL.md` when external audio or sprite assets are added.
 
 ---

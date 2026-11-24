@@ -13,11 +13,12 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from guard.audit_log import audit
 from guard.os_adapter import OSProtectionAdapter
@@ -264,33 +265,267 @@ class AgentEnvironment:
         return cls(**payload)
 
 
-def is_harness_plugin_dir(path: Path, expected_pack: Optional[str] = None) -> bool:
-    """True when `path` is a real directory holding a canonical Antigravity Harness plugin manifest."""
-    if os.path.islink(path) or not path.is_dir():
+LEGACY_HARNESS_PLUGIN_NAMES: FrozenSet[str] = frozenset({"antislop"})
+LEGACY_HARNESS_REPOSITORIES: FrozenSet[str] = frozenset({
+    "https://github.com/hadbilen/antigravity-harness",
+    "https://github.com/hadbilen/plumbwork",
+})
+LEGACY_HARNESS_SKILL_SLUGS: FrozenSet[str] = frozenset({
+    "antislop",
+    "antislop-ui",
+    "antislop-copywriting",
+    "antislop-human",
+    "antislop-layoutmobile",
+    "antislop-code",
+    "silk-design",
+})
+_LEGACY_HARNESS_SKILL_MARKERS: Tuple[str, ...] = (
+    "https://github.com/hadbilen/antigravity-harness",
+    "https://github.com/hadbilen/plumbwork",
+    "agy-guard ui-slop",
+    "agy-guard synthetic-markers",
+    "plumb-guard ui-slop",
+    "plumb-guard synthetic-markers",
+    "skills/antislop/scripts/check_ui_slop.py",
+    "skills/antislop/scripts/check_synthetic_markers.py",
+)
+_MAX_PROVENANCE_READ_BYTES = 256 * 1024
+
+
+def _open_dir_nofollow(path: Path, *, dir_fd: Optional[int] = None) -> Optional[int]:
+    """Opens a real directory descriptor without following symlinks on POSIX (returns None if unsupported/invalid)."""
+    o_dir = getattr(os, "O_DIRECTORY", 0)
+    if not o_dir or os.name == "nt":
+        return None
+    flags = os.O_RDONLY | o_dir | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        if dir_fd is None:
+            return os.open(os.fspath(path), flags)
+        return os.open(os.fspath(path), flags, dir_fd=dir_fd)
+    except (OSError, ValueError):
+        return None
+
+
+def _read_regular_file_nofollow(
+    path: Path,
+    max_bytes: int = _MAX_PROVENANCE_READ_BYTES,
+    *,
+    dir_fd: Optional[int] = None,
+) -> Optional[str]:
+    """Reads a bounded regular UTF-8 file without following symlinks (fail-closed -> None)."""
+    try:
+        if dir_fd is None and os.path.islink(path):
+            return None
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        if dir_fd is None:
+            fd = os.open(os.fspath(path), flags)
+        else:
+            fd = os.open(os.fspath(path), flags, dir_fd=dir_fd)
+    except (OSError, ValueError):
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > max_bytes:
+            return None
+        with os.fdopen(fd, "rb") as fh:
+            fd = -1
+            raw = fh.read(max_bytes + 1)
+    except (OSError, ValueError):
+        return None
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    if len(raw) > max_bytes:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def is_harness_plugin_dir(
+    path: Path,
+    expected_pack: Optional[str] = None,
+    *,
+    allow_legacy_names: bool = False,
+) -> bool:
+    """True when `path` is a real directory holding a strict-JSON canonical harness plugin manifest."""
+    try:
+        if os.path.islink(path) or not path.is_dir():
+            return False
+    except OSError:
         return False
-    manifest = path / "plugin.json"
-    if os.path.islink(manifest) or not manifest.is_file():
+    dfd = _open_dir_nofollow(path)
+    if dfd is not None:
+        try:
+            raw_manifest = _read_regular_file_nofollow(Path("plugin.json"), dir_fd=dfd)
+        finally:
+            try:
+                os.close(dfd)
+            except OSError:
+                pass
+    else:
+        if os.name != "nt" and getattr(os, "O_DIRECTORY", 0):
+            return False
+        raw_manifest = _read_regular_file_nofollow(path / "plugin.json")
+    if raw_manifest is None:
         return False
     try:
-        data = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data = json.loads(raw_manifest)
+    except (ValueError, RecursionError):
         return False
     if not isinstance(data, dict):
         return False
+    allowed_names = (
+        HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES
+        if allow_legacy_names
+        else HARNESS_PLUGIN_NAMES
+    )
     name = data.get("name")
-    if not isinstance(name, str) or name not in HARNESS_PLUGIN_NAMES:
+    if not isinstance(name, str) or name not in allowed_names:
         return False
     if expected_pack is not None and name != expected_pack:
         return False
     repo = data.get("repository")
-    if isinstance(repo, str):
-        repo_url = repo
-    elif isinstance(repo, dict):
-        repo_url = repo.get("url") if isinstance(repo.get("url"), str) else ""
-    else:
+    if repo is None:
         repo_url = ""
-    homepage = data.get("homepage") or ""
-    return repo_url == PLUGIN_REPOSITORY or homepage == PLUGIN_HOMEPAGE
+    elif isinstance(repo, str):
+        repo_url = repo.strip().rstrip("/")
+    elif isinstance(repo, dict):
+        raw_url = repo.get("url")
+        if raw_url is not None and not isinstance(raw_url, str):
+            return False
+        repo_url = (raw_url or "").strip().rstrip("/")
+    else:
+        return False
+    homepage = data.get("homepage")
+    if homepage is None:
+        hp_url = ""
+    elif isinstance(homepage, str):
+        hp_url = homepage.strip().rstrip("/")
+    else:
+        return False
+    allowed_urls = {PLUGIN_REPOSITORY.rstrip("/"), PLUGIN_HOMEPAGE.rstrip("/")} | LEGACY_HARNESS_REPOSITORIES
+    if not (repo_url or hp_url):
+        return False
+    if repo_url and repo_url not in allowed_urls:
+        return False
+    if hp_url and hp_url not in allowed_urls:
+        return False
+    return True
+
+
+def can_retire_harness_plugin_dir(
+    path: Path,
+    expected_pack: Optional[str] = None,
+    *,
+    in_receipt: bool = False,
+    allow_legacy_names: bool = False,
+) -> bool:
+    """
+    Fail-closed positive-provenance gate before retiring or uninstalling a plugin directory.
+    - Never follows or deletes symlinks.
+    - Whenever `plugin.json` exists, requires positive strict-JSON harness URL provenance
+      (a stale `install_receipt.json` never overrides non-harness, omitted-URL, JSONC, or symlink manifests).
+    - When `plugin.json` is absent, refuses legacy/unknown pack names and requires `in_receipt` for active packs.
+    """
+    try:
+        if os.path.islink(path) or not path.is_dir():
+            return False
+    except OSError:
+        return False
+    manifest = path / "plugin.json"
+    pack_key = expected_pack or path.name
+    if pack_key in LEGACY_HARNESS_PLUGIN_NAMES:
+        if not in_receipt or not os.path.lexists(manifest):
+            return False
+        return is_harness_plugin_dir(
+            path,
+            expected_pack=expected_pack,
+            allow_legacy_names=allow_legacy_names,
+        )
+    if os.path.lexists(manifest):
+        return is_harness_plugin_dir(
+            path,
+            expected_pack=expected_pack,
+            allow_legacy_names=allow_legacy_names,
+        )
+    if pack_key not in HARNESS_PLUGIN_NAMES:
+        return False
+    return bool(in_receipt)
+
+
+def is_legacy_harness_skill_dir(path: Path) -> bool:
+    """
+    Fail-closed positive-provenance check for a legacy harness-owned global skill directory
+    (e.g. pre-separation `skills/antislop`). Rejects symlinks and third-party upstream skills.
+    """
+    try:
+        if os.path.islink(path) or not path.is_dir():
+            return False
+    except OSError:
+        return False
+    dfd = _open_dir_nofollow(path)
+    if dfd is not None:
+        try:
+            skill_text = _read_regular_file_nofollow(Path("SKILL.md"), dir_fd=dfd)
+            if skill_text is None:
+                return False
+            if any(marker in skill_text for marker in _LEGACY_HARNESS_SKILL_MARKERS):
+                return True
+            sfd = _open_dir_nofollow(Path("scripts"), dir_fd=dfd)
+            if sfd is not None:
+                try:
+                    for fname in ("check_ui_slop.py", "check_synthetic_markers.py"):
+                        script_text = _read_regular_file_nofollow(Path(fname), dir_fd=sfd)
+                        if script_text and any(repo in script_text for repo in LEGACY_HARNESS_REPOSITORIES):
+                            return True
+                finally:
+                    try:
+                        os.close(sfd)
+                    except OSError:
+                        pass
+            return False
+        finally:
+            try:
+                os.close(dfd)
+            except OSError:
+                pass
+    if os.name != "nt" and getattr(os, "O_DIRECTORY", 0):
+        return False
+    skill_text = _read_regular_file_nofollow(path / "SKILL.md")
+    if skill_text is None:
+        return False
+    if any(marker in skill_text for marker in _LEGACY_HARNESS_SKILL_MARKERS):
+        return True
+    scripts_dir = path / "scripts"
+    try:
+        if not os.path.islink(scripts_dir) and scripts_dir.is_dir():
+            for fname in ("check_ui_slop.py", "check_synthetic_markers.py"):
+                script_text = _read_regular_file_nofollow(scripts_dir / fname)
+                if script_text and any(repo in script_text for repo in LEGACY_HARNESS_REPOSITORIES):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def can_retire_legacy_harness_skill_dir(
+    path: Path,
+    slug: str,
+    *,
+    in_receipt: bool = False,
+) -> bool:
+    """
+    Fail-closed retirement gate for legacy harness-owned global skill directories (`skills/antislop*`,
+    `skills/silk-design`): requires BOTH a matching receipt entry AND positive harness content provenance.
+    """
+    if slug not in LEGACY_HARNESS_SKILL_SLUGS or not in_receipt:
+        return False
+    return is_legacy_harness_skill_dir(path)
 
 
 def read_install_receipt(
@@ -302,9 +537,12 @@ def read_install_receipt(
     rpath = Path(receipt_path) if receipt_path is not None else (state_dir() / "install_receipt.json")
     if os.path.islink(rpath) or not rpath.is_file():
         return None
+    raw_text = _read_regular_file_nofollow(rpath, max_bytes=1024 * 1024)
+    if raw_text is None:
+        return None
     try:
-        data = json.loads(rpath.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        data = json.loads(raw_text)
+    except (ValueError, RecursionError) as exc:
         print(f"[WARN] Could not parse install receipt {rpath} ({exc}).", file=sys.stderr)
         return None
     if not isinstance(data, dict):
@@ -330,7 +568,7 @@ def antigravity_plugin_governance_seams(
 ) -> List[str]:
     """
     Returns sorted `plugins/<pack>` governance seams for `HARNESS_PLUGIN_NAMES` packs
-    that exist under `root/plugins/` (without following a symlinked `plugins/` root)
+    that exist under `root/plugins/` (without following a symlinked `plugins/` root or non-harness packs)
     or are recorded in `install_receipt.json["installed_plugins"]` for `root`.
     """
     resolved_root = Path(root).expanduser()
@@ -338,8 +576,12 @@ def antigravity_plugin_governance_seams(
     active: set[str] = set()
     if not os.path.islink(plugins_dir):
         for pack in HARNESS_PLUGIN_NAMES:
-            if os.path.lexists(plugins_dir / pack):
-                active.add(pack)
+            pdir = plugins_dir / pack
+            if os.path.islink(pdir) or not pdir.is_dir():
+                continue
+            if os.path.lexists(pdir / "plugin.json") and not is_harness_plugin_dir(pdir, expected_pack=pack):
+                continue
+            active.add(pack)
     if include_receipt:
         receipt = read_install_receipt(receipt_path=receipt_path, target_dir=resolved_root)
         if receipt is not None:
@@ -364,7 +606,7 @@ def sync_antigravity_plugin_seams(
         include_receipt=include_receipt,
     )
     active_set = set(active_seams)
-    managed_seams = {f"plugins/{pack}" for pack in HARNESS_PLUGIN_NAMES}
+    managed_seams = {f"plugins/{pack}" for pack in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES)}
     env.governance_paths = [
         s for s in env.governance_paths if s not in managed_seams or s in active_set
     ]
@@ -939,12 +1181,6 @@ class EnvironmentLocker:
 
 
 CONSOLIDATED_SKILL_SLUGS: Tuple[str, ...] = (
-    "antislop-ui",
-    "antislop-copywriting",
-    "antislop-human",
-    "antislop-layoutmobile",
-    "antislop-code",
-    "silk-design",
     "marathon",
     "unlazy",
     "architecture-decision-records",
@@ -957,9 +1193,9 @@ CONSOLIDATED_SKILL_SLUGS: Tuple[str, ...] = (
 )
 
 RELOCATED_SKILL_SCRIPTS: Dict[str, str] = {
-    "skills/antislop-human/contrast-mcp.py": "skills/antislop/scripts/contrast-mcp.py",
-    "skills/antislop-human/contrast-check.py": "skills/antislop/scripts/contrast-check.py",
-    "skills/antislop-copywriting/scripts/check_synthetic_markers.py": "skills/antislop/scripts/check_synthetic_markers.py",
+    "skills/antislop-human/contrast-mcp.py": "skills/ui-refinery/scripts/contrast-mcp.py",
+    "skills/antislop-human/contrast-check.py": "skills/ui-refinery/scripts/contrast-check.py",
+    "skills/antislop-copywriting/scripts/check_synthetic_markers.py": "skills/ui-refinery/scripts/check_synthetic_markers.py",
 }
 
 
@@ -1023,9 +1259,13 @@ def migrate_harness_mcp_config(
             return False
         data: Dict[str, Any] = {"mcpServers": {}}
     else:
+        raw_mcp = _read_regular_file_nofollow(mcp, max_bytes=2 * 1024 * 1024)
+        if raw_mcp is None:
+            _emit(f"[WARN] Could not read {mcp} as a bounded regular file; skipping MCP path migration.")
+            return False
         try:
-            data = json.loads(mcp.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
+            data = json.loads(raw_mcp)
+        except (ValueError, RecursionError) as exc:
             _emit(f"[WARN] Could not parse {mcp}: {exc}; skipping MCP path migration.")
             return False
         if not isinstance(data, dict):
@@ -1039,6 +1279,11 @@ def migrate_harness_mcp_config(
     repo_skills_dir = source_dir / "skills"
     target_skills_dir = target_dir / "skills"
     harness_skills: set[str] = set(CONSOLIDATED_SKILL_SLUGS)
+    for _old_rel in RELOCATED_SKILL_SCRIPTS:
+        _old_parts = _old_rel.split("/")
+        if len(_old_parts) >= 2 and _old_parts[0] == "skills":
+            harness_skills.add(_old_parts[1])
+    harness_skills.add("antislop")
     try:
         if repo_skills_dir.is_dir():
             harness_skills.update(p.name for p in repo_skills_dir.iterdir() if p.is_dir())
@@ -1124,23 +1369,48 @@ def migrate_harness_mcp_config(
                     prefix_res is not None and target_dir_res is not None and prefix_res == target_dir_res
                 )
                 is_target_plugin_tree = False
+                is_legacy_plugin_tree = False
                 if (
-                    retire_packs
-                    and skills_idx >= 2
+                    skills_idx >= 2
                     and parts[skills_idx - 2] == "plugins"
-                    and parts[skills_idx - 1] in retire_packs
+                    and parts[skills_idx - 1] in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES)
                 ):
-                    pack_dir = target_dir / "plugins" / parts[skills_idx - 1]
-                    try:
-                        pack_dir_res: Optional[Path] = pack_dir.resolve()
-                    except (OSError, RuntimeError, ValueError):
-                        pack_dir_res = None
-                    is_target_plugin_tree = (
-                        (arg_path is not None and _is_within_lexically(arg_path, pack_dir))
-                        or (prefix_res is not None and pack_dir_res is not None and prefix_res == pack_dir_res)
-                    )
+                    plug_name = parts[skills_idx - 1]
+                    plugins_root = target_dir / "plugins"
+                    pack_dir = plugins_root / plug_name
+                    if not os.path.islink(plugins_root) and not os.path.islink(pack_dir):
+                        try:
+                            pack_dir_res: Optional[Path] = pack_dir.resolve()
+                        except (OSError, RuntimeError, ValueError):
+                            pack_dir_res = None
+                        in_pack = (
+                            (arg_path is not None and _is_within_lexically(arg_path, pack_dir))
+                            or (prefix_res is not None and pack_dir_res is not None and prefix_res == pack_dir_res)
+                        )
+                        if in_pack:
+                            if plug_name in LEGACY_HARNESS_PLUGIN_NAMES:
+                                # Preserve third-party plugins/antislop MCP entries; match only absent or harness-owned legacy packs
+                                if not os.path.lexists(pack_dir) or is_harness_plugin_dir(
+                                    pack_dir, expected_pack=plug_name, allow_legacy_names=True
+                                ):
+                                    is_legacy_plugin_tree = True
+                                    if retire_packs and "ui-refinery" in retire_packs:
+                                        is_target_plugin_tree = True
+                            elif retire_packs and plug_name in retire_packs:
+                                is_target_plugin_tree = True
                 raw_rel_posix = "/".join(parts[skills_idx:])
-                mapped_rel_posix = RELOCATED_SKILL_SCRIPTS.get(raw_rel_posix, raw_rel_posix)
+                if skill_name in LEGACY_HARNESS_SKILL_SLUGS:
+                    legacy_skill_dir = target_skills_dir / skill_name
+                    if is_target_tree and os.path.lexists(legacy_skill_dir) and not is_legacy_harness_skill_dir(legacy_skill_dir):
+                        # Preserve third-party global skills/antislop* / skills/silk-design MCP server entries untouched.
+                        continue
+                    mapped_rel_posix = (
+                        "skills/ui-refinery/scripts/contrast-mcp.py"
+                        if raw_rel_posix == "skills/antislop/scripts/contrast-mcp.py"
+                        else RELOCATED_SKILL_SCRIPTS.get(raw_rel_posix, raw_rel_posix)
+                    )
+                else:
+                    mapped_rel_posix = RELOCATED_SKILL_SCRIPTS.get(raw_rel_posix, raw_rel_posix)
                 if (
                     retire_rel_scripts
                     and mapped_rel_posix in retire_rel_scripts
@@ -1149,14 +1419,34 @@ def migrate_harness_mcp_config(
                     should_retire = True
                     break
                 mapped_rel = Path(*mapped_rel_posix.split("/"))
-                if is_repo_tree or (is_target_tree and mapped_rel_posix != raw_rel_posix):
+                if (
+                    is_repo_tree
+                    or (is_target_tree and mapped_rel_posix != raw_rel_posix)
+                    or (is_legacy_plugin_tree and mapped_rel_posix != raw_rel_posix)
+                ):
                     candidate = target_dir / mapped_rel
                     try:
-                        cand_within = (
-                            _is_within_lexically(candidate, target_skills_dir)
+                        cand_res = candidate.resolve()
+                        target_skill_entry = (
+                            target_skills_dir / mapped_rel.parts[1]
+                            if len(mapped_rel.parts) >= 2 and mapped_rel.parts[0] == "skills"
+                            else None
+                        )
+                        is_verified_repo_link = (
+                            target_skill_entry is not None
+                            and os.path.islink(target_skill_entry)
+                            and source_dir_res is not None
+                            and is_within(cand_res, source_dir_res / "skills")
                             and not os.path.islink(candidate)
-                            and target_skills_res is not None
-                            and is_within(candidate.resolve(), target_skills_res)
+                        )
+                        cand_within = (
+                            not os.path.islink(target_skills_dir)
+                            and _is_within_lexically(candidate, target_skills_dir)
+                            and not os.path.islink(candidate)
+                            and (
+                                (target_skills_res is not None and is_within(cand_res, target_skills_res))
+                                or is_verified_repo_link
+                            )
                         )
                     except (OSError, RuntimeError, ValueError):
                         cand_within = False
@@ -1209,8 +1499,8 @@ def migrate_harness_mcp_config(
         changed = True
 
     if restore_keys:
-        antislop_spec = PLUGIN_CATALOG.get("antislop")
-        flat_rel_posix = antislop_spec.mcp_script_rel if (antislop_spec and antislop_spec.mcp_script_rel) else "skills/antislop/scripts/contrast-mcp.py"
+        ui_spec = PLUGIN_CATALOG.get("ui-refinery")
+        flat_rel_posix = ui_spec.mcp_script_rel if (ui_spec and ui_spec.mcp_script_rel) else "skills/ui-refinery/scripts/contrast-mcp.py"
         flat_rel = Path(*flat_rel_posix.split("/"))
         flat_candidate = target_dir / flat_rel
         src_flat = source_dir / flat_rel

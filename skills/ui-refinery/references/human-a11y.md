@@ -1,12 +1,12 @@
-# antislop-human
+# a11y-check
 
-> Anti Slop: Rules for AI Coding Agents. Human skill
+> UI Refinery: Rules for AI Coding Agents. Accessibility & Contrast module
 
-> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill deep-dives the human concern: the UI must stay usable by people with different eyes, hands, and setups. Contrast, keyboard, focus, states, and the mobile details that exclude people. Load on demand when explicitly auditing accessibility or verifying color contrast ratios.
+> Part of the `ui-refinery` system. Read together with the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`). This module deep-dives the human concern: the UI must stay usable by people with different eyes, hands, and setups. Contrast, keyboard, focus, states, and the mobile details that exclude people. Load on demand when explicitly auditing accessibility or verifying color contrast ratios.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when explicitly auditing accessibility, verifying color contrast ratios, or when the user requests an `a11y` / contrast check (do not co-load automatically on routine UI edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds the human-side depth: the parts of a UI that exclude people with different eyes, hands, and setups.
+- Load on demand alongside the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`) when explicitly auditing accessibility, verifying color contrast ratios, or when the user requests an `a11y` / contrast check (do not co-load automatically on routine UI edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this module holds the human-side depth: the parts of a UI that exclude people with different eyes, hands, and setups.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (who it excludes, and why it reads as unfinished), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - Accessibility is not a checklist of extras bolted on at the end. It is part of the core promise that "the UI holds up" (C-4). The Delivery Gate in the core remains the gate; the "Human Skill Checklist" at the end of this file is the supplement to run alongside it.
 - The contrast checker (formula + reference table + script) lives in this skill. Use it for every color pairing you cannot verify by eye.
@@ -42,12 +42,12 @@
 
 The home of the contrast checker. Three layers, from most to least convenient:
 
-**The script.** When a script runtime is available and the file is present, run it instead of computing by hand. The script ships in `~/.gemini/config/skills/antislop/scripts/contrast-check.py` alongside `references/human-a11y.md`. Run it with `python3` on macOS and Linux, `python` on Windows:
+**The script.** When a script runtime is available and the file is present, run it instead of computing by hand. The script ships in `~/.gemini/config/skills/ui-refinery/scripts/contrast-check.py` alongside `references/human-a11y.md`. Run it with `python3` on macOS and Linux, `python` on Windows:
 
 ```bash
-python3 ~/.gemini/config/skills/antislop/scripts/contrast-check.py "#FFFFFF" "#777777"
+python3 ~/.gemini/config/skills/ui-refinery/scripts/contrast-check.py "#FFFFFF" "#777777"
 # Or from the repository checkout:
-python3 skills/antislop/scripts/contrast-check.py "#FFFFFF" "#777777"
+python3 skills/ui-refinery/scripts/contrast-check.py "#FFFFFF" "#777777"
 # normal text: FAIL (4.48 < 4.5)
 # large text:  PASS (4.48 >= 3.0)
 ```
@@ -121,7 +121,7 @@ Read the table as a sanity check, not as a substitute. Any pairing not listed, o
 
 ## Zoom & Mobile Use
 
-The layout mechanics behind mobile (breakpoints, scale, grids, overflow, tap targets) are the concern of `~/.gemini/config/skills/antislop/references/layoutmobile.md`. This section keeps only the mobile details that exclude people: zooming, and the on-screen keyboard.
+The layout mechanics behind mobile (breakpoints, scale, grids, overflow, tap targets) are the concern of `~/.gemini/config/skills/ui-refinery/references/layoutmobile.md`. This section keeps only the mobile details that exclude people: zooming, and the on-screen keyboard.
 
 ### Text That Cannot Zoom
 

@@ -728,7 +728,7 @@ class TestW5EvaluationRemediation(unittest.TestCase):
                     rc_init = guard_cli.cmd_init(cli_args)
                 self.assertEqual(rc_init, 0)
                 migrated_servers = json.loads((cfg_via_link / "mcp_config.json").read_text(encoding="utf-8"))["mcpServers"]
-                expected_script = str(cfg_via_link / "skills" / "antislop" / "scripts" / "contrast-mcp.py")
+                expected_script = str(cfg_via_link / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")
                 self.assertEqual(migrated_servers["antislop-contrast"]["args"], [expected_script])
                 self.assertEqual(migrated_servers["antislop-posix"]["args"], [expected_script])
                 self.assertEqual(migrated_servers["antislop-posix"]["command"], sys.executable)

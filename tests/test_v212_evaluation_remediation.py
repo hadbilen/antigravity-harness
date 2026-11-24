@@ -926,9 +926,9 @@ class TestAC5KnownPlaceholderModelsAndHarnessRouting(HermeticHookCase):
         ):
             self.assertIn(expected_ptr, routing_block)
 
-        antislop_md = (REPO_ROOT / "skills" / "antislop" / "SKILL.md").read_text(encoding="utf-8")
-        rule_ids = sorted(set(re.findall(r"\bR-(?:0[1-9]|[1-3][0-9]|40)\b", antislop_md)))
-        self.assertEqual(len(rule_ids), 40, f"Expected all 40 R-01..R-40 rules intact in antislop/SKILL.md, got {len(rule_ids)}")
+        ui_refinery_md = (REPO_ROOT / "skills" / "ui-refinery" / "SKILL.md").read_text(encoding="utf-8")
+        rule_ids = sorted(set(re.findall(r"\bR-(?:0[1-9]|[1-3][0-9]|40)\b", ui_refinery_md)))
+        self.assertEqual(len(rule_ids), 40, f"Expected all 40 R-01..R-40 rules intact in ui-refinery/SKILL.md, got {len(rule_ids)}")
 
 
 class TestAuditorMutualFalsificationRegressions(HermeticHookCase):

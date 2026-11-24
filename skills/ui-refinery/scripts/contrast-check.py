@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WCAG 2.x contrast checker, home of the antislop-human contrast checker.
+"""WCAG 2.x contrast checker for ui-refinery (a11y-check).
 
 Usage:
     python3 contrast-check.py "#FFFFFF" "#777777"
@@ -7,7 +7,7 @@ Usage:
     python3 contrast-check.py --selftest
 
 Prints the contrast ratio and a PASS/FAIL verdict for normal text (4.5:1)
-and large text (3:1, 24px+ / 18pt regular or 18.67px+ / 14pt bold per antislop R-25). Exit code 0 only when both
+and large text (3:1, 24px+ / 18pt regular or 18.67px+ / 14pt bold per ui-refinery R-25). Exit code 0 only when both
 verdicts pass, so scripts can chain on it.
 
 --selftest parses the reference table out of ../references/human-a11y.md

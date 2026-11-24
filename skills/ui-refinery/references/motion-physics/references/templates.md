@@ -1,8 +1,8 @@
-# silk — template references
+# motion-physics — template references
 
 23 worked reference compositions built from **this exact toolbox**. Pull one up as a starting
 point: a coherent palette + font + section rhythm + effect set that already hangs together.
-Triggered by `/silk-design Reference7` or "build this like the cream-and-espresso one". A number
+Triggered by `/motion-physics Reference7` or "build this like the cream-and-espresso one". A number
 resolves directly; a described mood resolves against the vibe line of each row.
 
 ## The contract — reference, don't clone
@@ -18,7 +18,7 @@ A referenced site is a **mood-board + wireframe, not a source file.** Take its *
   site has its own subject — write and lay it out for that.
 
 The built-in foundation (Lenis root, 9-token system, fluid type, the one reveal config)
-always applies underneath — see `~/.gemini/config/skills/antislop/references/silk-design.md`. The referenced site only decides the *look* and
+always applies underneath — see `~/.gemini/config/skills/ui-refinery/references/motion-physics.md`. The referenced site only decides the *look* and
 *rhythm* on top of it.
 
 ## How to read a row
@@ -26,7 +26,7 @@ always applies underneath — see `~/.gemini/config/skills/antislop/references/s
 the **Signature** effects worth stealing. Type is **Inter** (body) + **Inter Tight**
 (headings) unless a row says *"Inter Tight throughout"* (a tighter, more editorial feel).
 Every row is self-contained. For the full 9-token palette and the exact card/button CSS behind a
-row's skin, read `references/silk-design/templates/Reference<N>/theme.css` — a palette, a font, and three CSS recipes.
+row's skin, read `references/motion-physics/templates/Reference<N>/theme.css` — a palette, a font, and three CSS recipes.
 All compositions assume React + Vite + Tailwind v4 + motion + GSAP + Lenis.
 
 ---
@@ -112,7 +112,7 @@ Signature: **`gradientBars`** hero bg · **3D tilted-cards hero** · magnetic bu
 **`Reference15`** — light, warm, cinematic.
 Palette **light**: bg `#faf8f5` · fg `#1a1a1a` · cta `#1a1a1a` · accent `#c9a96e` (warm gold). *Inter Tight throughout.* Skin: soft radius `0.75rem` · hover *stagger* · text *fade* · display font **Cormorant Garamond**.
 Flow: NavbarFullscreenStatic → HeroVideoScroll → AboutTextFill → FeaturesMediaColumns → ContactParallaxCard → FooterBasic.
-Signature: **scroll-scrubbed video hero** (`HeroVideoScroll`) · **reading word-fill** (`AboutTextFill`) · parallax contact card. *The showcase for silk's premium scroll effects.*
+Signature: **scroll-scrubbed video hero** (`HeroVideoScroll`) · **reading word-fill** (`AboutTextFill`) · parallax contact card. *The showcase for motion-physics' premium scroll effects.*
 
 **`Reference16`** — dark, hushed, champagne luxury.
 Palette **dark**: bg `#0f1010` · fg `#f5f0eb` · cta `#ffffff` · accent `#d4b896` (champagne). *Inter Tight throughout.* Skin: rounded radius `1rem` · subtle-dark cards · white/subtle-dark buttons · hover *default* · text *slide-up* · display font **Playfair Display**.

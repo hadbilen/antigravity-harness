@@ -102,7 +102,7 @@ class SuitabilityReport:
             f"",
             f"### 3. Sanitized Action Plan",
             f"- Recommended action: Convert into `skills/{self.recommended_name}/SKILL.md`" if self.recommended_type == "skill" else f"- Recommended action: Add as `{self.recommended_type}` definition",
-            f"- Antislop and constitutional de-slop applied: Ready for user approval gate.",
+            f"- UI Refinery and constitutional de-slop applied: Ready for user approval gate.",
         ])
 
         return "\n".join(lines)

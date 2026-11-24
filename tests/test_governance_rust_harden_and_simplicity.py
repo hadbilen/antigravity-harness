@@ -505,7 +505,7 @@ class TestAgentSkillIntegrationAndTechnicalAntiSlopGate(unittest.TestCase):
         self.assertEqual(tb_auth.violations, [])
 
     def test_technical_anti_slop_profile_passes_all_added_and_edited_markdown_files(self) -> None:
-        scanner = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py"
+        scanner = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py"
         targets = [
             "docs/adr/0011-governance-templates-rust-harden-and-simplicity-auditor.md",
             "docs/adr/README.md",

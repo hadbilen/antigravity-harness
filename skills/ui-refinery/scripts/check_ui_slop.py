@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-skills/antislop/scripts/check_ui_slop.py — Deterministic scanner for structural UI/CSS/JSX/HTML slop
+skills/ui-refinery/scripts/check_ui_slop.py — Deterministic scanner for structural UI/CSS/JSX/HTML slop
 Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Python standard library only; runs on Python 3.10 and later.
 
@@ -12,10 +12,10 @@ Rule families:
   UI-5  Dead interactive stubs        (href="#", href="javascript:void(0)", empty onClick={() => {}} handlers)
 
 Usage:
-  python3 skills/antislop/scripts/check_ui_slop.py PATH [PATH ...]
-  cat index.html | python3 skills/antislop/scripts/check_ui_slop.py - --mode game
-  python3 skills/antislop/scripts/check_ui_slop.py src/ --mode utility --summary
-  python3 skills/antislop/scripts/check_ui_slop.py src/ --json
+  python3 skills/ui-refinery/scripts/check_ui_slop.py PATH [PATH ...]
+  cat index.html | python3 skills/ui-refinery/scripts/check_ui_slop.py - --mode game
+  python3 skills/ui-refinery/scripts/check_ui_slop.py src/ --mode utility --summary
+  python3 skills/ui-refinery/scripts/check_ui_slop.py src/ --json
 
 Exit codes: 0 clean, 1 findings, 2 read or argument error.
 """

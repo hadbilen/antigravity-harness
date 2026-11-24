@@ -81,27 +81,27 @@ their edges so they read as *inside* the card, not pasted on.
 `NavbarInline` (logo + links + CTA in a bar) · `NavbarCentered` (links centered) · `NavbarFloating`
 (detached pill, `top-5`, card bg) · `NavbarFloatingLogo` (floating logo only) · `NavbarDropdown`
 (inline + hover panels) · `NavbarCenteredOverlay` (transparent over hero) · `NavbarFullscreen`
-(hamburger → fullscreen curtain menu — the premium option; recipe in effects.md + `references/silk-design/assets/NavbarFullscreen.tsx`)
+(hamburger → fullscreen curtain menu — the premium option; recipe in effects.md + `references/motion-physics/assets/NavbarFullscreen.tsx`)
 · `NavbarFullscreenStatic` (same, always hamburger). Pick ONE; floating pill for light/product sites,
 fullscreen curtain for editorial/luxury/portfolio.
 
 ## Section archetype menu (what to reach for)
 - **Hero** — split (text + media), billboard (full-bleed image + overlay), scroll-scrubbed video
-  (`references/silk-design/assets/HeroVideoScroll.tsx`), pinned card-stack, floating-cards, tilted carousel, **brand
-  wordmark** (giant name spanning full width via `references/silk-design/assets/AutoFillText.tsx`), sticker-flip
+  (`references/motion-physics/assets/HeroVideoScroll.tsx`), pinned card-stack, floating-cards, tilted carousel, **brand
+  wordmark** (giant name spanning full width via `references/motion-physics/assets/AutoFillText.tsx`), sticker-flip
   (draggable stickers + 3D flip card — effects.md), stack-to-grid work reel (effects.md).
 - **Features** — icon/media cards, **bento grid** (mixed-size cards with live mini-widgets — see
   "Bento live widgets" above), **pinned sticky cards** (scrub), 3D flip cards, alternating split,
   comparison table, filterable grid, image **reveal cards** (hover panel + expanding description).
-- **About / editorial** — reading word-fill (`references/silk-design/assets/AboutTextFill.tsx`), two-layer parallax, cursor
-  image-trail (`references/silk-design/assets/AboutCursorTrail.tsx`), text+media split.
+- **About / editorial** — reading word-fill (`references/motion-physics/assets/AboutTextFill.tsx`), two-layer parallax, cursor
+  image-trail (`references/motion-physics/assets/AboutCursorTrail.tsx`), text+media split.
 - **Testimonials** — dual-row horizontal marquee, vertical column marquee, avatar/quote/rating cards.
 - **Pricing** — highlighted plan (ribbon), centered/simple/split/layered cards.
 - **FAQ** — single-open accordion (`AnimatePresence`, `height: 0 → auto`, `opacity 0→1`, `duration 0.3`,
   Plus-icon `rotate-45` on open), two-column, tabbed.
 - **Metrics** — big-number stat cards. **Social proof** — single-row logo/name marquee.
 - **CTA / contact** — centered CTA, split form (+ parallax), contact bar.
-- **Footer** — reveal-from-behind (`references/silk-design/assets/FooterBrandReveal.tsx`), brand wordmark, simple columns.
+- **Footer** — reveal-from-behind (`references/motion-physics/assets/FooterBrandReveal.tsx`), brand wordmark, simple columns.
 
 ## Authoring rules (why 100 sections still feel like one system)
 Follow these when you write sections:

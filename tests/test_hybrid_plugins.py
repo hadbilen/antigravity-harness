@@ -80,18 +80,18 @@ class TestPluginCatalogAndAdr0016(unittest.TestCase):
     def test_catalog_structure_and_mappings(self) -> None:
         self.assertEqual(
             set(PLUGIN_CATALOG.keys()),
-            {"antislop", "rust-suite", "media-studio", "game-engineering"},
+            {"ui-refinery", "rust-suite", "media-studio", "game-engineering"},
         )
         self.assertEqual(HARNESS_PLUGIN_NAMES, frozenset(PLUGIN_CATALOG.keys()))
         self.assertEqual(
             PLUGIN_OWNED_SKILL_SLUGS,
-            frozenset({"antislop", "vibecoder", "rustify", "rust-harden", "media-studio", "game-engineering"}),
+            frozenset({"ui-refinery", "vibecoder", "rustify", "rust-harden", "media-studio", "game-engineering"}),
         )
         self.assertEqual(
             PLUGIN_SKILL_TO_PACK,
             {
-                "antislop": "antislop",
-                "vibecoder": "antislop",
+                "ui-refinery": "ui-refinery",
+                "vibecoder": "ui-refinery",
                 "rustify": "rust-suite",
                 "rust-harden": "rust-suite",
                 "media-studio": "media-studio",
@@ -99,8 +99,8 @@ class TestPluginCatalogAndAdr0016(unittest.TestCase):
             },
         )
         self.assertEqual(
-            PLUGIN_CATALOG["antislop"].extra_files,
-            (("DESIGN.md", "skills/antislop/references/DESIGN.md"),),
+            PLUGIN_CATALOG["ui-refinery"].extra_files,
+            (("DESIGN.md", "skills/ui-refinery/references/DESIGN.md"),),
         )
         self.assertEqual(
             PLUGIN_CATALOG["rust-suite"].extra_files,
@@ -257,23 +257,23 @@ class TestStandaloneBuildArchiveAndValidation(unittest.TestCase):
                 source_date_epoch=1795392000,
             )
             # Mutate file mtimes across distinct years (2020 vs 2025) to prove strict timestamp independence
-            for fp in (out_a / "antislop").rglob("*"):
+            for fp in (out_a / "ui-refinery").rglob("*"):
                 if fp.is_file():
                     os.utime(fp, (1577836800, 1577836800))  # 2020-01-01
-            zip_2020, _ = archive_plugin_pack(out_a / "antislop", Path(tmp) / "repack_2020.zip", source_date_epoch=1795392000)
-            for fp in (out_a / "antislop").rglob("*"):
+            zip_2020, _ = archive_plugin_pack(out_a / "ui-refinery", Path(tmp) / "repack_2020.zip", source_date_epoch=1795392000)
+            for fp in (out_a / "ui-refinery").rglob("*"):
                 if fp.is_file():
                     os.utime(fp, (1735689600, 1735689600))  # 2025-01-01
-            zip_2025, _ = archive_plugin_pack(out_a / "antislop", Path(tmp) / "repack_2025.zip", source_date_epoch=1795392000)
+            zip_2025, _ = archive_plugin_pack(out_a / "ui-refinery", Path(tmp) / "repack_2025.zip", source_date_epoch=1795392000)
             self.assertEqual(zip_2020.read_bytes(), zip_2025.read_bytes())
             with zipfile.ZipFile(zip_2025, "r") as zf_chk:
                 for info in zf_chk.infolist():
                     self.assertEqual(info.date_time, (2026, 11, 23, 0, 0, 0))
             with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "not-an-int"}):
                 with self.assertRaises(ValueError):
-                    archive_plugin_pack(out_a / "antislop", Path(tmp) / "bad_epoch.zip")
+                    archive_plugin_pack(out_a / "ui-refinery", Path(tmp) / "bad_epoch.zip")
             with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "100"}):
-                zip_pre80, _ = archive_plugin_pack(out_a / "antislop", Path(tmp) / "pre80.zip")
+                zip_pre80, _ = archive_plugin_pack(out_a / "ui-refinery", Path(tmp) / "pre80.zip")
                 with zipfile.ZipFile(zip_pre80, "r") as zf_80:
                     self.assertEqual(zf_80.infolist()[0].date_time, (1980, 1, 1, 0, 0, 0))
 
@@ -298,30 +298,30 @@ class TestStandaloneBuildArchiveAndValidation(unittest.TestCase):
                 self.assertEqual(sha_a, sha_b)
                 self.assertIn(f"  {zip_a.name}\n", sha_a)
 
-            # Verify antislop portable MCP config and live bundled contrast-check selftest
-            antislop_dir = out_a / "antislop"
-            mcp_cfg = json.loads((antislop_dir / "mcp_config.json").read_text(encoding="utf-8"))
+            # Verify ui-refinery portable MCP config and live bundled contrast-check selftest
+            ui_refinery_dir = out_a / "ui-refinery"
+            mcp_cfg = json.loads((ui_refinery_dir / "mcp_config.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 mcp_cfg,
                 {
                     "mcpServers": {
                         "contrast": {
                             "command": "python3",
-                            "args": ["${PLUGIN_ROOT}/skills/antislop/scripts/contrast-mcp.py"],
+                            "args": ["${PLUGIN_ROOT}/skills/ui-refinery/scripts/contrast-mcp.py"],
                         }
                     }
                 },
             )
-            self.assertFalse((antislop_dir / "rules" / "AGENTS.md").exists())
-            self.assertTrue((antislop_dir / "skills" / "antislop" / "references" / "DESIGN.md").is_file())
-            antislop_skill = (antislop_dir / "skills" / "antislop" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("[references/DESIGN.md](./references/DESIGN.md)", antislop_skill)
-            self.assertIn("antislop_contrast", antislop_skill)
-            antislop_readme = (antislop_dir / "README.md").read_text(encoding="utf-8")
-            self.assertIn("MCP server `contrast` (exposed by Antigravity as `antislop_contrast`)", antislop_readme)
+            self.assertFalse((ui_refinery_dir / "rules" / "AGENTS.md").exists())
+            self.assertTrue((ui_refinery_dir / "skills" / "ui-refinery" / "references" / "DESIGN.md").is_file())
+            ui_refinery_skill = (ui_refinery_dir / "skills" / "ui-refinery" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("[references/DESIGN.md](./references/DESIGN.md)", ui_refinery_skill)
+            self.assertIn("ui-refinery_contrast", ui_refinery_skill)
+            ui_refinery_readme = (ui_refinery_dir / "README.md").read_text(encoding="utf-8")
+            self.assertIn("MCP server `contrast` (exposed by Antigravity as `ui-refinery_contrast`)", ui_refinery_readme)
 
             selftest = subprocess.run(
-                [sys.executable, str(antislop_dir / "skills" / "antislop" / "scripts" / "contrast-check.py"), "--selftest"],
+                [sys.executable, str(ui_refinery_dir / "skills" / "ui-refinery" / "scripts" / "contrast-check.py"), "--selftest"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -364,9 +364,9 @@ class TestStandaloneBuildArchiveAndValidation(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             dest = build_plugin_pack(
-                "antislop",
+                "ui-refinery",
                 REPO_ROOT,
-                Path(tmp) / "antislop",
+                Path(tmp) / "ui-refinery",
                 portable_mcp=False,
                 python_executable="/opt/py/bin/python3",
             )
@@ -535,18 +535,18 @@ class TestRewriteCoreForHybrid(unittest.TestCase):
             ),
             (
                 "DESIGN.md",
-                "Pairs with `skills/antislop/references/silk-design.md` and `skills/vibecoder/SKILL.md`.",
-                "Pairs with `plugins/antislop/skills/antislop/references/silk-design.md` and `plugins/antislop/skills/vibecoder/SKILL.md`.",
+                "Pairs with `skills/ui-refinery/references/motion-physics.md` and `skills/vibecoder/SKILL.md`.",
+                "Pairs with `plugins/ui-refinery/skills/ui-refinery/references/motion-physics.md` and `plugins/ui-refinery/skills/vibecoder/SKILL.md`.",
             ),
             (
                 "skills/upstream-auditor/SKILL.md",
-                "Ref `~/.gemini/config/skills/antislop/references/{code-comments,ui}.md`.",
-                "Ref `~/.gemini/config/plugins/antislop/skills/antislop/references/{code-comments,ui}.md`.",
+                "Ref `~/.gemini/config/skills/ui-refinery/references/{code-comments,ui}.md`.",
+                "Ref `~/.gemini/config/plugins/ui-refinery/skills/ui-refinery/references/{code-comments,ui}.md`.",
             ),
             (
                 "skills/upstream-auditor/upstream_state.seed.json",
-                '{"tracked": ["skills/antislop/references/silk-design.md"]}',
-                '{"tracked": ["skills/antislop/references/silk-design.md"]}',
+                '{"tracked": ["skills/ui-refinery/references/motion-physics.md"]}',
+                '{"tracked": ["skills/ui-refinery/references/motion-physics.md"]}',
             ),
         ]
         for rel_path, src, expected in cases:
@@ -600,14 +600,14 @@ class TestBuildPluginsCliAndPyInstallerAssets(unittest.TestCase):
 
             out_one = Path(tmp) / "one"
             res_one = subprocess.run(
-                [sys.executable, str(script), "--out", str(out_one), "--pack", "antislop", "--validate", "--json"],
+                [sys.executable, str(script), "--out", str(out_one), "--pack", "ui-refinery", "--validate", "--json"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertEqual(res_one.returncode, 0, res_one.stdout + res_one.stderr)
             one_payload = json.loads(res_one.stdout)
-            self.assertEqual(list(one_payload["packs"].keys()), ["antislop"])
+            self.assertEqual(list(one_payload["packs"].keys()), ["ui-refinery"])
 
     def test_build_pyinstaller_command_bundles_all_plugin_svg_assets(self) -> None:
         self.assertEqual(
@@ -670,11 +670,11 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
         self.assertEqual(antigravity_plugin_governance_seams(self.cfg), [])
 
         # Existing harness pack joins governance paths; plugins/ root stays excluded
-        (self.cfg / "plugins" / "antislop").mkdir(parents=True)
+        (self.cfg / "plugins" / "ui-refinery").mkdir(parents=True)
         seams = antigravity_plugin_governance_seams(self.cfg)
-        self.assertEqual(seams, ["plugins/antislop"])
+        self.assertEqual(seams, ["plugins/ui-refinery"])
         env = default_antigravity_environment(self.cfg)
-        self.assertIn("plugins/antislop", env.governance_paths)
+        self.assertIn("plugins/ui-refinery", env.governance_paths)
         self.assertNotIn("plugins", env.governance_paths)
         self.assertNotIn("plugins/rea", env.governance_paths)
 
@@ -685,7 +685,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
                 {
                     "target": str(self.cfg),
                     "layout": "hybrid",
-                    "installed_plugins": ["antislop", "rust-suite", "third-party-ignored"],
+                    "installed_plugins": ["ui-refinery", "rust-suite", "third-party-ignored"],
                 }
             ),
             encoding="utf-8",
@@ -693,19 +693,19 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
         reg = EnvironmentRegistry()
         ag_env = reg.get_environment("antigravity")
         assert ag_env is not None
-        self.assertIn("plugins/antislop", ag_env.governance_paths)
+        self.assertIn("plugins/ui-refinery", ag_env.governance_paths)
         self.assertIn("plugins/rust-suite", ag_env.governance_paths)
         self.assertNotIn("plugins/third-party-ignored", ag_env.governance_paths)
 
         # Removing packs on disk + flat receipt prunes harness plugin seams cleanly
-        shutil.rmtree(self.cfg / "plugins" / "antislop")
+        shutil.rmtree(self.cfg / "plugins" / "ui-refinery")
         receipt.write_text(
             json.dumps({"target": str(self.cfg), "layout": "flat", "installed_plugins": []}),
             encoding="utf-8",
         )
         pruned = sync_antigravity_plugin_seams(ag_env)
         self.assertEqual(pruned, [])
-        self.assertNotIn("plugins/antislop", ag_env.governance_paths)
+        self.assertNotIn("plugins/ui-refinery", ag_env.governance_paths)
         self.assertNotIn("plugins/rust-suite", ag_env.governance_paths)
 
         # Symlinked plugins/ root is not traversed
@@ -713,7 +713,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
             sym_cfg = self.tmp / "sym_plugins_cfg"
             sym_cfg.mkdir()
             outside = self.tmp / "outside_plugins"
-            (outside / "antislop").mkdir(parents=True)
+            (outside / "ui-refinery").mkdir(parents=True)
             (sym_cfg / "plugins").symlink_to(outside, target_is_directory=True)
             self.assertEqual(antigravity_plugin_governance_seams(sym_cfg, include_receipt=False), [])
 
@@ -721,9 +721,9 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
         mcp = self.cfg / "mcp_config.json"
         initial = {
             "mcpServers": {
-                "antislop-contrast": {
+                "ui-refinery-contrast": {
                     "command": "python3",
-                    "args": [str(self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+                    "args": [str(self.cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")],
                 },
                 "antislop-human": {
                     "command": "python3",
@@ -731,7 +731,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
                 },
                 "custom-repo-contrast": {
                     "command": "/usr/bin/python3",
-                    "args": ["-u", str(REPO_ROOT / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+                    "args": ["-u", str(REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")],
                 },
                 "custom-third-party": {
                     "command": "node",
@@ -753,7 +753,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
             retired_out=dry_retired,
         )
         self.assertIs(dry_res, True)
-        self.assertEqual(dry_retired, ["antislop-contrast", "antislop-human", "custom-repo-contrast"])
+        self.assertEqual(dry_retired, ["ui-refinery-contrast", "antislop-human", "custom-repo-contrast"])
         self.assertEqual(backup_calls, [])
         self.assertEqual(json.loads(mcp.read_text(encoding="utf-8")), initial)
 
@@ -768,7 +768,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
             retired_out=live_retired,
         )
         self.assertIs(live_res, True)
-        self.assertEqual(live_retired, ["antislop-contrast", "antislop-human", "custom-repo-contrast"])
+        self.assertEqual(live_retired, ["ui-refinery-contrast", "antislop-human", "custom-repo-contrast"])
         self.assertEqual(backup_calls, [mcp])
         after_retire = json.loads(mcp.read_text(encoding="utf-8"))
         self.assertEqual(list(after_retire["mcpServers"].keys()), ["custom-third-party"])
@@ -807,7 +807,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
         self.assertEqual(json.loads(sole_mcp.read_text(encoding="utf-8")), {"mcpServers": {}})
 
         # 4. Restore flat keys (non-frozen, frozen POSIX, frozen Windows, and missing mcp_config.json)
-        flat_script = self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        flat_script = self.cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
         flat_script.parent.mkdir(parents=True, exist_ok=True)
         flat_script.write_text("# contrast mcp\n", encoding="utf-8")
 
@@ -836,11 +836,11 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
                     REPO_ROOT,
                     dry_run=False,
                     python_executable=sys.executable,
-                    restore_flat_keys=["antislop-contrast"],
+                    restore_flat_keys=["ui-refinery-contrast"],
                 ),
                 True,
             )
-        frozen_which = json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["antislop-contrast"]
+        frozen_which = json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["ui-refinery-contrast"]
         self.assertEqual(frozen_which["command"], "/usr/bin/python3")
 
         # Frozen restore falls back to bare platform interpreter when shutil.which returns None
@@ -854,11 +854,11 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
                     REPO_ROOT,
                     dry_run=False,
                     python_executable=sys.executable,
-                    restore_flat_keys=["antislop-contrast"],
+                    restore_flat_keys=["ui-refinery-contrast"],
                 ),
                 True,
             )
-        frozen_fallback = json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["antislop-contrast"]
+        frozen_fallback = json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["ui-refinery-contrast"]
         self.assertEqual(frozen_fallback["command"], "python" if os.name == "nt" else "python3")
 
         # 5. Poka-yoke: passing both retire_plugin_mcp and restore_flat_keys fails loudly
@@ -867,7 +867,7 @@ class TestEnvironmentPluginSeamsAndMcpMigration(_IsolatedHybridEnvMixin, unittes
                 self.cfg,
                 REPO_ROOT,
                 retire_plugin_mcp=HARNESS_PLUGIN_NAMES,
-                restore_flat_keys=["antislop-contrast"],
+                restore_flat_keys=["ui-refinery-contrast"],
             )
 
 
@@ -908,8 +908,8 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         with contextlib.redirect_stdout(dry_buf):
             rc_dry = harness_install.main(["--plugins", "--dry-run"])
         self.assertEqual(rc_dry, 0)
-        self.assertTrue((self.cfg / "skills" / "antislop" / "SKILL.md").is_file())
-        self.assertFalse((self.cfg / "plugins" / "antislop").exists())
+        self.assertTrue((self.cfg / "skills" / "ui-refinery" / "SKILL.md").is_file())
+        self.assertFalse((self.cfg / "plugins" / "ui-refinery").exists())
         self.assertEqual(json.loads(mcp_path.read_text(encoding="utf-8")), orig_mcp)
         self.assertFalse((self.state / "install_receipt.json").exists())
         self.assertIn("[DRY-RUN]", dry_buf.getvalue())
@@ -944,12 +944,12 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         if os.name != "nt":
             self.assertTrue(os.access(self.cfg / "plugins", os.W_OK))
             self.assertTrue(os.access(rea_dir, os.W_OK))
-            self.assertFalse(os.access(self.cfg / "plugins" / "antislop" / "plugin.json", os.W_OK))
+            self.assertFalse(os.access(self.cfg / "plugins" / "ui-refinery" / "plugin.json", os.W_OK))
             # POSIX 0755 executable bit set on scripts in both skills/ and plugins/
             for script_rel in (
                 "skills/upstream-auditor/scripts/upstream_watcher.py",
-                "plugins/antislop/skills/antislop/scripts/contrast-mcp.py",
-                "plugins/antislop/skills/antislop/scripts/check_ui_slop.py",
+                "plugins/ui-refinery/skills/ui-refinery/scripts/contrast-mcp.py",
+                "plugins/ui-refinery/skills/ui-refinery/scripts/check_ui_slop.py",
                 "plugins/media-studio/skills/media-studio/scripts/media_qc.py",
             ):
                 mode = (self.cfg / script_rel).stat().st_mode
@@ -960,16 +960,16 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         self.assertIn("~/.gemini/config/plugins/rust-suite/skills/rustify/SKILL.md", harness_md)
         self.assertNotIn("~/.gemini/config/skills/rustify/", harness_md)
         design_md = (self.cfg / "DESIGN.md").read_text(encoding="utf-8")
-        self.assertIn("plugins/antislop/skills/antislop/", design_md)
+        self.assertIn("plugins/ui-refinery/skills/ui-refinery/", design_md)
         seed_installed = (self.cfg / "skills" / "upstream-auditor" / "upstream_state.seed.json").read_bytes()
         seed_repo = (REPO_ROOT / "skills" / "upstream-auditor" / "upstream_state.seed.json").read_bytes()
         self.assertEqual(seed_installed, seed_repo)
 
-        # Global MCP retired antislop-human; plugin MCP pins sys.executable
+        # Global MCP retired ui-refinery-human; plugin MCP pins sys.executable
         mcp_after = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
         self.assertNotIn("antislop-human", mcp_after)
         self.assertIn("third-party-mcp", mcp_after)
-        plugin_mcp = json.loads((self.cfg / "plugins" / "antislop" / "mcp_config.json").read_text(encoding="utf-8"))
+        plugin_mcp = json.loads((self.cfg / "plugins" / "ui-refinery" / "mcp_config.json").read_text(encoding="utf-8"))
         self.assertEqual(plugin_mcp["mcpServers"]["contrast"]["command"], sys.executable)
 
         # Single antigravity env locks + FIM verifies + doctor healthy + boot_check clean
@@ -984,7 +984,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         fim_report = fim.verify()
         self.assertTrue(fim_report.is_intact, fim_report.summary())
         baseline_files = json.loads(fim.state_file.read_text(encoding="utf-8"))["files"]
-        self.assertIn("plugins/antislop/plugin.json", baseline_files)
+        self.assertIn("plugins/ui-refinery/plugin.json", baseline_files)
         self.assertNotIn("plugins/rea/plugin.json", baseline_files)
         doc_rep = diagnose(ag_env, reg, sentinel_active=True)
         self.assertTrue(doc_rep.healthy, doc_rep.warnings)
@@ -1038,7 +1038,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         self.assertEqual(mcp_restored["antislop-human"]["command"], sys.executable)
         self.assertEqual(
             mcp_restored["antislop-human"]["args"],
-            [str(self.cfg.resolve() / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+            [str(self.cfg.resolve() / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")],
         )
         self.assertIn("third-party-mcp", mcp_restored)
 
@@ -1066,7 +1066,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
             pdir = self.cfg / "plugins" / pack
             self.assertTrue(pdir.is_dir() and not os.path.islink(pdir))
         self.assertFalse(os.path.islink(self.cfg / "DESIGN.md"))
-        self.assertIn("plugins/antislop/skills/antislop/", (self.cfg / "DESIGN.md").read_text(encoding="utf-8"))
+        self.assertIn("plugins/ui-refinery/skills/ui-refinery/", (self.cfg / "DESIGN.md").read_text(encoding="utf-8"))
         if hasattr(os, "symlink") and os.name != "nt":
             self.assertTrue(os.path.islink(self.cfg / "agents" / "research.md"))
 
@@ -1074,9 +1074,9 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         outside = self.tmp / "outside_pack"
         outside.mkdir()
         (outside / "keep.txt").write_text("do-not-touch", encoding="utf-8")
-        shutil.rmtree(self.cfg / "plugins" / "antislop")
+        shutil.rmtree(self.cfg / "plugins" / "ui-refinery")
         if hasattr(os, "symlink"):
-            (self.cfg / "plugins" / "antislop").symlink_to(outside, target_is_directory=True)
+            (self.cfg / "plugins" / "ui-refinery").symlink_to(outside, target_is_directory=True)
         shutil.rmtree(self.cfg / "plugins" / "game-engineering")
         (self.cfg / "plugins" / "game-engineering").write_text("file-collision", encoding="utf-8")
 
@@ -1084,7 +1084,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
             rc_coll = harness_install.main(["--plugins", "--no-lock"])
         self.assertEqual(rc_coll, 0)
         self.assertEqual((outside / "keep.txt").read_text(encoding="utf-8"), "do-not-touch")
-        self.assertTrue((self.cfg / "plugins" / "antislop").is_dir() and not os.path.islink(self.cfg / "plugins" / "antislop"))
+        self.assertTrue((self.cfg / "plugins" / "ui-refinery").is_dir() and not os.path.islink(self.cfg / "plugins" / "ui-refinery"))
         self.assertTrue((self.cfg / "plugins" / "game-engineering").is_dir())
 
         # Symlinked plugins/ root itself is rejected with exit code 1
@@ -1122,7 +1122,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
         before_receipt = receipt_path.read_bytes()
         before_fim = fim_path.read_bytes()
         before_pending = pending_path.read_bytes()
-        before_skill = (self.cfg / "skills" / "antislop" / "SKILL.md").read_bytes()
+        before_skill = (self.cfg / "skills" / "ui-refinery" / "SKILL.md").read_bytes()
 
         # Fail right at save_baseline (after plugins, config.json, receipt, and registry.save() have run)
         with mock.patch.object(harness_install, "request_approval", return_value=True), mock.patch.object(
@@ -1133,7 +1133,7 @@ class TestHybridInstallAndRoundTrip(_IsolatedHybridEnvMixin, unittest.TestCase):
 
         self.assertFalse(cfg_json.exists(), "Newly created config.json must be removed on rollback")
         self.assertFalse((self.cfg / "plugins").exists(), "Newly created plugins/ must be removed on rollback")
-        self.assertEqual((self.cfg / "skills" / "antislop" / "SKILL.md").read_bytes(), before_skill)
+        self.assertEqual((self.cfg / "skills" / "ui-refinery" / "SKILL.md").read_bytes(), before_skill)
         self.assertEqual(reg_path.read_bytes(), before_reg)
         self.assertEqual(receipt_path.read_bytes(), before_receipt)
         self.assertEqual(fim_path.read_bytes(), before_fim)
@@ -1158,7 +1158,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
             json.dumps(
                 {
                     "mcpServers": {
-                        "antislop-contrast": {
+                        "ui-refinery-contrast": {
                             "command": "python3",
                             "args": [str(self.cfg / "skills" / "antislop-human" / "contrast-mcp.py")],
                         }
@@ -1244,7 +1244,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
                 guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--plugins", "--dry-run"])),
                 0,
             )
-        self.assertFalse((self.cfg / "plugins" / "antislop").exists())
+        self.assertFalse((self.cfg / "plugins" / "ui-refinery").exists())
 
         with mock.patch.object(guard_cli, "request_approval", return_value=True), contextlib.redirect_stdout(
             io.StringIO()
@@ -1256,7 +1256,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
         rec_hyb = json.loads(receipt_path.read_text(encoding="utf-8"))
         self.assertEqual(rec_hyb["layout"], "hybrid")
         self.assertEqual(rec_hyb["installed_plugins"], sorted(PLUGIN_CATALOG.keys()))
-        self.assertEqual(rec_hyb["retired_mcp_servers"], ["antislop-contrast"])
+        self.assertEqual(rec_hyb["retired_mcp_servers"], ["ui-refinery-contrast"])
         self.assertEqual(json.loads(mcp_path.read_text(encoding="utf-8")), {"mcpServers": {}})
 
         # Idempotent re-run keeps retired_mcp_servers and creates zero new backup dir
@@ -1269,7 +1269,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
             )
         rec_hyb2 = json.loads(receipt_path.read_text(encoding="utf-8"))
         self.assertIsNone(rec_hyb2["backup_dir"])
-        self.assertEqual(rec_hyb2["retired_mcp_servers"], ["antislop-contrast"])
+        self.assertEqual(rec_hyb2["retired_mcp_servers"], ["ui-refinery-contrast"])
 
         # Lossless --flat-skills revert
         with mock.patch.object(guard_cli, "request_approval", return_value=True), contextlib.redirect_stdout(
@@ -1280,7 +1280,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
                 0,
             )
         self.assertFalse((self.cfg / "plugins").exists())
-        self.assertIn("antislop-contrast", json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"])
+        self.assertIn("ui-refinery-contrast", json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"])
         reg_after = EnvironmentRegistry()
         ag_env = reg_after.get_environment("antigravity")
         assert ag_env is not None
@@ -1316,7 +1316,7 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
 
         self.assertFalse(cfg_json.exists())
         self.assertFalse((self.cfg / "plugins").exists())
-        self.assertTrue((self.cfg / "skills" / "antislop" / "SKILL.md").is_file())
+        self.assertTrue((self.cfg / "skills" / "ui-refinery" / "SKILL.md").is_file())
         self.assertEqual(reg_path.read_bytes(), before_reg)
         self.assertEqual(receipt_path.read_bytes(), before_receipt)
         self.assertEqual(fim_path.read_bytes(), before_fim)
@@ -1380,20 +1380,20 @@ class TestGuardInitHybridUninstallRollbackAndPortableScripts(_IsolatedHybridEnvM
                         )
                 self.assertEqual(rc_norec, 0)
                 self.assertIn("[WARN]", err_buf.getvalue())
-                self.assertTrue((self.cfg / "plugins" / "antislop" / "plugin.json").is_file())
+                self.assertTrue((self.cfg / "plugins" / "ui-refinery" / "plugin.json").is_file())
                 self.assertTrue(rea_file.is_file())
 
     def test_resolve_portable_script_finds_hybrid_plugin_scripts(self) -> None:
-        build_plugin_pack("antislop", REPO_ROOT, self.cfg / "plugins" / "antislop", portable_mcp=False)
+        build_plugin_pack("ui-refinery", REPO_ROOT, self.cfg / "plugins" / "ui-refinery", portable_mcp=False)
         fake_cli_file = self.tmp / "fake_pkg" / "guard" / "cli.py"
         fake_cli_file.parent.mkdir(parents=True)
         fake_cli_file.write_text("# stub\n", encoding="utf-8")
         with mock.patch.object(guard_cli, "__file__", str(fake_cli_file)):
-            ui_slop = guard_cli._resolve_portable_script("skills/antislop/scripts/check_ui_slop.py")
-            synth = guard_cli._resolve_portable_script("skills/antislop/scripts/check_synthetic_markers.py")
-        self.assertEqual(ui_slop, self.cfg / "plugins" / "antislop" / "skills" / "antislop" / "scripts" / "check_ui_slop.py")
+            ui_slop = guard_cli._resolve_portable_script("skills/ui-refinery/scripts/check_ui_slop.py")
+            synth = guard_cli._resolve_portable_script("skills/ui-refinery/scripts/check_synthetic_markers.py")
+        self.assertEqual(ui_slop, self.cfg / "plugins" / "ui-refinery" / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py")
         self.assertEqual(
-            synth, self.cfg / "plugins" / "antislop" / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py"
+            synth, self.cfg / "plugins" / "ui-refinery" / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py"
         )
 
 
@@ -1453,8 +1453,8 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
         self.assertIn("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.", rep_flat.infos)
         self.assertFalse(any("agy plugin" in info for info in rep_flat.infos), rep_flat.infos)
 
-        # Install antislop plugin pack: existing 2-rule INFO stays intact AND separate agy plugin INFO appears
-        build_plugin_pack("antislop", REPO_ROOT, self.cfg / "plugins" / "antislop", portable_mcp=False)
+        # Install ui-refinery plugin pack: existing 2-rule INFO stays intact AND separate agy plugin INFO appears
+        build_plugin_pack("ui-refinery", REPO_ROOT, self.cfg / "plugins" / "ui-refinery", portable_mcp=False)
         (self.cfg / "mcp_config.json").write_text(
             json.dumps({"mcpServers": {"unrelated": {"command": "python3", "args": ["/opt/other/contrast-mcp.py"]}}}),
             encoding="utf-8",
@@ -1493,15 +1493,15 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
         )
 
         # Duplicate skills/<slug> + stale global contrast-mcp.py both trigger warnings
-        (self.cfg / "skills" / "antislop").mkdir(parents=True)
-        (self.cfg / "skills" / "antislop" / "SKILL.md").write_text("---\nname: antislop\n---\n", encoding="utf-8")
+        (self.cfg / "skills" / "ui-refinery").mkdir(parents=True)
+        (self.cfg / "skills" / "ui-refinery" / "SKILL.md").write_text("---\nname: ui-refinery\n---\n", encoding="utf-8")
         (self.cfg / "mcp_config.json").write_text(
             json.dumps(
                 {
                     "mcpServers": {
                         "stale-flat": {
                             "command": "python3",
-                            "args": [str(self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+                            "args": [str(self.cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")],
                         },
                         "stale-legacy": {
                             "command": "python3",
@@ -1520,7 +1520,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
         rep_warn = diagnose(env, reg, sentinel_active=True)
         self.assertFalse(rep_warn.healthy)
         joined_w = "\n".join(rep_warn.warnings)
-        self.assertIn("skills/antislop <-> plugins/antislop/skills/antislop", joined_w)
+        self.assertIn("skills/ui-refinery <-> plugins/ui-refinery/skills/ui-refinery", joined_w)
         self.assertIn("stale-flat", joined_w)
         self.assertIn("stale-legacy", joined_w)
         self.assertNotIn("unrelated", joined_w)
@@ -1528,21 +1528,21 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
     def test_doctor_check_hybrid_plugins_handles_permission_error_on_probes(self) -> None:
         from guard.doctor import _check_hybrid_plugins
 
-        (self.cfg / "skills" / "antislop").mkdir(parents=True)
+        (self.cfg / "skills" / "ui-refinery").mkdir(parents=True)
         (self.cfg / "plugins" / "unreadable_pack").mkdir(parents=True)
-        (self.cfg / "plugins" / "antislop" / "skills" / "antislop").mkdir(parents=True)
-        (self.cfg / "plugins" / "antislop" / "mcp_config.json").write_text('{"mcpServers":{}}\n', encoding="utf-8")
+        (self.cfg / "plugins" / "ui-refinery" / "skills" / "ui-refinery").mkdir(parents=True)
+        (self.cfg / "plugins" / "ui-refinery" / "mcp_config.json").write_text('{"mcpServers":{}}\n', encoding="utf-8")
         (self.cfg / "mcp_config.json").write_text('{"mcpServers":{}}\n', encoding="utf-8")
 
         unreadable_pack_skills = self.cfg / "plugins" / "unreadable_pack" / "skills"
-        antislop_skill_entry = self.cfg / "plugins" / "antislop" / "skills" / "antislop"
-        plugin_mcp = self.cfg / "plugins" / "antislop" / "mcp_config.json"
+        ui_refinery_skill_entry = self.cfg / "plugins" / "ui-refinery" / "skills" / "ui-refinery"
+        plugin_mcp = self.cfg / "plugins" / "ui-refinery" / "mcp_config.json"
 
         orig_is_dir = Path.is_dir
         orig_is_file = Path.is_file
 
         def _fake_is_dir(p: Path) -> bool:
-            if p in (unreadable_pack_skills, antislop_skill_entry):
+            if p in (unreadable_pack_skills, ui_refinery_skill_entry):
                 raise PermissionError(13, "Permission denied", str(p))
             return orig_is_dir(p)
 
@@ -1560,7 +1560,7 @@ class TestDoctorHybridDiagnostics(_IsolatedHybridEnvMixin, unittest.TestCase):
 
         joined_w = "\n".join(warnings)
         self.assertIn(str(unreadable_pack_skills), joined_w)
-        self.assertIn(str(antislop_skill_entry), joined_w)
+        self.assertIn(str(ui_refinery_skill_entry), joined_w)
         self.assertIn(str(plugin_mcp), joined_w)
         self.assertIn("Could not inspect", joined_w)
 
@@ -1613,18 +1613,18 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
             str(self.cfg / "plugins"),
             str(self.cfg / "plugins") + "/",
             str(self.cfg / "plugins") + "/.",
-            str(self.cfg / "plugins") + "/./antislop/plugin.json",
-            str(self.cfg / "plugins" / "antislop"),
-            str(self.cfg / "plugins" / "antislop" / "plugin.json"),
-            str(self.cfg / "plugins" / "ANTISLOP" / "plugin.json"),
+            str(self.cfg / "plugins") + "/./ui-refinery/plugin.json",
+            str(self.cfg / "plugins" / "ui-refinery"),
+            str(self.cfg / "plugins" / "ui-refinery" / "plugin.json"),
+            str(self.cfg / "plugins" / "UI-REFINERY" / "plugin.json"),
             str(self.cfg / "plugins" / "rust-suite" / "README.md"),
             str(self.cfg / "plugins" / "media-studio" / "assets" / "logo.svg"),
             str(self.cfg / "plugins" / "game-engineering" / "plugin.json"),
             str(self.cfg / "plugins" / "*"),
-            str(self.cfg / "plugins" / "ant*" / "plugin.json"),
-            str(self.cfg / "plugins" / "{antislop,rust-suite}" / "plugin.json"),
-            str(self.cfg / "plugins" / "[a]ntislop" / "plugin.json"),
-            str(self.cfg / "plugins" / "?ntislop" / "plugin.json"),
+            str(self.cfg / "plugins" / "ui-*" / "plugin.json"),
+            str(self.cfg / "plugins" / "{ui-refinery,rust-suite}" / "plugin.json"),
+            str(self.cfg / "plugins" / "[u]i-refinery" / "plugin.json"),
+            str(self.cfg / "plugins" / "?i-refinery" / "plugin.json"),
             str(self.cfg / "plugins" / "$PACK" / "plugin.json"),
             str(self.cfg / "plugins" / "rea" / "skills" / "s" / "SKILL.md"),
             str(self.cfg / "plugins" / "rea" / "evil.py"),
@@ -1656,23 +1656,23 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
             f"rm -rf {cfg_s}/plugins/",
             f'rm -rf "{cfg_s}/plugins/"',
             f"rm -rf {cfg_s}/plugins/*",
-            f"rm -rf {cfg_s}/plugins/ant*/plugin.json",
-            f'rm -rf "{cfg_s}/plugins/ant*/plugin.json"',
-            f"rm -rf {cfg_s}/plugins/{{antislop,rust-suite}}",
-            f"rm -rf {cfg_s}/plugins/[a]ntislop",
-            f"rm -rf {cfg_s}/plugins/?ntislop",
+            f"rm -rf {cfg_s}/plugins/ui-*/plugin.json",
+            f'rm -rf "{cfg_s}/plugins/ui-*/plugin.json"',
+            f"rm -rf {cfg_s}/plugins/{{ui-refinery,rust-suite}}",
+            f"rm -rf {cfg_s}/plugins/[u]i-refinery",
+            f"rm -rf {cfg_s}/plugins/?i-refinery",
             f"rm -rf {cfg_s}/plugins/$PACK/plugin.json",
             f"rm -rf {cfg_s}/plugins/.",
-            f"rm -rf {cfg_s}/plugins/./antislop",
-            f"rm -rf {cfg_s}/plugins/antislop",
-            f"echo '{{}}' > {cfg_s}/plugins/antislop/plugin.json",
+            f"rm -rf {cfg_s}/plugins/./ui-refinery",
+            f"rm -rf {cfg_s}/plugins/ui-refinery",
+            f"echo '{{}}' > {cfg_s}/plugins/ui-refinery/plugin.json",
             f"echo '{{}}' > {cfg_s}/plugins/rust-suite/plugin.json",
             f"echo '{{}}' > {cfg_s}/plugins/media-studio/plugin.json",
             f"echo '{{}}' > {cfg_s}/plugins/game-engineering/plugin.json",
             f"cp /tmp/x {cfg_s}/plugins/rea/skills/s/SKILL.md",
             f"cp /tmp/x {cfg_s}/plugins/rea/mcp_config.json",
             f"cp /tmp/x {cfg_s}/plugins/rea/payload.py",
-            f"echo '{{}}' > {cfg_s}/plugins/rea/plugin.json && rm -rf {cfg_s}/plugins/antislop",
+            f"echo '{{}}' > {cfg_s}/plugins/rea/plugin.json && rm -rf {cfg_s}/plugins/ui-refinery",
         ]
         for cmd in denied_cmds:
             with self.subTest(denied_cmd=cmd):
@@ -1685,7 +1685,7 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
             f"mkdir -p {cfg_s}/plugins/rea",
             f"echo '{{}}' > {cfg_s}/plugins/rea/plugin.json",
             f"echo '{{}}' > {cfg_s}/plugins/demo/plugin.json",
-            f"ls -la {cfg_s}/plugins/antislop",
+            f"ls -la {cfg_s}/plugins/ui-refinery",
         ]
         for cmd in allowed_cmds:
             with self.subTest(allowed_cmd=cmd):
@@ -1695,8 +1695,8 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
                 self.assertEqual(res, {"decision": "allow"}, f"Expected allow for `{cmd}`, got {res}")
 
     def test_shell_guard_trusted_roots_allows_harness_plugin_skill_scripts_only(self) -> None:
-        build_plugin_pack("antislop", REPO_ROOT, self.cfg / "plugins" / "antislop", portable_mcp=False)
-        harness_script = self.cfg / "plugins" / "antislop" / "skills" / "antislop" / "scripts" / "contrast-check.py"
+        build_plugin_pack("ui-refinery", REPO_ROOT, self.cfg / "plugins" / "ui-refinery", portable_mcp=False)
+        harness_script = self.cfg / "plugins" / "ui-refinery" / "skills" / "ui-refinery" / "scripts" / "contrast-check.py"
         res_ok = agy_hooks.handle_pre_tool_use(
             {
                 "toolCall": {
@@ -1722,21 +1722,21 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
     @unittest.skipUnless(os.name != "nt", "POSIX shell wrapper tests")
     def test_official_agy_plugin_cli_gate_forces_ask_for_harness_packs_and_exempts_rea(self) -> None:
         gated_cmds = [
-            "agy plugin disable antislop",
+            "agy plugin disable ui-refinery",
             "agy plugin uninstall rust-suite",
             "agy plugin install ./dist/media-studio-v2.4.0.zip",
             "agy plugin import /tmp/game-engineering",
             "agy plugin install rea",
             "agy plugin import ./rea",
-            "/usr/local/bin/agy plugin disable antislop",
+            "/usr/local/bin/agy plugin disable ui-refinery",
             "env FOO=1 agy --profile dev plugin --scope user disable --yes rust-suite",
-            'env -S "agy plugin disable antislop"',
+            'env -S "agy plugin disable ui-refinery"',
             "command agy plugin uninstall media-studio",
             "exec -a agy /opt/bin/agy plugin disable game-engineering",
-            "agy plugin disable rea antislop",
-            'sh -c "agy plugin disable antislop"',
-            "agy plugin disable ant*",
-            "agy plugin disable {antislop,rea}",
+            "agy plugin disable rea ui-refinery",
+            'sh -c "agy plugin disable ui-refinery"',
+            "agy plugin disable ui-*",
+            "agy plugin disable {ui-refinery,rea}",
         ]
         for cmd in gated_cmds:
             with self.subTest(gated_cmd=cmd):
@@ -1753,12 +1753,12 @@ class TestHybridPreToolUseAndShellGuard(_IsolatedHybridEnvMixin, unittest.TestCa
             "agy plugin disable rea",
             "agy plugin uninstall rea",
             "agy plugin list",
-            "agy plugin validate plugins/antislop",
+            "agy plugin validate plugins/ui-refinery",
             "agy plugin disable --help",
             "agy plugin install --help",
             "agy plugin import -h",
             "command -v agy",
-            'echo "agy plugin disable antislop"',
+            'echo "agy plugin disable ui-refinery"',
         ]
         for cmd in exempt_cmds:
             with self.subTest(exempt_cmd=cmd):
@@ -1797,7 +1797,7 @@ class TestHybridPreInvocationLiveToggle(_IsolatedHybridEnvMixin, unittest.TestCa
         cfg_json = self.cfg / "config.json"
         cfg_json.write_text(json.dumps({"plugins": {"rust-suite": {"enabled": False}}}), encoding="utf-8")
         self.assertFalse(agy_hooks._is_harness_plugin_active("rust-suite", self.cfg, [self.ws]))
-        self.assertTrue(agy_hooks._is_harness_plugin_active("antislop", self.cfg, [self.ws]))
+        self.assertTrue(agy_hooks._is_harness_plugin_active("ui-refinery", self.cfg, [self.ws]))
 
         # plugin.json["disabled"] disables pack when config.json does not specify enabled
         pj_path = self.cfg / "plugins" / "rust-suite" / "plugin.json"
@@ -1850,20 +1850,20 @@ class TestHybridPreInvocationLiveToggle(_IsolatedHybridEnvMixin, unittest.TestCa
             {"conversationId": "conv-hyb-2", "cwd": str(self.ws), "prompt": "audit ui components for anti-boxification"}
         )
         txt_ui = _extract_pre_invocation_messages(r_ui)
-        self.assertIn("~/.gemini/config/plugins/antislop/skills/antislop/references/ui.md", txt_ui)
+        self.assertIn("~/.gemini/config/plugins/ui-refinery/skills/ui-refinery/references/ui.md", txt_ui)
 
-        # 2. Disable antislop in config.json -> antislop + all 6 sub-hints + vibecoder suppressed and NOT recorded in seen_turns
+        # 2. Disable ui-refinery in config.json -> ui-refinery + all 6 sub-hints + vibecoder suppressed and NOT recorded in seen_turns
         (self.cfg / "config.json").write_text(
-            json.dumps({"plugins": {"antislop": {"enabled": False}}}), encoding="utf-8"
+            json.dumps({"plugins": {"ui-refinery": {"enabled": False}}}), encoding="utf-8"
         )
         sub_prompts = [
-            ("/antislop audit design quality", "antislop"),
-            ("/antislop-ui check sibling symmetry", "antislop-ui"),
-            ("/antislop-copywriting remove synthetic markers", "antislop-copywriting"),
-            ("/antislop-human check wcag contrast", "antislop-human"),
-            ("/antislop-layoutmobile fix horizontal overflow", "antislop-layoutmobile"),
-            ("/antislop-code clean slop comments", "antislop-code"),
-            ("/silk-design kinetic motion showcase", "silk-design"),
+            ("/ui-refinery audit design quality", "ui-refinery"),
+            ("/ui-audit check sibling symmetry", "ui-audit"),
+            ("/copy-polish remove synthetic markers", "copy-polish"),
+            ("/a11y-check check wcag contrast", "a11y-check"),
+            ("/mobile-layout fix horizontal overflow", "mobile-layout"),
+            ("/code-comments clean slop comments", "code-comments"),
+            ("/motion-physics kinetic motion showcase", "motion-physics"),
             ("/vibecoder build a single-file html prototype", "vibecoder"),
         ]
         for idx, (prompt, slug) in enumerate(sub_prompts):
@@ -1877,15 +1877,15 @@ class TestHybridPreInvocationLiveToggle(_IsolatedHybridEnvMixin, unittest.TestCa
         res_same_off = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-toggle", "cwd": str(self.ws), "prompt": "audit ui components for anti-boxification"}
         )
-        self.assertNotIn("`antislop-ui`", _extract_pre_invocation_messages(res_same_off))
+        self.assertNotIn("`ui-audit`", _extract_pre_invocation_messages(res_same_off))
         (self.cfg / "config.json").write_text(
-            json.dumps({"plugins": {"antislop": {"enabled": True}}}), encoding="utf-8"
+            json.dumps({"plugins": {"ui-refinery": {"enabled": True}}}), encoding="utf-8"
         )
         res_same_on = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-toggle", "cwd": str(self.ws), "prompt": "run visual slop audit on these cards"}
         )
         self.assertIn(
-            "~/.gemini/config/plugins/antislop/skills/antislop/references/ui.md",
+            "~/.gemini/config/plugins/ui-refinery/skills/ui-refinery/references/ui.md",
             _extract_pre_invocation_messages(res_same_on),
         )
 
@@ -1946,51 +1946,51 @@ class TestHybridPreInvocationLiveToggle(_IsolatedHybridEnvMixin, unittest.TestCa
         t2 = _extract_pre_invocation_messages(r2)
         self.assertIn("~/.gemini/config/plugins/game-engineering/skills/game-engineering/SKILL.md", t2)
 
-    def test_pre_invocation_antislop_contrast_mcp_hint_hybrid_disabled_and_flat(self) -> None:
-        self.assertIn("antislop_contrast", agy_hooks._ROUTE_EXPLICIT_SLUGS["route:mcp:antislop-contrast"])
+    def test_pre_invocation_ui_refinery_contrast_mcp_hint_hybrid_disabled_and_flat(self) -> None:
+        self.assertIn("ui-refinery_contrast", agy_hooks._ROUTE_EXPLICIT_SLUGS["route:mcp:ui-refinery-contrast"])
 
-        # 1. Isolated / flat mode preserves antislop-contrast contract
+        # 1. Isolated / flat mode preserves ui-refinery-contrast contract
         (self.cfg / "GEMINI.md").write_text("# Flat\n", encoding="utf-8")
         r_flat = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-mcp-flat", "cwd": str(self.ws), "prompt": "check color contrast ratio for buttons"}
         )
         t_flat = _extract_pre_invocation_messages(r_flat)
-        self.assertIn('ServerName="antislop-contrast"', t_flat)
+        self.assertIn('ServerName="ui-refinery-contrast"', t_flat)
 
-        # 2. Active hybrid plugin emits antislop_contrast (both keyword and explicit slug trigger)
+        # 2. Active hybrid plugin emits ui-refinery_contrast (both keyword and explicit slug trigger)
         self._install_hybrid()
         r_hyb = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-mcp-hyb", "cwd": str(self.ws), "prompt": "check color contrast ratio for buttons"}
         )
         t_hyb = _extract_pre_invocation_messages(r_hyb)
-        self.assertIn('ServerName="antislop_contrast"', t_hyb)
-        self.assertNotIn('ServerName="antislop-contrast"', t_hyb)
+        self.assertIn('ServerName="ui-refinery_contrast"', t_hyb)
+        self.assertNotIn('ServerName="ui-refinery-contrast"', t_hyb)
 
         r_slug = agy_hooks.handle_pre_invocation(
-            {"conversationId": "conv-mcp-slug", "cwd": str(self.ws), "prompt": "use antislop_contrast on primary text"}
+            {"conversationId": "conv-mcp-slug", "cwd": str(self.ws), "prompt": "use ui-refinery_contrast on primary text"}
         )
-        self.assertIn('ServerName="antislop_contrast"', _extract_pre_invocation_messages(r_slug))
+        self.assertIn('ServerName="ui-refinery_contrast"', _extract_pre_invocation_messages(r_slug))
 
-        # 3. Disabled antislop suppresses MCP hint
+        # 3. Disabled ui-refinery suppresses MCP hint
         (self.cfg / "config.json").write_text(
-            json.dumps({"plugins": {"antislop": {"enabled": False}}}), encoding="utf-8"
+            json.dumps({"plugins": {"ui-refinery": {"enabled": False}}}), encoding="utf-8"
         )
         r_off = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-mcp-off", "cwd": str(self.ws), "prompt": "check color contrast ratio for buttons"}
         )
         t_off = _extract_pre_invocation_messages(r_off)
-        self.assertNotIn("antislop_contrast", t_off)
-        self.assertNotIn("antislop-contrast", t_off)
+        self.assertNotIn("ui-refinery_contrast", t_off)
+        self.assertNotIn("ui-refinery-contrast", t_off)
 
-        # 4. Removed antislop pack suppresses MCP hint
+        # 4. Removed ui-refinery pack suppresses MCP hint
         (self.cfg / "config.json").write_text(json.dumps({}), encoding="utf-8")
-        shutil.rmtree(self.cfg / "plugins" / "antislop")
+        shutil.rmtree(self.cfg / "plugins" / "ui-refinery")
         r_rem = agy_hooks.handle_pre_invocation(
             {"conversationId": "conv-mcp-rem", "cwd": str(self.ws), "prompt": "check color contrast ratio for buttons"}
         )
         t_rem = _extract_pre_invocation_messages(r_rem)
-        self.assertNotIn("antislop_contrast", t_rem)
-        self.assertNotIn("antislop-contrast", t_rem)
+        self.assertNotIn("ui-refinery_contrast", t_rem)
+        self.assertNotIn("ui-refinery-contrast", t_rem)
 
     def test_lazy_hint_regex_prefilter_soundness_unicode_and_quantifier_edges(self) -> None:
         import guard.hooks.pre_invocation as pre_inv_mod
@@ -2132,9 +2132,9 @@ class TestPorterAndMetaAuditHybridParity(_IsolatedHybridEnvMixin, unittest.TestC
         self.assertTrue(engine.is_up_to_date())
 
         # 3. Shadowing copy of a plugin-owned skill inside skills/ fails verification
-        shadow = self.cfg / "skills" / "antislop"
+        shadow = self.cfg / "skills" / "ui-refinery"
         shadow.mkdir(parents=True)
-        (shadow / "SKILL.md").write_text("---\nname: antislop\ndescription: dup\n---\n", encoding="utf-8")
+        (shadow / "SKILL.md").write_text("---\nname: ui-refinery\ndescription: dup\n---\n", encoding="utf-8")
         self.assertFalse(engine.is_up_to_date())
         shutil.rmtree(shadow)
         self.assertTrue(engine.is_up_to_date())
@@ -2159,12 +2159,12 @@ class TestPorterAndMetaAuditHybridParity(_IsolatedHybridEnvMixin, unittest.TestC
         for slug in sorted(repo_skills):
             self.assertIn(slug, analyzer.known_skills, f"Missing skill `{slug}` in hybrid SuitabilityAnalyzer")
         for consolidated in (
-            "antislop-ui",
-            "antislop-copywriting",
-            "antislop-human",
-            "antislop-layoutmobile",
-            "antislop-code",
-            "silk-design",
+            "ui-audit",
+            "copy-polish",
+            "a11y-check",
+            "mobile-layout",
+            "code-comments",
+            "motion-physics",
         ):
             self.assertIn(consolidated, analyzer.known_skills, f"Missing consolidated slug `{consolidated}`")
         self.assertNotIn("reverse-engineer-anything", analyzer.known_skills)
@@ -2270,15 +2270,15 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
 
     def test_security_plugins_shield_backtick_extglob_quoted_and_write_symlink_escape(self) -> None:
         cfg_s = str(self.cfg)
-        (self.cfg / "plugins" / "antislop").mkdir(parents=True, exist_ok=True)
-        (self.cfg / "plugins" / "antislop" / "plugin.json").write_text("{}", encoding="utf-8")
+        (self.cfg / "plugins" / "ui-refinery").mkdir(parents=True, exist_ok=True)
+        (self.cfg / "plugins" / "ui-refinery" / "plugin.json").write_text("{}", encoding="utf-8")
         (self.cfg / "plugins" / "rea").mkdir(parents=True, exist_ok=True)
 
         # Write-tool traversal, Win32 trailing-dot/space, and third-party symlink escape into harness pack -> deny
         for bad_target in (
-            str(self.cfg / "plugins" / "rea" / ".." / "antislop" / "plugin.json"),
-            str(self.cfg / "plugins" / "antislop." / "plugin.json"),
-            str(self.cfg / "plugins" / "antislop " / "plugin.json"),
+            str(self.cfg / "plugins" / "rea" / ".." / "ui-refinery" / "plugin.json"),
+            str(self.cfg / "plugins" / "ui-refinery." / "plugin.json"),
+            str(self.cfg / "plugins" / "ui-refinery " / "plugin.json"),
         ):
             res = agy_hooks.handle_pre_tool_use(
                 {
@@ -2291,7 +2291,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
 
         if os.name != "nt":
             sym_escape = self.cfg / "plugins" / "rea" / "escape.json"
-            os.symlink(str(self.cfg / "plugins" / "antislop" / "plugin.json"), str(sym_escape))
+            os.symlink(str(self.cfg / "plugins" / "ui-refinery" / "plugin.json"), str(sym_escape))
             res_sym = agy_hooks.handle_pre_tool_use(
                 {
                     "toolName": "write_to_file",
@@ -2303,13 +2303,13 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
 
         # Shell Guard: quoted harness pack, backtick cmd-subst, Bash extglob, Win32 trailing-dot -> deny; quoted third-party -> allow
         for deny_cmd in (
-            f'rm -rf "{cfg_s}/plugins/antislop"',
-            f'rm -f "{cfg_s}/plugins/antislop/plugin.json"',
-            f'chmod -R u+w "{cfg_s}/plugins/`printf antislop`"',
-            f"rm -rf {cfg_s}/plugins/`cat<<<antislop`",
-            f"shopt -s extglob; chmod -R u+w {cfg_s}/plugins/@(antislop)",
+            f'rm -rf "{cfg_s}/plugins/ui-refinery"',
+            f'rm -f "{cfg_s}/plugins/ui-refinery/plugin.json"',
+            f'chmod -R u+w "{cfg_s}/plugins/`printf ui-refinery`"',
+            f"rm -rf {cfg_s}/plugins/`cat<<<ui-refinery`",
+            f"shopt -s extglob; chmod -R u+w {cfg_s}/plugins/@(ui-refinery)",
             f"shopt -s extglob; rm -f {cfg_s}/plugins/!(rea)/plugin.json",
-            f'rm -f "{cfg_s}/plugins/antislop./plugin.json"',
+            f'rm -f "{cfg_s}/plugins/ui-refinery./plugin.json"',
         ):
             res = agy_hooks.handle_pre_tool_use(
                 {
@@ -2332,26 +2332,26 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
     def test_security_agy_plugin_cli_gate_cross_os_obfuscation_wrappers_and_workspace_script(self) -> None:
         # Cross-OS plugin CLI bypasses (no os.name != "nt" skip)
         for cmd in (
-            "agy.exe plugin disable antislop",
+            "agy.exe plugin disable ui-refinery",
             "agy.ps1 plugin uninstall rust-suite",
-            "a'g'y plugin disable antislop",
-            "agy 'plug''in' uninstall antislop",
-            r"agy pl\ugin disable antislop",
-            "P=plu; Q=gin; agy $P$Q disable antislop",
-            "agy plugin install ./antislop/.",
-            "agy plugin install ./antislop/plugin.json",
-            "agy plugin import dist/plugins/antislop-2.4.0.zip",
-            "agy plugin install antislop@2.4.0",
-            "agy plugin import dist/plugins/anti*.zip",
-            "agy plugin disable {a,x}ntis{l,z}op",
+            "a'g'y plugin disable ui-refinery",
+            "agy 'plug''in' uninstall ui-refinery",
+            r"agy pl\ugin disable ui-refinery",
+            "P=plu; Q=gin; agy $P$Q disable ui-refinery",
+            "agy plugin install ./ui-refinery/.",
+            "agy plugin install ./ui-refinery/plugin.json",
+            "agy plugin import dist/plugins/ui-refinery-2.4.0.zip",
+            "agy plugin install ui-refinery@2.4.0",
+            "agy plugin import dist/plugins/ui-r*.zip",
+            "agy plugin disable {u,x}i-refin{e,z}ry",
             "agy plugin disable --all",
-            "agy plugin disable --path=antislop",
-            "agy plugin uninstall -- antislop",
-            "agy plugin disable $(printf antislop)",
-            "printf antislop | xargs agy plugin disable",
-            "stdbuf -o L agy plugin disable antislop",
-            "env -S'agy plugin disable antislop'",
-            "echo agy plugin disable antislop | sh",
+            "agy plugin disable --path=ui-refinery",
+            "agy plugin uninstall -- ui-refinery",
+            "agy plugin disable $(printf ui-refinery)",
+            "printf ui-refinery | xargs agy plugin disable",
+            "stdbuf -o L agy plugin disable ui-refinery",
+            "env -S'agy plugin disable ui-refinery'",
+            "echo agy plugin disable ui-refinery | sh",
         ):
             res = agy_hooks.handle_pre_tool_use(
                 {
@@ -2367,7 +2367,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
             {
                 "toolName": "run_command",
                 "cwd": str(self.ws),
-                "toolInput": {"CommandLine": f"agy plugin disable antislop && rm -rf {self.cfg}/plugins/antislop"},
+                "toolInput": {"CommandLine": f"agy plugin disable ui-refinery && rm -rf {self.cfg}/plugins/ui-refinery"},
             }
         )
         self.assertEqual(chained.get("decision"), "deny", chained)
@@ -2382,9 +2382,9 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         )
         self.assertEqual(res_3p.get("decision"), "allow", res_3p)
 
-        # Workspace script executing agy plugin disable antislop triggers force_ask (not allow)
+        # Workspace script executing agy plugin disable ui-refinery triggers force_ask (not allow)
         ws_script = self.ws / "toggle_pack.sh"
-        ws_script.write_text("#!/bin/sh\nagy plugin disable antislop\n", encoding="utf-8")
+        ws_script.write_text("#!/bin/sh\nagy plugin disable ui-refinery\n", encoding="utf-8")
         res_script = agy_hooks.handle_pre_tool_use(
             {
                 "toolName": "run_command",
@@ -2395,48 +2395,48 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         self.assertEqual(res_script.get("decision"), "force_ask", res_script)
 
     def test_pre_invocation_flat_revert_ignores_stale_config_disable_recursion_dos_and_workspace_plugins(self) -> None:
-        # 1. Install hybrid, disable antislop in config.json, revert to --flat-skills -> flat skills & MCP still active
+        # 1. Install hybrid, disable ui-refinery in config.json, revert to --flat-skills -> flat skills & MCP still active
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(harness_install.main(["--plugins", "--no-lock"]), 0)
         cfg_json = self.cfg / "config.json"
-        cfg_json.write_text(json.dumps({"plugins": {"antislop": {"enabled": False}}}), encoding="utf-8")
+        cfg_json.write_text(json.dumps({"plugins": {"ui-refinery": {"enabled": False}}}), encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(harness_install.main(["--flat-skills", "--no-lock"]), 0)
 
         res_flat = agy_hooks.handle_pre_invocation(
-            {"conversationId": "conv-w4-flat-revert", "cwd": str(self.ws), "prompt": "run /antislop and check color contrast ratio"}
+            {"conversationId": "conv-w4-flat-revert", "cwd": str(self.ws), "prompt": "run /ui-refinery and check color contrast ratio"}
         )
         txt_flat = _extract_pre_invocation_messages(res_flat)
-        self.assertIn("antislop", txt_flat)
-        self.assertIn("antislop-contrast", txt_flat)
+        self.assertIn("ui-refinery", txt_flat)
+        self.assertIn("ui-refinery-contrast", txt_flat)
 
-        # Workspace .agents/plugins/antislop/plugin.json disabled=true must NOT silence global flat skills
-        ws_plug = self.ws / ".agents" / "plugins" / "antislop"
+        # Workspace .agents/plugins/ui-refinery/plugin.json disabled=true must NOT silence global flat skills
+        ws_plug = self.ws / ".agents" / "plugins" / "ui-refinery"
         ws_plug.mkdir(parents=True, exist_ok=True)
-        (ws_plug / "plugin.json").write_text(json.dumps({"name": "antislop", "disabled": True}), encoding="utf-8")
+        (ws_plug / "plugin.json").write_text(json.dumps({"name": "ui-refinery", "disabled": True}), encoding="utf-8")
         res_no_shadow = agy_hooks.handle_pre_invocation(
-            {"conversationId": "conv-w4-no-ws-shadow", "cwd": str(self.ws), "prompt": "use /antislop on my page"}
+            {"conversationId": "conv-w4-no-ws-shadow", "cwd": str(self.ws), "prompt": "use /ui-refinery on my page"}
         )
-        self.assertIn("antislop", _extract_pre_invocation_messages(res_no_shadow))
+        self.assertIn("ui-refinery", _extract_pre_invocation_messages(res_no_shadow))
 
         # 2. Deeply nested JSON / RecursionError guard -> fail-safe enabled + stderr warning
         cfg_json.write_text("{" + '"a":' * 100 + "1" + "}" * 100, encoding="utf-8")
         err_buf = io.StringIO()
         with mock.patch("guard.hooks.pre_invocation.json.loads", side_effect=RecursionError("maximum recursion depth")), contextlib.redirect_stderr(err_buf):
-            active = agy_hooks._is_harness_plugin_active("antislop", self.cfg, (self.ws,), _turn_cache={})
+            active = agy_hooks._is_harness_plugin_active("ui-refinery", self.cfg, (self.ws,), _turn_cache={})
         self.assertTrue(active)
         self.assertIn("corrupt/deep JSON", err_buf.getvalue())
 
-        # 3. Standalone workspace .agents/plugins/antislop/mcp_config.json switches MCP hint to antislop_contrast
+        # 3. Standalone workspace .agents/plugins/ui-refinery/mcp_config.json switches MCP hint to ui-refinery_contrast
         empty_cfg = self.tmp / "empty_cfg"
         empty_cfg.mkdir()
-        (ws_plug / "plugin.json").write_text(json.dumps({"name": "antislop", "disabled": False}), encoding="utf-8")
+        (ws_plug / "plugin.json").write_text(json.dumps({"name": "ui-refinery", "disabled": False}), encoding="utf-8")
         (ws_plug / "mcp_config.json").write_text(json.dumps({"mcpServers": {"contrast": {}}}), encoding="utf-8")
         with mock.patch.dict(os.environ, {"ANTIGRAVITY_CONFIG_DIR": str(empty_cfg)}):
             res_ws_mcp = agy_hooks.handle_pre_invocation(
                 {"conversationId": "conv-w4-ws-mcp", "cwd": str(self.ws), "prompt": "check color contrast ratio"}
             )
-        self.assertIn("antislop_contrast", _extract_pre_invocation_messages(res_ws_mcp))
+        self.assertIn("ui-refinery_contrast", _extract_pre_invocation_messages(res_ws_mcp))
 
         # 4. Synthetic _GlobalsProxy facade override is respected in _collect_invocation_skill_hints
         import guard.hooks.pre_invocation as pre_inv_mod
@@ -2463,10 +2463,10 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
 
     def test_validate_plugin_dir_mcp_binding_logo_escape_repo_leaks_and_zip_bomb_hardening(self) -> None:
         out_root = self.tmp / "val_packs"
-        antislop_dir = build_plugin_pack("antislop", REPO_ROOT, out_root / "antislop")
+        ui_refinery_dir = build_plugin_pack("ui-refinery", REPO_ROOT, out_root / "ui-refinery")
         rust_dir = build_plugin_pack("rust-suite", REPO_ROOT, out_root / "rust-suite")
 
-        # 1. MCP catalog binding: unexpected mcp_config.json in rust-suite rejected; rogue server in antislop rejected
+        # 1. MCP catalog binding: unexpected mcp_config.json in rust-suite rejected; rogue server in ui-refinery rejected
         (rust_dir / "mcp_config.json").write_text(
             json.dumps({"mcpServers": {"rogue": {"command": "python3", "args": []}}}), encoding="utf-8"
         )
@@ -2475,32 +2475,32 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         self.assertTrue(any("Unexpected mcp_config.json" in e for e in res_rust_mcp.errors), res_rust_mcp.errors)
         (rust_dir / "mcp_config.json").unlink()
 
-        orig_mcp = (antislop_dir / "mcp_config.json").read_text(encoding="utf-8")
-        # Double-prefixed key (would expose antislop_antislop_contrast in Antigravity) must be rejected
-        (antislop_dir / "mcp_config.json").write_text(
+        orig_mcp = (ui_refinery_dir / "mcp_config.json").read_text(encoding="utf-8")
+        # Double-prefixed key (would expose ui-refinery_ui-refinery_contrast in Antigravity) must be rejected
+        (ui_refinery_dir / "mcp_config.json").write_text(
             json.dumps(
                 {
                     "mcpServers": {
-                        "antislop_contrast": {
+                        "ui-refinery_contrast": {
                             "command": "python3",
-                            "args": ["${PLUGIN_ROOT}/skills/antislop/scripts/contrast-mcp.py"],
+                            "args": ["${PLUGIN_ROOT}/skills/ui-refinery/scripts/contrast-mcp.py"],
                         }
                     }
                 }
             ),
             encoding="utf-8",
         )
-        res_double_prefix = validate_plugin_dir(antislop_dir, expected_pack="antislop")
+        res_double_prefix = validate_plugin_dir(ui_refinery_dir, expected_pack="ui-refinery")
         self.assertFalse(res_double_prefix.ok)
         self.assertTrue(any("must be exactly {'contrast'}" in e for e in res_double_prefix.errors), res_double_prefix.errors)
 
-        (antislop_dir / "mcp_config.json").write_text(
+        (ui_refinery_dir / "mcp_config.json").write_text(
             json.dumps({"mcpServers": {"contrast": {"command": "python3", "args": []}}}), encoding="utf-8"
         )
-        res_bad_args = validate_plugin_dir(antislop_dir, expected_pack="antislop")
+        res_bad_args = validate_plugin_dir(ui_refinery_dir, expected_pack="ui-refinery")
         self.assertFalse(res_bad_args.ok)
         self.assertTrue(any("missing expected arg" in e for e in res_bad_args.errors), res_bad_args.errors)
-        (antislop_dir / "mcp_config.json").write_text(orig_mcp, encoding="utf-8")
+        (ui_refinery_dir / "mcp_config.json").write_text(orig_mcp, encoding="utf-8")
 
         # 2. Windows drive-letter logo escape rejected
         orig_pj = (rust_dir / "plugin.json").read_text(encoding="utf-8")
@@ -2582,11 +2582,11 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
             self.assertEqual(harness_install.main(["--no-lock"]), 0)
         rec_after = json.loads((self.state / "install_receipt.json").read_text(encoding="utf-8"))
         self.assertEqual(rec_after["layout"], "hybrid")
-        self.assertFalse((self.cfg / "skills" / "antislop").exists())
+        self.assertFalse((self.cfg / "skills" / "ui-refinery").exists())
 
         # 3. Receiptless --flat-skills revert removes canonical harness packs via is_harness_plugin_dir()
         #    while preserving a non-harness plugins/rust-suite directory
-        self.assertTrue(is_harness_plugin_dir(self.cfg / "plugins" / "antislop", expected_pack="antislop"))
+        self.assertTrue(is_harness_plugin_dir(self.cfg / "plugins" / "ui-refinery", expected_pack="ui-refinery"))
         (self.state / "install_receipt.json").unlink()
         shutil.rmtree(self.cfg / "plugins" / "rust-suite")
         (self.cfg / "plugins" / "rust-suite").mkdir(parents=True)
@@ -2596,13 +2596,13 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         self.assertFalse(is_harness_plugin_dir(self.cfg / "plugins" / "rust-suite", expected_pack="rust-suite"))
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(harness_install.main(["--flat-skills", "--no-lock"]), 0)
-        self.assertFalse((self.cfg / "plugins" / "antislop").exists())
+        self.assertFalse((self.cfg / "plugins" / "ui-refinery").exists())
         self.assertTrue((self.cfg / "plugins" / "rust-suite" / "plugin.json").is_file())
 
         # 4. --link --flat-skills restores retired MCP entry via verified repo symlink; failed restore retains retired key
         mcp_path = self.cfg / "mcp_config.json"
         mcp_path.write_text(
-            json.dumps({"mcpServers": {"antislop-contrast": {"command": "python3", "args": [str(self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py")]}}}),
+            json.dumps({"mcpServers": {"ui-refinery-contrast": {"command": "python3", "args": [str(self.cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")]}}}),
             encoding="utf-8",
         )
         with contextlib.redirect_stdout(io.StringIO()):
@@ -2610,24 +2610,24 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         self.assertEqual(json.loads(mcp_path.read_text(encoding="utf-8")), {"mcpServers": {}})
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(harness_install.main(["--link", "--flat-skills", "--no-lock"]), 0)
-        self.assertIn("antislop-contrast", json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"])
+        self.assertIn("ui-refinery-contrast", json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"])
 
-        # 5. release_runtime_state() unlocks plugins/ and plugins/rea while keeping plugins/antislop write-protected
+        # 5. release_runtime_state() unlocks plugins/ and plugins/rea while keeping plugins/ui-refinery write-protected
         if os.name != "nt":
             rt_cfg = self.tmp / "rt_cfg"
-            (rt_cfg / "plugins" / "antislop").mkdir(parents=True)
+            (rt_cfg / "plugins" / "ui-refinery").mkdir(parents=True)
             (rt_cfg / "plugins" / "rea").mkdir(parents=True)
-            (rt_cfg / "plugins" / "antislop" / "plugin.json").write_text("{}", encoding="utf-8")
+            (rt_cfg / "plugins" / "ui-refinery" / "plugin.json").write_text("{}", encoding="utf-8")
             (rt_cfg / "plugins" / "rea" / "plugin.json").write_text("{}", encoding="utf-8")
             adapter = EnvironmentRegistry().os_adapter
-            adapter.lock(rt_cfg / "plugins" / "antislop", recursive=True)
+            adapter.lock(rt_cfg / "plugins" / "ui-refinery", recursive=True)
             adapter.lock(rt_cfg / "plugins" / "rea", recursive=True)
             adapter.lock(rt_cfg / "plugins", recursive=False)
             harness_install.release_runtime_state(adapter, rt_cfg, dry_run=False)
             self.assertTrue(os.access(rt_cfg / "plugins", os.W_OK))
             self.assertTrue(os.access(rt_cfg / "plugins" / "rea" / "plugin.json", os.W_OK))
-            self.assertFalse(os.access(rt_cfg / "plugins" / "antislop" / "plugin.json", os.W_OK))
-            adapter.unlock(rt_cfg / "plugins" / "antislop", recursive=True)
+            self.assertFalse(os.access(rt_cfg / "plugins" / "ui-refinery" / "plugin.json", os.W_OK))
+            adapter.unlock(rt_cfg / "plugins" / "ui-refinery", recursive=True)
 
         # 6. Dangling symlink config.json is never followed during bootstrap
         if os.name != "nt":
@@ -2660,13 +2660,13 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         # 2. _is_hybrid_up_to_date() rejects mutated extra_files and injected stray files inside a pack
         engine = ManifestEngine(self.cfg)
         self.assertTrue(engine.is_up_to_date())
-        extra_design = self.cfg / "plugins" / "antislop" / "skills" / "antislop" / "references" / "DESIGN.md"
+        extra_design = self.cfg / "plugins" / "ui-refinery" / "skills" / "ui-refinery" / "references" / "DESIGN.md"
         orig_design = extra_design.read_bytes()
         extra_design.write_text("# Tampered\n", encoding="utf-8")
         self.assertFalse(engine.is_up_to_date())
         extra_design.write_bytes(orig_design)
 
-        stray_pack_file = self.cfg / "plugins" / "antislop" / "injected.txt"
+        stray_pack_file = self.cfg / "plugins" / "ui-refinery" / "injected.txt"
         stray_pack_file.write_text("rogue\n", encoding="utf-8")
         self.assertFalse(engine.is_up_to_date())
         stray_pack_file.unlink()
@@ -2686,7 +2686,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         # 4. Pass 5 catches guard/hooks/common.py mirror drift
         import guard.hooks.common as hooks_common
 
-        with mock.patch.object(hooks_common, "_HARNESS_PLUGIN_NAMES", frozenset({"antislop"})):
+        with mock.patch.object(hooks_common, "_HARNESS_PLUGIN_NAMES", frozenset({"ui-refinery"})):
             p5_drift = MetaAuditEngine(repo_root=REPO_ROOT).run_pass(5)
         self.assertTrue(any("Hot-path plugin constants" in f.message for f in p5_drift), p5_drift)
 
@@ -2737,7 +2737,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
             with zipfile.ZipFile(zpath, "r") as zf:
                 znames = set(zf.namelist())
             self.assertIn(f"{pack_name}/LICENSE", znames)
-            if pack_name in ("antislop", "rust-suite"):
+            if pack_name in ("ui-refinery", "rust-suite"):
                 self.assertIn(f"{pack_name}/THIRD_PARTY_NOTICES.md", znames)
                 self.assertIn("[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)", readme_txt)
             else:
@@ -2745,7 +2745,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
                 self.assertFalse((pdir / "THIRD_PARTY_NOTICES.md").exists())
 
         # Verify pack-scoped THIRD_PARTY_NOTICES.md contents (zero cross-pack or Apache-2.0 leakage)
-        anti_notices = (out_root / "antislop" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+        anti_notices = (out_root / "ui-refinery" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
         self.assertIn("miqdadbadjuber/anti-slop", anti_notices)
         self.assertIn("Miqdad Badjuber", anti_notices)
         self.assertIn("bendrape1-byte/silk-design", anti_notices)
@@ -2764,15 +2764,15 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         probe_pack = self.tmp / "probe_repo_only"
         probe_pack.mkdir()
         (probe_pack / "plugin.json").write_text(
-            json.dumps({"name": "antislop", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+            json.dumps({"name": "ui-refinery", "repository": "https://github.com/hadbilen/antigravity-harness"}),
             encoding="utf-8",
         )
-        self.assertTrue(is_harness_plugin_dir(probe_pack, expected_pack="antislop"))
+        self.assertTrue(is_harness_plugin_dir(probe_pack, expected_pack="ui-refinery"))
         (probe_pack / "plugin.json").write_text(
-            json.dumps({"name": "antislop", "repository": "https://example.invalid/other"}),
+            json.dumps({"name": "ui-refinery", "repository": "https://example.invalid/other"}),
             encoding="utf-8",
         )
-        self.assertFalse(is_harness_plugin_dir(probe_pack, expected_pack="antislop"))
+        self.assertFalse(is_harness_plugin_dir(probe_pack, expected_pack="ui-refinery"))
 
         # F2 negative: validate_plugin_dir rejects dict repository and validates official schema optional fields
         ge_dir = out_root / "game-engineering"
@@ -2826,28 +2826,28 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         self.assertTrue(any("Unexpected THIRD_PARTY_NOTICES.md" in e for e in res_stray_notice.errors), res_stray_notice.errors)
         (ge_dir / "THIRD_PARTY_NOTICES.md").unlink()
 
-        anti_dir = out_root / "antislop"
+        anti_dir = out_root / "ui-refinery"
         orig_anti_notices = (anti_dir / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
         (anti_dir / "THIRD_PARTY_NOTICES.md").unlink()
-        res_missing_notice = validate_plugin_dir(anti_dir, expected_pack="antislop")
+        res_missing_notice = validate_plugin_dir(anti_dir, expected_pack="ui-refinery")
         self.assertFalse(res_missing_notice.ok)
         self.assertTrue(any("THIRD_PARTY_NOTICES.md" in e for e in res_missing_notice.errors), res_missing_notice.errors)
 
         (anti_dir / "THIRD_PARTY_NOTICES.md").write_text("# Third-Party Notices\n\n## miqdadbadjuber/anti-slop (MIT)\n", encoding="utf-8")
-        res_incomplete_notice = validate_plugin_dir(anti_dir, expected_pack="antislop")
+        res_incomplete_notice = validate_plugin_dir(anti_dir, expected_pack="ui-refinery")
         self.assertFalse(res_incomplete_notice.ok)
         self.assertTrue(any("bendrape1-byte/silk-design" in e for e in res_incomplete_notice.errors), res_incomplete_notice.errors)
         (anti_dir / "THIRD_PARTY_NOTICES.md").write_text(orig_anti_notices, encoding="utf-8")
 
         # Zip validator explicitly rejects archives missing LICENSE or required THIRD_PARTY_NOTICES.md
-        anti_zip = Path(summary["antislop"]["zip"])
-        stripped_zip = self.tmp / "antislop_missing_legal.zip"
+        anti_zip = Path(summary["ui-refinery"]["zip"])
+        stripped_zip = self.tmp / "ui_refinery_missing_legal.zip"
         with zipfile.ZipFile(anti_zip, "r") as src_z, zipfile.ZipFile(stripped_zip, "w") as dst_z:
             for info in src_z.infolist():
-                if info.filename in ("antislop/LICENSE", "antislop/THIRD_PARTY_NOTICES.md"):
+                if info.filename in ("ui-refinery/LICENSE", "ui-refinery/THIRD_PARTY_NOTICES.md"):
                     continue
                 dst_z.writestr(info, src_z.read(info))
-        res_zip_legal = validate_plugin_zip(stripped_zip, expected_pack="antislop")
+        res_zip_legal = validate_plugin_zip(stripped_zip, expected_pack="ui-refinery")
         self.assertFalse(res_zip_legal.ok)
         joined_zerr = "\n".join(res_zip_legal.errors)
         self.assertIn("LICENSE", joined_zerr)
@@ -2936,14 +2936,14 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
 
         # 2. Harness packs, plugins/ root, and explicit archive extraction into config tree remain strict deny
         for deny_cmd in (
-            f"cp -r /tmp/src {cfg_s}/plugins/antislop",
+            f"cp -r /tmp/src {cfg_s}/plugins/ui-refinery",
             f"rsync -a /tmp/src/ {cfg_s}/plugins/rust-suite/",
-            f"git clone https://example.com/evil.git {cfg_s}/plugins/antislop",
+            f"git clone https://example.com/evil.git {cfg_s}/plugins/ui-refinery",
             f"git clone https://example.com/evil.git {cfg_s}/plugins/",
             f"mv ./staged_pack {cfg_s}/plugins/media-studio",
             f"tar -xf /tmp/evil.tar -C {cfg_s}/plugins/evil-drop",
             f"unzip /tmp/evil.zip -d {cfg_s}/plugins/evil-drop",
-            f"tar -xf /tmp/evil.tar -C {cfg_s}/plugins/antislop",
+            f"tar -xf /tmp/evil.tar -C {cfg_s}/plugins/ui-refinery",
         ):
             with self.subTest(deny_cmd=deny_cmd):
                 res_d = agy_hooks.handle_pre_tool_use(
@@ -3304,6 +3304,540 @@ class TestDoctorPluginNameCollisions(_IsolatedHybridEnvMixin, unittest.TestCase)
         self.assertTrue(any("locked-pack" in w for w in rep.warnings), rep.warnings)
         if hasattr(os, "symlink"):
             self.assertTrue(any("sym-manifest" in w and "symlink" in w.lower() for w in rep.warnings), rep.warnings)
+
+
+class TestW2UiRefineryThirdPartyPreservationAndCredits(_IsolatedHybridEnvMixin, unittest.TestCase):
+    """AC-3 seam tests: 4-case fail-closed third-party preservation (plugins/antislop & skills/antislop) + prominent README credits."""
+
+    def setUp(self) -> None:
+        self._setup_sandbox("agy_w2_pres_")
+
+    def tearDown(self) -> None:
+        self._teardown_sandbox()
+
+    def test_antislop_and_silk_design_excluded_from_consolidated_skill_slugs(self) -> None:
+        from guard.environment import CONSOLIDATED_SKILL_SLUGS
+
+        for third_party_slug in (
+            "antislop",
+            "antislop-ui",
+            "antislop-copywriting",
+            "antislop-human",
+            "antislop-layoutmobile",
+            "antislop-code",
+            "silk-design",
+        ):
+            self.assertNotIn(third_party_slug, CONSOLIDATED_SKILL_SLUGS)
+
+    def test_four_case_fail_closed_preservation_for_third_party_plugins_antislop(self) -> None:
+        from guard.environment import can_retire_harness_plugin_dir, is_harness_plugin_dir
+
+        parser = guard_cli.build_parser()
+        sentinel_bytes = b"# third-party upstream anti-slop payload -- must never be touched\n"
+        stale_receipt = {
+            "schema_version": 1,
+            "target": str(self.cfg),
+            "layout": "hybrid",
+            "installed": [
+                "plugins/antislop",
+                "plugins/rust-suite",
+                "plugins/media-studio",
+                "plugins/game-engineering",
+            ],
+            "installed_plugins": ["antislop", "rust-suite", "media-studio", "game-engineering"],
+            "retired_mcp_servers": [],
+            "backup_dir": None,
+        }
+
+        cases = [
+            (
+                "non_harness_url",
+                json.dumps(
+                    {
+                        "name": "antislop",
+                        "version": "1.2.0",
+                        "repository": "https://github.com/miqdadbadjuber/anti-slop",
+                        "homepage": "https://github.com/miqdadbadjuber/anti-slop",
+                    }
+                ),
+            ),
+            (
+                "omitted_urls",
+                json.dumps({"name": "antislop", "version": "1.0.0"}),
+            ),
+            (
+                "jsonc_manifest",
+                '// third-party JSONC manifest\n{"name": "antislop", "repository": "https://github.com/hadbilen/antigravity-harness",}\n',
+            ),
+        ]
+        if hasattr(os, "symlink") and os.name != "nt":
+            cases.append(("symlink_dir", ""))
+            cases.append(("symlink_manifest", ""))
+
+        for case_name, manifest_body in cases:
+            for tool_name in ("installer", "guard_init"):
+                for op in ("plugins", "flat-skills", "uninstall"):
+                    with self.subTest(case=case_name, tool=tool_name, op=op):
+                        hermetic.force_rmtree(self.cfg)
+                        self.cfg.mkdir(parents=True)
+                        hermetic.force_rmtree(self.state)
+                        self.state.mkdir(parents=True)
+
+                        receipt_path = self.state / "install_receipt.json"
+                        receipt_path.write_text(json.dumps(stale_receipt), encoding="utf-8")
+
+                        plug_dir = self.cfg / "plugins" / "antislop"
+                        outside_dir = self.tmp / f"ext_plug_{case_name}_{tool_name}_{op}"
+                        hermetic.force_rmtree(outside_dir)
+                        if case_name == "symlink_dir":
+                            outside_dir.mkdir(parents=True)
+                            (outside_dir / "plugin.json").write_text(
+                                json.dumps({"name": "antislop", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+                                encoding="utf-8",
+                            )
+                            (outside_dir / "sentinel.txt").write_bytes(sentinel_bytes)
+                            plug_dir.parent.mkdir(parents=True, exist_ok=True)
+                            plug_dir.symlink_to(outside_dir, target_is_directory=True)
+                            manifest_bytes_before = (outside_dir / "plugin.json").read_bytes()
+                        elif case_name == "symlink_manifest":
+                            outside_dir.mkdir(parents=True)
+                            ext_pj = outside_dir / "plugin.json"
+                            ext_pj.write_text(
+                                json.dumps({"name": "antislop", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+                                encoding="utf-8",
+                            )
+                            plug_dir.mkdir(parents=True)
+                            (plug_dir / "plugin.json").symlink_to(ext_pj)
+                            (plug_dir / "sentinel.txt").write_bytes(sentinel_bytes)
+                            manifest_bytes_before = ext_pj.read_bytes()
+                        else:
+                            plug_dir.mkdir(parents=True)
+                            (plug_dir / "plugin.json").write_text(manifest_body, encoding="utf-8")
+                            (plug_dir / "sentinel.txt").write_bytes(sentinel_bytes)
+                            manifest_bytes_before = (plug_dir / "plugin.json").read_bytes()
+
+                        self.assertFalse(is_harness_plugin_dir(plug_dir, expected_pack="antislop", allow_legacy_names=True))
+                        self.assertFalse(
+                            can_retire_harness_plugin_dir(
+                                plug_dir,
+                                expected_pack="antislop",
+                                in_receipt=True,
+                                allow_legacy_names=True,
+                            )
+                        )
+
+                        with mock.patch.object(harness_install, "request_approval", return_value=True), mock.patch.object(
+                            guard_cli, "request_approval", return_value=True
+                        ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                            if tool_name == "installer":
+                                if op == "plugins":
+                                    rc = harness_install.main(["--plugins", "--no-lock"])
+                                elif op == "flat-skills":
+                                    rc = harness_install.main(["--flat-skills", "--no-lock"])
+                                else:
+                                    rc = harness_install.uninstall_harness(self.cfg, dry_run=False)
+                            else:
+                                if op == "plugins":
+                                    rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--plugins", "--no-lock"]))
+                                elif op == "flat-skills":
+                                    rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--flat-skills", "--no-lock"]))
+                                else:
+                                    rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--uninstall"]))
+                        self.assertEqual(rc, 0)
+
+                        # Third-party plugins/antislop MUST survive byte-for-byte
+                        if case_name == "symlink_dir":
+                            self.assertTrue(os.path.islink(plug_dir))
+                            self.assertEqual((outside_dir / "sentinel.txt").read_bytes(), sentinel_bytes)
+                            self.assertEqual((outside_dir / "plugin.json").read_bytes(), manifest_bytes_before)
+                        elif case_name == "symlink_manifest":
+                            self.assertTrue(os.path.islink(plug_dir / "plugin.json"))
+                            self.assertEqual((plug_dir / "sentinel.txt").read_bytes(), sentinel_bytes)
+                            self.assertEqual((outside_dir / "plugin.json").read_bytes(), manifest_bytes_before)
+                        else:
+                            self.assertTrue(plug_dir.is_dir())
+                            self.assertEqual((plug_dir / "sentinel.txt").read_bytes(), sentinel_bytes)
+                            self.assertEqual((plug_dir / "plugin.json").read_bytes(), manifest_bytes_before)
+
+        # Positive contrast: genuine receipted legacy harness plugins/antislop IS retired to backup,
+        # while unreceipted legacy harness plugins/antislop is NOT retired automatically.
+        hermetic.force_rmtree(self.cfg)
+        self.cfg.mkdir(parents=True)
+        hermetic.force_rmtree(self.state)
+        self.state.mkdir(parents=True)
+        leg_plug = self.cfg / "plugins" / "antislop"
+        leg_plug.mkdir(parents=True)
+        (leg_plug / "plugin.json").write_text(
+            json.dumps({"name": "antislop", "version": "2.4.0", "repository": "https://github.com/hadbilen/antigravity-harness"}),
+            encoding="utf-8",
+        )
+        self.assertTrue(is_harness_plugin_dir(leg_plug, expected_pack="antislop", allow_legacy_names=True))
+        # Unreceipted legacy harness plugins/antislop must NOT be auto-retired (CC-01)
+        self.assertFalse(
+            can_retire_harness_plugin_dir(
+                leg_plug,
+                expected_pack="antislop",
+                in_receipt=False,
+                allow_legacy_names=True,
+            )
+        )
+        self.assertTrue(
+            can_retire_harness_plugin_dir(
+                leg_plug,
+                expected_pack="antislop",
+                in_receipt=True,
+                allow_legacy_names=True,
+            )
+        )
+        # Missing plugin.json on legacy pack name fails closed even when listed in receipt
+        leg_no_manifest = self.tmp / "leg_no_manifest"
+        leg_no_manifest.mkdir(parents=True)
+        self.assertFalse(
+            can_retire_harness_plugin_dir(
+                leg_no_manifest,
+                expected_pack="antislop",
+                in_receipt=True,
+                allow_legacy_names=True,
+            )
+        )
+        (self.state / "install_receipt.json").write_text(json.dumps(stale_receipt), encoding="utf-8")
+        with mock.patch.object(harness_install, "request_approval", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(harness_install.main(["--plugins", "--no-lock"]), 0)
+        self.assertFalse(leg_plug.exists())
+        self.assertTrue((self.cfg / "plugins" / "ui-refinery" / "plugin.json").is_file())
+        rec_upgraded = json.loads((self.state / "install_receipt.json").read_text(encoding="utf-8"))
+        self.assertIsNotNone(rec_upgraded.get("backup_dir"))
+        self.assertTrue((Path(rec_upgraded["backup_dir"]) / "plugins" / "antislop" / "plugin.json").is_file())
+
+    def test_four_case_fail_closed_preservation_for_global_skills_antislop_and_mcp(self) -> None:
+        from guard.environment import (
+            can_retire_legacy_harness_skill_dir,
+            is_legacy_harness_skill_dir,
+            migrate_harness_mcp_config,
+        )
+
+        parser = guard_cli.build_parser()
+        third_party_md = b"---\nname: antislop\ndescription: Upstream anti-slop skill from miqdadbadjuber/anti-slop.\n---\n# Anti-Slop\n"
+        legacy_harness_md = (
+            b"---\nname: antislop\ndescription: Legacy harness skill.\n---\n"
+            b"Run `agy-guard ui-slop` or `skills/antislop/scripts/check_ui_slop.py`.\n"
+        )
+        silk_third_party_md = b"---\nname: silk-design\ndescription: Upstream silk-design skill.\n---\n# Silk Design\n"
+        stale_flat_receipt = {
+            "schema_version": 1,
+            "target": str(self.cfg),
+            "layout": "flat",
+            "installed": ["skills/antislop", "skills/silk-design"],
+            "installed_plugins": [],
+            "retired_mcp_servers": [],
+            "backup_dir": None,
+        }
+
+        preserved_cases = [
+            ("unreceipted_third_party", False, third_party_md),
+            ("receipted_third_party", True, third_party_md),
+            ("unreceipted_legacy_harness", False, legacy_harness_md),
+        ]
+        if hasattr(os, "symlink") and os.name != "nt":
+            preserved_cases.append(("receipted_symlink_dir", True, legacy_harness_md))
+            preserved_cases.append(("receipted_symlink_skill_md", True, legacy_harness_md))
+
+        for case_name, with_receipt, skill_bytes in preserved_cases:
+            for tool_name in ("installer", "guard_init"):
+                for op in ("plugins", "flat-skills", "uninstall"):
+                    with self.subTest(case=case_name, tool=tool_name, op=op):
+                        hermetic.force_rmtree(self.cfg)
+                        self.cfg.mkdir(parents=True)
+                        hermetic.force_rmtree(self.state)
+                        self.state.mkdir(parents=True)
+
+                        if with_receipt:
+                            (self.state / "install_receipt.json").write_text(
+                                json.dumps(stale_flat_receipt), encoding="utf-8"
+                            )
+
+                        skill_dir = self.cfg / "skills" / "antislop"
+                        silk_dir = self.cfg / "skills" / "silk-design"
+                        silk_dir.mkdir(parents=True)
+                        (silk_dir / "SKILL.md").write_bytes(silk_third_party_md)
+
+                        outside_dir = self.tmp / f"ext_skill_{case_name}_{tool_name}_{op}"
+                        hermetic.force_rmtree(outside_dir)
+                        if case_name == "receipted_symlink_dir":
+                            outside_dir.mkdir(parents=True)
+                            (outside_dir / "SKILL.md").write_bytes(skill_bytes)
+                            skill_dir.parent.mkdir(parents=True, exist_ok=True)
+                            skill_dir.symlink_to(outside_dir, target_is_directory=True)
+                        elif case_name == "receipted_symlink_skill_md":
+                            outside_dir.mkdir(parents=True)
+                            ext_md = outside_dir / "SKILL.md"
+                            ext_md.write_bytes(skill_bytes)
+                            skill_dir.mkdir(parents=True)
+                            (skill_dir / "SKILL.md").symlink_to(ext_md)
+                        else:
+                            skill_dir.mkdir(parents=True)
+                            (skill_dir / "SKILL.md").write_bytes(skill_bytes)
+
+                        self.assertFalse(
+                            can_retire_legacy_harness_skill_dir(
+                                skill_dir,
+                                slug="antislop",
+                                in_receipt=with_receipt,
+                            )
+                        )
+
+                        with mock.patch.object(harness_install, "request_approval", return_value=True), mock.patch.object(
+                            guard_cli, "request_approval", return_value=True
+                        ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                            if tool_name == "installer":
+                                if op == "plugins":
+                                    rc = harness_install.main(["--plugins", "--no-lock"])
+                                elif op == "flat-skills":
+                                    rc = harness_install.main(["--flat-skills", "--no-lock"])
+                                else:
+                                    rc = harness_install.uninstall_harness(self.cfg, dry_run=False)
+                            else:
+                                if op == "plugins":
+                                    rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--plugins", "--no-lock"]))
+                                elif op == "flat-skills":
+                                    rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--flat-skills", "--no-lock"]))
+                                else:
+                                    rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--uninstall"]))
+                        self.assertEqual(rc, 0)
+
+                        # Global skills/antislop and skills/silk-design MUST survive byte-for-byte
+                        self.assertEqual((silk_dir / "SKILL.md").read_bytes(), silk_third_party_md)
+                        if case_name == "receipted_symlink_dir":
+                            self.assertTrue(os.path.islink(skill_dir))
+                            self.assertEqual((outside_dir / "SKILL.md").read_bytes(), skill_bytes)
+                        elif case_name == "receipted_symlink_skill_md":
+                            self.assertTrue(os.path.islink(skill_dir / "SKILL.md"))
+                            self.assertEqual((outside_dir / "SKILL.md").read_bytes(), skill_bytes)
+                        else:
+                            self.assertEqual((skill_dir / "SKILL.md").read_bytes(), skill_bytes)
+
+        # Third-party skills/antislop MCP config entry MUST be preserved untouched by migrate_harness_mcp_config
+        hermetic.force_rmtree(self.cfg)
+        self.cfg.mkdir(parents=True)
+        tp_skill = self.cfg / "skills" / "antislop"
+        (tp_skill / "scripts").mkdir(parents=True)
+        (tp_skill / "SKILL.md").write_bytes(third_party_md)
+        tp_mcp_script = tp_skill / "scripts" / "contrast-mcp.py"
+        tp_mcp_script.write_text("# third-party contrast\n", encoding="utf-8")
+        mcp_path = self.cfg / "mcp_config.json"
+        tp_mcp_cfg = {"mcpServers": {"my-antislop": {"command": "python3", "args": [str(tp_mcp_script)]}}}
+        mcp_path.write_text(json.dumps(tp_mcp_cfg), encoding="utf-8")
+        changed_tp = migrate_harness_mcp_config(
+            self.cfg, REPO_ROOT, dry_run=False, retire_plugin_mcp=HARNESS_PLUGIN_NAMES
+        )
+        self.assertFalse(changed_tp)
+        self.assertEqual(json.loads(mcp_path.read_text(encoding="utf-8")), tp_mcp_cfg)
+
+        # Positive contrast: receipted legacy harness skills/antislop IS cleanly retired to backup
+        for tool_name in ("installer", "guard_init"):
+            with self.subTest(positive_retire_tool=tool_name):
+                hermetic.force_rmtree(self.cfg)
+                self.cfg.mkdir(parents=True)
+                hermetic.force_rmtree(self.state)
+                self.state.mkdir(parents=True)
+                (self.state / "install_receipt.json").write_text(json.dumps(stale_flat_receipt), encoding="utf-8")
+                leg_skill = self.cfg / "skills" / "antislop"
+                leg_skill.mkdir(parents=True)
+                (leg_skill / "SKILL.md").write_bytes(legacy_harness_md)
+                self.assertTrue(is_legacy_harness_skill_dir(leg_skill))
+                self.assertTrue(can_retire_legacy_harness_skill_dir(leg_skill, slug="antislop", in_receipt=True))
+                with mock.patch.object(harness_install, "request_approval", return_value=True), mock.patch.object(
+                    guard_cli, "request_approval", return_value=True
+                ), contextlib.redirect_stdout(io.StringIO()):
+                    if tool_name == "installer":
+                        rc = harness_install.main(["--plugins", "--no-lock"])
+                    else:
+                        rc = guard_cli.cmd_init(parser.parse_args(["init", "--source", str(REPO_ROOT), "--plugins", "--no-lock"]))
+                self.assertEqual(rc, 0)
+                self.assertFalse(leg_skill.exists())
+                rec_after = json.loads((self.state / "install_receipt.json").read_text(encoding="utf-8"))
+                self.assertIsNotNone(rec_after.get("backup_dir"))
+                self.assertTrue((Path(rec_after["backup_dir"]) / "skills" / "antislop" / "SKILL.md").is_file())
+
+    def test_generated_plugin_readme_prominent_upstream_credits_and_validator_gate(self) -> None:
+        out_root = self.tmp / "credits_packs"
+        build_all_plugin_packs(REPO_ROOT, out_root, validate=True)
+
+        # 1. Source SKILL.md and motion-physics.md carry prominent MIT upstream credit notes near top
+        skill_head = "\n".join((REPO_ROOT / "skills" / "ui-refinery" / "SKILL.md").read_text(encoding="utf-8").splitlines()[:20])
+        self.assertIn("Upstream Attribution (MIT)", skill_head)
+        self.assertIn("miqdadbadjuber/anti-slop", skill_head)
+        self.assertIn("bendrape1-byte/silk-design", skill_head)
+
+        motion_head = "\n".join(
+            (REPO_ROOT / "skills" / "ui-refinery" / "references" / "motion-physics.md").read_text(encoding="utf-8").splitlines()[:10]
+        )
+        self.assertIn("Upstream Attribution (MIT)", motion_head)
+        self.assertIn("bendrape1-byte/silk-design", motion_head)
+
+        # 2. ui-refinery and rust-suite READMEs place ## Upstream Credits & Attribution between Included components & Standalone installation
+        expected_credits = {
+            "ui-refinery": ("miqdadbadjuber/anti-slop", "bendrape1-byte/silk-design"),
+            "rust-suite": ("erkamyaman/rust-anything",),
+        }
+        for pack_name, upstreams in expected_credits.items():
+            pdir = out_root / pack_name
+            readme_path = pdir / "README.md"
+            readme = readme_path.read_text(encoding="utf-8")
+            idx_inc = readme.index("## Included components")
+            idx_cred = readme.index("## Upstream Credits & Attribution")
+            idx_inst = readme.index("## Standalone installation")
+            self.assertLess(idx_inc, idx_cred, f"{pack_name} credits must follow Included components")
+            self.assertLess(idx_cred, idx_inst, f"{pack_name} credits must precede Standalone installation")
+            for upstream in upstreams:
+                self.assertIn(upstream, readme[idx_cred:idx_inst])
+
+            # Negative 1: removing ## Upstream Credits & Attribution fails validation
+            orig_readme = readme
+            readme_path.write_text(readme.replace("## Upstream Credits & Attribution", "## Credits"), encoding="utf-8")
+            res_missing = validate_plugin_dir(pdir, expected_pack=pack_name)
+            self.assertFalse(res_missing.ok)
+            self.assertTrue(any("Upstream Credits & Attribution" in e for e in res_missing.errors), res_missing.errors)
+
+            # Negative 2: demoting ## Upstream Credits & Attribution below ## Standalone installation fails validation
+            reordered = (
+                orig_readme[:idx_cred]
+                + orig_readme[idx_inst:]
+                + "\n"
+                + orig_readme[idx_cred:idx_inst]
+            )
+            readme_path.write_text(reordered, encoding="utf-8")
+            res_order = validate_plugin_dir(pdir, expected_pack=pack_name)
+            self.assertFalse(res_order.ok)
+            self.assertTrue(any("before `## Standalone installation`" in e for e in res_order.errors), res_order.errors)
+            readme_path.write_text(orig_readme, encoding="utf-8")
+
+        # 3. Clean packs without third-party upstreams omit ## Upstream Credits & Attribution
+        for clean_pack in ("media-studio", "game-engineering"):
+            clean_readme = (out_root / clean_pack / "README.md").read_text(encoding="utf-8")
+            self.assertNotIn("## Upstream Credits & Attribution", clean_readme)
+
+    def test_w2_audit_remediations_security_and_contract_seams(self) -> None:
+        from guard.doctor import _is_harness_contrast_mcp_arg
+        from guard.environment import (
+            antigravity_plugin_governance_seams,
+            is_harness_plugin_dir,
+            is_legacy_harness_skill_dir,
+            migrate_harness_mcp_config,
+        )
+
+        # SEC-03: generic ~/.gemini/config/skills/antislop/ path in third-party SKILL.md must NOT spoof harness provenance
+        tp_doc_skill = self.cfg / "skills" / "antislop"
+        tp_doc_skill.mkdir(parents=True)
+        (tp_doc_skill / "SKILL.md").write_text(
+            "---\nname: antislop\ndescription: Third-party install docs.\n---\n"
+            "Installed at `~/.gemini/config/skills/antislop/`.\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(is_legacy_harness_skill_dir(tp_doc_skill))
+
+        # SEC-04: deeply nested JSON in plugin.json fails closed cleanly (no unhandled RecursionError)
+        deep_plug = self.tmp / "deep_json_plug"
+        deep_plug.mkdir(parents=True)
+        (deep_plug / "plugin.json").write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+        self.assertFalse(is_harness_plugin_dir(deep_plug, expected_pack="antislop", allow_legacy_names=True))
+
+        # SEC-06: non-harness plugin at plugins/ui-refinery is excluded from antigravity_plugin_governance_seams
+        tp_ui_plug = self.cfg / "plugins" / "ui-refinery"
+        tp_ui_plug.mkdir(parents=True)
+        (tp_ui_plug / "plugin.json").write_text(
+            json.dumps({"name": "ui-refinery", "repository": "https://example.invalid/third-party"}),
+            encoding="utf-8",
+        )
+        self.assertNotIn("plugins/ui-refinery", antigravity_plugin_governance_seams(self.cfg, include_receipt=False))
+        shutil.rmtree(tp_ui_plug)
+
+        # CC-03: doctor detects stale v2.4.0 skills/antislop and plugins/antislop MCP args while preserving third-party
+        self.assertFalse(
+            _is_harness_contrast_mcp_arg(str(self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py"), root=self.cfg)
+        )
+        shutil.rmtree(tp_doc_skill)
+        self.assertTrue(
+            _is_harness_contrast_mcp_arg(str(self.cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py"), root=self.cfg)
+        )
+        self.assertTrue(
+            _is_harness_contrast_mcp_arg(
+                str(self.cfg / "plugins" / "antislop" / "skills" / "antislop" / "scripts" / "contrast-mcp.py"),
+                root=self.cfg,
+            )
+        )
+
+        # CC-02 & CC-04: --link flat MCP repointing succeeds via verified repo symlink & repoints legacy plugins/antislop entry
+        if hasattr(os, "symlink") and os.name != "nt":
+            link_cfg = self.tmp / "cc02_link_cfg"
+            (link_cfg / "skills").mkdir(parents=True)
+            (link_cfg / "skills" / "ui-refinery").symlink_to(REPO_ROOT / "skills" / "ui-refinery", target_is_directory=True)
+            link_mcp = link_cfg / "mcp_config.json"
+            link_mcp.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "legacy-flat": {
+                                "command": "python3",
+                                "args": [str(link_cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+                            },
+                            "legacy-plug": {
+                                "command": "python3",
+                                "args": [str(link_cfg / "plugins" / "antislop" / "skills" / "antislop" / "scripts" / "contrast-mcp.py")],
+                            },
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(migrate_harness_mcp_config(link_cfg, REPO_ROOT, dry_run=False))
+            migrated = json.loads(link_mcp.read_text(encoding="utf-8"))["mcpServers"]
+            expected_link_script = str(link_cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")
+            self.assertEqual(migrated["legacy-flat"]["args"], [expected_link_script])
+            self.assertEqual(migrated["legacy-plug"]["args"], [expected_link_script])
+
+        # SEC-02: uninstall receipt empty target, .. traversal, and subpath entries cannot bypass third-party preservation
+        sec2_cfg = self.tmp / "sec02_cfg"
+        sec2_plug = sec2_cfg / "plugins" / "antislop"
+        sec2_plug.mkdir(parents=True)
+        (sec2_plug / "plugin.json").write_text(json.dumps({"name": "antislop", "version": "1.0.0"}), encoding="utf-8")
+        sec2_skill = sec2_cfg / "skills" / "antislop"
+        sec2_skill.mkdir(parents=True)
+        (sec2_skill / "SKILL.md").write_text("---\nname: antislop\n---\n# Third-party\n", encoding="utf-8")
+        (sec2_cfg / "rules").mkdir(parents=True)
+        (self.state / "install_receipt.json").write_text(
+            json.dumps(
+                {
+                    "target": str(sec2_cfg),
+                    "installed": [
+                        "rules/../plugins/antislop",
+                        "skills/antislop/SKILL.md",
+                        "rules/..",
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with mock.patch.object(harness_install, "request_approval", return_value=True), contextlib.redirect_stdout(
+            io.StringIO()
+        ), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(harness_install.uninstall_harness(sec2_cfg, dry_run=False), 0)
+        self.assertTrue((sec2_plug / "plugin.json").is_file())
+        self.assertTrue((sec2_skill / "SKILL.md").is_file())
+
+        # CC-06: fenced ## Upstream Credits & Attribution or upstream slug outside credits section is rejected
+        cc6_root = self.tmp / "cc06_packs"
+        ui_dir = build_plugin_pack("ui-refinery", REPO_ROOT, cc6_root / "ui-refinery")
+        orig_readme = (ui_dir / "README.md").read_text(encoding="utf-8")
+        fenced_readme = orig_readme.replace(
+            "## Upstream Credits & Attribution",
+            "```markdown\n## Upstream Credits & Attribution\n```",
+        )
+        (ui_dir / "README.md").write_text(fenced_readme, encoding="utf-8")
+        res_fenced = validate_plugin_dir(ui_dir, expected_pack="ui-refinery")
+        self.assertFalse(res_fenced.ok)
+        self.assertTrue(any("Upstream Credits & Attribution" in e for e in res_fenced.errors), res_fenced.errors)
+        (ui_dir / "README.md").write_text(orig_readme, encoding="utf-8")
 
 
 if __name__ == "__main__":

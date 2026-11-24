@@ -1,6 +1,6 @@
 # Design system — tokens, type, radius, fonts, the 10 style skins
 
-The whole runtime design system is **one CSS file** (`references/silk-design/assets/foundation.css`, ~190 lines). Copy it,
+The whole runtime design system is **one CSS file** (`references/motion-physics/assets/foundation.css`, ~190 lines). Copy it,
 change the 9 colors + `--radius` + font, and you have a themed, smooth site. This is the entire trick.
 
 ## 1. Token architecture (9 custom properties → Tailwind)
@@ -58,7 +58,7 @@ Common values: `0.5rem` (rounded), `0.75rem` (smooth), `1.5rem`/`2rem` (soft/pil
 ## 3. Fluid typography — the smoothness multiplier
 
 **Every** size is a `clamp(min, vw, max)`, never a fixed px. Text grows with the viewport, so it never
-looks cramped on mobile or tiny on 4K. Verbatim scale (from `references/silk-design/assets/foundation.css`):
+looks cramped on mobile or tiny on 4K. Verbatim scale (from `references/motion-physics/assets/foundation.css`):
 
 ```css
 --text-lg:  clamp(0.75rem, 1vw, 1rem);
@@ -91,11 +91,11 @@ free; don't set body text in it.
 **Full-width wordmarks.** For brand heroes/footers where the name must span the container exactly at
 any width, don't guess a size — measure: canvas `ctx.measureText` at 100px, then
 `fontSize = containerWidth / textWidth * 100`, re-run in a ResizeObserver, and drop `line-height` to
-`0.8` when the text has no descenders (`/[gjpqy]/`). Verbatim: `references/silk-design/assets/AutoFillText.tsx`.
+`0.8` when the text has no descenders (`/[gjpqy]/`). Verbatim: `references/motion-physics/assets/AutoFillText.tsx`.
 
 ## 5. The three component classes (verbatim default = "glass")
 
-`references/silk-design/assets/foundation.css` bakes in three reusable classes. This default is the **glass** skin:
+`references/motion-physics/assets/foundation.css` bakes in three reusable classes. This default is the **glass** skin:
 
 ```css
 .card {                              /* glass-elevated */
@@ -116,7 +116,7 @@ any width, don't guess a size — measure: canvas `ctx.measureText` at 100px, th
 }
 ```
 The `inset` top highlight + the color-matched glow ramp is what makes buttons look lit rather than flat.
-Full stack in `references/silk-design/assets/foundation.css`.
+Full stack in `references/motion-physics/assets/foundation.css`.
 
 ## 6. The 10 style skins — swap 3 blocks + radius + font
 
@@ -164,6 +164,6 @@ Three contrasting recipes verbatim (drop into your CSS, replacing the `.card`/`.
 - Lenis `<ReactLenis root>` at the app root (not CSS `scroll-behavior`).
 - `html, body { overscroll-behavior: none; }` — kills the rubber-band bounce.
 - Thin recolored scrollbar via `scrollbar-width: thin; scrollbar-color: … transparent;`.
-- Mask-fade utilities (`.mask-fade-x`, `.mask-fade-y`, …) in `references/silk-design/assets/masks.css` — feather the edges of
+- Mask-fade utilities (`.mask-fade-x`, `.mask-fade-y`, …) in `references/motion-physics/assets/masks.css` — feather the edges of
   marquees, carousels, and background layers so nothing hard-cuts.
-- Keyframe library (marquee, aurora, orbit, spin-slow, floating, ray-pulse, progress) in `references/silk-design/assets/animations.css`.
+- Keyframe library (marquee, aurora, orbit, spin-slow, floating, ray-pulse, progress) in `references/motion-physics/assets/animations.css`.

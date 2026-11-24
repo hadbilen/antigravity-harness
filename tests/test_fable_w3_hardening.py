@@ -8,7 +8,7 @@ Hermetic regression tests for Fable 5.2 Audit Campaign Window 3 (AC-5 & AC-6):
          enforcement in `scripts/meta_audit.py`, and clean Porter export sanitization.
   - 3.4: Multi-language `agents/build-error-resolver.md` (TS/JS, Rust/Cargo, Python, Go,
          Kotlin/Gradle, QML/CMake) with read-only schema intact.
-  - 5.6: `skills/antislop/scripts/check_ui_slop.py` (`UI-3`) CSS gradient stop HSL hue-range
+  - 5.6: `skills/ui-refinery/scripts/check_ui_slop.py` (`UI-3`) CSS gradient stop HSL hue-range
          detection replacing 5 hardcoded hexes (`#667eea -> #764ba2` caught; cobalt/slate/teal clean).
   - 5.8: Calibrated Turkish routing in `guard/hooks/pre_invocation.py` (`"Bu projeyi hızlandır"`,
          `"migration yaz"`, `"Testler neden kırmızı?"`), pasted audit/review & read-only
@@ -70,7 +70,7 @@ class TestFableW3SkillsAndAgents(unittest.TestCase):
         from scripts.meta_audit import MetaAuditEngine
 
         explicit_only = {"audit", "retro", "chisle", "upstream-auditor"}
-        auto_routed_sample = {"harness", "diagnosing-bugs", "refactoring", "sweetspot", "antislop"}
+        auto_routed_sample = {"harness", "diagnosing-bugs", "refactoring", "sweetspot", "ui-refinery"}
 
         for name in sorted(explicit_only):
             meta, _ = parse_frontmatter((REPO_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"))
@@ -189,7 +189,7 @@ class TestFableW3UiSlopAndRouting(unittest.TestCase):
     def test_5_6_ui3_hsl_gradient_hue_range_catches_ai_purple_and_allows_clean_palettes(self) -> None:
         import importlib.util
 
-        script_path = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_ui_slop.py"
+        script_path = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py"
         spec = importlib.util.spec_from_file_location("check_ui_slop_w3", script_path)
         assert spec is not None and spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
@@ -575,7 +575,7 @@ class TestFableW4AuditRegressionsW3(unittest.TestCase):
         import importlib.util
         from guard.hooks import stop_gate
 
-        script_path = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_ui_slop.py"
+        script_path = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py"
         spec = importlib.util.spec_from_file_location("check_ui_slop_w4", script_path)
         assert spec is not None and spec.loader is not None
         slop_mod = importlib.util.module_from_spec(spec)

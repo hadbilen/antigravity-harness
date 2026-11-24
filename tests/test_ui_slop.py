@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for skills/antislop/scripts/check_ui_slop.py."""
+"""Unit tests for skills/ui-refinery/scripts/check_ui_slop.py."""
 
 import importlib.util
 import json
@@ -13,7 +13,7 @@ from pathlib import Path
 import hermetic  # noqa: F401  (isolates HOME/state before anything else is imported)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_ui_slop.py"
+SCRIPT = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py"
 
 _spec = importlib.util.spec_from_file_location("check_ui_slop", SCRIPT)
 cus = importlib.util.module_from_spec(_spec)

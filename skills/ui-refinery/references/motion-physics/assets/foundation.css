@@ -170,7 +170,7 @@ h6 {
   font-family: "Inter", sans-serif;
 }
 
-/* Cards do not apply backdrop-filter blur by default (antislop R-10); use .overlay-glass on sticky navs/modals only */
+/* Cards do not apply backdrop-filter blur by default (ui-refinery R-10); use .overlay-glass on sticky navs/modals only */
 .card {
   background: linear-gradient(to bottom right, color-mix(in srgb, var(--color-card) 80%, transparent), color-mix(in srgb, var(--color-card) 40%, transparent));
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);

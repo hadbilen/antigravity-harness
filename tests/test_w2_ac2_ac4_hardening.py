@@ -854,8 +854,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         import install
 
         target = self.root / "cfg_mcp"
-        (target / "skills" / "antislop" / "scripts").mkdir(parents=True)
-        installed_script = target / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        (target / "skills" / "ui-refinery" / "scripts").mkdir(parents=True)
+        installed_script = target / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
         installed_script.write_text("# mcp\n", encoding="utf-8")
 
         mcp_path = target / "mcp_config.json"
@@ -1287,10 +1287,10 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         # migrate_mcp_config rejects `..` traversal segments
         cfg_dir = self.root / "mcp_cfg"
-        (cfg_dir / "skills" / "antislop" / "scripts").mkdir(parents=True)
+        (cfg_dir / "skills" / "ui-refinery" / "scripts").mkdir(parents=True)
         outside_py = self.root / "outside_mcp.py"
         outside_py.write_text("print(1)\n", encoding="utf-8")
-        bad_arg = str(REPO_ROOT / "skills" / "antislop" / ".." / ".." / "outside_mcp.py")
+        bad_arg = str(REPO_ROOT / "skills" / "ui-refinery" / ".." / ".." / "outside_mcp.py")
         mcp_file = cfg_dir / "mcp_config.json"
         mcp_file.write_text(
             json.dumps({"mcpServers": {"bad": {"command": "python3", "args": [bad_arg]}}}),
@@ -1812,8 +1812,8 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         import install
 
         target = self.root / "cfg_install_w4"
-        (target / "skills" / "antislop" / "scripts").mkdir(parents=True)
-        installed_script = target / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        (target / "skills" / "ui-refinery" / "scripts").mkdir(parents=True)
+        installed_script = target / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
         installed_script.write_text("# mcp\n", encoding="utf-8")
 
         mcp_path = target / "mcp_config.json"
@@ -1975,7 +1975,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         # 1. Target-tree legacy path (`<target>/skills/antislop-human/contrast-mcp.py`) repoints + frozen skips binary command pin
         cfg_frozen = self.root / "cfg_frozen_mcp"
-        new_script = cfg_frozen / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        new_script = cfg_frozen / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
         new_script.parent.mkdir(parents=True, exist_ok=True)
         new_script.write_text("# mcp\n", encoding="utf-8")
         legacy_installed_arg = str(cfg_frozen / "skills" / "antislop-human" / "contrast-mcp.py")
@@ -2025,7 +2025,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         self.assertEqual(rc, 0)
         init_after = json.loads((cfg_init / "mcp_config.json").read_text(encoding="utf-8"))["mcpServers"]["antislop-contrast"]
         self.assertEqual(init_after["command"], sys.executable)
-        self.assertEqual(init_after["args"], [str(cfg_init / "skills" / "antislop" / "scripts" / "contrast-mcp.py")])
+        self.assertEqual(init_after["args"], [str(cfg_init / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py")])
 
     def test_mcp_migration_symlink_ancestor_nonfile_relative_args_and_init_fim_intact(self) -> None:
         from guard import cli as guard_cli
@@ -2056,7 +2056,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
         if os.name != "nt":
             real_parent = self.root / "real_parent"
             real_cfg = real_parent / "cfg"
-            dest_mcp = real_cfg / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+            dest_mcp = real_cfg / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
             dest_mcp.parent.mkdir(parents=True, exist_ok=True)
             dest_mcp.write_text("# mcp\n", encoding="utf-8")
             link_parent = self.root / "link_parent"
@@ -2084,7 +2084,7 @@ class TestAC4PlaceholdersInstallAndDoctorHardening(unittest.TestCase):
 
         # 4. cmd_init leaves FIM baseline intact, retires stale consolidated skill dir without receipt, and clamps backup mode 0o600
         cfg_fim = self.root / "cfg_init_fim"
-        stale_skill = cfg_fim / "skills" / "antislop-human"
+        stale_skill = cfg_fim / "skills" / "marathon"
         stale_skill.mkdir(parents=True, exist_ok=True)
         (stale_skill / "SKILL.md").write_text("# legacy\n", encoding="utf-8")
         (cfg_fim / "mcp_config.json").write_text(

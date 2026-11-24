@@ -361,77 +361,77 @@ _SKILL_HINTS_RAW: Tuple[Tuple[str, str, str, str], ...] = (
         "3-question Vibe-Grill & zero-friction single-file rich HTML app, game & creative sandbox prototyping",
     ),
     (
-        "antislop",
-        "skills/antislop/SKILL.md",
+        "ui-refinery",
+        "skills/ui-refinery/SKILL.md",
         (
-            rf"(?:{_SLASH_PRE}/antislop{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"anti[- ]?slop|ui\s+delivery\s+gate|ai\s+slop|design\s+quality\s+gate|"
+            rf"(?:{_SLASH_PRE}/ui-refinery{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"ui[- ]refinery|ui\s+delivery\s+gate|ai\s+slop|design\s+quality\s+gate|"
             r"arayüz\s+kalite(?:si)?|tasarım\s+denetimi|yapay\s+zeka\s+klişe(?:si|leri)"
             rf"){_PATH_WORD_POST})"
         ),
         "40-rule design/copy quality filter, Liveliness Toolkit & UI Delivery Gate",
     ),
     (
-        "antislop-ui",
-        "skills/antislop/references/ui.md",
+        "ui-audit",
+        "skills/ui-refinery/references/ui.md",
         (
-            rf"(?:{_SLASH_PRE}/antislop-ui{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"antislop[- ]ui|visual\s+slop\s+audit|audit\s+ui\s+components?|anti[- ]boxification|sibling\s+symmetry|"
+            rf"(?:{_SLASH_PRE}/ui-audit{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"ui[- ]audit|visual\s+slop\s+audit|audit\s+ui\s+components?|anti[- ]boxification|sibling\s+symmetry|"
             r"görsel\s+slop|bileşen\s+denetimi|kart\s+simetrisi"
             rf"){_PATH_WORD_POST})"
         ),
         "Anti-Boxification, Sibling Symmetry Cap, Typographic Scale Lock & HUD vitality",
     ),
     (
-        "antislop-copywriting",
-        "skills/antislop/references/copywriting.md",
+        "copy-polish",
+        "skills/ui-refinery/references/copywriting.md",
         (
-            rf"(?:{_SLASH_PRE}/antislop-copywriting{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"antislop[- ]copy(?:writing)?|write\s+copy|de[- ]ai\s+(?:prose|text|copy)|synthetic\s+markers?|anti[- ]ai\s+tone|"
+            rf"(?:{_SLASH_PRE}/copy-polish{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"copy[- ]polish|write\s+copy|de[- ]ai\s+(?:prose|text|copy)|synthetic\s+markers?|anti[- ]ai\s+tone|"
             r"metin\s+yazımı|pazarlama\s+metni|yapay\s+zeka\s+dili(?:ni)?\s+temizle"
             rf"){_PATH_WORD_POST})"
         ),
         "de-AI prose rewrites, tone calibration & EN/TR synthetic-marker scanning",
     ),
     (
-        "antislop-human",
-        "skills/antislop/references/human-a11y.md",
+        "a11y-check",
+        "skills/ui-refinery/references/human-a11y.md",
         (
-            rf"(?:{_SLASH_PRE}/antislop-human{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"antislop[- ]human|check\s+contrast|wcag\s+contrast|accessibility\s+audit|a11y\s+audit|color\s+contrast\s+ratio|"
+            rf"(?:{_SLASH_PRE}/a11y-check{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"a11y[- ]check|check\s+contrast|wcag\s+contrast|accessibility\s+audit|a11y\s+audit|color\s+contrast\s+ratio|"
             r"renk\s+kontrast(?:ı|i)|erişilebilirlik\s+denetimi|wcag\s+uyumu"
             rf"){_PATH_WORD_POST})"
         ),
         "WCAG AA contrast verification, keyboard navigation & 5 component states",
     ),
     (
-        "antislop-layoutmobile",
-        "skills/antislop/references/layoutmobile.md",
+        "mobile-layout",
+        "skills/ui-refinery/references/layoutmobile.md",
         (
-            rf"(?:{_SLASH_PRE}/antislop-layoutmobile{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"antislop[- ]layoutmobile|mobile\s+layout|fix\s+overflow|horizontal\s+overflow|tap[- ]target\s+siz(?:e|ing)|responsive\s+check|"
+            rf"(?:{_SLASH_PRE}/mobile-layout{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"mobile[- ]layout|fix\s+overflow|horizontal\s+overflow|tap[- ]target\s+siz(?:e|ing)|responsive\s+check|"
             r"mobil\s+yerleşim|yatay\s+taşma|mobil\s+uyumluluk|dokunma\s+hedefi"
             rf"){_PATH_WORD_POST})"
         ),
         "mobile horizontal-overflow elimination, 44px tap targets & responsive reflow",
     ),
     (
-        "antislop-code",
-        "skills/antislop/references/code-comments.md",
+        "code-comments",
+        "skills/ui-refinery/references/code-comments.md",
         (
-            rf"(?:{_SLASH_PRE}/antislop-code{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"antislop[- ]code|clean\s+comments|comment\s+hygiene|remove\s+slop\s+comments|"
+            rf"(?:{_SLASH_PRE}/code-comments{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"code-comments|clean\s+comments|comment\s+hygiene|remove\s+slop\s+comments|"
             r"yorum\s+temizli(?:ği|gi)|gereksiz\s+yorumlar(?:ı|i)\s+(?:sil|temizle|kaldır)"
             rf"){_PATH_WORD_POST})"
         ),
         "code-comment hygiene: strips AI-slop comments while preserving why/contract notes",
     ),
     (
-        "silk-design",
-        "skills/antislop/references/silk-design.md",
+        "motion-physics",
+        "skills/ui-refinery/references/motion-physics.md",
         (
-            rf"(?:{_SLASH_PRE}/silk-design{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
-            r"silk[- ]design|kinetic\s+(?:motion|typography)|smooth[- ]scroll(?:ing)?|motion\s+3|lenis\s+scroll|"
+            rf"(?:{_SLASH_PRE}/motion-physics{_SLASH_POST}|{_PATH_WORD_PRE}(?:"
+            r"motion[- ]physics|kinetic\s+(?:motion|typography)|smooth[- ]scroll(?:ing)?|motion\s+3|lenis\s+scroll|"
             r"kinetik\s+tasarım|akıcı\s+kaydırma|vitrin\s+sayfası\s+tasarla"
             rf"){_PATH_WORD_POST})"
         ),
@@ -586,14 +586,14 @@ _ECOSYSTEM_ROUTING_HINTS_RAW: Tuple[Tuple[str, str, str], ...] = (
         "MCP Server `rea_rea` & Plugin `rea` (`call_mcp_tool` with `ServerName=\"rea_rea\"` + read `~/.gemini/config/plugins/rea/skills/reverse-engineer-anything/SKILL.md`)",
     ),
     (
-        "route:mcp:antislop-contrast",
+        "route:mcp:ui-refinery-contrast",
         (
             rf"{_PATH_WORD_PRE}(?:"
             r"check\s+contrast|wcag\s+contrast|color\s+contrast(?:\s+ratio)?|contrast\s+ratio|"
             r"renk\s+kontrast(?:ı|i)|kontrast\s+oran(?:ı|i)"
             rf"){_PATH_WORD_POST}"
         ),
-        "MCP Server `antislop-contrast` (`call_mcp_tool` with `ServerName=\"antislop-contrast\"`, `ToolName=\"check_contrast\"`)",
+        "MCP Server `ui-refinery-contrast` (`call_mcp_tool` with `ServerName=\"ui-refinery-contrast\"`, `ToolName=\"check_contrast\"`)",
     ),
     (
         "route:subagent:security-silent",
@@ -746,7 +746,7 @@ _ECOSYSTEM_ROUTING_HINTS_RAW: Tuple[Tuple[str, str, str], ...] = (
             r"özel\s+bir\s+illüstrasyon\s+ve\s+görsel\s+üret\w*|illüstrasyon\s+üret\w*|görsel\s+varlık\s+üret\w*"
             rf"){_PATH_WORD_POST}"
         ),
-        "Built-in Subagent `image-generator` (`invoke_subagent` with `TypeName=\"image-generator\"` after obtaining explicit user approval for asset creation per `antislop` R-23; never use for logical diagrams per `visualizer`)",
+        "Built-in Subagent `image-generator` (`invoke_subagent` with `TypeName=\"image-generator\"` after obtaining explicit user approval for asset creation per `ui-refinery` R-23; never use for logical diagrams per `visualizer`)",
     ),
     (
         "route:builtin:native_swarm",
@@ -801,7 +801,7 @@ _ROUTE_SLASH_ALIASES: Dict[str, Tuple[str, ...]] = {
 
 _ROUTE_EXPLICIT_SLUGS: Dict[str, Tuple[str, ...]] = {
     "route:mcp:rea_rea": ("rea_rea", "reverse-engineer-anything"),
-    "route:mcp:antislop-contrast": ("antislop-contrast", "antislop_contrast", "check_contrast"),
+    "route:mcp:ui-refinery-contrast": ("ui-refinery-contrast", "ui-refinery_contrast", "check_contrast"),
     "route:subagent:security-silent": ("security-boundary-verifier", "silent-failure-hunter"),
     "route:subagent:contract-test": ("contract-change-auditor", "test-adequacy-auditor"),
     "route:subagent:spec-consistency": ("consistency-auditor", "specification-gap-auditor"),
@@ -832,7 +832,6 @@ _DISTINCTIVE_SKILL_SLUGS = frozenset({
     "porter",
     "sweetspot",
     "vibecoder",
-    "antislop",
     "chisle",
     "unlazy",
     "marathon",
@@ -3130,12 +3129,12 @@ def _collect_invocation_skill_hints(
             elif not pat_or_rx.search(scan_text):
                 continue
         effective_directive = directive
-        if route_key == "route:mcp:antislop-contrast":
-            if not _is_harness_plugin_active("antislop", cfg, workspaces, _turn_cache=turn_cache):
+        if route_key == "route:mcp:ui-refinery-contrast":
+            if not _is_harness_plugin_active("ui-refinery", cfg, workspaces, _turn_cache=turn_cache):
                 continue
             try:
                 p_root = cfg / "plugins"
-                p_dir = p_root / "antislop"
+                p_dir = p_root / "ui-refinery"
                 p_mcp = p_dir / "mcp_config.json"
                 has_plugin_mcp = (
                     not p_root.is_symlink()
@@ -3150,7 +3149,7 @@ def _collect_invocation_skill_hints(
                     try:
                         ws_a = ws / ".agents"
                         ws_proot = ws_a / "plugins"
-                        ws_pdir = ws_proot / "antislop"
+                        ws_pdir = ws_proot / "ui-refinery"
                         ws_mcp = ws_pdir / "mcp_config.json"
                         if (
                             not ws_a.is_symlink()
@@ -3165,9 +3164,65 @@ def _collect_invocation_skill_hints(
                         continue
             if has_plugin_mcp:
                 effective_directive = (
-                    "MCP Server `antislop_contrast` (`call_mcp_tool` with "
-                    '`ServerName="antislop_contrast"`, `ToolName="check_contrast"`)'
+                    "MCP Server `ui-refinery_contrast` (`call_mcp_tool` with "
+                    '`ServerName="ui-refinery_contrast"`, `ToolName="check_contrast"`)'
                 )
+            else:
+                flat_cache_key = ("flat_contrast_key", str(cfg))
+                if flat_cache_key in turn_cache:
+                    flat_key = turn_cache[flat_cache_key]
+                else:
+                    flat_key = None
+                    mcp_path = cfg / "mcp_config.json"
+                    try:
+                        if not os.path.islink(cfg) and not os.path.islink(mcp_path):
+                            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                            fd = os.open(os.fspath(mcp_path), flags)
+                            try:
+                                import stat as _stat
+
+                                st = os.fstat(fd)
+                                if _stat.S_ISREG(st.st_mode) and st.st_size <= 512 * 1024:
+                                    with os.fdopen(fd, "rb") as fh:
+                                        fd = -1
+                                        raw = fh.read(512 * 1024 + 1)
+                                    if len(raw) <= 512 * 1024:
+                                        data = json.loads(raw.decode("utf-8"))
+                                        servers = data.get("mcpServers") if isinstance(data, dict) else None
+                                        if isinstance(servers, dict):
+                                            if "ui-refinery-contrast" in servers:
+                                                flat_key = "ui-refinery-contrast"
+                                            else:
+                                                suffix = "skills/ui-refinery/scripts/contrast-mcp.py"
+                                                for skey, scfg in servers.items():
+                                                    if not isinstance(skey, str) or not skey.strip() or not isinstance(scfg, dict):
+                                                        continue
+                                                    sargs = scfg.get("args")
+                                                    if not isinstance(sargs, list):
+                                                        continue
+                                                    for a in sargs:
+                                                        if not isinstance(a, str):
+                                                            continue
+                                                        norm_a = a.strip().replace("\\", "/").lower()
+                                                        if norm_a == suffix or norm_a.endswith("/" + suffix):
+                                                            flat_key = skey.strip()
+                                                            break
+                                                    if flat_key:
+                                                        break
+                            finally:
+                                if fd >= 0:
+                                    try:
+                                        os.close(fd)
+                                    except OSError:
+                                        pass
+                    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+                        flat_key = None
+                    turn_cache[flat_cache_key] = flat_key
+                if flat_key and flat_key != "ui-refinery-contrast":
+                    effective_directive = (
+                        f"MCP Server `{flat_key}` (`call_mcp_tool` with "
+                        f'`ServerName="{flat_key}"`, `ToolName="check_contrast"`)'
+                    )
         priority = 2 if explicit_route_slash else (1 if explicit_route_slug else 0)
         route_candidates.append((-priority, table_idx, route_key, effective_directive))
     selected_routes = _select_tiered_hints(route_candidates)

@@ -19,7 +19,7 @@ As model capabilities advance, platforms evolve, and external open-source skills
 
 The mandate of this skill is to:
 1. Detect changes across the active model, Antigravity runtime, and the 8 tracked community repositories.
-2. Filter incoming changes through the global constitution and the `antislop` design/copy quality contract.
+2. Filter incoming changes through the global constitution and the `ui-refinery` design/copy quality contract.
 3. Present the user with a transparent, reviewable, and minimal synchronization diff.
 
 ---
@@ -33,7 +33,7 @@ Refine the audit scope using targeted flags:
 * **External Skills Only:** `/audit-upstream --skills`
   * Audits only git commit heads and release tags in `upstream_state.json` against local installed skills and plugins.
 * **Targeted Single Skill:** `/audit-upstream --skill <skill_name>`
-  * Audits only the specified skill (e.g. `/audit-upstream --skill antislop`, `chisle`, `rustify`).
+  * Audits only the specified skill (e.g. `/audit-upstream --skill ui-refinery`, `chisle`, `rustify`).
 * **Model Only:** `/audit-upstream --model`
   * Inspects the active Large Language Model (LLM) across runtime roles (`Orchestrator`, `Author` coding flagships, `Verifier`/auditors, and `Fast`/auxiliary models), official release notes, and evaluates harness rules and thresholds against [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) (`MC-01`..`MC-06`) to determine which scaffolding rules are now redundant (`Pruning`) and which require threshold or wording changes (`Drift` / `Opportunities`).
 * **Platform Only:** `/audit-upstream --platform`
@@ -48,7 +48,7 @@ Refine the audit scope using targeted flags:
 
 ```mermaid
 flowchart LR
-    P1["1. Upstream Ingestion<br/>(Model, Runtime & 8 Repos)"] --> P2["2. Local Inventory & Constitution<br/>(GEMINI.md, antislop)"]
+    P1["1. Upstream Ingestion<br/>(Model, Runtime & 8 Repos)"] --> P2["2. Local Inventory & Constitution<br/>(GEMINI.md, ui-refinery)"]
     P2 --> P3["3. Cross-Matrix Analysis<br/>(Pruning, Drift, Opportunities)"]
     P3 --> P4["4. Staging RFC & Synchronization<br/>(Diff & upstream_state.seed.json Update)"]
 ```
@@ -64,10 +64,10 @@ flowchart LR
    * Detect new builtin capabilities, updated bundled plugins, updated lifecycle hooks, or modified runtime tools.
 3. **External Community Ecosystem (`--skills`, `--skill <name>`, or `--all`):**
    * Query the 8 tracked repositories in `upstream_state.json` via GitHub API (`commits` with optional `path` filter, or `releases/latest` when `"track": "release"` is set):
-     * `miqdadbadjuber/anti-slop` $\rightarrow$ `antislop` (`~/.gemini/config/skills/antislop/references/{code-comments,ui,human-a11y,copywriting,layoutmobile}.md`)
+     * `miqdadbadjuber/anti-slop` $\rightarrow$ `ui-refinery` (`~/.gemini/config/skills/ui-refinery/references/{code-comments,ui,human-a11y,copywriting,layoutmobile}.md`)
      * `JayPokale/Chisle` $\rightarrow$ `chisle`
      * `Leonxlnx/unlazy` $\rightarrow$ `harness` (`~/.gemini/config/skills/harness/references/unlazy.md`)
-     * `bendrape1-byte/silk-design` $\rightarrow$ `antislop` (`~/.gemini/config/skills/antislop/references/silk-design.md`)
+     * `bendrape1-byte/silk-design` $\rightarrow$ `ui-refinery` (`~/.gemini/config/skills/ui-refinery/references/motion-physics.md`)
      * `affaan-m/everything-claude-code` $\rightarrow$ `database-migrations`, `harness` (`~/.gemini/config/skills/harness/references/adr.md`), `audit` (`~/.gemini/config/skills/audit/references/security-review.md`), `~/.gemini/config/agents/build-error-resolver.md`
      * `mattpocock/skills` $\rightarrow$ `grill-me` (locally `deep-grill`), `diagnosing-bugs`, `harness` (`~/.gemini/config/skills/harness/references/test-design.md`), `retro`
      * `morluto/rea` (`track: "release"`) $\rightarrow$ `reverse-engineer-anything` (`plugins/rea` & `rea-agents` Model Context Protocol (MCP) server)
@@ -82,12 +82,12 @@ flowchart LR
 1. **Global Constitution:** `GEMINI.md` and active project instruction files.
 2. **Custom Skills:** User-defined and community-curated skills in `~/.gemini/config/skills/`.
 3. **Auditor Subagents & MCP:** Defined auditor personas and registered MCP tools.
-4. **Model Calibration Matrix (`--model` or `--all`):** Load [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) to partition directives into **Tier I Immutable Governance Core** (project/safety contracts that never expire with model upgrades) and **Tier II Model-Capability Scaffolding Candidates** (`MC-01`..`MC-06`: context/subagent caps, oscillation blast caps, anti-laziness reminders, `antislop` trope filters, discourse brevity, and subagent contract precision), scoped across the four runtime roles (`Orchestrator`, `Author`, `Verifier`, `Fast`).
+4. **Model Calibration Matrix (`--model` or `--all`):** Load [references/model-calibration-matrix.md](./references/model-calibration-matrix.md) to partition directives into **Tier I Immutable Governance Core** (project/safety contracts that never expire with model upgrades) and **Tier II Model-Capability Scaffolding Candidates** (`MC-01`..`MC-06`: context/subagent caps, oscillation blast caps, anti-laziness reminders, `ui-refinery` trope filters, discourse brevity, and subagent contract precision), scoped across the four runtime roles (`Orchestrator`, `Author`, `Verifier`, `Fast`).
 
 ### Stage 3: Cross-Matrix Analysis & Constitutional Filter
 
 Every upstream modification undergoes constitutional verification:
-* **AI-Slop & Fluff Check:** Does the update introduce verbosity or hype phrases? (Constitution Rule 3 & `antislop`).
+* **AI-Slop & Fluff Check:** Does the update introduce verbosity or hype phrases? (Constitution Rule 3 & `ui-refinery`).
 * **Test Invariant Protection:** Does the upstream change soften verification or weaken test rigor?
 * **Tier Compatibility:** Does it violate the 3-tier execution ladder?
 
@@ -165,7 +165,7 @@ directly to read-only `~/.gemini/config/` or the Guard-protected runtime file `~
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
       "last_synced_commit": "35b54dc",
-      "target_skills": ["antislop"]
+      "target_skills": ["ui-refinery"]
     },
     "rea": {
       "repo": "morluto/rea",

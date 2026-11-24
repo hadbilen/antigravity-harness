@@ -1,12 +1,12 @@
-# antislop-layoutmobile
+# mobile-layout
 
-> Anti Slop: Rules for AI Coding Agents. Mobile Layout skill
+> UI Refinery: Rules for AI Coding Agents. Mobile Layout module
 
-> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill deep-dives the responsive layout concern: how a layout must reflow across screen sizes, phone to desktop. Breakpoints, scale, grids, overflow, tap targets, and navigation. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures.
+> Part of the `ui-refinery` system. Read together with the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`). This module deep-dives the responsive layout concern: how a layout must reflow across screen sizes, phone to desktop. Breakpoints, scale, grids, overflow, tap targets, and navigation. It references core rules by number and never duplicates or renumbers them. Load on demand when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures (do not co-load automatically on every routine UI edit). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds mobile-layout depth.
+- Load on demand alongside the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`) when explicitly debugging mobile horizontal overflow, tap-target sizing, or responsive breakpoint failures (do not co-load automatically on every routine UI edit). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this module holds mobile-layout depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - The principle behind this skill: **mobile layout is a different layout, not the desktop layout at a smaller size.** It must reflow: re-stack, rescale, and re-order with intent. Every pattern below is a way a layout fails to reflow.
 - The Delivery Gate in the core remains the gate. The "Layoutmobile Skill Checklist" at the end of this file is the mobile-specific supplement to run alongside it.
@@ -94,7 +94,7 @@
 ### Overflow Hidden Clipping
 
 - **Tell:** `overflow: hidden` on a container that clips content at narrow widths, hiding text or controls instead of letting them fit.
-- **Why:** clipping is hiding a failure. When a container cuts off its content because the layout cannot fit it, the user loses information and interaction (R-03). The zoom and text-resize angle on this is covered by `~/.gemini/config/skills/antislop/references/human-a11y.md`.
+- **Why:** clipping is hiding a failure. When a container cuts off its content because the layout cannot fit it, the user loses information and interaction (R-03). The zoom and text-resize angle on this is covered by `~/.gemini/config/skills/ui-refinery/references/human-a11y.md`.
 - **Fix:** let the content reflow instead of clipping: allow the container to grow, wrap its content, or collapse it at the breakpoint. Clip only where cropping is the design intent (like a thumbnail), never where it hides content.
 
 ### Fixed-Width Children

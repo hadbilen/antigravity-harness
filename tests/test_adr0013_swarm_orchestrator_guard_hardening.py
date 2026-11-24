@@ -474,12 +474,12 @@ class TestW3PortableScriptDispatch(_IsolatedCase):
         )
         self.assertEqual(res_inst.returncode, 0, res_inst.stdout + res_inst.stderr)
 
-        # Verify runtime carries portable antislop fallback scripts as well as scripts/
+        # Verify runtime carries portable ui-refinery fallback scripts as well as scripts/
         rt_root = data_dir / "antigravity-harness" / "runtime"
         self.assertTrue((rt_root / "scripts" / "code_map.py").is_file())
         self.assertTrue((rt_root / "scripts" / "verify_invariants.py").is_file())
-        self.assertTrue((rt_root / "skills" / "antislop" / "scripts" / "check_ui_slop.py").is_file())
-        self.assertTrue((rt_root / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py").is_file())
+        self.assertTrue((rt_root / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py").is_file())
+        self.assertTrue((rt_root / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py").is_file())
 
         if os.name != "nt":
             launcher = home_dir / ".local" / "bin" / "agy-guard"
@@ -494,20 +494,20 @@ class TestW3PortableScriptDispatch(_IsolatedCase):
                     r = subprocess.run([str(launcher), *sub_args], cwd=ext_ws, env=env, capture_output=True, text=True, timeout=30)
                     self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
-        # Canonical ANTIGRAVITY_CONFIG_DIR fallback resolves skills/antislop/scripts when runtime copy is absent
+        # Canonical ANTIGRAVITY_CONFIG_DIR fallback resolves skills/ui-refinery/scripts when runtime copy is absent
         fake_cli_file = self.tmp / "bare_lib" / "guard" / "cli.py"
         fake_cli_file.parent.mkdir(parents=True)
         fake_cli_file.write_text("# stub\n", encoding="utf-8")
         with mock.patch.dict(os.environ, {"ANTIGRAVITY_CONFIG_DIR": str(cfg_dir), "AGY_GUARD_DATA_DIR": str(self.tmp / "empty_data")}), mock.patch.object(
             guard_cli, "__file__", str(fake_cli_file)
         ):
-            resolved = guard_cli._resolve_portable_script("skills/antislop/scripts/check_ui_slop.py")
-            self.assertEqual(resolved, cfg_dir / "skills" / "antislop" / "scripts" / "check_ui_slop.py")
+            resolved = guard_cli._resolve_portable_script("skills/ui-refinery/scripts/check_ui_slop.py")
+            self.assertEqual(resolved, cfg_dir / "skills" / "ui-refinery" / "scripts" / "check_ui_slop.py")
 
         # Missing script fails loudly with exit code 2 (never silent pass)
         err_buf = io.StringIO()
         with mock.patch.object(guard_cli, "_resolve_portable_script", return_value=None), contextlib.redirect_stderr(err_buf):
-            rc_missing = guard_cli._run_portable_script("ui-slop", "skills/antislop/scripts/missing.py", ["--help"])
+            rc_missing = guard_cli._run_portable_script("ui-slop", "skills/ui-refinery/scripts/missing.py", ["--help"])
         self.assertEqual(rc_missing, 2)
         self.assertIn("was not found", err_buf.getvalue())
 
@@ -829,18 +829,18 @@ class TestW3OSLevelGuardFixes(_IsolatedCase):
             self.assertFalse(frozen_ay.is_available)
             self.assertIn("Frozen Linux binary", frozen_ay.fallback_reason)
 
-        # 5. build_binaries excludes `gi` on Linux onefile builds and bundles portable antislop scripts
+        # 5. build_binaries excludes `gi` on Linux onefile builds and bundles portable ui-refinery scripts
         lin_name, lin_cmd = build_binaries.build_pyinstaller_command(REPO_ROOT, "Linux", "x86_64", "/usr/bin/pyinstaller")
         self.assertEqual(lin_name, "agy-guard-linux-x86_64")
         self.assertIn("--exclude-module", lin_cmd)
         self.assertIn("gi", lin_cmd)
-        self.assertTrue(any("check_ui_slop.py:skills/antislop/scripts" in tok for tok in lin_cmd), lin_cmd)
-        self.assertTrue(any("check_synthetic_markers.py:skills/antislop/scripts" in tok for tok in lin_cmd), lin_cmd)
+        self.assertTrue(any("check_ui_slop.py:skills/ui-refinery/scripts" in tok for tok in lin_cmd), lin_cmd)
+        self.assertTrue(any("check_synthetic_markers.py:skills/ui-refinery/scripts" in tok for tok in lin_cmd), lin_cmd)
 
         win_name, win_cmd = build_binaries.build_pyinstaller_command(REPO_ROOT, "Windows", "x86_64", "pyinstaller.exe")
         self.assertEqual(win_name, "agy-guard-windows-x86_64.exe")
         self.assertNotIn("gi", win_cmd)
-        self.assertTrue(any("check_ui_slop.py;skills/antislop/scripts" in tok for tok in win_cmd), win_cmd)
+        self.assertTrue(any("check_ui_slop.py;skills/ui-refinery/scripts" in tok for tok in win_cmd), win_cmd)
 
 
 class TestW3Adr0013AndDocsParity(unittest.TestCase):
@@ -862,7 +862,7 @@ class TestW3Adr0013AndDocsParity(unittest.TestCase):
             rel = str(sk_md.relative_to(REPO_ROOT))
             text = sk_md.read_text(encoding="utf-8")
             self.assertNotRegex(text, r"python3\s+(?:\./)?scripts/code_map\.py", rel)
-            self.assertNotRegex(text, r"python3\s+(?:\./)?skills/antislop/scripts/check_", rel)
+            self.assertNotRegex(text, r"python3\s+(?:\./)?skills/ui-refinery/scripts/check_", rel)
 
 
 class TestW4PreFlightAuditAndMutationResilience(_IsolatedCase):

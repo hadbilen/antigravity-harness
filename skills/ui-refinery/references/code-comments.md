@@ -1,12 +1,12 @@
-# antislop-code
+# code-comments
 
-> Anti Slop: Rules for AI Coding Agents. Code Comments skill
+> UI Refinery: Rules for AI Coding Agents. Code Comments module
 
-> Part of the antislop system. Read together with the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`). This skill filters comments that read as generically AI (decorative, restating the obvious, stiff, loud) while preserving the comments that carry real information. It references core rules by number and never duplicates or renumbers them. Load it when the task writes or edits code comments.
+> Part of the `ui-refinery` system. Read together with the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`). This module filters comments that read as generically AI (decorative, restating the obvious, stiff, loud) while preserving the comments that carry real information. It references core rules by number and never duplicates or renumbers them. Load it when the task writes or edits code comments.
 
 ## How to use this skill
 
-- Load on demand alongside the `antislop` core skill (`~/.gemini/config/skills/antislop/SKILL.md`) when cleaning comments, reviewing diff comments, or when the user explicitly requests comment hygiene. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this skill holds comment-specific depth.
+- Load on demand alongside the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`) when cleaning comments, reviewing diff comments, or when the user explicitly requests comment hygiene. The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this module holds comment-specific depth.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (why it reads as slop), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - **Scope guardrail (`GEMINI.md` Rule 18):** this skill only modifies comments within the active diff or files explicitly targeted by the user. Never modify executable code, identifiers, imports, formatting, indentation, whitespace, control flow, or logic, and preserve existing unrelated comments outside the active scope unless the user explicitly requested a comment-hygiene pass.
 - The Delivery Gate in the core remains the gate. The "Code Comment Checklist" at the end of this file is the comment-specific supplement to run alongside it.

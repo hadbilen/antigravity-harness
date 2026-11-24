@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import os
 import re
+import stat
 import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -23,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover
     _default_tomllib = None  # type: ignore[assignment]
 
-from guard.paths import HOOK_LOCK_TIMEOUT, is_within
+from guard.paths import HOOK_LOCK_TIMEOUT, data_dir, is_within
 
 from .common import (
     MAX_STRIKES,
@@ -444,18 +445,46 @@ _UI_SLOP_SCANNER_MOD: Any = None
 _UI_SLOP_SCANNER_LOADED = False
 
 def _load_ui_slop_scanner() -> Any:
-    """Loads skills/antislop/scripts/check_ui_slop.py from _repo_root() or config_dir()."""
+    """Loads skills/ui-refinery/scripts/check_ui_slop.py from trusted code roots first, then verified config/plugin fallbacks."""
     global _UI_SLOP_SCANNER_MOD, _UI_SLOP_SCANNER_LOADED
     if _UI_SLOP_SCANNER_LOADED and _UI_SLOP_SCANNER_MOD is not None:
         return _UI_SLOP_SCANNER_MOD
-    candidates = [
-        _repo_root() / "skills" / "antislop" / "scripts" / "check_ui_slop.py",
-        config_dir() / "skills" / "antislop" / "scripts" / "check_ui_slop.py",
-        configured_config_dir() / "skills" / "antislop" / "scripts" / "check_ui_slop.py",
-        Path("/usr/share/antigravity-harness") / "skills" / "antislop" / "scripts" / "check_ui_slop.py",
+
+    def _is_safe_script(base_dir: Path, rel_path: Path, *, require_plugin_pack: Optional[str] = None) -> bool:
+        try:
+            cur = base_dir
+            for part in rel_path.parts:
+                cur = cur / part
+                if os.path.islink(cur):
+                    return False
+            st = os.lstat(cur)
+            if not stat.S_ISREG(st.st_mode):
+                return False
+            if os.name != "nt" and (st.st_mode & 0o002):
+                return False
+            if require_plugin_pack is not None:
+                from guard.environment import is_harness_plugin_dir
+
+                if not is_harness_plugin_dir(base_dir / "plugins" / require_plugin_pack, expected_pack=require_plugin_pack):
+                    return False
+            return True
+        except OSError:
+            return False
+
+    rel = Path("skills") / "ui-refinery" / "scripts" / "check_ui_slop.py"
+    plug_rel = Path("plugins") / "ui-refinery" / rel
+    candidates: List[Tuple[Path, Path, Optional[str]]] = [
+        (_repo_root(), rel, None),
+        (data_dir() / "runtime", rel, None),
+        (Path("/usr/share/antigravity-harness"), rel, None),
+        (config_dir(), rel, None),
+        (config_dir(), plug_rel, "ui-refinery"),
+        (configured_config_dir(), rel, None),
+        (configured_config_dir(), plug_rel, "ui-refinery"),
     ]
-    for script_path in candidates:
-        if script_path.is_file():
+    for base_dir, sub_rel, req_pack in candidates:
+        script_path = base_dir / sub_rel
+        if _is_safe_script(base_dir, sub_rel, require_plugin_pack=req_pack):
             try:
                 spec = importlib.util.spec_from_file_location("_agy_check_ui_slop", script_path)
                 if spec is not None and spec.loader is not None:
@@ -479,7 +508,7 @@ def validate_ui_slop_content(norm_path: str, content: str) -> List[str]:
     on modified non-test UI/HTML/game prototype files.
     """
     if not norm_path.lower().endswith(_UI_SLOP_EXTENSIONS) or norm_path.startswith(
-        ("skills/antislop/references/silk-design/assets/", "skills/silk-design/assets/")
+        ("skills/ui-refinery/references/motion-physics/assets/", "skills/motion-physics/assets/")
     ):
         return []
     mod = _load_ui_slop_scanner()
@@ -490,7 +519,7 @@ def validate_ui_slop_content(norm_path: str, content: str) -> List[str]:
     except Exception as exc:
         return [
             f"UI slop scanner failed on `{norm_path}` ({type(exc).__name__}: {exc}) "
-            "— verify `skills/antislop/scripts/check_ui_slop.py` health."
+            "— verify `skills/ui-refinery/scripts/check_ui_slop.py` health."
         ]
     out: List[str] = []
     for f in getattr(report, "findings", [])[:3]:

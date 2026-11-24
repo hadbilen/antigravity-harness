@@ -43,9 +43,7 @@ def _globs_for(name: str) -> str:
         return "**/*.rs, **/Cargo.toml"
     if re.search(r"(?:^|[-_])rust", name):
         return "**/*.rs, **/Cargo.toml, **/*.c, **/*.h, **/*.cpp, **/*.cc, **/*.cxx, **/*.hpp, **/*.hh, **/*.hxx"
-    if any(k in name for k in ("ui", "design", "css", "html", "layout")) or (
-        "antislop" in name and name != "antislop-code"
-    ):
+    if any(k in name for k in ("ui", "design", "css", "html", "layout", "motion-physics")):
         return UI_GLOBS
     return ""
 
@@ -140,9 +138,9 @@ class CursorEmitter:
             "Global Engineering Constitution", const,
         )
         design = ConstitutionalSanitizer.sanitize_for_export(manifest.design_contract.get("raw", ""), target=cls.TARGET)
-        plan[rules / "10-design-antislop.mdc"] = cls._mdc(
-            {"description": "Baseline Design Contract & Antislop Filter", "globs": UI_GLOBS, "alwaysApply": False},
-            "UI Design Contract & Antislop Filter", design,
+        plan[rules / "10-design-ui-refinery.mdc"] = cls._mdc(
+            {"description": "Baseline Design Contract & UI Refinery Filter", "globs": UI_GLOBS, "alwaysApply": False},
+            "UI Design Contract & UI Refinery Filter", design,
         )
         all_skill_paths = {
             str(s["name"]): _skill_owned_paths(s) for s in manifest.skills if s.get("name")

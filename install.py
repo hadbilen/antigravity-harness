@@ -48,10 +48,14 @@ from guard.environment import (  # noqa: E402
     CONSOLIDATED_SKILL_SLUGS,
     CONSTITUTION_RULE_FRONTMATTER,
     CONSTITUTION_RULE_REL,
+    LEGACY_HARNESS_PLUGIN_NAMES,
+    LEGACY_HARNESS_SKILL_SLUGS,
     AgentEnvironment,
     EnvironmentRegistry,
     RegistryError,
     StateFileSnapshot,
+    can_retire_harness_plugin_dir,
+    can_retire_legacy_harness_skill_dir,
     is_harness_constitution_file,
     is_harness_plugin_dir,
     migrate_harness_mcp_config,
@@ -81,8 +85,8 @@ SYSTEM = platform.system()
 GOVERNANCE_FILES = ["DESIGN.md"]
 RUNTIME_ENTRIES = ["guard", "porter", "scripts", "guard.py", "porter.py"]
 RUNTIME_PORTABLE_SKILL_SCRIPTS = (
-    "skills/antislop/scripts/check_ui_slop.py",
-    "skills/antislop/scripts/check_synthetic_markers.py",
+    "skills/ui-refinery/scripts/check_ui_slop.py",
+    "skills/ui-refinery/scripts/check_synthetic_markers.py",
 )
 LAUNCHER_MARKER = "antigravity-harness launcher"
 RELEASE_BASE = "https://github.com/hadbilen/antigravity-harness/releases/download"
@@ -546,7 +550,9 @@ class Installer:
                 prior_installed = {str(p).replace("\\", "/") for p in rec["installed"]}
                 if isinstance(rec.get("installed_plugins"), list):
                     self._prior_installed_plugins = [
-                        str(p) for p in rec["installed_plugins"] if isinstance(p, str) and p in HARNESS_PLUGIN_NAMES
+                        str(p)
+                        for p in rec["installed_plugins"]
+                        if isinstance(p, str) and p in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES)
                     ]
                 if isinstance(rec.get("retired_mcp_servers"), list):
                     self._prior_retired_mcp_servers = [
@@ -627,9 +633,18 @@ class Installer:
             retired_skill_slugs.update(PLUGIN_OWNED_SKILL_SLUGS)
         if target_skills.is_dir() and not os.path.islink(target_skills):
             for existing in sorted(target_skills.iterdir()):
+                if existing.name in src_skills:
+                    continue
+                if existing.name in LEGACY_HARNESS_SKILL_SLUGS:
+                    if can_retire_legacy_harness_skill_dir(
+                        existing,
+                        existing.name,
+                        in_receipt=(f"skills/{existing.name}" in prior_installed),
+                    ):
+                        self.backup(existing)
+                    continue
                 if (
                     (existing.is_dir() or os.path.islink(existing) or existing.name in PLUGIN_OWNED_SKILL_SLUGS)
-                    and existing.name not in src_skills
                     and (f"skills/{existing.name}" in prior_installed or existing.name in retired_skill_slugs)
                 ):
                     self.backup(existing)
@@ -661,14 +676,33 @@ class Installer:
 
         if self.layout == "hybrid":
             self.install_plugins()
+            target_plugins = self.target_dir / "plugins"
+            if target_plugins.is_dir() and not os.path.islink(target_plugins):
+                for legacy_pack in sorted(LEGACY_HARNESS_PLUGIN_NAMES):
+                    legacy_pdir = target_plugins / legacy_pack
+                    if os.path.lexists(legacy_pdir) and can_retire_harness_plugin_dir(
+                        legacy_pdir,
+                        expected_pack=legacy_pack,
+                        in_receipt=(
+                            legacy_pack in self._prior_installed_plugins
+                            or f"plugins/{legacy_pack}" in prior_installed
+                        ),
+                        allow_legacy_names=True,
+                    ):
+                        self.backup(legacy_pdir)
         elif self.explicit_flat or self._prior_installed_plugins:
             target_plugins = self.target_dir / "plugins"
             if target_plugins.is_dir() and not os.path.islink(target_plugins):
-                for pack_name in sorted(HARNESS_PLUGIN_NAMES):
+                for pack_name in sorted(HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
                     pdir = target_plugins / pack_name
-                    if os.path.lexists(pdir) and (
-                        pack_name in self._prior_installed_plugins
-                        or is_harness_plugin_dir(pdir, expected_pack=pack_name)
+                    if os.path.lexists(pdir) and can_retire_harness_plugin_dir(
+                        pdir,
+                        expected_pack=pack_name,
+                        in_receipt=(
+                            pack_name in self._prior_installed_plugins
+                            or f"plugins/{pack_name}" in prior_installed
+                        ),
+                        allow_legacy_names=(pack_name in LEGACY_HARNESS_PLUGIN_NAMES),
                     ):
                         self.backup(pdir)
                 if not self.dry_run:
@@ -1254,34 +1288,30 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
     tracked_rel: List[str] = []
     recorded_binary_path = ""
     receipt_matches_target = False
-    if receipt_path.is_file():
-        try:
-            rec = json.loads(receipt_path.read_text(encoding="utf-8"))
-            if isinstance(rec, dict):
-                rec_target = rec.get("target")
-                if not rec_target or Path(str(rec_target)).expanduser().resolve() == target_dir.resolve():
-                    receipt_matches_target = True
-                    if isinstance(rec.get("installed"), list):
-                        for raw_item in rec["installed"]:
-                            if not isinstance(raw_item, str):
-                                continue
-                            norm_i = raw_item.replace("\\", "/").strip("/")
-                            if norm_i == "plugins" or norm_i.startswith("plugins/"):
-                                sub_parts = norm_i.split("/")
-                                if len(sub_parts) == 2 and sub_parts[1] in HARNESS_PLUGIN_NAMES:
-                                    tracked_rel.append(norm_i)
-                            else:
-                                tracked_rel.append(raw_item)
-                    if isinstance(rec.get("installed_plugins"), list):
-                        for p in rec["installed_plugins"]:
-                            if isinstance(p, str) and p in HARNESS_PLUGIN_NAMES:
-                                rel_p = f"plugins/{p}"
-                                if rel_p not in tracked_rel:
-                                    tracked_rel.append(rel_p)
-                    if isinstance(rec.get("binary_path"), str):
-                        recorded_binary_path = rec["binary_path"]
-        except (OSError, ValueError) as exc:
-            print(f"[WARN] Could not parse {receipt_path} ({exc}); falling back to canonical harness manifest.", file=sys.stderr)
+    rec = read_install_receipt(receipt_path=receipt_path, target_dir=target_dir)
+    if rec is not None:
+        receipt_matches_target = True
+        if isinstance(rec.get("installed"), list):
+            for raw_item in rec["installed"]:
+                if not isinstance(raw_item, str):
+                    continue
+                norm_i = raw_item.replace("\\", "/").strip("/")
+                if not norm_i or ".." in Path(norm_i).parts or Path(raw_item).is_absolute():
+                    continue
+                if norm_i == "plugins" or norm_i.startswith("plugins/"):
+                    sub_parts = norm_i.split("/")
+                    if len(sub_parts) == 2 and sub_parts[1] in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
+                        tracked_rel.append(norm_i)
+                else:
+                    tracked_rel.append(norm_i)
+        if isinstance(rec.get("installed_plugins"), list):
+            for p in rec["installed_plugins"]:
+                if isinstance(p, str) and p in (HARNESS_PLUGIN_NAMES | LEGACY_HARNESS_PLUGIN_NAMES):
+                    rel_p = f"plugins/{p}"
+                    if rel_p not in tracked_rel:
+                        tracked_rel.append(rel_p)
+        if isinstance(rec.get("binary_path"), str):
+            recorded_binary_path = rec["binary_path"]
 
     if not receipt_matches_target and os.path.lexists(target_dir / "plugins"):
         print(
@@ -1348,15 +1378,61 @@ def uninstall_harness(target_dir: Path, dry_run: bool = False) -> int:
         if not norm_rel or norm_rel == "hooks.json":
             continue
         cand_path = Path(rel_item)
-        entry = cand_path if cand_path.is_absolute() else (target_dir / norm_rel)
+        rel_obj = Path(norm_rel)
+        if cand_path.is_absolute() or rel_obj.is_absolute() or ".." in rel_obj.parts or norm_rel in (".",):
+            continue
+        rel_parts = [p for p in rel_obj.parts if p not in ("", ".")]
+        if not rel_parts:
+            continue
+        # Reject any symlink ancestor between target_dir and entry's parent
+        cur_anc = target_dir
+        has_sym_anc = False
+        for seg in rel_parts[:-1]:
+            cur_anc = cur_anc / seg
+            if os.path.islink(cur_anc):
+                has_sym_anc = True
+                break
+        if has_sym_anc:
+            continue
+        entry = target_dir.joinpath(*rel_parts)
         try:
             parent_resolved = entry.parent.resolve()
-            if entry != target_dir and not (parent_resolved == target_resolved or parent_resolved.is_relative_to(target_resolved)):
+            if not (parent_resolved == target_resolved or parent_resolved.is_relative_to(target_resolved)):
                 continue
+            if not os.path.islink(entry):
+                entry_resolved = entry.resolve()
+                if entry_resolved == target_resolved or not entry_resolved.is_relative_to(target_resolved):
+                    continue
         except OSError:
             continue
         if os.path.lexists(entry):
-            rel_dest = entry.relative_to(target_dir) if entry.is_relative_to(target_dir) else Path(entry.name)
+            rel_dest = Path(*rel_parts)
+            if len(rel_parts) >= 2 and rel_parts[0] == "plugins":
+                pack_name = rel_parts[1]
+                pack_root = target_dir / "plugins" / pack_name
+                if not can_retire_harness_plugin_dir(
+                    pack_root,
+                    expected_pack=pack_name,
+                    in_receipt=receipt_matches_target,
+                    allow_legacy_names=(pack_name in LEGACY_HARNESS_PLUGIN_NAMES),
+                ):
+                    print(
+                        f"[WARN] Preserving non-harness or symlinked plugin directory untouched: {entry}",
+                        file=sys.stderr,
+                    )
+                    continue
+            elif len(rel_parts) >= 2 and rel_parts[0] == "skills" and rel_parts[1] in LEGACY_HARNESS_SKILL_SLUGS:
+                skill_root = target_dir / "skills" / rel_parts[1]
+                if not can_retire_legacy_harness_skill_dir(
+                    skill_root,
+                    rel_parts[1],
+                    in_receipt=receipt_matches_target,
+                ):
+                    print(
+                        f"[WARN] Preserving non-harness or symlinked skill directory untouched: {entry}",
+                        file=sys.stderr,
+                    )
+                    continue
             _stash(entry, rel_dest)
 
     if not dry_run and target_dir.is_dir() and not os.path.islink(target_dir):

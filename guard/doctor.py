@@ -273,20 +273,38 @@ def _check_native_deny_rules(root: Path, infos: List[str], warnings: Optional[Li
         infos.append("Native Antigravity deny rules cover 'agy-guard unlock' and '--no-verify'.")
 
 
-def _is_harness_contrast_mcp_arg(arg: str) -> bool:
-    from guard.environment import RELOCATED_SKILL_SCRIPTS
+def _is_harness_contrast_mcp_arg(arg: str, root: Optional[Path] = None) -> bool:
+    from guard.environment import (
+        RELOCATED_SKILL_SCRIPTS,
+        is_harness_plugin_dir,
+        is_legacy_harness_skill_dir,
+    )
     from guard.plugins import PLUGIN_CATALOG
 
-    antislop_spec = PLUGIN_CATALOG.get("antislop")
+    ui_spec = PLUGIN_CATALOG.get("ui-refinery")
     canonical = (
-        antislop_spec.mcp_script_rel
-        if (antislop_spec and antislop_spec.mcp_script_rel)
-        else "skills/antislop/scripts/contrast-mcp.py"
+        ui_spec.mcp_script_rel
+        if (ui_spec and ui_spec.mcp_script_rel)
+        else "skills/ui-refinery/scripts/contrast-mcp.py"
     )
-    suffixes = {canonical.lower(), f"plugins/antislop/{canonical}".lower()}
+    suffixes = {canonical.lower(), f"plugins/ui-refinery/{canonical}".lower()}
     for old_rel, new_rel in RELOCATED_SKILL_SCRIPTS.items():
         if new_rel == canonical:
+            old_parts = old_rel.split("/")
+            if root is not None and len(old_parts) >= 2 and old_parts[0] == "skills":
+                old_dir = root / "skills" / old_parts[1]
+                if os.path.lexists(old_dir) and not is_legacy_harness_skill_dir(old_dir):
+                    continue
             suffixes.add(old_rel.lower())
+    # Detect stale v2.4.0 contrast-mcp.py entries without falsely flagging third-party antislop installs
+    legacy_skill_dir = (root / "skills" / "antislop") if root is not None else None
+    if legacy_skill_dir is None or not os.path.lexists(legacy_skill_dir) or is_legacy_harness_skill_dir(legacy_skill_dir):
+        suffixes.add("skills/antislop/scripts/contrast-mcp.py")
+    legacy_plug_dir = (root / "plugins" / "antislop") if root is not None else None
+    if legacy_plug_dir is None or not os.path.lexists(legacy_plug_dir) or is_harness_plugin_dir(
+        legacy_plug_dir, expected_pack="antislop", allow_legacy_names=True
+    ):
+        suffixes.add("plugins/antislop/skills/antislop/scripts/contrast-mcp.py")
     norm = arg.strip().replace("\\", "/").lower()
     return any(norm == sfx or norm.endswith("/" + sfx) for sfx in suffixes)
 
@@ -440,7 +458,7 @@ def _read_plugin_manifest_jsonc(manifest_path: Path, warnings: List[str]) -> Tup
 
     try:
         data = json.loads(_strip_jsonc(raw_bytes.decode("utf-8")))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         warnings.append(f"Plugin manifest {manifest_path} is not valid JSON/JSONC ({exc}).")
         return "invalid", None
 
@@ -560,7 +578,7 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
             f"Re-run {repair_hint} with --plugins or --flat-skills to resolve shadowing."
         )
 
-    plugin_mcp = plugins_dir / "antislop" / "mcp_config.json"
+    plugin_mcp = plugins_dir / "ui-refinery" / "mcp_config.json"
     global_mcp = root / "mcp_config.json"
     try:
         has_plugin_mcp = not os.path.islink(plugin_mcp) and plugin_mcp.is_file()
@@ -587,7 +605,7 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
                 args = server.get("args")
                 if not isinstance(args, list):
                     continue
-                if any(isinstance(a, str) and _is_harness_contrast_mcp_arg(a) for a in args):
+                if any(isinstance(a, str) and _is_harness_contrast_mcp_arg(a, root=root) for a in args):
                     stale_keys.append(str(server_key))
             if stale_keys:
                 warnings.append(

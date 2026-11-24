@@ -1,11 +1,11 @@
 /**
- * silk-design — Zero-Build Vanilla Kinetic Runtime (assets/vanilla-kinetic.js)
+ * motion-physics — Zero-Build Vanilla Kinetic Runtime (assets/vanilla-kinetic.js)
  *
  * Provides physics-based MOTION 3 showcase primitives for Astro, static HTML,
  * Vanilla TypeScript, and single-file HTML showcase prototypes without React,
  * Framer Motion, or GSAP dependencies.
  *
- * Constitutional Invariants (antislop R-19 & DESIGN.md MODE: EDITORIAL):
+ * Constitutional Invariants (ui-refinery R-19 & DESIGN.md MODE: EDITORIAL):
  * - Automatically collapses all motion to instant state transitions (MOTION 1)
  *   when `window.matchMedia('(prefers-reduced-motion: reduce)').matches` is true.
  * - Disables magnetic cursor and border-glow tracking below 768px viewport width.

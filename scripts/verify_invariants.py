@@ -6,7 +6,7 @@ Part of Antigravity Harness (https://github.com/hadbilen/antigravity-harness)
 Deterministically verifies codebase modifications against fundamental invariants:
 1. Goodhart's Invariant: Prohibits test weakening, skipped tests, commented-out assertions.
 2. Anti-Sycophancy & Epistemic Objectivity: Flags sycophantic instructions.
-3. Antislop & Hygiene Guard: Flags fake marketing placeholders and unverified metrics.
+3. UI Refinery & Hygiene Guard: Flags fake marketing placeholders and unverified metrics.
 4. Supply-Chain & Security Invariant: Blocks unvetted dynamic script executions (curl | bash).
 
 Usage:
@@ -40,7 +40,7 @@ PROSE_DIFF_PATTERN_DESC = "Directive suggesting skipping or ignoring tests"
 
 # Patterns forbidden across all committed documentation and rules
 CONSTITUTIONAL_SLOP_PATTERNS = [
-    (r"(?i)\b10,?000\+\s+happy\s+users\b", "Unverified marketing metric placeholder (Antislop rule 1)"),
+    (r"(?i)\b10,?000\+\s+happy\s+users\b", "Unverified marketing metric placeholder (UI Refinery R-17)"),
     (r"(?i)\balways\s+agree\s+with\s+the\s+user\b", "Sycophantic rule forcing automatic agreement (Rule 7 violation)"),
     (r"(?i)\bnever\s+(disagree|refuse|contradict)\b", "Prohibition on technical disagreement (Rule 7 violation)"),
     (r"\b(curl|wget)\b[^|\n]*\|\s*(sudo\s+(-\S+\s+)*)?(ba|z|da|k)?sh\b", "Unvetted remote script piped into a shell (Rule 12 supply-chain violation)"),

@@ -14,7 +14,7 @@ Complex requests compose domain skills strictly in sequential phases; never mix 
   3. *Post-Parity Tuning (`sweetspot` or `diagnosing-bugs`):* Hand off ONLY after parity is green: optimize hot paths/bundles via `sweetspot` or isolate newly surfaced runtime bugs via `diagnosing-bugs`.
 * **New Game / Interactive Simulation Composition:**
   1. *Spec & Simulation Core (`deep-grill` -> `game-engineering`):* Lock core mechanics, fixed-timestep loop (`FIXED_DT`), zero per-frame allocations, and headless tick verification first.
-  2. *Assets & HUD Polish (`media-studio` + `antislop`):* Generate/normalize audio & sprite sheets via `media-studio` and enforce `DESIGN.md` (`MODE: GAME & INTERACTIVE`) + `antislop-contrast` (`check_contrast`) on HUD overlays.
+  2. *Assets & HUD Polish (`media-studio` + `ui-refinery`):* Generate/normalize audio & sprite sheets via `media-studio` and enforce `DESIGN.md` (`MODE: GAME & INTERACTIVE`) + `ui-refinery-contrast` (`check_contrast`) on HUD overlays.
   3. *Frame-Pacing & Bundle Pass (`sweetspot`):* Profile and trim frame spikes or delivery size after gameplay behavior is verified.
 * **Anti-Mixing Sequencing Rule:** Never apply `refactoring` or `sweetspot` micro-optimizations while a legacy parity port (`renew` / `rustify`) or active fault diagnosis (`diagnosing-bugs`) is still failing; restore a green oracle or bug-free baseline before crossing phases.
 

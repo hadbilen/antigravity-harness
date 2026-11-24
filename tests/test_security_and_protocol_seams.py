@@ -422,7 +422,7 @@ class TestPreToolUseCommandAndSandboxSeams(HermeticSeamCase):
         matcher = hooks_cfg["harness-gate"]["PreToolUse"][0]["matcher"]
         self.assertIsNotNone(re.fullmatch(matcher, "call_mcp_tool"))
         self.assertIsNotNone(re.fullmatch(matcher, "mcp_rea_rea_execute_rizin_command"))
-        self.assertIsNotNone(re.fullmatch(matcher, "mcp_antislop-contrast_check_contrast"))
+        self.assertIsNotNone(re.fullmatch(matcher, "mcp_ui-refinery-contrast_check_contrast"))
 
         # Governance/admin command inside MCP debugger tool -> deny
         res_mcp_admin = handle_pre_tool_use({
@@ -463,7 +463,7 @@ class TestPreToolUseCommandAndSandboxSeams(HermeticSeamCase):
             "toolCall": {
                 "name": "call_mcp_tool",
                 "args": {
-                    "ServerName": "antislop-contrast",
+                    "ServerName": "ui-refinery-contrast",
                     "ToolName": "check_contrast",
                     "Arguments": {"foreground": "#000000", "background": "#FFFFFF"},
                 },
@@ -1224,7 +1224,7 @@ class TestContrastMcpProtocolAndBounds(HermeticSeamCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        mcp_path = REPO_ROOT / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        mcp_path = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
         spec = importlib.util.spec_from_file_location("contrast_mcp_mod", mcp_path)
         assert spec is not None and spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
@@ -1307,7 +1307,7 @@ class TestContrastMcpProtocolAndBounds(HermeticSeamCase):
         self.assertEqual(len(responses), 13, responses)
 
         by_id = {r.get("id"): r for r in responses if r.get("id") is not None}
-        self.assertEqual(by_id[1]["result"]["serverInfo"]["name"], "antislop-contrast")
+        self.assertEqual(by_id[1]["result"]["serverInfo"]["name"], "ui-refinery-contrast")
         self.assertEqual(by_id[2]["result"]["tools"][0]["name"], "check_contrast")
 
         call_pass = json.loads(by_id[3]["result"]["content"][0]["text"])
@@ -1931,7 +1931,7 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
             "scripts",
             "templates",
             "skills/upstream-auditor/scripts",
-            "skills/antislop/scripts",
+            "skills/ui-refinery/scripts",
             "agents",
             ".harness",
         ):
@@ -2009,7 +2009,7 @@ class TestTier3AuditorRemediationSeams(HermeticSeamCase):
         self.assertTrue((shared_out / ".cursor" / "rules").is_dir())
 
     def test_sbv8_and_cca8_contrast_mcp_nan_id_ping_notification_and_jsonrpc_version(self) -> None:
-        mcp_script = REPO_ROOT / "skills" / "antislop" / "scripts" / "contrast-mcp.py"
+        mcp_script = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "contrast-mcp.py"
 
         # 1. Notification `{"jsonrpc": "2.0", "method": "ping"}` without `"id"` -> zero stdout bytes
         proc_notif = subprocess.run(

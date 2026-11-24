@@ -1475,7 +1475,7 @@ class TestW2DecisionProvenanceAndDecisionsTemplate(unittest.TestCase):
         )
 
         # Anti-slop technical profile gate across all W2 created/edited markdown files
-        scanner = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py"
+        scanner = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py"
         w2_md_targets = [
             "skills/rust-harden/references/greenfield-architecture.md",
             "skills/rust-harden/SKILL.md",
@@ -1823,7 +1823,7 @@ class TestW3ProcoderArchivalAndAdr0014(unittest.TestCase):
         adr_index = (REPO_ROOT / "docs" / "adr" / "README.md").read_text(encoding="utf-8")
         self.assertIn("0014-predictive-handoff-rust-greenfield-decision-provenance-and-procoder-archival.md", adr_index)
 
-        scanner = REPO_ROOT / "skills" / "antislop" / "scripts" / "check_synthetic_markers.py"
+        scanner = REPO_ROOT / "skills" / "ui-refinery" / "scripts" / "check_synthetic_markers.py"
         w3_md_targets = [
             "templates/procoder.SKILL.template.md",
             "docs/adr/0014-predictive-handoff-rust-greenfield-decision-provenance-and-procoder-archival.md",

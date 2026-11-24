@@ -2246,7 +2246,7 @@ class MetaAuditEngine:
             actual = contrast_ratio(fg, bg)
             if abs(actual - stated_v) > 0.05:
                 self._add("CRITICAL", name, "DESIGN.md", f"{pair}: stated {stated_v:.2f}:1 but {fg}/{bg} measures {actual:.2f}:1",
-                          "Recompute with skills/antislop/scripts/contrast-check.py.")
+                          "Recompute with skills/ui-refinery/scripts/contrast-check.py.")
             if actual + 1e-9 < minimum_v:
                 self._add("CRITICAL", name, "DESIGN.md", f"{pair}: {actual:.2f}:1 is below the required {minimum_v:.1f}:1",
                           "Choose a color pair that meets the minimum.")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal MCP stdio server exposing the antislop contrast checker as a tool.
+"""Minimal MCP stdio server exposing the ui-refinery WCAG contrast checker as a tool.
 
 All logging goes to stderr; stdout is reserved for JSON-RPC responses.
 """
@@ -9,7 +9,7 @@ import re
 import sys
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "antislop-contrast"
+SERVER_NAME = "ui-refinery-contrast"
 SERVER_VERSION = "3.2.22"
 MAX_LINE_BYTES = 1024 * 1024
 _HEX_COLOR_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
@@ -153,7 +153,7 @@ def main():
             continue
         try:
             msg = json.loads(line, parse_constant=_reject_nonfinite_constant)
-        except (json.JSONDecodeError, ValueError) as exc:
+        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
             err_msg = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
             _reply_rpc_error(None, -32700, f"Parse error: {err_msg}")
             continue

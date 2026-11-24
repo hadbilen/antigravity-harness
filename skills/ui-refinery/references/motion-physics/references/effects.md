@@ -8,14 +8,14 @@ navigation & page transitions · loaders.
 
 ## Entrance reveals
 
-### Word-stagger heading — `references/silk-design/assets/TextAnimation.tsx`
+### Word-stagger heading — `references/motion-physics/assets/TextAnimation.tsx`
 Splits text on spaces, reveals each word with a stagger. The signature heading animation.
 - Container: `whileInView`, `viewport={{ once: true, margin: "-20%" }}`, `transition={{ staggerChildren: 0.04 }}`.
 - Per word: `transition={{ duration: 0.6, ease }}`.
 - Variants: `slide-up` (`y: "50%"→0`, ease `[0.25, 0.46, 0.45, 0.94]`), `fade-blur` (`blur(10px)→none`, ease `[0.45, 0, 0.55, 1]`), `fade`.
 - Optional gradient text-clip fills in ~700ms after the reveal (`from-foreground to-primary-cta bg-clip-text text-transparent`).
 
-### Block reveal — `references/silk-design/assets/ScrollReveal.tsx`
+### Block reveal — `references/motion-physics/assets/ScrollReveal.tsx`
 Wrap any block; it fades/slides in once when scrolled into view.
 - `whileInView`, `viewport={{ once: true, margin: "-20%" }}`, `transition={{ duration: 0.6, delay, ease: "easeOut" }}`.
 - `slide-up` = `y: 20→0`. Stagger siblings by passing increasing `delay` (0, 0.1, 0.2…).
@@ -37,12 +37,12 @@ const scale  = useTransform(scrollYProgress, [0, 1], [1, 1.15]);     // subtle z
 // <motion.img style={{ y: yFront }} />  … style={{ y: yBack, scale }}
 ```
 
-### Reading word-fill — `references/silk-design/assets/AboutTextFill.tsx`
+### Reading word-fill — `references/motion-physics/assets/AboutTextFill.tsx`
 Big paragraph where each word brightens `0.15 → 1` opacity as you scroll through it (premium editorial feel).
 - `useScroll({ target, offset: ["start 0.8", "start 0.2"] })`.
 - Per word `i` of `n`: `useTransform(scrollYProgress, [i/n, (i+1)/n], [0.15, 1])`.
 
-### Scroll-scrubbed video — `references/silk-design/assets/HeroVideoScroll.tsx` (GSAP)
+### Scroll-scrubbed video — `references/motion-physics/assets/HeroVideoScroll.tsx` (GSAP)
 Video scrubs frame-by-frame as you scroll — feels like a controlled cinematic. The showstopper hero.
 - Outer `h-[300vh]`, inner `sticky top-0 h-svh`.
 - `ScrollTrigger.create({ trigger, start: "top top", end: "bottom bottom", scrub: 0.5, onUpdate: self => { video.currentTime = video.duration * self.progress } })`.
@@ -91,7 +91,7 @@ placeholder and set it as the initial transform.
 - Mobile: same `gsap.set`, but a plain tween with `scrollTrigger: { start: "top 35%", toggleActions: "play none none reverse" }`.
 - Always `gsap.set(card, { willChange: "transform", force3D: true })` first.
 
-### Footer reveal-from-behind — `references/silk-design/assets/FooterBrandReveal.tsx`
+### Footer reveal-from-behind — `references/motion-physics/assets/FooterBrandReveal.tsx`
 Page content scrolls up like a sheet, uncovering a fixed footer sitting underneath. No JS scroll math.
 - Outer `section`: `position: relative`, `clipPath: polygon(0 0, 100% 0, 100% 100%, 0 100%)` (creates a clip
   context), height set to the footer's measured height (ResizeObserver).
@@ -102,13 +102,13 @@ Page content scrolls up like a sheet, uncovering a fixed footer sitting undernea
 
 ## Cursor & pointer
 
-### Magnetic button — `references/silk-design/assets/ButtonMagnetic.tsx`
+### Magnetic button — `references/motion-physics/assets/ButtonMagnetic.tsx`
 Button leans toward the cursor when hovered. Subtle, expensive-feeling.
 - `useSpring(useMotionValue(0), { stiffness: 150, damping: 15 })` for x and y.
 - On mousemove: `offset = (cursor - center) * 0.15`; on leave: reset to 0.
 - **Disabled below 768px** (`window.innerWidth < 768`) — no cursor on touch.
 
-### Cursor image-trail — `references/silk-design/assets/AboutCursorTrail.tsx` (GSAP, the showpiece)
+### Cursor image-trail — `references/motion-physics/assets/AboutCursorTrail.tsx` (GSAP, the showpiece)
 Moving the cursor drops a trail of images that fade out — the "move your cursor!" moment.
 - `gsap.matchMedia()`: desktop = mousemove, mobile = scroll-driven random placement.
 - Fires when the cursor moves more than `window.innerWidth / 15` since the last drop.
@@ -116,7 +116,7 @@ Moving the cursor drops a trail of images that fade out — the "move your curso
 - Idle fade after 350ms: `gsap.to(img, { autoAlpha: 0, scale: 0.2, duration: 0.8, ease: "expo.out" })`.
 - Gated by `ScrollTrigger.create({ start: "top bottom", end: "bottom top", onEnter/onLeave })` so it only runs while on screen. Always `mm.revert()` in cleanup.
 
-### Pointer-tracked border glow — `references/silk-design/assets/BorderGlow.tsx`
+### Pointer-tracked border glow — `references/motion-physics/assets/BorderGlow.tsx`
 A conic-gradient segment lights up the card's border and rotates toward the cursor. The premium
 "lit edge" for feature cards (drop inside any `relative rounded` card).
 - CSS vars drive it: `--start` (angle), `--active` (0/1), `--spread: 40`, `--border-width: 1.5px`.
@@ -128,7 +128,7 @@ A conic-gradient segment lights up the card's border and rotates toward the curs
   `mask: linear-gradient(#0000,#0000), conic-gradient(from calc((var(--start)-var(--spread))*1deg), transparent, #fff, transparent …)`
   + `[mask-clip:padding-box,border-box]` + `mask-intersect` — only the border area shows, only in the slice.
 
-### Cursor-mask character pattern — `references/silk-design/assets/HoverPattern.tsx`
+### Cursor-mask character pattern — `references/motion-physics/assets/HoverPattern.tsx`
 Hovering a card reveals a drifting field of random characters + an accent gradient through a radial
 mask that follows the cursor — the "encrypted" hover.
 - `useMotionValue` x/y + `useMotionTemplate` mask: `radial-gradient(250px at ${x}px ${y}px, white, transparent)`.
@@ -204,7 +204,7 @@ A hover can play a little *sequence* with nothing but utility delays: checkmarks
 
 ---
 
-## Marquees & carousels — `references/silk-design/assets/animations.css` + `references/silk-design/assets/masks.css`
+## Marquees & carousels — `references/motion-physics/assets/animations.css` + `references/motion-physics/assets/masks.css`
 Infinite horizontal/vertical scroll (logos, testimonials, tags). Pure CSS, no JS.
 - Duplicate the item array **4×** inside an `overflow-hidden` track, apply `.animate-marquee-horizontal`.
 - Keyframe translates `0 → -50%` (that's why you duplicate — the second copy fills the gap seamlessly).
@@ -237,7 +237,7 @@ reads as the grid "answering" the click.
 
 ## Navigation & page transitions
 
-### Fullscreen curtain menu — `references/silk-design/assets/NavbarFullscreen.tsx`
+### Fullscreen curtain menu — `references/motion-physics/assets/NavbarFullscreen.tsx`
 The premium mobile/desktop menu: a full-viewport curtain drops from the top edge, oversized links
 rise in one by one. All the coordination details matter:
 - Curtain: `clip-path` polygon from zero-height top edge to full —
@@ -252,7 +252,7 @@ rise in one by one. All the coordination details matter:
 - Hygiene: `document.body.style.overflow = "hidden"` while open, Escape closes, nav itself is
   `fixed inset-0 pointer-events-none` with `pointer-events-auto` only on the bar + curtain.
 
-### Page-transition swirl — `references/silk-design/assets/PageTransitionSwirl.tsx` (GSAP DrawSVGPlugin)
+### Page-transition swirl — `references/motion-physics/assets/PageTransitionSwirl.tsx` (GSAP DrawSVGPlugin)
 A brand-colored SVG spiral covers the viewport and "unwinds" itself away on page mount:
 - One long spiral `<path>` in a fixed `inset-0 z-50 pointer-events-none` layer, `stroke="currentColor"`
   on a `text-primary-cta` wrapper, svg oversized `w-[130%] -top-[15%]` with `preserveAspectRatio="none"`.
@@ -265,7 +265,7 @@ A brand-colored SVG spiral covers the viewport and "unwinds" itself away on page
 
 ## Loaders & clip-path reveals
 
-### Clip-path wipe loader — in `references/silk-design/assets/HeroVideoScroll.tsx`
+### Clip-path wipe loader — in `references/motion-physics/assets/HeroVideoScroll.tsx`
 A full-screen loader that wipes the brand name in, then lifts away.
 - Text reveal: `clipPath: "inset(0% 100% 0% 0%)" → "inset(0% 0% 0% 0%)"`, `transition={{ duration: 2, ease: [0.76, 0, 0.24, 1] }}`.
 - Progress bar: `scaleX: 0 → 1`, `originX: 0`.
@@ -290,9 +290,9 @@ in-out, for carousel slides), `[0.22, 0.68, 0, 1.2]` (playful overshoot, for 3D 
 
 ---
 
-## Zero-build vanilla HTML/CSS/JS & native CSS runtime — `references/silk-design/assets/vanilla-kinetic.js`
+## Zero-build vanilla HTML/CSS/JS & native CSS runtime — `references/motion-physics/assets/vanilla-kinetic.js`
 
-When building `MODE: EDITORIAL` (`MOTION 3`) showcase pages in Astro, Vanilla TypeScript, static HTML, or single-file HTML prototypes without React/Framer Motion/GSAP, pair `references/silk-design/assets/vanilla-kinetic.js` (`initSilkKinetic()`) with these zero-dependency CSS primitives:
+When building `MODE: EDITORIAL` (`MOTION 3`) showcase pages in Astro, Vanilla TypeScript, static HTML, or single-file HTML prototypes without React/Framer Motion/GSAP, pair `references/motion-physics/assets/vanilla-kinetic.js` (`initSilkKinetic()`) with these zero-dependency CSS primitives:
 
 ### 1. Entrance reveals & word-stagger headings (`[data-silk-reveal]`, `[data-silk-words]`)
 `initSilkKinetic()` splits `[data-silk-words]` into `<span class="silk-word" style="--word-index: i">` and sets `data-silk-visible="true"` once the element crosses `-20%` viewport margin (`IntersectionObserver` with automatic instant reveal when `prefers-reduced-motion: reduce` is active):
@@ -386,7 +386,7 @@ Zero-JavaScript scroll scrubbing in modern browsers using CSS Scroll-Driven Anim
 ```
 
 ### 4. View Transitions API Curtain Swap (`runSilkViewTransition`)
-Use `runSilkViewTransition(() => { ... })` from `references/silk-design/assets/vanilla-kinetic.js` with native `::view-transition-old(root)` / `::view-transition-new(root)` clip-path wipes (`cubic-bezier(0.76, 0, 0.24, 1)`, included in `references/silk-design/assets/animations.css`), falling back to an instant DOM update when `prefers-reduced-motion: reduce` is enabled:
+Use `runSilkViewTransition(() => { ... })` from `references/motion-physics/assets/vanilla-kinetic.js` with native `::view-transition-old(root)` / `::view-transition-new(root)` clip-path wipes (`cubic-bezier(0.76, 0, 0.24, 1)`, included in `references/motion-physics/assets/animations.css`), falling back to an instant DOM update when `prefers-reduced-motion: reduce` is enabled:
 ```css
 @keyframes silk-curtain-in {
   from { clip-path: inset(0 0 100% 0); }
