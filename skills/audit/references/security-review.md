@@ -48,7 +48,7 @@ For critical security audits, authentication/authorization overhauls, or multi-t
 - [ ] Passwords hashed using Argon2id or bcrypt meeting Open Worldwide Application Security Project (`OWASP`) minimum cost floors (`Argon2id` memory `>= 19,456` kibibytes, iterations `>= 2`, parallelism `>= 1`; or `bcrypt` work factor `>= 12`).
 
 ### 5. Transport & Header Security (CSP & CSRF)
-- [ ] Content Security Policy (CSP) configured without `'unsafe-inline'` or `'unsafe-eval'`.
+- [ ] Content Security Policy (CSP) configured without `'unsafe-inline'` or `'unsafe-eval'`, with `base-uri 'self'`, `object-src 'none'`, and `frame-ancestors 'none'`.
 - [ ] State-changing requests (POST/PUT/DELETE) protected by CSRF tokens or SameSite strict cookies.
 - [ ] Security headers active: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security`.
 

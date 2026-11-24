@@ -9,6 +9,7 @@ be exercised without a terminal.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -16,7 +17,7 @@ import shutil
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from guard.environment import AgentEnvironment, EnvironmentRegistry, RegistryError
 from guard.integrity import FileIntegrityMonitor, IntegrityReport
@@ -290,8 +291,199 @@ def _is_harness_contrast_mcp_arg(arg: str) -> bool:
     return any(norm == sfx or norm.endswith("/" + sfx) for sfx in suffixes)
 
 
+_MAX_PLUGIN_MANIFEST_BYTES = 256 * 1024
+
+
+def _strip_jsonc(raw: str) -> str:
+    """Strips JSONC `//` / `/* */` comments and trailing commas outside string literals."""
+    if raw.startswith("\ufeff"):
+        raw = raw[1:]
+    out: List[str] = []
+    i = 0
+    n = len(raw)
+    in_str = False
+    while i < n:
+        ch = raw[i]
+        if in_str:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(raw[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == "/":
+                i += 2
+                while i < n and raw[i] not in ("\n", "\r"):
+                    i += 1
+                continue
+            if nxt == "*":
+                end = raw.find("*/", i + 2)
+                if end == -1:
+                    raise ValueError("Unterminated block comment")
+                out.append(" ")
+                i = end + 2
+                continue
+        out.append(ch)
+        i += 1
+
+    no_comments = "".join(out)
+    cleaned: List[str] = []
+    i = 0
+    m = len(no_comments)
+    in_str = False
+    prev_sig: Optional[str] = None
+    while i < m:
+        ch = no_comments[i]
+        if in_str:
+            cleaned.append(ch)
+            if ch == "\\" and i + 1 < m:
+                cleaned.append(no_comments[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+                prev_sig = '"'
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            cleaned.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            if prev_sig not in (None, "[", "{", ",", ":"):
+                j = i + 1
+                while j < m and no_comments[j] in (" ", "\t", "\r", "\n"):
+                    j += 1
+                if j < m and no_comments[j] in ("}", "]"):
+                    i += 1
+                    continue
+            cleaned.append(ch)
+            prev_sig = ","
+            i += 1
+            continue
+        cleaned.append(ch)
+        if ch not in (" ", "\t", "\r", "\n"):
+            prev_sig = ch
+        i += 1
+    return "".join(cleaned)
+
+
+def _read_plugin_manifest_jsonc(manifest_path: Path, warnings: List[str]) -> Tuple[str, Optional[dict]]:
+    """Safely reads a regular non-symlink `plugin.json` (<= 256 KiB) with JSONC support."""
+    try:
+        path_str = os.fspath(manifest_path)
+    except (OSError, TypeError, ValueError) as exc:
+        warnings.append(f"Could not inspect plugin manifest {manifest_path} ({exc}).")
+        return "invalid", None
+    if "\x00" in path_str:
+        warnings.append(f"Invalid NUL byte in plugin manifest path {manifest_path!r}.")
+        return "invalid", None
+    try:
+        if os.path.islink(path_str):
+            warnings.append(f"Refusing symlinked plugin manifest {manifest_path}; skipped duplicate-name check.")
+            return "invalid", None
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path_str, flags)
+    except (FileNotFoundError, NotADirectoryError):
+        return "missing", None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            warnings.append(f"Refusing symlinked plugin manifest {manifest_path}; skipped duplicate-name check.")
+        elif isinstance(exc, PermissionError) and not os.path.islink(path_str) and os.path.isdir(path_str):
+            warnings.append(f"Plugin manifest {manifest_path} is not a regular file; skipped duplicate-name check.")
+        else:
+            warnings.append(f"Could not read plugin manifest {manifest_path} ({exc}).")
+        return "invalid", None
+
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            os.close(fd)
+            warnings.append(f"Plugin manifest {manifest_path} is not a regular file; skipped duplicate-name check.")
+            return "invalid", None
+        if st.st_size > _MAX_PLUGIN_MANIFEST_BYTES:
+            os.close(fd)
+            warnings.append(
+                f"Plugin manifest {manifest_path} exceeds 256 KiB size limit ({st.st_size} bytes); skipped duplicate-name check."
+            )
+            return "invalid", None
+        fh = os.fdopen(fd, "rb")
+    except OSError as exc:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        warnings.append(f"Could not read plugin manifest {manifest_path} ({exc}).")
+        return "invalid", None
+
+    try:
+        with fh:
+            raw_bytes = fh.read(_MAX_PLUGIN_MANIFEST_BYTES + 1)
+    except OSError as exc:
+        warnings.append(f"Could not read plugin manifest {manifest_path} ({exc}).")
+        return "invalid", None
+
+    if len(raw_bytes) > _MAX_PLUGIN_MANIFEST_BYTES:
+        warnings.append(f"Plugin manifest {manifest_path} exceeds 256 KiB size limit; skipped duplicate-name check.")
+        return "invalid", None
+
+    try:
+        data = json.loads(_strip_jsonc(raw_bytes.decode("utf-8")))
+    except (UnicodeDecodeError, ValueError) as exc:
+        warnings.append(f"Plugin manifest {manifest_path} is not valid JSON/JSONC ({exc}).")
+        return "invalid", None
+
+    if not isinstance(data, dict):
+        warnings.append(f"Plugin manifest {manifest_path} root must be a JSON object.")
+        return "invalid", None
+    return "ok", data
+
+
+def _check_plugin_name_collisions(plugins_dir: Path, pack_dirs: List[Path], warnings: List[str]) -> None:
+    """Warns when two or more plugin directories resolve to the same case-insensitive `plugin.json['name']`."""
+    by_name: Dict[str, List[Tuple[str, str]]] = {}
+    for pack_dir in pack_dirs:
+        manifest_path = pack_dir / "plugin.json"
+        status, data = _read_plugin_manifest_jsonc(manifest_path, warnings)
+        if status != "ok" or data is None:
+            continue
+        if "name" not in data:
+            resolved_name = pack_dir.name
+        else:
+            raw_name = data["name"]
+            if not isinstance(raw_name, str):
+                warnings.append(
+                    f"Plugin manifest {manifest_path} has non-string 'name' ({type(raw_name).__name__}); "
+                    "skipped duplicate-name check."
+                )
+                continue
+            stripped = raw_name.strip()
+            resolved_name = stripped if stripped else pack_dir.name
+        by_name.setdefault(resolved_name.lower(), []).append((pack_dir.name, resolved_name))
+
+    for key in sorted(by_name):
+        entries = by_name[key]
+        if len(entries) >= 2:
+            locs = ", ".join(f"plugins/{dirname} (name='{raw}')" for dirname, raw in entries)
+            warnings.append(
+                f"Duplicate plugin.json 'name' collision for '{key}': {locs}. "
+                f"Remove or rename the duplicate directory under {plugins_dir} so each plugin declares a unique 'name'."
+            )
+
+
 def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> None:
-    """Detects duplicate skill shadowing, stale global contrast-mcp.py collisions, and emits optional `agy plugin` INFO."""
+    """Detects duplicate plugin names, duplicate skill shadowing, stale global contrast-mcp.py collisions, and emits optional `agy plugin` INFO."""
     plugins_dir = root / "plugins"
     try:
         if os.path.islink(plugins_dir) or not plugins_dir.is_dir():
@@ -301,6 +493,7 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
         return
 
     installed_harness_packs: List[str] = []
+    valid_pack_dirs: List[Path] = []
     duplicates: List[Tuple[str, str]] = []
     skills_dir = root / "skills"
     try:
@@ -323,6 +516,7 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
             continue
         if not is_pack_dir:
             continue
+        valid_pack_dirs.append(pack_dir)
         pack_name = pack_dir.name
         if pack_name in HARNESS_PLUGIN_NAMES:
             installed_harness_packs.append(pack_name)
@@ -355,6 +549,8 @@ def _check_hybrid_plugins(root: Path, warnings: List[str], infos: List[str]) -> 
                     duplicates.append((slug, pack_name))
             except OSError as exc:
                 warnings.append(f"Could not inspect skill entry {skills_dir / slug} ({exc}).")
+
+    _check_plugin_name_collisions(plugins_dir, valid_pack_dirs, warnings)
 
     repair_hint = _repair_command_hint()
     if duplicates:

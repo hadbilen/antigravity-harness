@@ -39,15 +39,15 @@
     "swarm_pane",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-11-22T18:30:00+03:00",
-  "last_skills_audit_timestamp": "2026-11-22T18:30:00+03:00",
+  "last_audit_timestamp": "2026-11-24T13:05:00+03:00",
+  "last_skills_audit_timestamp": "2026-11-24T13:05:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "35b54dc",
+      "last_synced_commit": "7f6a03d",
       "target_skills": [
         "antislop"
       ]
@@ -55,7 +55,7 @@
     "Chisle": {
       "repo": "JayPokale/Chisle",
       "branch": "main",
-      "last_synced_commit": "b2e1658",
+      "last_synced_commit": "69e2a3b",
       "target_skills": [
         "chisle"
       ]
@@ -79,7 +79,7 @@
     "everything-claude-code": {
       "repo": "affaan-m/everything-claude-code",
       "branch": "main",
-      "last_synced_commit": "d2ef268",
+      "last_synced_commit": "4adeee6",
       "target_skills": [
         "database-migrations",
         "skills/harness/references/adr.md",
@@ -90,7 +90,7 @@
     "mattpocock-skills": {
       "repo": "mattpocock/skills",
       "branch": "main",
-      "last_synced_commit": "5863806",
+      "last_synced_commit": "abeeaf9",
       "target_skills": [
         "deep-grill",
         "diagnosing-bugs",

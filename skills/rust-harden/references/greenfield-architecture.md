@@ -14,6 +14,7 @@ Do not create speculative micro-crates for small tools (`GEMINI.md` Rule 4): sta
 3. **Isolated Boundary & Adapter Crates (`crates/<app>-sys` / `crates/<app>-ffi` / `crates/<app>-hal` / `crates/<app>-storage`):**
    * Confine every unavoidable `unsafe` block, raw FFI call, or Hardware Abstraction Layer (`HAL`) register access inside minimal private safe wrappers exposing safe domain types upward.
    * Keep dependency edges strictly acyclic and inward (`bin -> adapters/ffi -> core/domain`); forbid reverse edges (`core/domain -> bin`, `core/domain -> storage/transport`) and cyclic crates.
+   * For workspaces with `>= 5` member crates, verify acyclic inward layer boundaries mechanically in CI with `cargo metadata --no-deps --format-version 1` (asserting core/domain crates never depend on adapter/bin crates) and optionally check portable pure cores with `cargo check -p <app>-core --target wasm32-unknown-unknown` to prove zero accidental OS/filesystem/network leakage.
 
 ## 2. Edition `2024`, MSRV, `[workspace.lints]`, `clippy.toml` & Publish-Age Cooldowns
 
@@ -84,6 +85,16 @@ Pin toolchain baselines, lint policies, and registry cooldowns at the workspace 
 
    [resolver]
    incompatible-publish-age = "deny"
+   ```
+4. **Optional Large-Workspace Dev Build Profile:**
+   * In larger workspaces with heavy third-party crates, reduce incremental link time and debug-info disk footprint while keeping readable backtraces and fast dependency execution (omit on small single-crate utilities):
+   ```toml
+   [profile.dev]
+   debug = "line-tables-only"
+
+   [profile.dev.package."*"]
+   opt-level = 2
+   debug = false
    ```
 
 ## 3. Error Boundaries: `thiserror` Libraries vs. `anyhow` Binaries

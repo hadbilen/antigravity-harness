@@ -3058,5 +3058,253 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
                 self.assertTrue(mgr.integrity_monitor.state_file.is_file())
 
 
+class TestDoctorPluginNameCollisions(_IsolatedHybridEnvMixin, unittest.TestCase):
+    def setUp(self) -> None:
+        self._setup_sandbox("agy_hyb_col_")
+
+    def tearDown(self) -> None:
+        self._teardown_sandbox()
+
+    def _seed_healthy_global_env(self) -> tuple[EnvironmentRegistry, object]:
+        adapter = mock.MagicMock(spec=OSProtectionAdapter)
+        adapter.protection_issues.return_value = []
+        adapter.is_locked.return_value = True
+
+        (self.cfg / "rules").mkdir(parents=True, exist_ok=True)
+        (self.cfg / "rules" / "antigravity-constitution.md").write_text("---\ntrigger: always_on\n---\n# C\n", encoding="utf-8")
+        valid_hook = self.cfg / "valid_hook.py"
+        valid_hook.write_text("# ok\n", encoding="utf-8")
+        (self.cfg / "hooks.json").write_text(
+            json.dumps(
+                {
+                    "upstream-watchdog": {"SessionStart": [{"type": "command", "command": f'"{sys.executable}" "{valid_hook}"'}]},
+                    "harness-gate": {
+                        "PreInvocation": [{"type": "command", "command": f'"{sys.executable}" "{valid_hook}"'}],
+                        "PreToolUse": [{"type": "command", "command": f'"{sys.executable}" "{valid_hook}"'}],
+                        "Stop": [{"type": "command", "command": f'"{sys.executable}" "{valid_hook}"'}],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (self.cfg / "config.json").write_text(
+            json.dumps(
+                {
+                    "userSettings": {
+                        "globalPermissionGrants": {
+                            "deny": ["command(agy-guard unlock)", "command(regex:.*--no-verify.*)"]
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        reg = EnvironmentRegistry(config_path=self.state / "environments.json", os_adapter=adapter)
+        env = reg.get_environment("antigravity")
+        assert env is not None
+        FileIntegrityMonitor.for_environment(env, os_adapter=adapter).save_baseline()
+        return reg, env
+
+    def test_doctor_duplicate_plugin_name_positive_negative_and_no_skills_dir(self) -> None:
+        # Deliberately omit <root>/skills/ to ensure duplicate plugin.json check still runs
+        self.assertFalse((self.cfg / "skills").exists())
+        (self.cfg / "plugins" / "rea").mkdir(parents=True)
+        (self.cfg / "plugins" / "rea" / "plugin.json").write_text('{"name": "rea"}\n', encoding="utf-8")
+        (self.cfg / "plugins" / "custom-a").mkdir(parents=True)
+        (self.cfg / "plugins" / "custom-a" / "plugin.json").write_text('{"name": "custom-a"}\n', encoding="utf-8")
+        (self.cfg / "plugins" / "no-manifest").mkdir(parents=True)
+
+        reg, env = self._seed_healthy_global_env()
+        rep_clean = diagnose(env, reg, sentinel_active=True)
+        self.assertTrue(rep_clean.healthy, rep_clean.warnings)
+
+        # Add colliding plugin directory with identical name
+        (self.cfg / "plugins" / "custom-b").mkdir(parents=True)
+        (self.cfg / "plugins" / "custom-b" / "plugin.json").write_text('{"name": "custom-a"}\n', encoding="utf-8")
+        rep_dup = diagnose(env, reg, sentinel_active=True)
+        self.assertFalse(rep_dup.healthy)
+        joined = "\n".join(rep_dup.warnings)
+        self.assertIn("custom-a", joined)
+        self.assertIn("plugins/custom-a", joined)
+        self.assertIn("plugins/custom-b", joined)
+        self.assertIn("Remove or rename", joined)
+        # Strictly read-only: both plugin directories remain untouched on disk
+        self.assertTrue((self.cfg / "plugins" / "custom-a" / "plugin.json").is_file())
+        self.assertTrue((self.cfg / "plugins" / "custom-b" / "plugin.json").is_file())
+
+    def test_doctor_plugin_name_jsonc_case_folding_and_omitted_or_blank_defaults(self) -> None:
+        # Distinct JSONC manifests with // comments, /* */ comments, trailing commas, and comment-like strings stay healthy
+        jsonc_alpha = (
+            "\ufeff// Leading line comment\n"
+            "{\n"
+            "  /* Block comment\n"
+            "     spanning lines */\n"
+            '  "name": "My-Kit", // inline comment\n'
+            '  "homepage": "https://example.com/a/*not-a-comment*/,}",\n'
+            '  "note": "escaped quote \\" // still string and trailing slash \\\\", // real comment\n'
+            '  "tags": ["a", "b",],\n'
+            "}\n"
+        )
+        jsonc_other = (
+            "{\n"
+            '  "name": "Other-Kit", /* inline block */\n'
+            "}\n"
+        )
+        (self.cfg / "plugins" / "kit-one").mkdir(parents=True)
+        (self.cfg / "plugins" / "kit-one" / "plugin.json").write_text(jsonc_alpha, encoding="utf-8")
+        (self.cfg / "plugins" / "kit-other").mkdir(parents=True)
+        (self.cfg / "plugins" / "kit-other" / "plugin.json").write_text(jsonc_other, encoding="utf-8")
+
+        reg, env = self._seed_healthy_global_env()
+        rep_ok = diagnose(env, reg, sentinel_active=True)
+        self.assertTrue(rep_ok.healthy, rep_ok.warnings)
+
+        # Case-insensitive JSONC collision (My-Kit vs my-kit)
+        (self.cfg / "plugins" / "kit-two").mkdir(parents=True)
+        (self.cfg / "plugins" / "kit-two" / "plugin.json").write_text(
+            '{\n  // case collision\n  "name": "  my-kit  ",\n}\n',
+            encoding="utf-8",
+        )
+        # Omitted `name` defaults to dir.name ("gamma") and collides with explicit "GAMMA"
+        (self.cfg / "plugins" / "gamma").mkdir(parents=True)
+        (self.cfg / "plugins" / "gamma" / "plugin.json").write_text("{ /* omitted name */ }\n", encoding="utf-8")
+        (self.cfg / "plugins" / "gamma-copy").mkdir(parents=True)
+        (self.cfg / "plugins" / "gamma-copy" / "plugin.json").write_text('{"name": "GAMMA"}\n', encoding="utf-8")
+        # Blank `name` defaults to dir.name ("delta") and collides with explicit "delta"
+        (self.cfg / "plugins" / "delta").mkdir(parents=True)
+        (self.cfg / "plugins" / "delta" / "plugin.json").write_text('{"name": "   "}\n', encoding="utf-8")
+        (self.cfg / "plugins" / "delta-copy").mkdir(parents=True)
+        (self.cfg / "plugins" / "delta-copy" / "plugin.json").write_text('{"name": "delta"}\n', encoding="utf-8")
+
+        rep_col = diagnose(env, reg, sentinel_active=True)
+        self.assertFalse(rep_col.healthy)
+        joined = "\n".join(rep_col.warnings)
+        self.assertIn("plugins/kit-one", joined)
+        self.assertIn("plugins/kit-two", joined)
+        self.assertIn("my-kit", joined)
+        self.assertIn("plugins/gamma", joined)
+        self.assertIn("plugins/gamma-copy", joined)
+        self.assertIn("plugins/delta", joined)
+        self.assertIn("plugins/delta-copy", joined)
+
+    def test_doctor_plugin_name_type_corrupt_invalid_jsonc_oversized_and_non_regular(self) -> None:
+        cases = {
+            "bad-int": '{"name": 123}\n',
+            "bad-bool": '{"name": true}\n',
+            "bad-null": '{"name": null}\n',
+            "bad-list": '{"name": ["x"]}\n',
+            "bad-root": '["not-an-object"]\n',
+            "bad-corrupt": "{not valid json\n",
+            "bad-unterminated": '{"name": "ok"} /* unclosed\n',
+            "bad-slash-star-slash": '{"name": "ok"} /*/\n',
+            "bad-double-comma": '{"name": "ok", ,}\n',
+            "bad-leading-comma": '{"tags": [,]}\n',
+        }
+        for dirname, payload in cases.items():
+            d = self.cfg / "plugins" / dirname
+            d.mkdir(parents=True)
+            (d / "plugin.json").write_text(payload, encoding="utf-8")
+
+        # Non-UTF8 bytes handled cleanly without unhandled exception
+        (self.cfg / "plugins" / "bad-utf8").mkdir(parents=True)
+        (self.cfg / "plugins" / "bad-utf8" / "plugin.json").write_bytes(b"\xff\xfe\x00not-utf8")
+
+        # Exact 256 KiB manifest is accepted (<= 256 KiB boundary); 256 KiB + 1 is rejected
+        (self.cfg / "plugins" / "exact-limit").mkdir(parents=True)
+        prefix = '{"name": "exact-limit", "pad": "'
+        suffix = '"}'
+        exact_payload = (prefix + ("a" * (256 * 1024 - len(prefix) - len(suffix))) + suffix).encode("utf-8")
+        self.assertEqual(len(exact_payload), 256 * 1024)
+        (self.cfg / "plugins" / "exact-limit" / "plugin.json").write_bytes(exact_payload)
+
+        # Oversized (> 256 KiB) manifest even starting with a colliding name is rejected without parsing
+        (self.cfg / "plugins" / "rea").mkdir(parents=True)
+        (self.cfg / "plugins" / "rea" / "plugin.json").write_text('{"name": "rea"}\n', encoding="utf-8")
+        (self.cfg / "plugins" / "huge-pack").mkdir(parents=True)
+        pad = " " * (256 * 1024 + 64)
+        (self.cfg / "plugins" / "huge-pack" / "plugin.json").write_text(
+            '{"name": "rea", "pad": "' + pad + '"}\n',
+            encoding="utf-8",
+        )
+        # Non-regular manifest (directory named plugin.json)
+        (self.cfg / "plugins" / "dir-manifest" / "plugin.json").mkdir(parents=True)
+
+        reg, env = self._seed_healthy_global_env()
+        rep = diagnose(env, reg, sentinel_active=True)
+        self.assertFalse(rep.healthy)
+        for dirname in ("bad-int", "bad-bool", "bad-null", "bad-list"):
+            self.assertTrue(
+                any(dirname in w and "non-string" in w.lower() for w in rep.warnings),
+                f"Expected non-string warning for {dirname}, got {rep.warnings}",
+            )
+        self.assertTrue(any("bad-root" in w and "json object" in w.lower() for w in rep.warnings), rep.warnings)
+        for dirname in (
+            "bad-corrupt",
+            "bad-unterminated",
+            "bad-slash-star-slash",
+            "bad-double-comma",
+            "bad-leading-comma",
+            "bad-utf8",
+        ):
+            self.assertTrue(
+                any(dirname in w and ("valid json" in w.lower() or "jsonc" in w.lower()) for w in rep.warnings),
+                f"Expected invalid JSON/JSONC warning for {dirname}, got {rep.warnings}",
+            )
+        self.assertFalse(any("exact-limit" in w for w in rep.warnings), rep.warnings)
+        self.assertTrue(any("huge-pack" in w and "256 KiB" in w for w in rep.warnings), rep.warnings)
+        self.assertTrue(any("dir-manifest" in w and "regular file" in w.lower() for w in rep.warnings), rep.warnings)
+        # Oversized huge-pack must NOT have been parsed into a collision with rea
+        self.assertFalse(any("collision" in w.lower() and "rea" in w.lower() for w in rep.warnings), rep.warnings)
+
+    def test_doctor_plugin_name_symlink_refusal_and_chmod_000_safety(self) -> None:
+        (self.cfg / "plugins" / "rea").mkdir(parents=True)
+        (self.cfg / "plugins" / "rea" / "plugin.json").write_text('{"name": "rea"}\n', encoding="utf-8")
+
+        if hasattr(os, "symlink"):
+            outside = self.tmp / "outside_plugin"
+            outside.mkdir()
+            ext_manifest = outside / "plugin.json"
+            ext_manifest.write_text('{"name": "rea"}\n', encoding="utf-8")
+
+            # Symlinked plugin.json inside real subdir must NOT be followed
+            (self.cfg / "plugins" / "sym-manifest").mkdir(parents=True)
+            (self.cfg / "plugins" / "sym-manifest" / "plugin.json").symlink_to(ext_manifest)
+
+            # Symlinked plugin subdir must NOT be traversed
+            (self.cfg / "plugins" / "sym-dir").symlink_to(outside, target_is_directory=True)
+
+        # Unreadable manifest (chmod 000 on non-root POSIX; mocked PermissionError fallback on root/Windows)
+        locked_dir = self.cfg / "plugins" / "locked-pack"
+        locked_dir.mkdir(parents=True)
+        locked_manifest = locked_dir / "plugin.json"
+        locked_manifest.write_text('{"name": "rea"}\n', encoding="utf-8")
+
+        reg, env = self._seed_healthy_global_env()
+        use_real_chmod = os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0
+        if use_real_chmod:
+            os.chmod(locked_manifest, 0o000)
+            try:
+                rep = diagnose(env, reg, sentinel_active=True)
+            finally:
+                os.chmod(locked_manifest, 0o600)
+        else:
+            orig_open = os.open
+
+            def _deny_locked(path: object, flags: int, *args: object, **kwargs: object) -> int:
+                if Path(os.fspath(path)) == locked_manifest:
+                    raise PermissionError(13, "Permission denied", str(path))
+                return orig_open(path, flags, *args, **kwargs)
+
+            with mock.patch("guard.doctor.os.open", side_effect=_deny_locked):
+                rep = diagnose(env, reg, sentinel_active=True)
+
+        self.assertFalse(rep.healthy)
+        # Neither symlinked manifest, symlinked dir, nor unreadable file produced a false 'rea' collision
+        self.assertFalse(any("collision" in w.lower() and "rea" in w.lower() for w in rep.warnings), rep.warnings)
+        self.assertTrue(any("locked-pack" in w for w in rep.warnings), rep.warnings)
+        if hasattr(os, "symlink"):
+            self.assertTrue(any("sym-manifest" in w and "symlink" in w.lower() for w in rep.warnings), rep.warnings)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -580,13 +580,13 @@ class UpstreamAuditorBridge:
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
                     "branch": "main",
-                    "last_synced_commit": "35b54dc",
+                    "last_synced_commit": "7f6a03d",
                     "target_skills": ["antislop"],
                 },
                 "Chisle": {
                     "repo": "JayPokale/Chisle",
                     "branch": "main",
-                    "last_synced_commit": "b2e1658",
+                    "last_synced_commit": "69e2a3b",
                     "target_skills": ["chisle"],
                 },
                 "unlazy": {
@@ -604,7 +604,7 @@ class UpstreamAuditorBridge:
                 "everything-claude-code": {
                     "repo": "affaan-m/everything-claude-code",
                     "branch": "main",
-                    "last_synced_commit": "d2ef268",
+                    "last_synced_commit": "4adeee6",
                     "target_skills": [
                         "database-migrations",
                         "skills/harness/references/adr.md",
@@ -615,7 +615,7 @@ class UpstreamAuditorBridge:
                 "mattpocock-skills": {
                     "repo": "mattpocock/skills",
                     "branch": "main",
-                    "last_synced_commit": "5863806",
+                    "last_synced_commit": "abeeaf9",
                     "target_skills": ["deep-grill", "diagnosing-bugs", "skills/harness/references/test-design.md", "retro"],
                 },
                 "rea": {

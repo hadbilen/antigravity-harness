@@ -30,11 +30,15 @@ This skill enforces safe schema evolutions, rollback strategies, and zero-downti
 
 ### 1. Adding Columns Safely
 ```sql
--- SAFE (PostgreSQL 11+): Fast metadata-only change
+-- PostgreSQL 11+: nullable or non-volatile default avoids a table rewrite,
+-- but STILL takes an ACCESS EXCLUSIVE lock held until transaction end.
+SET LOCAL lock_timeout = '2s';
 ALTER TABLE users ADD COLUMN bio TEXT DEFAULT '' NOT NULL;
 
--- CAUTION (< PG 11): Volatile default functions (e.g. random()) rewrite the entire table.
--- Pattern: Add nullable column -> backfill -> add NOT NULL constraint.
+-- CAUTION (all PG versions, including PG 11+): volatile defaults (e.g. random(), clock_timestamp())
+-- still rewrite the entire table. Adding NOT NULL without a default on a populated table fails
+-- immediately with not_null_violation (SQLSTATE 23502) rather than backfilling rows.
+-- Pattern: Add nullable column -> backfill -> add NOT NULL constraint (via NOT VALID + VALIDATE CONSTRAINT).
 ```
 
 ### 2. Creating Indexes Without Downtime
@@ -47,11 +51,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users (email);
 ```
 
 ### 3. Renaming Columns (Expand-Contract Pattern)
-Never rename columns in-place in production. Follow the four-step expand-contract cycle:
-1. **Expand:** Add new column as nullable (`ALTER TABLE users ADD COLUMN display_name TEXT;`).
-2. **Backfill & Dual-Write:** Backfill historical data in batches. Update application to write to both columns, read from old (fallback to new).
-3. **Switch Read:** Deploy application reading from new column, writing to new column.
-4. **Contract:** Drop old column after verifying all instances are updated (`ALTER TABLE users DROP COLUMN username;`).
+Never rename columns in-place in production, and never backfill before dual-write is live (old-only writers overwrite rows and `WHERE new_col IS NULL` cannot repair stale non-NULL values). Follow the zero-downtime sequence keeping `username` authoritative until read cutover:
+1. **Expand:** Add the new column as nullable (`ALTER TABLE users ADD COLUMN display_name TEXT;`).
+2. **Dual-Write & Drain Old Writers:** Deploy app `v2` reading `username` and atomically writing BOTH columns across every write path (app, jobs, imports), then drain all old-only writers and in-flight transactions before starting backfill.
+3. **Bounded Idempotent Backfill & Parity Check:** Backfill in bounded primary-key ranges (`SET LOCAL lock_timeout = '2s'`, `UPDATE users SET display_name = username WHERE id > $lo AND id <= $hi AND display_name IS DISTINCT FROM username;`) so legitimate `NULL`s and stale non-`NULL` values reconcile cleanly, then require `SELECT count(*) FROM users WHERE display_name IS DISTINCT FROM username;` to return `0`.
+4. **Switch Reads (Keep Dual-Write for Rollback):** Deploy app `v3` reading `display_name` while continuing to write BOTH columns throughout the rollback window.
+5. **Drain & Contract:** After the rollback window, stop backfill workers, migrate constraints/indexes, drain non-app old-column readers, deploy app `v4` writing only `display_name`, and drop the old column in a separate migration (`ALTER TABLE users DROP COLUMN username;`).
 
 ### 4. Batched Data Migrations (Prevent Table Locks)
 ```sql
