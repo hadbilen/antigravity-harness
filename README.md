@@ -1,4 +1,10 @@
-# Plumbwork
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/plumbwork-header-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/plumbwork-header-light.svg">
+  <img alt="Plumbwork: behavioral constitution, auditor subagents, Porter transpiler, and Plumb Guard" src="docs/assets/plumbwork-header-light.svg" width="596">
+</picture>
 
 [![Release](https://img.shields.io/badge/release-v3.0.0-blue.svg)](https://github.com/hadbilen/plumbwork/releases)
 [![CI](https://github.com/hadbilen/plumbwork/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/plumbwork/actions/workflows/ci.yml)
@@ -6,8 +12,9 @@
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20ui--refinery-orange.svg)](DESIGN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **A behavioral constitution, auditor subagents, a rule transpiler, and a write-protection /
-> integrity-monitoring companion (`plumb-guard`) for AI coding agents.**
+**A behavioral constitution, auditor subagents, a rule transpiler, and a write-protection / integrity-monitoring companion (`plumb-guard`) for AI coding agents.**
+
+</div>
 
 Autonomous coding agents suffer from **environment mutation drift**, **sycophancy**, **test weakening
 (Goodhart's Curse)**, **context bloat**, and **ecosystem fragmentation**. Plumbwork counters
@@ -321,6 +328,7 @@ plumbwork/
 ├── .harness/manifest.json                 # Canonical manifest (checked by CI)
 ├── docs/
 │   ├── adr/                               # Architecture Decision Records (ADR-0001 through ADR-0017)
+│   ├── assets/                            # Dual-theme SVG header graphics for README.md
 │   └── benchmark-protocol.md              # 10-task real-project A/B quality benchmark & PreInvocation evaluation record
 ├── bin/                                   # plumb-guard launchers (POSIX, .bat, .ps1)
 ├── installers/                            # PyInstaller build, Linux packages (.deb/.rpm/Arch), desktop entry
@@ -575,6 +583,26 @@ The Guard, Porter and grader code uses only the Python standard library (3.10+).
 for the GUI, `pystray` + `Pillow` or PyGObject/AppIndicator for the tray icon, PyYAML (used alongside Porter's
 frontmatter parser by the self-audit when present), `nodejs (>= 18)` (for `skills/harness/references/unlazy/scripts/*.mjs` gate and dispatch helpers),
 and `ffmpeg` (`>= 5.1` recommended; automatic `-vsync` fallback on older builds) / `ffprobe` (for `media-studio` `media_qc.py` signal and container verification). The standalone binaries bundle `pystray` and `Pillow` via PyInstaller.
+
+---
+
+## Token & Quota Overhead
+
+> [!WARNING]
+> **Higher Token & Rate-Limit Consumption:** Running the full Plumbwork harness consumes more input/output
+> tokens and request quota per task than an unguided agent session. It trades extra prompt and review budget
+> for stricter verification, drift protection, and lower rework.
+
+* **What increases consumption:**
+  * Always-on constitutional rules (`rules/plumbwork-constitution.md`), matched `SKILL.md` reads, and `PreInvocation` routing hints add prompt context on active turns (the A/B benchmark in [`docs/benchmark-protocol.md`](docs/benchmark-protocol.md) budgets `<= +25%` median token overhead on Tier 1 and Tier 2 tasks).
+  * Multi-step planning (`deep-grill`, `tasks.md`, ADRs) and `Stop` gate retry loops add extra turns when a check fails.
+  * **Tier 3 auditor fan-out is the largest multiplier:** each read-only auditor starts in a fresh context (~10-15K input tokens plus the diff slice) on the parent model by default (`Model: "inherit"`), so running the full pre-flight auditor set scales input cost with diff size (see [`skills/harness/references/multi-agent-orchestration.md`](skills/harness/references/multi-agent-orchestration.md)).
+* **What uses zero LLM tokens:** `plumb-guard` locking, integrity verification, snapshots, `upstream` checks, `meta_audit.py`, `verify_invariants.py`, `code-map`, `ui-slop`, and `synthetic-markers` all run locally in Python with no model calls.
+* **How to keep quota usage down:**
+  * Keep small, localized fixes in **Tier 1** (`1-2` files, `<20` lines), which runs direct edits and checks with no planning artifacts or auditor fan-out.
+  * For heavy documentation reading (`research`) or opt-in read-only triage where lower cost matters more than deep review, use `Model: "flash"` or `"pro"` while keeping flagship models on security, consistency, and governance checks.
+  * Install with `--plugins` (Hybrid Layout) and toggle off unused domain packs in the Antigravity UI so `PreInvocation` suppresses their skill and MCP hints, or install only a single standalone plugin `.zip` pack when you do not need the full harness.
+  * Use `/chisle` on routine sessions for terse responses without relaxing verification gates.
 
 ---
 
