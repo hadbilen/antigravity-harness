@@ -96,9 +96,17 @@ _GUARD_ADMIN_BODY = (
     r")"
 )
 
-_GUARD_ADMIN_RE = _LazyRegex(rf"(?:^|[;&|()\n`])\s*{_GUARD_ADMIN_BODY}", re.IGNORECASE)
+_GUARD_ADMIN_RE = _LazyRegex(
+    rf"(?:^|[;&|()\n`])\s*{_GUARD_ADMIN_BODY}",
+    re.IGNORECASE,
+    any_tokens=("guard", "porter", "verify_invariants"),
+)
 
-_DELEGATION_GUARD_ADMIN_RE = _LazyRegex(rf"(?:^|[\s;|&()\n`'\"]){_GUARD_ADMIN_BODY}", re.IGNORECASE)
+_DELEGATION_GUARD_ADMIN_RE = _LazyRegex(
+    rf"(?:^|[\s;|&()\n`'\"]){_GUARD_ADMIN_BODY}",
+    re.IGNORECASE,
+    any_tokens=("guard", "porter", "verify_invariants"),
+)
 
 _GUARD_API_TOKEN_PAT = (
     r"(?:"
@@ -117,6 +125,24 @@ _GUARD_INLINE_PY_RE = _LazyRegex(
     rf"{_GUARD_API_TOKEN_PAT}[\s\S]*?\|\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*[/\\])?(?:python3?(?:\.\d+)?|py)(?:\.exe)?\b"
     r")",
     re.IGNORECASE,
+    any_tokens=(
+        "osprotectionadapter",
+        "porterbridge",
+        "installer",
+        "guard.",
+        "install.main",
+        "authorized_modifications",
+        ".unlock",
+        ".save_baseline",
+        ".snapshot",
+        ".restore_snapshot",
+        ".prune_snapshots",
+        ".stage_and_ingest",
+        ".set_policy",
+        ".register_environment",
+        ".unregister_environment",
+        ".remove_environment",
+    ),
 )
 
 # Direct execution of install.py without --dry-run or --help (GEMINI.md Rule 12).
@@ -127,6 +153,7 @@ _INSTALL_PY_RE = _LazyRegex(
     r"(?:(?:[^\s;|&`]*/)?(?:python3?(?:\.\d+)?|py|(?:ba|z|da|k)?sh)\s+(?:-[^\s;|&`]+\s+)*(?:[^\s;|&`]*/)?|(?:[^\s;|&`]*/)?)"
     r"install\.py\b(?![^\n;|&`]*(?:--dry-run|--help|-h\b))",
     re.IGNORECASE,
+    any_tokens=("install.py",),
 )
 
 _WORKFLOW_INSTALL_EXEC_BODY = (
@@ -135,19 +162,28 @@ _WORKFLOW_INSTALL_EXEC_BODY = (
     r"install\.py\b(?![^\n;|&`]*(?:--dry-run|--help|-h\b))"
 )
 
-_WORKFLOW_INSTALL_EXEC_RE = _LazyRegex(rf"(?:^|[;&|()\n`])\s*{_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
+_WORKFLOW_INSTALL_EXEC_RE = _LazyRegex(
+    rf"(?:^|[;&|()\n`])\s*{_WORKFLOW_INSTALL_EXEC_BODY}",
+    re.IGNORECASE,
+    any_tokens=("install.py",),
+)
 
-_DELEGATION_INSTALL_EXEC_RE = _LazyRegex(rf"(?:^|[\s;|&()\n`'\"]){_WORKFLOW_INSTALL_EXEC_BODY}", re.IGNORECASE)
+_DELEGATION_INSTALL_EXEC_RE = _LazyRegex(
+    rf"(?:^|[\s;|&()\n`'\"]){_WORKFLOW_INSTALL_EXEC_BODY}",
+    re.IGNORECASE,
+    any_tokens=("install.py",),
+)
 
-_QUOTED_SPAN_RE = _LazyRegex(r"\$'(?:\\.|[^'\\])*'|'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_QUOTED_SPAN_RE = _LazyRegex(r"\$'(?:\\.|[^'\\])*'|'[^']*'|\"(?:\\.|[^\"\\])*\"", any_tokens=("'", '"'))
 
-_BACKTICK_SPAN_RE = _LazyRegex(r"`((?:\\.|[^`\\])+)`")
+_BACKTICK_SPAN_RE = _LazyRegex(r"`((?:\\.|[^`\\])+)`", any_tokens=("`",))
 
 _SHELL_C_EXTRACT_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
     r"(?:(?:[^\s;|&`]*/)?(?:ba|z|da|k)?sh\b[^\n;|&`]*?\s-(?:[A-Za-z0-9]+\s+)*[A-Za-z0-9]*c[A-Za-z0-9]*|eval)\s+"
     r"(?:'([^']*)'|\"((?:\\.|[^\"\\])*)\")",
     re.IGNORECASE,
+    any_tokens=("sh", "eval"),
 )
 
 _SCRIPT_C_EXTRACT_RE = _LazyRegex(
@@ -155,6 +191,7 @@ _SCRIPT_C_EXTRACT_RE = _LazyRegex(
     r"(?:\s-(?:[A-Za-z0-9]+\s+)*[A-Za-z0-9]*c\s*|\s--command(?:=|\s+))"
     r"(?:'([^']*)'|\"((?:\\.|[^\"\\])*)\"|([^\s;|&`'\"]+))",
     re.IGNORECASE,
+    any_tokens=("script",),
 )
 
 _PIPE_TO_SH_EXTRACT_RE = _LazyRegex(
@@ -162,11 +199,13 @@ _PIPE_TO_SH_EXTRACT_RE = _LazyRegex(
     r"(?:'([^']*)'|\"((?:\\.|[^\"\\])*)\")\s*\|\s*"
     rf"{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?(?:ba|z|da|k)?sh\b",
     re.IGNORECASE,
+    any_tokens=("|",),
 )
 
 _FIND_EXEC_EXTRACT_RE = _LazyRegex(
     r"\bfind\b[^\n;|&]*?\s-(?:exec|execdir|ok|okdir)\s+([^\n;|]+?)(?:\s+(?:\\;|;|\+))?(?=$|[;&|\n])",
     re.IGNORECASE,
+    any_tokens=("find",),
 )
 
 # Owners whose `-c`-style flag never takes a shell command line (counters, compilers, SQL clients, archivers,
@@ -193,6 +232,7 @@ _SHELL_PUNCT_CHARS = ";&|()"
 _TERMINAL_MUX_SEGMENT_RE = _LazyRegex(
     r"(?:^|[;&|()\n`])\s*(?:[^\s;|&`]*/)?(?:tmux|screen|byobu|tmate|dtach|abduco|zellij)\b([^\n;|&`]*)",
     re.IGNORECASE,
+    any_tokens=("tmux", "screen", "byobu", "tmate", "dtach", "abduco", "zellij"),
 )
 
 # Keystroke or buffer injection into a multiplexer runs arbitrary commands outside `PreToolUse` inspection.
@@ -203,6 +243,7 @@ _TERMINAL_INJECTION_RE = _LazyRegex(
     r"zellij\b[^\n;|&`]*\s(?:write-chars|write)\b"
     r")",
     re.IGNORECASE,
+    any_tokens=("tmux", "byobu", "tmate", "screen", "zellij"),
 )
 
 # Exec-like calls whose argv is a string list/tuple (`pty.spawn(['plumb-guard', 'unlock'])`,
@@ -211,7 +252,8 @@ _EXEC_CALL_ARGV_RE = _LazyRegex(
     r"\b(?:system|popen|run|call|check_call|check_output|getoutput|getstatusoutput|Popen|spawn|spawnSync|"
     r"execSync|execFile|execFileSync|exec[lv]p?e?|spawn[lv]p?e?)\s*\(\s*"
     r"(?:[\[(]\s*((?:'[^'\n]*'|\"[^\"\n]*\")(?:\s*,\s*(?:'[^'\n]*'|\"[^\"\n]*\"))*)\s*,?\s*[\])]"
-    r"|('[^'\n]*'|\"[^\"\n]*\"))"
+    r"|('[^'\n]*'|\"[^\"\n]*\"))",
+    any_tokens=("(",),
 )
 
 _STR_ARGV_TOKEN_RE = _LazyRegex(r"'([^'\n]*)'|\"([^\"\n]*)\"")
@@ -664,7 +706,8 @@ _GIT_HOOK_BYPASS_RE = _LazyRegex(
     rf"\bgit{_GIT_GLOBAL_OPTS}\s+commit\b[^\n;|&]*\s-(?!-)[a-zA-Z]*n[a-zA-Z]*\b|"
     r"\bgit\b[^\n;|&]*(?:\s-c\s*|--config-env(?:=|\s+))['\"]?(?i:core\.hookspath)\s*=|"
     r"\b(?:HUSKY|LEFTHOOK)\s*=\s*(?:0|(?i:false))\b"
-    r")"
+    r")",
+    any_tokens=("git", "HUSKY", "LEFTHOOK"),
 )
 
 _REMOTE_INTERPRETER_PAT = (
@@ -674,46 +717,51 @@ _REMOTE_INTERPRETER_PAT = (
 # Destructive shell/git operations that require explicit human confirmation (force_ask)
 _DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[Any, str], ...] = (
     (
-        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+reset\b[^\n;|&]*--hard\b"),
+        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+reset\b[^\n;|&]*--hard\b", any_tokens=("--hard",)),
         "Destructive git operation (`git reset --hard`) discards uncommitted work (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
-            rf"\bgit{_GIT_GLOBAL_OPTS}\s+(?:checkout\s+(?:--\s+)?\.|restore\s+(?:(?:--worktree|--staged|-[sSW]+)\s+)*(?:--\s+)?\.)(?:\s|$|[;&|])"
+            rf"\bgit{_GIT_GLOBAL_OPTS}\s+(?:checkout\s+(?:--\s+)?\.|restore\s+(?:(?:--worktree|--staged|-[sSW]+)\s+)*(?:--\s+)?\.)(?:\s|$|[;&|])",
+            any_tokens=("checkout", "restore"),
         ),
         "Destructive git operation discards workspace modifications across the tree (GEMINI.md Rule 12).",
     ),
     (
-        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+clean\b[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)"),
+        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+clean\b[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)", any_tokens=("clean",)),
         "Destructive git operation (`git clean -f`) permanently deletes untracked files (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
-            rf"\bgit{_GIT_GLOBAL_OPTS}\s+push\b[^\n;|&]*(?:\s--force(?![-a-zA-Z])|\s-(?!-)[a-zA-Z]*f[a-zA-Z]*\b|\s['\"]?\+[A-Za-z0-9_./:-]+)"
+            rf"\bgit{_GIT_GLOBAL_OPTS}\s+push\b[^\n;|&]*(?:\s--force(?![-a-zA-Z])|\s-(?!-)[a-zA-Z]*f[a-zA-Z]*\b|\s['\"]?\+[A-Za-z0-9_./:-]+)",
+            any_tokens=("push",),
         ),
         "Force-pushing (`git push --force` / `+refspec`) rewrites remote history (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
             rf"\bgit{_GIT_GLOBAL_OPTS}\s+branch\b[^\n;|&]*(?:\s-(?!-)[a-zA-Z]*D[a-zA-Z]*\b|"
-            r"(?=[^\n;|&]*--delete\b)(?=[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)))"
+            r"(?=[^\n;|&]*--delete\b)(?=[^\n;|&]*(?:--force\b|\s-(?!-)[a-zA-Z]*f)))",
+            any_tokens=("branch",),
         ),
         "Force-deleting a git branch (`git branch -D` / `--delete --force`) may discard unmerged commits (GEMINI.md Rule 12).",
     ),
     (
-        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+stash\s+(?:drop|clear)\b"),
+        _LazyRegex(rf"\bgit{_GIT_GLOBAL_OPTS}\s+stash\s+(?:drop|clear)\b", any_tokens=("stash",)),
         "Dropping or clearing git stashes (`git stash drop` / `git stash clear`) permanently discards stashed work (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
             r"\brm\s+-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r|--recursive)\b\s+"
-            r"(?:/(?:\s|$|[;&|])|~(?:[/\\]|\s|$|[;&|])|\$HOME\b|\.\.(?:[/\\]|\s|$|[;&|])|\*(?:\s|$|[;&|]))"
+            r"(?:/(?:\s|$|[;&|])|~(?:[/\\]|\s|$|[;&|])|\$HOME\b|\.\.(?:[/\\]|\s|$|[;&|])|\*(?:\s|$|[;&|]))",
+            any_tokens=("rm",),
         ),
         "High-risk recursive deletion (`rm -rf` on root, home, parent, or wildcard) requires confirmation (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
-            r"\bfind\b[^\n;|&]*(?:\s-delete\b|\s-(?:exec|execdir|ok)\s+(?:[^\s;|&]*/)?rm\b)"
+            r"\bfind\b[^\n;|&]*(?:\s-delete\b|\s-(?:exec|execdir|ok)\s+(?:[^\s;|&]*/)?rm\b)",
+            any_tokens=("find",),
         ),
         "Bulk file deletion via `find -delete` or `find -exec rm` requires explicit human confirmation (GEMINI.md Rule 12).",
     ),
@@ -723,18 +771,21 @@ _DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[Any, str], ...] = (
             r"\b(?:DROP\s+(?:DATABASE|TABLE|SCHEMA)|TRUNCATE\s+TABLE)\b|"
             r"\bDELETE\s+FROM\s+[A-Za-z0-9_.`\"']+\s*(?:;|$|['\"]))",
             re.IGNORECASE,
+            any_tokens=("drop", "truncate", "delete"),
         ),
         "Destructive database operation (`dropdb`, `DROP TABLE/DATABASE/SCHEMA`, `TRUNCATE TABLE`, or unconditional `DELETE FROM`) requires explicit human confirmation (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
-            r"\b(?:docker|podman)\s+(?:system|volume|builder|image|container)\s+prune\b[^\n;|&]*(?:\s--all\b|\s--volumes\b|\s-(?!-)[a-zA-Z]*a[a-zA-Z]*\b)"
+            r"\b(?:docker|podman)\s+(?:system|volume|builder|image|container)\s+prune\b[^\n;|&]*(?:\s--all\b|\s--volumes\b|\s-(?!-)[a-zA-Z]*a[a-zA-Z]*\b)",
+            any_tokens=("prune",),
         ),
         "Pruning all container/volume/builder caches (`docker/podman ... prune -a/--all/--volumes`) requires explicit human confirmation (GEMINI.md Rule 12).",
     ),
     (
         _LazyRegex(
-            r"\bchmod\b[^\n;|&]*(?:\s--recursive\b|\s-(?!-)[a-zA-Z]*R[a-zA-Z]*\b)[^\n;|&]*\b(?:0?777|a\+rwx)\b"
+            r"\bchmod\b[^\n;|&]*(?:\s--recursive\b|\s-(?!-)[a-zA-Z]*R[a-zA-Z]*\b)[^\n;|&]*\b(?:0?777|a\+rwx)\b",
+            any_tokens=("chmod",),
         ),
         "Recursive world-writable permission change (`chmod -R 777`) is a security risk and requires explicit human confirmation (GEMINI.md Rule 12).",
     ),
@@ -745,17 +796,19 @@ _DESTRUCTIVE_CMD_PATTERNS: Tuple[Tuple[Any, str], ...] = (
             rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:{_REMOTE_INTERPRETER_PAT}|source|\.)\b[^\n;|&]*(?:<\(|\$\()\s*(?:[^\s;|&]*/)?(?:curl|wget)\b"
             rf")",
             re.IGNORECASE,
+            any_tokens=("curl", "wget"),
         ),
         "Executing remote scripts directly via a shell or language interpreter is forbidden by supply-chain policy (GEMINI.md Rule 12).",
     ),
     (
-        _LazyRegex(r"\b(?:npx|bunx|pnpm\s+dlx|uvx)\b[^\n;|&]*@latest\b"),
+        _LazyRegex(r"\b(?:npx|bunx|pnpm\s+dlx|uvx)\b[^\n;|&]*@latest\b", any_tokens=("@latest",)),
         "Executing unpinned `@latest` packages (`npx/bunx/uvx @latest`) violates supply-chain pinning rules (GEMINI.md Rule 12).",
     ),
 )
 
 _RM_OR_MV_SEGMENT_RE = _LazyRegex(
-    rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?(?P<verb>rm|mv)\b(?P<rest>[^\n;|&`]*)"
+    rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`]*/)?(?P<verb>rm|mv)\b(?P<rest>[^\n;|&`]*)",
+    any_tokens=("rm", "mv"),
 )
 
 
@@ -897,6 +950,7 @@ _NPX_SEGMENT_RE = _LazyRegex(
     rf"(?:^|[;&|()\n`])\s*{_CMD_WRAPPER_PREFIX}"
     r"(?:[^\s;|&`]*/)?(?P<runner>npx|bunx|pnpm\s+dlx|uvx|pipx\s+run)\b(?P<rest>[^\n;|&`]*)",
     re.IGNORECASE,
+    any_tokens=("npx", "bunx", "pnpm", "uvx", "pipx"),
 )
 
 def _is_pinned_npm_spec(spec: str) -> bool:
@@ -1006,7 +1060,8 @@ def _detect_unpinned_package_exec(cmd: str) -> Optional[str]:
     return None
 
 _SIMPLE_VAR_ASSIGN_RE = _LazyRegex(
-    r"(?:^|[;&|()\n\s])([A-Za-z_][A-Za-z0-9_]*)=(?:'([^']*)'|\"([^\"\\]*)\"|([^\s;|&'\"()]+))"
+    r"(?:^|[;&|()\n\s])([A-Za-z_][A-Za-z0-9_]*)=(?:'([^']*)'|\"([^\"\\]*)\"|([^\s;|&'\"()]+))",
+    any_tokens=("=",),
 )
 
 def _expand_simple_shell_vars(cmd: str) -> str:
@@ -1272,7 +1327,7 @@ def _strip_benign_fd_null_redirections(text: str) -> str:
             i += 1
     return "".join(out)
 
-_SHELL_DOTDOT_TOKEN_RE = _LazyRegex(r"(?:^|[\s/'\"=])\.\.(?:$|[\s/'\";&|()])")
+_SHELL_DOTDOT_TOKEN_RE = _LazyRegex(r"(?:^|[\s/'\"=])\.\.(?:$|[\s/'\";&|()])", any_tokens=("..",))
 
 @functools.lru_cache(maxsize=256)
 def _compiled_cfg_subdir_patterns(root: str) -> Tuple[Tuple[re.Pattern[str], str], ...]:
@@ -2189,11 +2244,13 @@ _NON_PYTHON_INTERP_RE = _LazyRegex(
     r"\|\s*(?:[A-Za-z0-9_.=/-]+\s+)*(?:python3?(?:\.\d+)?|py|node|nodejs|deno|bun|ruby|perl|php|lua)\b"
     r")",
     re.IGNORECASE,
+    any_tokens=("node", "deno", "bun", "ruby", "perl", "php", "lua", "py"),
 )
 
 _ANY_PYTHON_INLINE_OR_HEREDOC_RE = _LazyRegex(
     r"\bpython3?(?:\.\d+)?\b[^\n;|&]*(?:\s-(?:[A-Za-z0-9]*[cmi])\b|<<)",
     re.IGNORECASE,
+    any_tokens=("python",),
 )
 
 _HEREDOC_PY_HEADER_RE = _LazyRegex(
@@ -3198,11 +3255,13 @@ def _shell_has_unquoted_mutation(sub_cmd: str) -> bool:
     return True
 
 _CD_SEG_RE = _LazyRegex(
-    r"^\s*\(*\s*(?:builtin\s+|command\s+)?(?P<verb>cd|pushd|popd)(?:\s+(?P<rest>.*))?$"
+    r"^\s*\(*\s*(?:builtin\s+|command\s+)?(?P<verb>cd|pushd|popd)(?:\s+(?P<rest>.*))?$",
+    any_tokens=("cd", "pushd", "popd"),
 )
 
 _INLINE_DIR_FLAG_RE = _LazyRegex(
-    r"(?:^|\s)(?:-C\s+(?P<c_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)|--(?:directory|chdir)(?:=(?P<eq_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)|\s+(?P<sp_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)))"
+    r"(?:^|\s)(?:-C\s+(?P<c_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)|--(?:directory|chdir)(?:=(?P<eq_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)|\s+(?P<sp_arg>'[^']*'|\"(?:\\.|[^\"\\])*\"|\S+)))",
+    any_tokens=("-C", "--directory", "--chdir"),
 )
 
 def _resolve_shell_dir_token(raw_tok: str, cur_cwd: Optional[Path]) -> Optional[Path]:
@@ -3416,6 +3475,7 @@ _INTERP_SCRIPT_SEG_RE = _LazyRegex(
     r"(?P<interp>(?:[^\s;|&`'\"()]*/)?(?:python3?(?:\.\d+)?|py|(?:ba|z|da|k)?sh|node|nodejs|ruby|perl)|source|\.)\s+"
     r"(?P<rest>.+)$",
     re.IGNORECASE,
+    any_tokens=("py", "sh", "node", "ruby", "perl", "source", "."),
 )
 
 _PY_MODULE_SCRIPT_RUNNERS = frozenset({
@@ -3527,14 +3587,22 @@ def _inspect_external_script_command(
                 return _extract_code_map_trace_target(rem_tokens[k + 1 :], all_targets=True)
         return []
 
-    _guard_bin_re = re.compile(
-        rf"^\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`'\"()]*[/\\])?(?:plumb-guard(?:\.(?:exe|cmd|bat|ps1))?|guard\.py|guard[/\\]cli\.py)\s+(?P<rest>.+)$",
-        re.IGNORECASE,
-    )
-    _codemap_bin_re = re.compile(
-        rf"^\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`'\"()]*[/\\])?code_map\.py\s+(?P<rest>.+)$",
-        re.IGNORECASE,
-    )
+    bin_res = getattr(_inspect_external_script_command, "_bin_res", None)
+    if bin_res is None:
+        bin_res = (
+            _LazyRegex(
+                rf"^\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`'\"()]*[/\\])?(?:plumb-guard(?:\.(?:exe|cmd|bat|ps1))?|guard\.py|guard[/\\]cli\.py)\s+(?P<rest>.+)$",
+                re.IGNORECASE,
+                any_tokens=("guard",),
+            ),
+            _LazyRegex(
+                rf"^\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`'\"()]*[/\\])?code_map\.py\s+(?P<rest>.+)$",
+                re.IGNORECASE,
+                any_tokens=("code_map.py",),
+            ),
+        )
+        setattr(_inspect_external_script_command, "_bin_res", bin_res)
+    _guard_bin_re, _codemap_bin_re = bin_res
 
     for seg in segments:
         m = _INTERP_SCRIPT_SEG_RE.match(seg)

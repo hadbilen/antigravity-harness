@@ -170,14 +170,46 @@ CONTINUATION_WORDS = frozenset({
 })
 
 class _LazyRegex:
-    """Delays compilation of non-Pass-7 regexes until first match/search/sub/finditer call."""
+    """Delays compilation of non-Pass-7 regexes until first match/search/sub/finditer call.
 
-    __slots__ = ("_pattern", "_flags", "_compiled")
+    Optional `any_tokens` supplies a tuple of ASCII literal substrings such that every possible
+    match of `pattern` MUST contain at least one token (case-insensitive when `re.IGNORECASE`
+    or inline `(?i` is present). Before `pattern` is compiled, lookup/transform methods
+    short-circuit without compiling when none of the tokens appear. Non-ASCII inputs under
+    case-insensitive matching bypass the prefilter fail-closed (for example, Unicode
+    `re.IGNORECASE` folds Turkish dotless `\\u0131` to `i` while `str.casefold()` does not).
+    """
 
-    def __init__(self, pattern: str, flags: int = 0) -> None:
+    __slots__ = ("_pattern", "_flags", "_compiled", "_any_tokens", "_ignorecase")
+
+    def __init__(
+        self,
+        pattern: str,
+        flags: int = 0,
+        *,
+        any_tokens: Optional[Tuple[str, ...]] = None,
+    ) -> None:
         self._pattern = pattern
         self._flags = flags
         self._compiled: Optional[re.Pattern[str]] = None
+        self._ignorecase = bool(flags & re.IGNORECASE) or "(?i" in pattern
+        if any_tokens and (not self._ignorecase or all(t.isascii() for t in any_tokens)):
+            self._any_tokens: Optional[Tuple[str, ...]] = tuple(
+                t.lower() if self._ignorecase else t for t in any_tokens
+            )
+        else:
+            self._any_tokens = None
+
+    def _may_match(self, string: str) -> bool:
+        if self._compiled is not None or self._any_tokens is None:
+            return True
+        if self._ignorecase:
+            if not string.isascii():
+                return True
+            haystack = string.lower()
+        else:
+            haystack = string
+        return any(tok in haystack for tok in self._any_tokens)
 
     def _get(self) -> re.Pattern[str]:
         if self._compiled is None:
@@ -185,27 +217,43 @@ class _LazyRegex:
         return self._compiled
 
     def search(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
+        if not self._may_match(string):
+            return None
         return self._get().search(string, pos, endpos)
 
     def match(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
+        if not self._may_match(string):
+            return None
         return self._get().match(string, pos, endpos)
 
     def fullmatch(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Optional[re.Match[str]]:
+        if not self._may_match(string):
+            return None
         return self._get().fullmatch(string, pos, endpos)
 
     def finditer(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> Iterator[re.Match[str]]:
+        if not self._may_match(string):
+            return iter(())
         return self._get().finditer(string, pos, endpos)
 
     def findall(self, string: str, pos: int = 0, endpos: int = sys.maxsize) -> List[Any]:
+        if not self._may_match(string):
+            return []
         return self._get().findall(string, pos, endpos)
 
     def sub(self, repl: Any, string: str, count: int = 0) -> str:
+        if not self._may_match(string):
+            return string
         return self._get().sub(repl, string, count)
 
     def subn(self, repl: Any, string: str, count: int = 0) -> Tuple[str, int]:
+        if not self._may_match(string):
+            return (string, 0)
         return self._get().subn(repl, string, count)
 
     def split(self, string: str, maxsplit: int = 0) -> List[Any]:
+        if not self._may_match(string):
+            return [string]
         return self._get().split(string, maxsplit)
 
     @property
