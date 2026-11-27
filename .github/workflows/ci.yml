@@ -196,6 +196,35 @@ jobs:
             rm -rf "${trusted:?}/$p"
             if [ -e "$p" ]; then cp -R "$p" "$trusted/$p"; fi
           done
+          # Additive PRs update README.md test counts for the full candidate suite while
+          # $trusted intentionally keeps only the base branch's tests/. Reconcile the
+          # test-count claim in $trusted/README.md only when the PR strictly adds tests
+          # and its README.md accurately matches the candidate test count.
+          python - "$trusted" "$GITHUB_WORKSPACE" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          trusted, cand = Path(sys.argv[1]), Path(sys.argv[2])
+
+          def count_tests(root: Path) -> int:
+              tdir = root / "tests"
+              if not tdir.is_dir():
+                  return 0
+              return sum(
+                  len(re.findall(r"^\s+def (test_\w+)\(", f.read_text(encoding="utf-8", errors="ignore"), re.M))
+                  for f in tdir.glob("test_*.py")
+              )
+
+          base_n = count_tests(trusted)
+          cand_n = count_tests(cand)
+          readme = trusted / "README.md"
+          if cand_n > base_n and readme.is_file():
+              text = readme.read_text(encoding="utf-8")
+              updated = re.sub(rf"\({cand_n}(\s+(?:passing\s+)?tests)\)", rf"({base_n}\1)", text)
+              if updated != text:
+                  readme.write_text(updated, encoding="utf-8")
+          PY
       - name: Trusted tests and graders against candidate code
         shell: bash
         working-directory: ${{ runner.temp }}/trusted
