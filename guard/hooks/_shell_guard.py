@@ -3588,7 +3588,11 @@ def _inspect_external_script_command(
         return []
 
     bin_res = getattr(_inspect_external_script_command, "_bin_res", None)
-    if bin_res is None:
+    if (
+        not isinstance(bin_res, tuple)
+        or len(bin_res) != 2
+        or not all(isinstance(rx, _LazyRegex) for rx in bin_res)
+    ):
         bin_res = (
             _LazyRegex(
                 rf"^\s*{_CMD_WRAPPER_PREFIX}(?:[^\s;|&`'\"()]*[/\\])?(?:plumb-guard(?:\.(?:exe|cmd|bat|ps1))?|guard\.py|guard[/\\]cli\.py)\s+(?P<rest>.+)$",

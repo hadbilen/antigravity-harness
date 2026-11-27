@@ -182,6 +182,21 @@ class _LazyRegex:
 
     __slots__ = ("_pattern", "_flags", "_compiled", "_any_tokens", "_ignorecase")
 
+    @staticmethod
+    def _has_inline_ignorecase(pattern: Any) -> bool:
+        if not isinstance(pattern, str):
+            return False
+        idx = pattern.find("(?")
+        n = len(pattern)
+        while idx != -1:
+            j = idx + 2
+            while j < n and pattern[j] in "aiLmsux":
+                if pattern[j] == "i":
+                    return True
+                j += 1
+            idx = pattern.find("(?", idx + 2)
+        return False
+
     def __init__(
         self,
         pattern: str,
@@ -192,16 +207,24 @@ class _LazyRegex:
         self._pattern = pattern
         self._flags = flags
         self._compiled: Optional[re.Pattern[str]] = None
-        self._ignorecase = bool(flags & re.IGNORECASE) or "(?i" in pattern
-        if any_tokens and (not self._ignorecase or all(t.isascii() for t in any_tokens)):
+        self._ignorecase = bool(flags & re.IGNORECASE) or self._has_inline_ignorecase(pattern)
+        if any_tokens is not None:
+            if isinstance(any_tokens, (str, bytes)):
+                raise TypeError("any_tokens must be a tuple of str literals, not a bare str/bytes")
+            tokens = tuple(any_tokens)
+            if not all(isinstance(t, str) and t for t in tokens):
+                raise TypeError("any_tokens entries must be non-empty str literals")
+        else:
+            tokens = ()
+        if tokens and (not self._ignorecase or all(t.isascii() for t in tokens)):
             self._any_tokens: Optional[Tuple[str, ...]] = tuple(
-                t.lower() if self._ignorecase else t for t in any_tokens
+                t.lower() if self._ignorecase else t for t in tokens
             )
         else:
             self._any_tokens = None
 
-    def _may_match(self, string: str) -> bool:
-        if self._compiled is not None or self._any_tokens is None:
+    def _may_match(self, string: Any) -> bool:
+        if self._compiled is not None or self._any_tokens is None or not isinstance(string, str):
             return True
         if self._ignorecase:
             if not string.isascii():
