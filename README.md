@@ -6,8 +6,8 @@
   <img alt="Plumbwork: behavioral constitution, auditor subagents, Porter transpiler, and Plumb Guard" src="docs/assets/plumbwork-header-light.svg" width="596">
 </picture>
 
-[![Release](https://img.shields.io/badge/release-v3.0.0-blue.svg)](https://github.com/hadbilen/plumbwork/releases)
-[![CI](https://github.com/hadbilen/plumbwork/actions/workflows/ci.yml/badge.svg)](https://github.com/hadbilen/plumbwork/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v3.0.0-blue.svg)](https://github.com/tozhax/plumbwork/releases)
+[![CI](https://github.com/tozhax/plumbwork/actions/workflows/ci.yml/badge.svg)](https://github.com/tozhax/plumbwork/actions/workflows/ci.yml)
 [![Runtime](https://img.shields.io/badge/core%20runtime-Python%20stdlib%20only-brightgreen.svg)](#dependencies)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20ui--refinery-orange.svg)](DESIGN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -346,7 +346,7 @@ plumbwork/
 │   └── verify_invariants.py               # Deterministic invariant scan
 ├── agents/                                # 10 auditor subagent definitions
 ├── skills/                                # 20 top-level skills + on-demand references/ & scripts/
-├── tests/                                 # Hermetic unittest suite (914 tests)
+├── tests/                                 # Hermetic unittest suite (918 tests)
 └── templates/                             # ARCHITECTURE, DECISIONS, HANDOFF, MISTAKES, REPOSTATE, SECURITY_POSTURE, procoder.SKILL, vulkan.SKILL & config templates
 ```
 
@@ -361,7 +361,7 @@ upstream ledger are in `~/.local/state/plumbwork/`; snapshots and the installed 
 ### Recommended: install from a source checkout (all platforms)
 
 ```bash
-git clone https://github.com/hadbilen/plumbwork.git
+git clone https://github.com/tozhax/plumbwork.git
 cd plumbwork
 python3 install.py          # Windows: python install.py   |   POSIX alternative: ./install.sh
 ```
@@ -400,7 +400,7 @@ python3 install.py --flat-skills
 
 #### Standalone plugin packs (GitHub Releases)
 
-Each release publishes 4 standalone-clean plugin packs (`.zip` + `.zip.sha256`) on [GitHub Releases](https://github.com/hadbilen/plumbwork/releases) that work in Antigravity without `plumb-guard` or the full harness (each archive bundles a strict `v1/plugin.json`, dual-theme `128x128` SVG logo, MIT `LICENSE`, pack-scoped `THIRD_PARTY_NOTICES.md`, and `README.md` linking back to this repository):
+Each release publishes 4 standalone-clean plugin packs (`.zip` + `.zip.sha256`) on [GitHub Releases](https://github.com/tozhax/plumbwork/releases) that work in Antigravity without `plumb-guard` or the full harness (each archive bundles a strict `v1/plugin.json`, dual-theme `128x128` SVG logo, MIT `LICENSE`, pack-scoped `THIRD_PARTY_NOTICES.md`, and `README.md` linking back to this repository):
 
 | Pack (`dir`) | Display Name | Bundled Skills & Extras |
 | :--- | :--- | :--- |
@@ -430,7 +430,7 @@ python3 scripts/build_plugins.py --out dist/plugins --validate --zip
 
 ### Linux packages and standalone binaries
 
-Release assets (see [GitHub Releases](https://github.com/hadbilen/plumbwork/releases)) ship with a
+Release assets (see [GitHub Releases](https://github.com/tozhax/plumbwork/releases)) ship with a
 `.sha256` file each (including standalone plugin pack `.zip` archives); verify before installing:
 
 ```bash
@@ -561,7 +561,7 @@ existing tests were only extended, never weakened. Workflow runs for pull reques
 maintainer's approval, and their result is advisory (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ```bash
-# Hermetic unit test suite (914 tests)
+# Hermetic unit test suite (918 tests)
 python3 -m unittest discover -s tests -v
 
 # Harness self-audit (Rule 17); --strict also fails on warnings

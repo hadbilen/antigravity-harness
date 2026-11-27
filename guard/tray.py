@@ -1,6 +1,6 @@
 """
 guard/tray.py — Cross-Platform System Tray Adapter for Plumb Guard
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 
 Supports:
 1. AyatanaAppIndicator3 / AppIndicator3 via PyGObject (native on Kubuntu/KDE Plasma, GNOME, XFCE).

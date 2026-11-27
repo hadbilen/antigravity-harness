@@ -1,6 +1,6 @@
 """
 guard/upstream.py — Bridge to Upstream Auditor Watchdog
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

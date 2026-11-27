@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 porter.py — Universal AI Agent Bridge & Suitability Transpiler
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 `porter import` writes into this SOURCE repository (reviewable via git diff). It never

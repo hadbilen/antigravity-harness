@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 installers/build_binaries.py — Standalone Binary Builder for Plumb Guard
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 
 Packages `plumb-guard` CLI and GUI into a single standalone executable using PyInstaller.
 Bundles `pystray` and `Pillow` for native system tray integration on Linux, macOS, and Windows.

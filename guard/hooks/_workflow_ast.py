@@ -1,6 +1,6 @@
 """
 guard/hooks/_workflow_ast.py — Static AST sandbox & delegation verifier for `run_workflow` (ADR-0010).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

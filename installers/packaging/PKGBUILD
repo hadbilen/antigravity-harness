@@ -1,10 +1,10 @@
-# Maintainer: Had Bilen <https://github.com/hadbilen>
+# Maintainer: tozhax <https://github.com/tozhax>
 pkgname=plumb-guard
 pkgver=3.0.0
 pkgrel=1
 pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
 arch=('x86_64' 'aarch64')
-url="https://github.com/hadbilen/plumbwork"
+url="https://github.com/tozhax/plumbwork"
 license=('MIT' 'Apache-2.0')  # Apache-2.0: bundled templates/procoder.SKILL.template.md & refactoring/dependency-upgrade adaptations (see THIRD_PARTY_NOTICES.md)
 depends=('python>=3.10')
 provides=('antigravity-guard')
@@ -16,7 +16,7 @@ optdepends=(
     'python-gobject: Native Ayatana/AppIndicator system tray support'
     'gtk3: Desktop GTK interface support'
 )
-source=("$pkgname-$pkgver.tar.gz::https://github.com/hadbilen/plumbwork/archive/refs/tags/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/tozhax/plumbwork/archive/refs/tags/v$pkgver.tar.gz")
 # Replaced with the real tarball digest by CI at release time (see .github/workflows/ci.yml).
 sha256sums=('@SHA256@')
 

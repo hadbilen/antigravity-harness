@@ -1,6 +1,6 @@
 """
 guard/hooks/pre_invocation.py — PreInvocation skill-suggest, context routing & recovery gate (ADR-0008).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

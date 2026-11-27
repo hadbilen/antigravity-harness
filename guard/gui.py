@@ -1,6 +1,6 @@
 """
 guard/gui.py — High-Contrast Desktop Interface for Plumb Guard
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Strictly adheres to DESIGN.md (ENERGY 2 / RHYTHM 2 / Dark Zinc Palette).
 """
 

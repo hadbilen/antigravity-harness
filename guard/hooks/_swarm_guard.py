@@ -1,6 +1,6 @@
 """
 guard/hooks/_swarm_guard.py — Lazy PreToolUse native swarm, messaging, subagent & schedule guard (ADR-0013).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

@@ -1,6 +1,6 @@
 """
 guard/hooks/common.py — Shared primitives and dynamic facade collaborator proxies (ADR-0008).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 skills/ui-refinery/scripts/check_ui_slop.py — Deterministic scanner for structural UI/CSS/JSX/HTML slop
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Python standard library only; runs on Python 3.10 and later.
 
 Rule families:

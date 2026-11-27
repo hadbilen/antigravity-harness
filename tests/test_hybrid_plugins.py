@@ -1,6 +1,6 @@
 """
 tests/test_hybrid_plugins.py — Hybrid Modular Plugin Architecture Tests (AC-1..AC-6)
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 
@@ -2709,7 +2709,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
         from guard.plugins import ALLOWED_PLUGIN_MANIFEST_KEYS, PLUGIN_REPOSITORY
 
         # F2: PLUGIN_REPOSITORY is a plain https:// URL string and ALLOWED_PLUGIN_MANIFEST_KEYS matches live v1/plugin.json
-        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/hadbilen/plumbwork")
+        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/tozhax/plumbwork")
         for official_key in ("license", "keywords", "skills", "extensions", "repository", "homepage", "author"):
             self.assertIn(official_key, ALLOWED_PLUGIN_MANIFEST_KEYS)
 
@@ -2721,7 +2721,7 @@ class TestW4Tier3AuditRemediationAndRegressionSeam(_IsolatedHybridEnvMixin, unit
             self.assertTrue(summary[pack_name]["ok"], summary[pack_name])
             pdir = out_root / pack_name
             manifest = json.loads((pdir / "plugin.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["repository"], "https://github.com/hadbilen/plumbwork")
+            self.assertEqual(manifest["repository"], "https://github.com/tozhax/plumbwork")
             self.assertEqual(manifest["license"], "MIT")
 
             # F3: LICENSE present in all 4 packs and README states MIT License
@@ -3887,9 +3887,9 @@ class TestW3PlumbworkCutoverSeams(unittest.TestCase):
         self.assertEqual(porter_version, "3.0.0")
         self.assertEqual(APP_NAME, "plumbwork")
         self.assertEqual(CONSTITUTION_RULE_REL, "rules/plumbwork-constitution.md")
-        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/hadbilen/plumbwork")
-        self.assertEqual(PLUGIN_HOMEPAGE, "https://github.com/hadbilen/plumbwork")
-        self.assertEqual(PLUGIN_AUTHOR["url"], "https://github.com/hadbilen/plumbwork")
+        self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/tozhax/plumbwork")
+        self.assertEqual(PLUGIN_HOMEPAGE, "https://github.com/tozhax/plumbwork")
+        self.assertEqual(PLUGIN_AUTHOR["url"], "https://github.com/tozhax/plumbwork")
 
     def test_doctor_read_only_legacy_residue_warnings_and_third_party_preservation(self) -> None:
         from guard.doctor import diagnose

@@ -1,6 +1,6 @@
 """
 guard/approval.py — Human confirmation gate for Guard administration commands.
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Threat model (honest): the gate stops unattended/headless automation and accidental

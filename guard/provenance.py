@@ -1,6 +1,6 @@
 """
 guard/provenance.py — Execution Provenance & Audit Trail Manifest
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Records execution provenance across agent sessions: files touched, git commit baselines,

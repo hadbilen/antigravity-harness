@@ -1,6 +1,6 @@
 """
 guard/hooks/stop_gate.py — Stop completion gate, diff/test-boundary scanner & flight-recorder reconciliation (ADR-0008).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

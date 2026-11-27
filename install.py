@@ -91,7 +91,7 @@ RUNTIME_PORTABLE_SKILL_SCRIPTS = (
     "skills/ui-refinery/scripts/check_synthetic_markers.py",
 )
 LAUNCHER_MARKER = "plumbwork launcher"
-RELEASE_BASE = "https://github.com/hadbilen/plumbwork/releases/download"
+RELEASE_BASE = "https://github.com/tozhax/plumbwork/releases/download"
 BACKUP_RETENTION_KEEP = 10
 _HEX_SHA256_CHARS = frozenset("0123456789abcdef")
 

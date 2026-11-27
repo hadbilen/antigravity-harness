@@ -1,6 +1,6 @@
 """
 guard/hooks/__init__.py — Event-scoped lifecycle hook package header (ADR-0008).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Intentionally defines only `_ACTIVE_FACADE` (`ContextVar`) with zero eager submodule

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 installers/packaging/package_linux.py — Native Linux Distribution Package Generator
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly Python standard library & native OS tools.
 
 Generates:
@@ -252,7 +252,7 @@ Conflicts: antigravity-guard
 Replaces: antigravity-guard
 Recommends: libnotify-bin, python3-tk
 Suggests: nodejs, ffmpeg
-Maintainer: Had Bilen <https://github.com/hadbilen/plumbwork>
+Maintainer: tozhax <https://github.com/tozhax/plumbwork>
 Description: OS-Level Governance, Write Protection, & Multi-Environment Integrity Suite
  Plumb Guard (plumb-guard) enforces OS write protection, cryptographic
  SHA-256 file integrity monitoring (FIM), and multi-environment governance
@@ -345,7 +345,7 @@ Version:        {self.version}
 Release:        1%{{?dist}}
 Summary:        OS-Level AI Governance Shield & Multi-Environment Integrity Suite
 License:        MIT AND Apache-2.0
-URL:            https://github.com/hadbilen/plumbwork
+URL:            https://github.com/tozhax/plumbwork
 BuildArch:      {rpm_arch}
 Requires:       python3 >= 3.10
 Provides:       antigravity-guard = %{{version}}-%{{release}}
@@ -378,7 +378,7 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
 /usr/share/bash-completion/completions/plumb-guard
 
 %changelog
-* {self.changelog_date} Had Bilen <hadbilen@users.noreply.github.com> - {self.version}-1
+* {self.changelog_date} tozhax <tozhax@users.noreply.github.com> - {self.version}-1
 - Release {self.version}; see CHANGELOG.md for details
 """
         spec_path = self.out_dir / "plumb-guard.spec"
@@ -427,9 +427,9 @@ cp -r %{{_sourcedir}}/stage/* %{{buildroot}}/
             pkginfo = f"""pkgname = plumb-guard
 pkgver = {self.version}-1
 pkgdesc = OS-Level AI Governance Shield & Multi-Environment Integrity Suite
-url = https://github.com/hadbilen/plumbwork
+url = https://github.com/tozhax/plumbwork
 builddate = {int(os.environ.get("SOURCE_DATE_EPOCH", time.time()))}
-packager = Had Bilen <https://github.com/hadbilen/plumbwork>
+packager = tozhax <https://github.com/tozhax/plumbwork>
 size = {self._payload_size(stage)}
 arch = {arch_name}
 license = MIT

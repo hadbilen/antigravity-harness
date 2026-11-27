@@ -1,6 +1,6 @@
 """
 guard/paths.py — Canonical per-user locations for Guard state, data and runtime files.
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Runtime state (baselines, leases, registry, lock-mode records) deliberately lives

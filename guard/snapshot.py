@@ -1,6 +1,6 @@
 """
 guard/snapshot.py — Snapshot and Verified Rollback Engine
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Snapshots are stored OUTSIDE the protected tree (per-user data directory), carry a

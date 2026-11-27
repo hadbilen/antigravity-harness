@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 guard.py — Plumb Guard (plumb-guard) CLI & GUI Root Launcher
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Usage:

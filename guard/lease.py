@@ -1,6 +1,6 @@
 """
 guard/lease.py — Human-in-the-Loop (HITL) Time-Bounded Lease Unlock Protocol
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Lifecycle: approve -> persist record (OPENING) -> unlock -> OPEN -> scheduled relock.

@@ -1,6 +1,6 @@
 """
 guard/audit_log.py — Persistent audit trail and diagnostic log for Guard.
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Every security-relevant decision (lock, unlock, approval granted/refused, lease grant and

@@ -302,8 +302,8 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [ "$REPO" != "hadbilen/plumbwork" ]; then
-            echo "::error::Tagged v3.0+ releases require renaming GitHub repository to hadbilen/plumbwork first (ADR-0017 D8); got '$REPO'."
+          if [ "$REPO" != "tozhax/plumbwork" ]; then
+            echo "::error::Tagged v3.0+ releases require GitHub repository 'tozhax/plumbwork' (ADR-0017 D8); got '$REPO'."
             exit 1
           fi
           version="${TAG#v}"

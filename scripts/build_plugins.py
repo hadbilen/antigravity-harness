@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 scripts/build_plugins.py — Standalone Antigravity Plugin Pack Builder & Validator CLI
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Usage:

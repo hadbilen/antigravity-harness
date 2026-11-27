@@ -1,6 +1,6 @@
 """
 guard/integrity.py — SHA-256 File Integrity Monitor (FIM)
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 The baseline is a flat, unsigned `relative path -> SHA-256` map stored in the per-user

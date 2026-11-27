@@ -35,7 +35,10 @@ _KNOWN_EXPORT_ROOT_DIRS = frozenset({".cursor", ".claude", ".aider", ".agents"})
 _KNOWN_EXPORT_ROOT_FILES = frozenset({"CLAUDE.md", "AGENTS.md", "CONVENTIONS.md", ".aider.conf.yml", "RULES.md"})
 # Harness files that are deliberately not exported, with the reason shown in every export index.
 NOT_PORTABLE = {
-    "hooks.json": "Antigravity-specific lifecycle hooks (PreInvocation, PreToolUse, Stop); intentionally not portable",
+    "hooks.json": (
+        "Antigravity-specific lifecycle hooks (PreInvocation, PreToolUse, Stop); intentionally not portable. "
+        "To enforce Rule 9 mechanically in pre-commit/CI, run `plumb-guard test-boundary verify --mode tdd`"
+    ),
 }
 
 STANDALONE_AGENT_BASELINE = """## Prompt Defense & Constitutional Baseline (Injected for Standalone Export)

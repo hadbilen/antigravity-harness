@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 skills/ui-refinery/scripts/check_synthetic_markers.py — Deterministic scanner for signs of machine-generated prose
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Python standard library only; runs on Python 3.10 and later.
 
 Rule families (IDs are stable and match the purifier catalogue):

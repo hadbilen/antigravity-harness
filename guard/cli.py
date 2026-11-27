@@ -1,6 +1,6 @@
 """
 guard/cli.py — Command-Line Interface for Plumb Guard
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Administration commands that weaken protection or change what Guard does (init, init --uninstall,

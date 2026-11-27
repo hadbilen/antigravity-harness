@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 guard/agy_hooks.py — Native Antigravity 2.0 Lifecycle Hooks CLI Router & Compatibility Facade
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Thin event-scoped lazy dispatcher (`pre-invocation`, `pre-tool-use`, `stop`) and PEP 562

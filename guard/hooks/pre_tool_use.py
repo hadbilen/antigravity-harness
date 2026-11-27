@@ -1,6 +1,6 @@
 """
 guard/hooks/pre_tool_use.py — PreToolUse core router, governance/customization shield & lazy tool-scoped dispatcher (ADR-0008, ADR-0013).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

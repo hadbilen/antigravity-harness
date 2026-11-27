@@ -1,6 +1,6 @@
 """
 guard/plugins.py — Canonical Antigravity Plugin Catalog, Standalone Builder, Hybrid Core Rewriter & Validator.
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library (Python 3.10+).
 """
 
@@ -57,11 +57,11 @@ BANNED_BRAND_PREFIXES: Tuple[str, ...] = (
 )
 
 PLUGIN_AUTHOR: Dict[str, str] = {
-    "name": "hadbilen",
-    "url": "https://github.com/hadbilen/plumbwork",
+    "name": "tozhax",
+    "url": "https://github.com/tozhax/plumbwork",
 }
-PLUGIN_HOMEPAGE = "https://github.com/hadbilen/plumbwork"
-PLUGIN_REPOSITORY = "https://github.com/hadbilen/plumbwork"
+PLUGIN_HOMEPAGE = "https://github.com/tozhax/plumbwork"
+PLUGIN_REPOSITORY = "https://github.com/tozhax/plumbwork"
 PLUGIN_LICENSE = "MIT"
 
 # Fixed UTC epoch (2026-11-23T00:00:00Z) used for bit-identical archives when SOURCE_DATE_EPOCH is unset.

@@ -1,6 +1,6 @@
 """
 guard/doctor.py — Health diagnosis for an environment's governance scope (headless, testable).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 The CLI (`plumb-guard doctor`) only renders a DoctorReport; the checks live here so they can

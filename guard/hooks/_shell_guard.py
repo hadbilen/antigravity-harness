@@ -1,6 +1,6 @@
 """
 guard/hooks/_shell_guard.py — Lazy PreToolUse shell/bash, Python-AST scrubber & workflow entrypoint guard (ADR-0013).
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 """
 

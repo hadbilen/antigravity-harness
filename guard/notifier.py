@@ -1,6 +1,6 @@
 """
 guard/notifier.py — Low-Frequency Ergonomic Notification Engine for Plumb Guard
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 Rules:

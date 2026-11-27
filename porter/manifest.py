@@ -312,8 +312,8 @@ class ManifestEngine:
             metadata={
                 "name": "plumbwork",
                 "description": "Engineering harness, behavioral constitution, and auditor subagent ecosystem.",
-                "author": "hadbilen",
-                "repository": "https://github.com/hadbilen/plumbwork",
+                "author": "tozhax",
+                "repository": "https://github.com/tozhax/plumbwork",
             },
         )
 

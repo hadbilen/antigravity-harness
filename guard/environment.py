@@ -1,6 +1,6 @@
 """
 guard/environment.py — Multi-Environment Governance & Protection Registry
-Part of Plumbwork (https://github.com/hadbilen/plumbwork)
+Part of Plumbwork (https://github.com/tozhax/plumbwork)
 Zero external dependencies: uses strictly the Python standard library.
 
 The registry lives in the per-user state directory (never the current working
