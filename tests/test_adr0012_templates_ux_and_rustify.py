@@ -607,7 +607,10 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
             "#[expect(lint, reason = \"...\")]",
             "MSRV < 1.81",
             "approved_in",
-            "=2.1.0 --locked",
+            "=5.0.2 --locked",
+            "binding end-state",
+            "Port Bugs Included",
+            "trend.stalled",
             "fallback rate",
             "kill switch",
             "post-lift reshape",
@@ -616,12 +619,14 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
         self.assertIsNotNone(re.search(r"(?<!\d)0%", skill_text))
         self.assertIsNotNone(re.search(r"3x\b[^\n]{0,60}\b50\b", skill_text))
 
-        # Canonical managed/dynamic runtime & rust-anything v2.1.0 patterns in managed-go-python.md
+        # Canonical managed/dynamic runtime & rust-anything v5.0.2 patterns in managed-go-python.md
         for absorbed in (
             "napi-rs",
             "wasm",
             "Ruby",
             "Java",
+            "PHP",
+            "PowerShell",
             "--batch",
             "FnIndex",
             "UTF-16",
@@ -631,6 +636,8 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
             "Kelvin",
             "char::is_alphanumeric",
             "indexmap",
+            "round_ties_even",
+            "final-sigma",
             "known-diffs.jsonl",
             '"expected"',
             '"approved_in"',
@@ -641,7 +648,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
             "kill switch",
             "catch_unwind",
             "post-lift reshape",
-            "=2.1.0 --locked",
+            "=5.0.2 --locked",
         ):
             self.assertIn(absorbed, managed_text)
         self.assertIsNotNone(re.search(r"(?<!\d)0%", managed_text))
@@ -761,7 +768,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
                 "repo": "erkamyaman/rust-anything",
                 "branch": "main",
                 "track": "release",
-                "last_synced_commit": "v2.1.0",
+                "last_synced_commit": "v5.0.2",
                 "target_skills": ["rustify", "rust-harden"],
             },
         )
@@ -790,7 +797,7 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
 
         def fake_fetch(url, user_agent="", timeout=10.0, max_bytes=10_000_000, deadline=None, headers=None):
             if "erkamyaman/rust-anything/releases/latest" in url or "erkamyaman/rust-anything-stale/releases/latest" in url:
-                return json.dumps({"tag_name": "v2.1.0", "name": "v2.1.0"})
+                return json.dumps({"tag_name": "v5.0.2", "name": "v5.0.2"})
             raise AssertionError(f"Unexpected URL: {url}")
 
         with mock.patch.dict(
@@ -801,11 +808,11 @@ class TestAdr0012RustifyPatternsAndGameRealtimeSeam(_TempCase):
             with mock.patch("porter.net.safe_fetch_url", side_effect=fake_fetch):
                 rows = {r["name"]: r for r in bridge.check_repositories()}
 
-        self.assertEqual(rows["rust-anything"]["local_sha"], "v2.1.0")
-        self.assertEqual(rows["rust-anything"]["remote_sha"], "v2.1.0")
+        self.assertEqual(rows["rust-anything"]["local_sha"], "v5.0.2")
+        self.assertEqual(rows["rust-anything"]["remote_sha"], "v5.0.2")
         self.assertEqual(rows["rust-anything"]["status"], "Up-to-date")
         self.assertEqual(rows["rust-anything-stale"]["local_sha"], "v2.0.0")
-        self.assertEqual(rows["rust-anything-stale"]["remote_sha"], "v2.1.0")
+        self.assertEqual(rows["rust-anything-stale"]["remote_sha"], "v5.0.2")
         self.assertEqual(rows["rust-anything-stale"]["status"], "Updates Available")
 
     def test_check_skills_sh_seed_digest_parity_and_release_tracking(self) -> None:

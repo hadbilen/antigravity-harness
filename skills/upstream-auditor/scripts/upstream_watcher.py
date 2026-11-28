@@ -118,6 +118,7 @@ KNOWN_BUILTIN_SKILLS = (
     "agy-customizations",
     "antigravity_guide",
     "automation",
+    "conversations",
     "generative_ui",
     "mcp-app-development",
     "migrate-agent-settings",

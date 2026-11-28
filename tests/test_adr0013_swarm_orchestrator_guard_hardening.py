@@ -322,7 +322,8 @@ class TestW2EcosystemLatencyAndBudgets(_IsolatedCase):
             (REPO_ROOT / "skills" / "upstream-auditor" / "upstream_state.seed.json").read_text(encoding="utf-8")
         )
         builtins = seed["recorded_builtin_skills"]
-        self.assertEqual(len(builtins), 15)
+        self.assertEqual(len(builtins), 16)
+        self.assertIn("conversations", builtins)
         self.assertIn("swarm_pane", builtins)
 
         hooks_cfg = json.loads((REPO_ROOT / "hooks.json").read_text(encoding="utf-8"))

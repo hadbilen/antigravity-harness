@@ -235,6 +235,7 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
                 "agy-customizations",
                 "antigravity_guide",
                 "automation",
+                "conversations",
                 "generative_ui",
                 "mcp-app-development",
                 "migrate-agent-settings",
@@ -250,7 +251,7 @@ class TestAntigravityV232ModelAndBuiltinSeed(unittest.TestCase):
             ]
         )
         self.assertEqual(seed.get("recorded_builtin_skills"), expected_builtins)
-        self.assertEqual(len(seed.get("recorded_builtin_skills", [])), 15)
+        self.assertEqual(len(seed.get("recorded_builtin_skills", [])), 16)
         self.assertRegex(str(seed.get("builtin_skills_hash", "")), r"^[0-9a-f]{64}$")
         self.assertNotEqual(
             seed.get("builtin_skills_hash"),

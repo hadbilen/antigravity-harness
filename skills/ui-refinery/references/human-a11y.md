@@ -9,7 +9,7 @@
 - Load on demand alongside the `ui-refinery` core skill (`~/.gemini/config/skills/ui-refinery/SKILL.md`) when explicitly auditing accessibility, verifying color contrast ratios, or when the user requests an `a11y` / contrast check (do not co-load automatically on routine UI edits). The core holds the mechanism (the purpose test, the three tiers, the Delivery Gate); this module holds the human-side depth: the parts of a UI that exclude people with different eyes, hands, and setups.
 - Every entry has the same shape: **Tell** (the pattern), **Why** (who it excludes, and why it reads as unfinished), **Fix** (what to do instead), with the governing core rule cited as R-XX.
 - Accessibility is not a checklist of extras bolted on at the end. It is part of the core promise that "the UI holds up" (C-4). The Delivery Gate in the core remains the gate; the "Human Skill Checklist" at the end of this file is the supplement to run alongside it.
-- The contrast checker (formula + reference table + script) lives in this skill. Use it for every color pairing you cannot verify by eye.
+- The contrast checker (MCP tool + script + formula + reference table) lives in this skill. Use it for every color pairing you cannot verify by eye.
 - This skill keeps only the mobile details that exclude people: zooming, and the on-screen keyboard.
 
 ## Color & Contrast
@@ -40,7 +40,9 @@
 
 ### The Contrast Checker
 
-The home of the contrast checker. Three layers, from most to least convenient:
+The home of the contrast checker. Four layers, from most to least convenient:
+
+**The MCP tool.** When `ui-refinery_contrast` (Hybrid mode) or `ui-refinery-contrast` (Flat mode) is available in `<mcp_servers>`, call `check_contrast` directly with required hex strings `foreground` and `background` (for example `foreground: "#777777"`, `background: "#FFFFFF"`). It returns the rounded contrast ratio and unrounded AA pass/fail verdicts for both normal (`>= 4.5`) and large (`>= 3.0`) text with zero shell execution. When the MCP server is unavailable, fall back to the script below.
 
 **The script.** When a script runtime is available and the file is present, run it instead of computing by hand. The script ships in `~/.gemini/config/skills/ui-refinery/scripts/contrast-check.py` alongside `references/human-a11y.md`. Run it with `python3` on macOS and Linux, `python` on Windows:
 
@@ -173,7 +175,7 @@ Enforced by R-39: small signals that communicate usability; keyboard and focus r
 
 Run these alongside the core Delivery Gate when the task involves UI. All answers must be **yes**:
 
-- [ ] Is every text and background pairing verified against the contrast checker (formula, table, or script), including text over images and gradients? (R-25)
+- [ ] Is every text and background pairing verified against the contrast checker (MCP tool, script, formula, or table), including text over images and gradients? (R-25)
 - [ ] Does every interactive component boundary and status indicator meet 3:1 against its background? (non-text contrast)
 - [ ] Is the focus indicator visible, high-contrast, and present on every interactive element in every theme? (R-32, R-34)
 - [ ] Is every interactive element reachable and operable by keyboard, with dialogs closable via Escape and no `outline: none` without a replacement? (R-32, R-26)

@@ -1,6 +1,6 @@
 # Managed & Dynamic Languages -> Rust Migration and Interop Reference
 
-On-demand companion to `~/.gemini/config/skills/rustify/SKILL.md` for migrating or bridging garbage-collected and dynamic runtimes (Go `cgo`, Python `PyO3` + `maturin`, TypeScript/JavaScript `napi-rs` / `wasm`, Ruby Magnus / C ABI, and Java/Kotlin `JNI`) into idiomatic Rust.
+On-demand companion to `~/.gemini/config/skills/rustify/SKILL.md` for migrating or bridging garbage-collected and dynamic runtimes (Go `cgo`, Python `PyO3` + `maturin`, TypeScript/JavaScript `napi-rs` / `wasm`, Ruby Magnus / C ABI, Java/Kotlin `JNI`, PHP `ext-ffi`, C# `.NET`, and PowerShell `pwsh`) into idiomatic Rust.
 
 ---
 
@@ -41,13 +41,16 @@ On-demand companion to `~/.gemini/config/skills/rustify/SKILL.md` for migrating 
 
 ---
 
-## 3. TypeScript / JavaScript (`napi-rs` / `wasm`), Ruby & Java / Kotlin Bridges
+## 3. TypeScript / JavaScript, Ruby, Java / Kotlin, PHP, C# & PowerShell Bridges
 
 | Source Runtime | Bridge Seam | Boundary Invariants & Operational Caveats |
 | :--- | :--- | :--- |
 | **TypeScript / JavaScript** (Node, Bun, Deno, Browser) | `napi-rs` (native server addon) or `wasm-bindgen` / `wasm` (browser or sandboxed target) | `napi` `String` rejects lone UTF-16 surrogates; convert JS UTF-16 code-unit offsets to Rust UTF-8 byte offsets explicitly at the seam. Avoid allocating per-item JS wrapper arrays (`Array.from(order, fn)` can cost `20x` more than a plain `for` loop mapping returned Rust indices back to source items). |
 | **Ruby** (`CRuby` / native extension) | `magnus` / C ABI extension | Preserve `Integer` vs. `Float` return types for passthrough values (`Ruby` callers check type identity and integer division semantics). Map Rust `Err("TypeName: message")` deterministically to the expected Ruby exception class without unwinding across the C ABI. |
 | **Java / Kotlin** (`JVM` & Android `ART`) | `JNI` (`jni` crate / C ABI, Android NDK `jniLibs/` for `ART`) | Disambiguate overloaded Java method names explicitly (reflection drivers keyed by method name collide on overloads); keep Kotlin top-level and `@JvmStatic` bindings behind explicit wrappers, and require deterministic `.close()` (`AutoCloseable` / `try-with-resources`) on Rust-backed handles instead of relying on garbage-collector finalizers. |
+| **PHP** (`PHP 8+`) | `ext-ffi` + C ABI (`cdylib`) | PHP strings are raw byte arrays (`strlen("é") == 2`); integer overflow silently promotes to `float`; arrays are ordered maps (`indexmap`); loose `==` compares numeric strings as numbers (`"1e3" == "1000"`). |
+| **C#** (`.NET`) | P/Invoke (`cdylib`) / typed JSON seam | Indexes UTF-16 code units; `Math.Round` uses banker's rounding (half-to-even); `ToLowerInvariant` has no final-sigma rule; `Dictionary`/`HashSet` iterate in hash order; `GetHashCode` varies across processes. |
+| **PowerShell** (`pwsh 7.4+`) | P/Invoke via `Reflection.Emit` (`cdylib`) | Every unassigned expression emits to output stream; comparisons (`-eq`, `-match`, `-replace`) are case-insensitive by default with left-operand type coercion; `@{}` is unordered while `[ordered]@{}` requires `indexmap`; ~`0.1 ms` per-call encoding overhead requires substantial compute per call. |
 
 ---
 
@@ -73,6 +76,11 @@ Audit every ported unit against these recurring cross-language divergence traps 
 3. **Character Classification (`char::is_alphanumeric`):** Rust's `char::is_alphanumeric` matches broader Unicode categories than Java's `Character.isLetterOrDigit` (which operates per UTF-16 code unit on Basic Multilingual Plane letters and decimal digits). Implement an explicit matching predicate when parity with Java character classification is contractual.
 4. **Insertion-Ordered Maps & Objects (`indexmap`):** JavaScript objects, Python `dict` (`3.7+`), and Ruby `Hash` preserve insertion order, whereas `std::collections::HashMap` randomizes iteration order per run. Use `indexmap::IndexMap` / `IndexSet` wherever key order reaches serialized JSON, logs, or caller-visible output.
 5. **Python & Ruby Numeric & Exception Fidelity:** Preserve `int` vs. `float` types on passthrough numeric values in Python and Ruby instead of widening integers silently to `f64`. Translate Rust `Result::Err(...)` into the source runtime's exact exception subclass; a Rust `panic!` never satisfies a recorded source error.
+6. **Rounding Modes & Negative Integer Division / Modulo:**
+   * Python `round()` and C# `Math.Round()` round halves to even (`round(2.5) == 2`), and JS/Java `Math.round(-2.5) == -2` (half toward `+∞`), whereas Rust `f64::round()` rounds halves away from zero (`2.5 -> 3`, `-2.5 -> -3`). Use `f64::round_ties_even()` for Python/C# parity or an explicit half-toward-`+∞` helper for JS/Java.
+   * Python `//`/`%` and Ruby integer `/`/`%` floor toward `-∞` (`-7 // 2 == -4`, `-7 % 2 == 1`, remainder taking divisor sign), whereas Rust `/` and `%` truncate toward zero (`-7 / 2 == -3`, `-7 % 2 == -1`). Implement explicit floor-division and divisor-sign modulo helpers (and guard `i64::MIN / -1` overflow).
+7. **Unicode Final-Sigma & Per-Codepoint Case Mapping:** Go `strings.ToLower`, Ruby `downcase`, and C# `ToLowerInvariant` lower each code point independently (`"ΣΑΣ" -> "σασ"`), whereas Rust `str::to_lowercase()` applies Unicode context-sensitive final-sigma (`"ΣΑΣ" -> "σας"`). Lower per `char` when exact parity with Go/Ruby/C# is contractual.
+8. **Float Formatting, `-0.0`, `NaN` & Engine-Specific Regex Quirks:** JS `${-0}` formats as `"0"` (Rust prints `"-0"`); Python `max(nan, 1, 2)` returns `nan` (first value wins); case-insensitive JS regex without the `u` flag never folds non-ASCII letters to ASCII unlike Rust `(?i)`; Ruby Onigmo `\h` matches hex digits (not horizontal whitespace).
 
 ---
 
@@ -91,6 +99,6 @@ Audit every ported unit against these recurring cross-language divergence traps 
    * Start with a shadow front-door (`RUST_ANYTHING_MODE=shadow` returning original results while logging Rust mismatches; `new` switching traffic to Rust; `old` disabling Rust). Restrict `shadow` execution strictly to pure, idempotent, or sandboxed calls (never double-execute mutating writes, external side-effects, or financial charges), bound shadow execution with an explicit timeout (`<= 2x` original p95) and `catch_unwind` isolation, and fail-safe any unknown `RUST_ANYTHING_MODE` or `RUST_ANYTHING_UNIT_<NAME>` environment value to `old` / `original`.
    * Track the **fallback rate** over `100%` of public endpoints and recorded app cases still executing in the original runtime, driving it monotonically toward `0%` while preserving a per-unit runtime **kill switch** (`RUST_ANYTHING_UNIT_<NAME>=original` or build-time toggle for C libraries).
    * Refuse final cutover/lift until fallback rate reaches `0%` and every unit clears all Stage 5 gates (`~/.gemini/config/skills/rustify/SKILL.md` §6, including `#[expect(lint, reason = "...")]` with MSRV `< 1.81.0` fallback). Before deleting fallback glue and kill switches, verify a post-lift artifact or blue-green rollback plan; after lift, replay all recorded app cases against the standalone pure-Rust binary, verify runtime asset embedding, and offer an optional **post-lift reshape** pass (`~/.gemini/config/skills/rust-harden/SKILL.md` or `~/.gemini/config/skills/refactoring/SKILL.md`) to unify legacy file splits into idiomatic Rust modules.
-4. **Optional Pinned `rust-anything` CLI / MCP Workflow (`=2.1.0 --locked`):**
-   * When available locally (`command -v rust-anything`, verifying `rust-anything --version` matches `2.1.0`, or installed only after explicit user approval via `cargo install rust-anything --version =2.1.0 --locked` per `GEMINI.md` Rule 12) or exposed via `rust-anything mcp`, the subcommands `profile`, `analyze --json`, `bridge [--batch fn:param]`, `record`, `diff`, `bench`, `shadow`, `gate`, and `app {record,replay,front-door,wire,lift}` automate Steps 1–5 for TS/JS, Python, C, Go, Ruby, Java, and Kotlin.
+4. **Optional Pinned `rust-anything` CLI / MCP Workflow (`=5.0.2 --locked`):**
+   * When available locally (`command -v rust-anything`, verifying `rust-anything --version` matches `5.0.2`, or installed only after explicit user approval via `cargo install rust-anything --version =5.0.2 --locked` per `GEMINI.md` Rule 12) or exposed via `rust-anything mcp`, the subcommands `go` (hot-path single-function loop stopping on caller regression; never passing `--agent`), `profile`, `analyze --json`, `bridge [--end-state replace|bindings|scaffold] [--batch fn:param]`, `record`, `diff [--redact]`, `bench`, `shadow`, `enable [--only|--partial]`, `gate`, `rules`, and `app {record,replay,front-door,wire,lift,drift,shadow}` automate Steps 1–5 for TS/JS, Python, C, Go, Ruby, Java, Kotlin, PHP, C#, and PowerShell.
    * When `rust-anything` is absent, reports a mismatched version, errors mid-run, or targets C++/`#![no_std]`/embedded/`safety-critical` crates, fall back immediately to executing the identical discipline manually with native toolchains, golden-vector fixtures, `miri`, sanitizers, and `cargo kani`.

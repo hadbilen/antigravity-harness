@@ -155,7 +155,7 @@ directly to read-only `~/.gemini/config/` or the Guard-protected runtime file `~
   },
   "builtin_skills_hash": "<computed_sha256>",
   "builtin_bundle_checksum": "<builtin_dot_checksum>",
-  "recorded_builtin_skills": ["agy-customizations", "antigravity_guide", "automation", "generative_ui", "mcp-app-development", "migrate-agent-settings", "migrate-workflows", "native_swarm", "permissioned-github", "plugin", "run-workflow", "swarm_monitor", "swarm_narrator", "swarm_pane", "ui-plugin-navigation"],
+  "recorded_builtin_skills": ["agy-customizations", "antigravity_guide", "automation", "conversations", "generative_ui", "mcp-app-development", "migrate-agent-settings", "migrate-workflows", "native_swarm", "permissioned-github", "plugin", "run-workflow", "swarm_monitor", "swarm_narrator", "swarm_pane", "ui-plugin-navigation"],
   "last_audit_timestamp": "<ISO_8601_timestamp>",
   "last_skills_audit_timestamp": "<ISO_8601_timestamp>",
   "skills_audit_interval_hours": 72,
@@ -164,14 +164,14 @@ directly to read-only `~/.gemini/config/` or the Guard-protected runtime file `~
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "7f6a03d",
+      "last_synced_commit": "f07c572",
       "target_skills": ["ui-refinery"]
     },
     "rea": {
       "repo": "morluto/rea",
       "branch": "main",
       "track": "release",
-      "last_synced_commit": "rea-agents-6.9.0",
+      "last_synced_commit": "rea-agents-6.10.1",
       "target_skills": ["reverse-engineer-anything"]
     }
   }

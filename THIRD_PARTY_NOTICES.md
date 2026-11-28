@@ -24,7 +24,7 @@ licenses require. Adapted files may have been modified for this harness.
 | [rainmanjam/poka-yoke](https://github.com/rainmanjam/poka-yoke) / [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `harness` (`skills/harness/references/mistake-proofing.md`, `skills/harness/references/mistake-proofing-hazards.md`, `skills/harness/references/mistake-proofing-languages.md`) |
 | [garrytan/gstack](https://github.com/garrytan/gstack) | MIT | `test-adequacy-auditor` (negative assertion check & branch tree), `harness` (helper reuse threshold) |
 | [karpathy/autoresearch](https://github.com/karpathy/autoresearch) & [karpathy/llm-council](https://github.com/karpathy/llm-council) | MIT | `diagnosing-bugs` (Simplicity Criterion & experiment ledger), `harness` (anonymized auditor evaluation) |
-| [erkamyaman/rust-anything](https://github.com/erkamyaman/rust-anything) | MIT | `rustify` (multi-language porting patterns, `--batch`/`FnIndex`, semantic traps, noise taxonomy, `known-diffs.jsonl`, strangler cutover), `rust-harden` (`#[expect(..., reason = "...")]`, `// INFALLIBLE:`) |
+| [erkamyaman/rust-anything](https://github.com/erkamyaman/rust-anything) | MIT | `rustify` (multi-language porting patterns, `--end-state`, `--batch`/`FnIndex`, semantic traps, noise taxonomy, `known-diffs.jsonl`, strangler cutover), `rust-harden` (`#[expect(..., reason = "...")]`, `// INFALLIBLE:`) |
 
 ## miqdadbadjuber/anti-slop (MIT)
 

@@ -138,6 +138,101 @@
 - **Rule:** R-02 (no hype), R-16 (natural human prose and specific language over claims).
 - **Not a ban:** ordinary product verbs are fine, and so are established idioms. "The report shows", "the form submits", "the filter narrows the list" describe what the thing does. The tell is a verb that needs a mind behind it: understands, knows, decides, wants, believes, cares.
 
+### Chatbot Openers
+
+- **The pattern:** "Great question!", "Certainly!", "Absolutely!", "I'd be happy to help!", or ungrounded praise for the reader's idea before any answer.
+- **Why it reads as AI:** conversation artifacts pasted straight into a deliverable (`check_synthetic_markers.py` `4.1`).
+- **Before:**
+  > Great question! Choosing the right plan can feel overwhelming, but I'm happy to walk you through it. The Starter plan covers three seats.
+- **After:**
+  > The Starter plan covers three seats.
+- **Rule:** R-02.
+
+### Teaser Reveals
+
+- **The pattern:** a one-word question or colon label placed to stage suspense before an ordinary fact: "The result?", "The kicker:", "The best part?", "Spoiler:", "Plot twist:".
+- **Why it reads as AI:** manufactures suspense where the prior sentence could state the effect directly.
+- **Before:**
+  > We moved the build to a single cache layer. The result? Deploys that finish in under a minute.
+- **After:**
+  > After we moved the build to a single cache layer, deploys finish in under a minute.
+- **Rule:** R-02.
+- **Not a ban:** a colon introducing a list, definition, or quotation is ordinary punctuation.
+
+### Scene-Setting Hypotheticals
+
+- **The pattern:** generic imagined openings delaying the subject: "Picture this:", "Imagine a world where", "Let's say you're a busy founder".
+- **Why it reads as AI:** substitutes an invented cliché for a real example and fits any product.
+- **Before:**
+  > Picture this: it's Monday morning, your inbox is overflowing, and your team is waiting on you. Our inbox view sorts blocking messages to the top.
+- **After:**
+  > The inbox view sorts messages that block a teammate to the top.
+- **Rule:** R-02, R-16.
+- **Not a ban:** a real scenario supplied by the user or a worked example with concrete details.
+
+### Faux-Intimate Reader Address
+
+- **The pattern:** claiming to know what the reader thinks or lived: "You might be wondering", "We've all been there", "Sound familiar?", "If you're like most people".
+- **Why it reads as AI:** simulates rapport to set up an unasked question.
+- **Before:**
+  > You might be wondering how this works with your tools. We've all been there. It imports projects from Jira and Linear.
+- **After:**
+  > It imports projects from Jira and Linear.
+- **Rule:** R-02.
+
+### Audience Sweep
+
+- **The pattern:** naming both ends of a scale to claim universal fit: "Whether you're a seasoned pro or just starting out", "Whether you run a startup or an enterprise".
+- **Why it reads as AI:** avoids naming the actual audience so the copy reads identically across products.
+- **Before:**
+  > Whether you're a seasoned developer or just getting started, our CLI has you covered.
+- **After:**
+  > [Name the user-supplied audience, or cut the clause and state what the CLI does.]
+- **Rule:** R-16.
+
+### Straw-Man Setup
+
+- **The pattern:** inventing an unnamed group to disagree with: "Many people think X. But the reality is Y.", "Conventional wisdom says", "Most teams get this wrong".
+- **Why it reads as AI:** stages an ordinary point as an unchecked correction against an unnamed opponent.
+- **Before:**
+  > Most people think onboarding is about tutorials. The truth is, it's about momentum.
+- **After:**
+  > [Cite the real study or state the team's own observation directly.]
+- **Rule:** R-36, C-5.
+- **Not a ban:** correcting a named, cited survey, documented myth, or the user's stated belief.
+
+### Copula Avoidance
+
+- **The pattern:** ceremonial verbs ("serves as", "stands as", "functions as", "boasts", "offers", "represents") used repeatedly where plain "is" or "has" belongs (`check_synthetic_markers.py` `2.2`).
+- **Why it reads as AI:** inflates sentence length and ceremony without adding information.
+- **Before:**
+  > The dashboard serves as a central hub for reports and boasts filters for date, owner, and status.
+- **After:**
+  > The dashboard is where reports live. It has filters for date, owner, and status.
+- **Rule:** R-02.
+- **Not a ban:** literal senses ("a relay functions as a switch", "a store offers a discount").
+
+### Vague Quantifiers
+
+- **The pattern:** "countless", "a myriad of", "a plethora of", "numerous", "a wide range of" substituting for a real number or list.
+- **Why it reads as AI:** sounds large while committing to zero verifiable specifics.
+- **Before:**
+  > Choose from a myriad of integrations to streamline countless workflows.
+- **After:**
+  > [Name real integrations supplied by the user, or point to the integrations list.]
+- **Rule:** R-16, R-17.
+
+### Nominalized Verbs
+
+- **The pattern:** turning an action into a noun propped up by a weak verb: "conduct an analysis of", "perform the implementation of", "provide assistance with", "carry out an evaluation of".
+- **Why it reads as AI:** stiff procurement-document register where one direct verb works.
+- **Before:**
+  > Our team will conduct an analysis of your setup and provide assistance with the implementation.
+- **After:**
+  > We will review your setup and help you install it.
+- **Rule:** R-02.
+- **Not a ban:** nouns naming a concrete artifact ("the analysis is attached", "the migration takes an hour").
+
 ## Rhythm & Structure
 
 ### Rule of Three Overuse
@@ -220,6 +315,92 @@
   > Invoices clear at midnight. If a webhook fails, the worker retries three times over the next hour while the audit ledger records every state transition for regional account teams.
 - **Rule:** R-36, R-37 (`6.7` in `check_synthetic_markers.py`).
 
+### Deferred Subject
+
+- **The pattern:** withholding the real subject behind an empty setup clause and a colon: "It's the silent killer of productivity: context switching.", "There's one thing every founder misses: distribution."
+- **Why it reads as AI:** stages an ordinary noun as a theatrical reveal.
+- **Before:**
+  > There's one thing slowing your releases down: manual QA.
+- **After:**
+  > Manual QA slows your releases down.
+- **Rule:** R-02.
+- **Not a ban:** introducing a real multi-item list ("There are three plans: Starter, Team, and Enterprise").
+
+### Self-Answered Questions
+
+- **The pattern:** asking a rhetorical question only to answer it immediately: "So what does this mean for you? It means...", "Why does this matter? Because...", "How does it work? Simple."
+- **Why it reads as AI:** self-interviewing filler that adds zero information.
+- **Before:**
+  > Why does this matter? Because every minute of downtime costs you customers.
+- **After:**
+  > Every minute of downtime costs you customers.
+- **Rule:** R-02.
+- **Not a ban:** an FAQ entry or a real question asked by a user.
+
+### Participial Tack-Ons
+
+- **The pattern:** a trailing `-ing` clause appending unchecked praise or importance: "..., highlighting its commitment to quality.", "..., ensuring peace of mind.", "..., making it ideal for teams of any size." (`check_synthetic_markers.py` `1.3`).
+- **Why it reads as AI:** bolts Significance Inflation onto the end of an ordinary fact.
+- **Before:**
+  > The app encrypts files before upload, ensuring your data stays safe and giving you peace of mind.
+- **After:**
+  > The app encrypts files before upload.
+- **Rule:** R-16, R-36, C-5.
+- **Not a ban:** a participle carrying a concrete fact ("the job runs nightly, starting at 02:00 UTC").
+
+### Anaphora Stacks
+
+- **The pattern:** three or more consecutive sentences repeating the same opening frame: "It's faster. It's cheaper. It's simpler."
+- **Why it reads as AI:** mechanical cadence that usually pairs with Rule of Three Overuse and Staccato Drama.
+- **Before:**
+  > It syncs in real time. It works offline. It never loses a draft.
+- **After:**
+  > It syncs in real time, works offline, and saves every draft.
+- **Rule:** R-02.
+- **Not a ban:** an intentional speech, slogan, or user-supplied voice sample.
+
+### Escalation Tails
+
+- **The pattern:** infomercial transitions announcing another feature instead of stating it: "But that's not all.", "And that's just the beginning.", "And it gets better."
+- **Why it reads as AI:** oversells a plain next point.
+- **Before:**
+  > It imports your contacts in one click. But that's not all: it also removes duplicates.
+- **After:**
+  > It imports your contacts in one click and removes duplicates.
+- **Rule:** R-02.
+
+### Mic-Drop Closers
+
+- **The pattern:** ending paragraphs on a short quotable aphorism restating the point: "Because in the end, simplicity wins.", "And that changes everything."
+- **Why it reads as AI:** repeats the same theatrical beat at the end of every paragraph without adding a fact.
+- **Before:**
+  > The new editor saves every keystroke locally. Because when it comes to your work, nothing should ever be lost.
+- **After:**
+  > The new editor saves every keystroke locally, so a crash loses nothing.
+- **Rule:** R-02.
+- **Not a ban:** a single deliberate tagline supplied by the user.
+
+### Summary Echo
+
+- **The pattern:** closing short copy with a restatement opener: "In summary,", "In conclusion,", "Overall,", "All in all,", "At the end of the day," (`check_synthetic_markers.py` `5.2`).
+- **Why it reads as AI:** recaps a few paragraphs the reader just finished in vaguer words.
+- **Before:**
+  > Dark mode is live, exports run twice as fast, and SSO is on for every plan. All in all, this update makes the app faster, safer, and easier to use.
+- **After:**
+  > Dark mode is live, exports run twice as fast, and SSO is on for every plan.
+- **Rule:** R-02.
+- **Not a ban:** a closing summary on a long report that adds a concrete decision, owner, or date.
+
+### Reflexive Concession
+
+- **The pattern:** an empty balance clause naming no real condition: "While X has its merits,", "Of course, every situation is different.", "That said, there's no one-size-fits-all answer."
+- **Why it reads as AI:** gestures at balance without specifying when the claim fails.
+- **Before:**
+  > While every team is different, most will benefit from weekly releases.
+- **After:**
+  > [Name the concrete exception if sourced, or state the claim plainly: "Most teams benefit from weekly releases."]
+- **Rule:** R-02.
+
 ## Honesty & Evidence
 
 ### Fabricated Specifics
@@ -251,6 +432,16 @@
 - **After:**
   > (Cut the sentence. End on the last concrete fact, or state real plans if they exist.)
 - **Rule:** R-36.
+
+### Knowledge-Cutoff Disclaimers
+
+- **The pattern:** training-cutoff caveats left inside deliverables: "As of my last update", "As of my knowledge cutoff", "I don't have access to real-time data" (`check_synthetic_markers.py` `4.2`).
+- **Why it reads as AI:** chat-model leftover flagging an unverified fact.
+- **Before:**
+  > As of my last update, the API supports three regions.
+- **After:**
+  > [Verify with the user or source, then state plainly; omit unverified numbers (R-17).]
+- **Rule:** R-02, R-17.
 
 ## Hygiene & Markdown
 
@@ -341,6 +532,67 @@
 - **After:**
   > This may be why the feature went unused.
 - **Rule:** R-36.
+
+### Colon-Reveal Headings
+
+- **The pattern:** metaphor + colon + real topic: "The Silent Killer: Why Your Builds Are Slow", "Beyond the Dashboard: Rethinking Analytics".
+- **Why it reads as AI:** stages a theatrical first half before labelling the section.
+- **Before:**
+  > ## The Silent Killer: Why Your Builds Are Slow
+- **After:**
+  > ## Why your builds are slow
+- **Rule:** R-02.
+- **Not a ban:** a product/plan label colon ("Starter: up to 5 repos") or a direct benefit/question heading.
+
+### Template Section Names
+
+- **The pattern:** sections named after essay scaffolding instead of content: "Introduction", "Overview", "Key Takeaways", "Final Thoughts", "Conclusion", "Wrapping Up".
+- **Why it reads as AI:** generic template headings whose body usually echoes earlier paragraphs.
+- **Before:**
+  > ## Key Takeaways
+- **After:**
+  > (Cut the heading/recap, or place one concrete summary line at the top.)
+- **Rule:** R-05.
+- **Not a ban:** formats with fixed conventions (academic papers, READMEs, API references).
+
+### Bullets for an Argument
+
+- **The pattern:** chopping a causal reasoning chain ("because"/"so") into disconnected bullets.
+- **Why it reads as AI:** bullets erase logical links to look visually tidy.
+- **Before:**
+  > - Users drop off at signup
+  > - The form has twelve fields
+  > - Shorter forms convert better
+- **After:**
+  > Users drop off at signup because the form asks for twelve fields. Shorter forms convert better, so cut the fields we do not need.
+- **Rule:** R-05.
+- **Not a ban:** ordered steps, options, specs, and checklists belong in lists.
+
+### Exclamation Stacking
+
+- **The pattern:** exclamation marks on multiple neutral statements in one paragraph: "Setup takes two minutes! You'll love the new dashboard!"
+- **Why it reads as AI:** manufactures excitement across every line instead of reserving emphasis.
+- **Before:**
+  > We've shipped dark mode! It's live for everyone today! Try it out!
+- **After:**
+  > Dark mode is live for everyone today.
+- **Rule:** R-02.
+- **Not a ban:** one exclamation in a genuinely excited voice or dialogue.
+
+### Line-Per-Sentence Posts
+
+- **The pattern:** social-post template with every sentence on its own line, a blank-line hook, "Here's what I learned:", a numbered list, an "Agree?" closer, and a wall of hashtags.
+- **Why it reads as AI:** mechanical growth-poster frame reused regardless of content.
+- **Before:**
+  > We rewrote onboarding.
+  >
+  > It changed everything.
+  >
+  > Agree? #saas #growth
+- **After:**
+  > We rewrote onboarding and cut the signup form to three fields. Has anyone seen the opposite? #onboarding
+- **Rule:** R-02, R-05.
+- **Not a ban:** a single isolated line for emphasis or a user-supplied posting style sample.
 
 ## Turkish Synthetic Markers (`TR-1` to `TR-7`)
 
@@ -501,6 +753,12 @@ Run these alongside the core Delivery Gate when the task is copy work. Every lin
 - [ ] Every sentence names its actor: no actorless passive, no abstraction given a human verb, where a real subject was available (R-16)
 - [ ] CTAs specific to the action, not generic templates (R-15)
 - [ ] No AI-rhythm tells: no forced rule of three, no negative parallelism, no staccato drama, no theatrical takeaways, no aphorism formulas, no false ranges (R-36)
+- [ ] No manufactured suspense: no deferred subjects, teaser reveals ("The result?"), self-answered questions, or scene-setting hypotheticals in place of a real example (R-02, R-16)
+- [ ] No participial tack-ons adding unchecked praise/importance at sentence ends, and no mic-drop closers or summary echoes (R-02, R-36, C-5)
+- [ ] No chatbot openers, faux-intimate reader address, audience sweeps, straw-man setups, reflexive concessions, or knowledge-cutoff disclaimers (R-02, R-16, R-36)
+- [ ] No keynote cadence: no anaphora stacks, escalation tails ("But that's not all"), or exclamation marks stacked on neutral statements (R-02)
+- [ ] Plain verbs and real quantities: no copula avoidance ("serves as", "boasts"), nominalized verbs, or vague quantifiers ("a myriad of") (R-02, R-16, R-17)
+- [ ] Headings label content: no colon-reveal titles, no template essay headings ("Key Takeaways", "Final Thoughts"), arguments written as prose rather than bullets, no line-per-sentence social templates (R-02, R-05)
 - [ ] No temporal runway clichés padding section openings and regular bullet items use natural sentence case rather than mechanical title case (R-16, R-36)
 - [ ] Voice present: the copy has a real voice (the user's sample or a clearly chosen tone), not a sterile default (R-37)
 - [ ] Read aloud: the copy sounds like a person wrote it, not like a model padded it

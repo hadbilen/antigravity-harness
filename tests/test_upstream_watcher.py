@@ -717,7 +717,8 @@ class TestUpstreamWatcherSeedEnvReconciliation(WatcherTestBase):
     def test_session_start_payload_idempotency_model_name_and_15_builtin_skills(self):
         from guard import upstream as guard_upstream
 
-        self.assertEqual(len(self.watcher.KNOWN_BUILTIN_SKILLS), 15)
+        self.assertEqual(len(self.watcher.KNOWN_BUILTIN_SKILLS), 16)
+        self.assertIn("conversations", self.watcher.KNOWN_BUILTIN_SKILLS)
         self.assertIn("swarm_pane", self.watcher.KNOWN_BUILTIN_SKILLS)
         self.assertEqual(self.watcher.KNOWN_BUILTIN_SKILLS, guard_upstream.KNOWN_BUILTIN_SKILLS)
 

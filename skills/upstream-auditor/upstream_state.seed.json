@@ -20,12 +20,13 @@
     "gpt-5": 240000,
     "default": 200000
   },
-  "builtin_skills_hash": "01e53d8dd784ca029fc8e3d052e32697afb90eec805343d4bc202212a343eeb3",
-  "builtin_bundle_checksum": "builtin:c0a2d240a0b68a3e3fc8607cace71c4d32d74a1ee097cc4dd96cb8dd0ee0cc13",
+  "builtin_skills_hash": "6215b0f104992c8927caf3d335d1b5cbf71a33c259eadda369cc5a4de07374b7",
+  "builtin_bundle_checksum": "builtin:1e8e8e379e0eae832d24483eb2a960ac695ec7bad1efddb16642e4f7c6e65409",
   "recorded_builtin_skills": [
     "agy-customizations",
     "antigravity_guide",
     "automation",
+    "conversations",
     "generative_ui",
     "mcp-app-development",
     "migrate-agent-settings",
@@ -39,15 +40,15 @@
     "swarm_pane",
     "ui-plugin-navigation"
   ],
-  "last_audit_timestamp": "2026-11-24T13:05:00+03:00",
-  "last_skills_audit_timestamp": "2026-11-24T13:05:00+03:00",
+  "last_audit_timestamp": "2026-11-28T12:48:00+03:00",
+  "last_skills_audit_timestamp": "2026-11-28T12:48:00+03:00",
   "skills_audit_interval_hours": 72,
   "status": "synchronized",
   "tracked_repositories": {
     "anti-slop": {
       "repo": "miqdadbadjuber/anti-slop",
       "branch": "main",
-      "last_synced_commit": "7f6a03d",
+      "last_synced_commit": "f07c572",
       "target_skills": [
         "ui-refinery"
       ]
@@ -55,7 +56,7 @@
     "Chisle": {
       "repo": "JayPokale/Chisle",
       "branch": "main",
-      "last_synced_commit": "69e2a3b",
+      "last_synced_commit": "2f927e7",
       "target_skills": [
         "chisle"
       ]
@@ -90,7 +91,7 @@
     "mattpocock-skills": {
       "repo": "mattpocock/skills",
       "branch": "main",
-      "last_synced_commit": "abeeaf9",
+      "last_synced_commit": "bbadaa6",
       "target_skills": [
         "deep-grill",
         "diagnosing-bugs",
@@ -102,7 +103,7 @@
       "repo": "morluto/rea",
       "branch": "main",
       "track": "release",
-      "last_synced_commit": "rea-agents-6.9.0",
+      "last_synced_commit": "rea-agents-6.10.1",
       "target_skills": [
         "reverse-engineer-anything"
       ]
@@ -111,7 +112,7 @@
       "repo": "erkamyaman/rust-anything",
       "branch": "main",
       "track": "release",
-      "last_synced_commit": "v2.1.0",
+      "last_synced_commit": "v5.0.2",
       "target_skills": [
         "rustify",
         "rust-harden"

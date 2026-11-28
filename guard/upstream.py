@@ -30,6 +30,7 @@ KNOWN_BUILTIN_SKILLS: Tuple[str, ...] = (
     "agy-customizations",
     "antigravity_guide",
     "automation",
+    "conversations",
     "generative_ui",
     "mcp-app-development",
     "migrate-agent-settings",
@@ -43,7 +44,7 @@ KNOWN_BUILTIN_SKILLS: Tuple[str, ...] = (
     "swarm_pane",
     "ui-plugin-navigation",
 )
-DEFAULT_BUILTIN_BUNDLE_CHECKSUM = "builtin:c0a2d240a0b68a3e3fc8607cace71c4d32d74a1ee097cc4dd96cb8dd0ee0cc13"
+DEFAULT_BUILTIN_BUNDLE_CHECKSUM = "builtin:1e8e8e379e0eae832d24483eb2a960ac695ec7bad1efddb16642e4f7c6e65409"
 DEFAULT_KNOWN_PLACEHOLDER_MODELS: Dict[str, str] = {
     "MODEL_PLACEHOLDER_M535": "Gemini 4 Neon (XHigh)",
     "MODEL_PLACEHOLDER_M427": "Gemini 4 Carbon (High)",
@@ -580,13 +581,13 @@ class UpstreamAuditorBridge:
                 "anti-slop": {
                     "repo": "miqdadbadjuber/anti-slop",
                     "branch": "main",
-                    "last_synced_commit": "7f6a03d",
+                    "last_synced_commit": "f07c572",
                     "target_skills": ["ui-refinery"],
                 },
                 "Chisle": {
                     "repo": "JayPokale/Chisle",
                     "branch": "main",
-                    "last_synced_commit": "69e2a3b",
+                    "last_synced_commit": "2f927e7",
                     "target_skills": ["chisle"],
                 },
                 "unlazy": {
@@ -615,21 +616,21 @@ class UpstreamAuditorBridge:
                 "mattpocock-skills": {
                     "repo": "mattpocock/skills",
                     "branch": "main",
-                    "last_synced_commit": "abeeaf9",
+                    "last_synced_commit": "bbadaa6",
                     "target_skills": ["deep-grill", "diagnosing-bugs", "skills/harness/references/test-design.md", "retro"],
                 },
                 "rea": {
                     "repo": "morluto/rea",
                     "branch": "main",
                     "track": "release",
-                    "last_synced_commit": "rea-agents-6.9.0",
+                    "last_synced_commit": "rea-agents-6.10.1",
                     "target_skills": ["reverse-engineer-anything"],
                 },
                 "rust-anything": {
                     "repo": "erkamyaman/rust-anything",
                     "branch": "main",
                     "track": "release",
-                    "last_synced_commit": "v2.1.0",
+                    "last_synced_commit": "v5.0.2",
                     "target_skills": ["rustify", "rust-harden"],
                 },
             },
