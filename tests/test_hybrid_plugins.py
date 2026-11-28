@@ -3883,8 +3883,8 @@ class TestW3PlumbworkCutoverSeams(unittest.TestCase):
         from guard.plugins import PLUGIN_AUTHOR, PLUGIN_HOMEPAGE, PLUGIN_REPOSITORY
         from porter import __version__ as porter_version
 
-        self.assertEqual(guard_version, "3.0.0")
-        self.assertEqual(porter_version, "3.0.0")
+        self.assertEqual(guard_version, "3.0.1")
+        self.assertEqual(porter_version, "3.0.1")
         self.assertEqual(APP_NAME, "plumbwork")
         self.assertEqual(CONSTITUTION_RULE_REL, "rules/plumbwork-constitution.md")
         self.assertEqual(PLUGIN_REPOSITORY, "https://github.com/tozhax/plumbwork")

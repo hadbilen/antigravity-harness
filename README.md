@@ -6,7 +6,7 @@
   <img alt="Plumbwork: behavioral constitution, auditor subagents, Porter transpiler, and Plumb Guard" src="docs/assets/plumbwork-header-light.svg" width="596">
 </picture>
 
-[![Release](https://img.shields.io/badge/release-v3.0.0-blue.svg)](https://github.com/tozhax/plumbwork/releases)
+[![Release](https://img.shields.io/badge/release-v3.0.1-blue.svg)](https://github.com/tozhax/plumbwork/releases)
 [![CI](https://github.com/tozhax/plumbwork/actions/workflows/ci.yml/badge.svg)](https://github.com/tozhax/plumbwork/actions/workflows/ci.yml)
 [![Runtime](https://img.shields.io/badge/core%20runtime-Python%20stdlib%20only-brightgreen.svg)](#dependencies)
 [![Design Standard](https://img.shields.io/badge/UI-WCAG%20AA%20%7C%20ui--refinery-orange.svg)](DESIGN.md)
@@ -413,8 +413,8 @@ To install a standalone pack from GitHub Releases (or build all 4 locally from s
 
 ```bash
 # Verify checksum and extract into global ~/.gemini/config/plugins/ (or project .agents/plugins/)
-sha256sum -c ui-refinery-v3.0.0.zip.sha256
-unzip ui-refinery-v3.0.0.zip -d ~/.gemini/config/plugins/
+sha256sum -c ui-refinery-v3.0.1.zip.sha256
+unzip ui-refinery-v3.0.1.zip -d ~/.gemini/config/plugins/
 
 # Build, archive, and offline-validate all 4 standalone packs from a source checkout
 python3 scripts/build_plugins.py --out dist/plugins --validate --zip
@@ -434,8 +434,8 @@ Release assets (see [GitHub Releases](https://github.com/tozhax/plumbwork/releas
 `.sha256` file each (including standalone plugin pack `.zip` archives); verify before installing:
 
 ```bash
-sha256sum -c plumb-guard_3.0.0_amd64.deb.sha256
-sudo apt install ./plumb-guard_3.0.0_amd64.deb
+sha256sum -c plumb-guard_3.0.1_amd64.deb.sha256
+sudo apt install ./plumb-guard_3.0.1_amd64.deb
 plumb-guard init              # bootstrap ~/.gemini/config, hooks, FIM baseline & lock from /usr/share/plumbwork (add --plugins for Hybrid Layout)
 ```
 

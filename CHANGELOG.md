@@ -2,6 +2,27 @@
 
 All notable changes to Plumbwork (formerly Antigravity Harness) are documented in this file.
 
+## [3.0.1] - 2026-11-28
+Patch release consolidating `PreToolUse` `_LazyRegex` shell-guard prefiltering (#1), canonical `tozhax/plumbwork` metadata synchronization, Porter Rule 9 CI guidance, and the `2026-11-28` upstream skills and platform audit (`ui-refinery`, `rustify` `v5.0.2`, Antigravity `conversations` built-in skill, and `rea-agents-6.10.1` ledger sync), verified by `918` hermetic unit tests.
+
+### Performance & Security
+- **`PreToolUse` `_LazyRegex` Shell Prefiltering & Hardening (#1, `guard/hooks/common.py`, `guard/hooks/_shell_guard.py`, `tests/test_shell_guard_prefilter.py`):**
+  - Added fast literal prefiltering before compiling lazy regex patterns on benign `PreToolUse` shell commands, hardened inline regex flag handling and input validation, and added AST soundness tests verifying no security pattern is bypassed.
+
+### Added
+- **Dual-Theme README Header & Token Overhead Documentation (`README.md`, `docs/assets/plumbwork-header-{dark,light}.svg`):**
+  - Added light/dark `<picture>` header SVGs, centered hero badges, and documented context/token overhead and Porter Rule 9 CI enforcement (`plumb-guard test-boundary verify --mode tdd` in `porter/emitters/common.py` across all 5 Porter targets).
+- **Upstream `ui-refinery`, `rustify`, and Antigravity `conversations` Sync (`skills/ui-refinery/`, `skills/rustify/`, `.agents/rules/harness-maintainer.md`, `skills/upstream-auditor/`, `guard/upstream.py`, `THIRD_PARTY_NOTICES.md`):**
+  - Added 23 named AI writing patterns with `Not a ban` false-positive guardrails and 6 checklist items to `skills/ui-refinery/references/copywriting.md` (`anti-slop` `3c9effa`) and documented the Layer 1 `check_contrast` MCP tool (`ui-refinery_contrast` / `ui-refinery-contrast`) in `skills/ui-refinery/references/human-a11y.md`.
+  - Synced `skills/rustify/SKILL.md`, `skills/rustify/references/managed-go-python.md`, and `THIRD_PARTY_NOTICES.md` with `erkamyaman/rust-anything` `v5.0.2` (PHP/C#/PowerShell support, `replace|bindings|scaffold` end-state routing, Port Bugs Included rule, Stage 5 anti-gaming/`trend.stalled`/stale `known-diffs.jsonl` checks, rounding/division/final-sigma/regex semantic traps, and pinned `=5.0.2 --locked`).
+  - Extended Rule 15(h) in `.agents/rules/harness-maintainer.md` for Antigravity's built-in `conversations` skill (`ANTIGRAVITY_CSRF_TOKEN` secrecy and `DeleteConversation` confirmation within the 550-byte ceiling) and synchronized 16 built-in skills plus tracked repository ledger entries (`anti-slop` `f07c572`, `Chisle` `2f927e7`, `mattpocock-skills` `bbadaa6`, `rea` `rea-agents-6.10.1`, `rust-anything` `v5.0.2`).
+
+### Changed
+- **Repository Ownership, Packaging, CI & Version Sync (`tozhax/plumbwork`, `.github/workflows/ci.yml`, `guard/`, `porter/`, `installers/`, `README.md`, `.harness/manifest.json`):**
+  - Synced canonical repository URLs, CI `v3.0+` tag lock, packaging/plugin metadata, and source headers to `tozhax/plumbwork` while preserving `LEGACY_HARNESS_REPOSITORIES` backward dual-owner provenance compatibility (`tests/test_repo_sync_and_porter_note.py`).
+  - Reconciled additive PR `README.md` test counts against the base worktree in `.github/workflows/ci.yml` `trusted-boundary`.
+  - Bumped synchronized release version to `3.0.1` across `guard/__init__.py`, `porter/__init__.py`, `installers/packaging/PKGBUILD`, `README.md`, `CHANGELOG.md`, and `.harness/manifest.json`.
+
 ## [3.0.0] - 2026-11-24
 Clean major cutover (`ADR-0017`) renaming the harness to **Plumbwork**, its write-protection companion to **Plumb Guard** (`plumb-guard`), its rule transpiler CLI to `plumb-porter`, and its UI/motion design toolkit to **`ui-refinery`** (`motion-physics` references, `ui-refinery_contrast` / `ui-refinery-contrast` MCP, and dual-theme `ui-refinery.svg`), paired with `upstream-auditor` 5-repo synchronization, `rust-harden` dev-profile guidance, JSONC duplicate plugin-`name` collision detection, and read-only pre-`v3.0.0` legacy-residue diagnostics in `plumb-guard doctor`.
 

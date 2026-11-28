@@ -1,6 +1,6 @@
 # Maintainer: tozhax <https://github.com/tozhax>
 pkgname=plumb-guard
-pkgver=3.0.0
+pkgver=3.0.1
 pkgrel=1
 pkgdesc="OS-level governance, write protection, and multi-environment integrity suite for AI coding agents"
 arch=('x86_64' 'aarch64')
